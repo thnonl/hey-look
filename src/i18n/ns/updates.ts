@@ -76,6 +76,7 @@ export default define({
     "updates.noRelease": "Couldn’t find update information on GitHub. Try again later, or see the {link}.",
     "updates.noRelease.link": "releases page",
     "updates.managed.snap": "This copy of Hey Look! was installed from the Snap Store, which keeps it up to date. The app doesn’t check GitHub for updates.",
+    "updates.managed.apt": "This copy of Hey Look! gets its updates from the Hey Look! APT repository. Install them with your system’s software updater or with {command}. The app doesn’t check GitHub for updates.",
 
     // ---- the update card
     "updates.card.availableHead": "Hey Look! {version} is available",
@@ -211,6 +212,7 @@ export default define({
     "updates.noRelease": "Không tìm thấy thông tin cập nhật trên GitHub. Hãy thử lại sau, hoặc xem {link}.",
     "updates.noRelease.link": "trang phát hành",
     "updates.managed.snap": "Bản Hey Look! này được cài từ Snap Store và được Snap Store cập nhật. Ứng dụng không kiểm tra cập nhật trên GitHub.",
+    "updates.managed.apt": "Bản Hey Look! này được cập nhật từ kho APT của Hey Look! Hãy cài bản cập nhật bằng trình cập nhật phần mềm của hệ thống hoặc bằng {command}. Ứng dụng không kiểm tra cập nhật trên GitHub.",
 
     "updates.card.availableHead": "Hey Look! {version} đã có sẵn",
     "updates.card.readyHead": "Hey Look! {version} đã sẵn sàng để cài đặt",
@@ -342,6 +344,7 @@ export default define({
     "updates.noRelease": "Impossible de trouver des informations de mise à jour sur GitHub. Réessayez plus tard ou consultez la {link}.",
     "updates.noRelease.link": "page des versions",
     "updates.managed.snap": "Cette copie de Hey Look! a été installée depuis le Snap Store, qui la tient à jour. L’application ne recherche pas de mises à jour sur GitHub.",
+    "updates.managed.apt": "Cette copie de Hey Look! reçoit ses mises à jour du dépôt APT de Hey Look! Installez-les avec le gestionnaire de mises à jour de votre système ou avec {command}. L’application ne recherche pas de mises à jour sur GitHub.",
 
     "updates.card.availableHead": "Hey Look! {version} est disponible",
     "updates.card.readyHead": "Hey Look! {version} est prêt à être installé",

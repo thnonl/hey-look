@@ -256,13 +256,42 @@ fn valid_cache(json: Option<&str>, current: &Version) -> Option<(Kind, UpdateInf
     }
 }
 
-/// The store whose sandbox this copy runs in, if any: `snap` when this is the Hey Look! snap (snapd sets `SNAP_NAME` and `SNAP`
+/// Who updates this copy, if not the app itself: `snap` when this is the Hey Look! snap (snapd sets `SNAP_NAME` and `SNAP`
 /// for every confined app, and the binary lives under `$SNAP`). All three are required: a child of a classic snap (a terminal or
 /// an IDE installed as a snap) inherits `SNAP_NAME` and `SNAP` from its parent, and a .deb or AppImage started from such a
-/// terminal must keep its own updater. Such a copy is updated by that store, so the in-app updater stays quiet and Settings >
-/// About says who updates it (`Kind::Managed`). None for the AppImage, .deb, .rpm, Windows and macOS.
+/// terminal must keep its own updater. `apt` when this is the .deb and an enabled APT source for the Hey Look! repository exists
+/// (see `managed_from`). Such a copy is updated by that store or package manager, so the in-app updater stays quiet and Settings >
+/// About says who updates it (`Kind::Managed`). None for the AppImage, .rpm, Windows and macOS, and for a .deb without the repository.
+/// Read once, at the first call (the snap variables and the APT source files do not change while the app runs).
 pub fn managed_by() -> Option<&'static str> {
-    managed_by_env(std::env::var("SNAP_NAME").ok().as_deref(), std::env::var_os("SNAP").map(std::path::PathBuf::from).as_deref(), std::env::current_exe().ok().as_deref())
+    static MANAGED: std::sync::OnceLock<Option<&'static str>> = std::sync::OnceLock::new();
+    *MANAGED.get_or_init(|| {
+        if let Some(forced) = test_managed() {
+            return forced;
+        }
+        let snap = managed_by_env(std::env::var("SNAP_NAME").ok().as_deref(), std::env::var_os("SNAP").map(std::path::PathBuf::from).as_deref(), std::env::current_exe().ok().as_deref());
+        let is_deb = cfg!(target_os = "linux") && matches!(tauri::utils::platform::bundle_type(), Some(tauri::utils::config::BundleType::Deb));
+        let sources = if is_deb && snap.is_none() { read_apt_sources(std::path::Path::new("/etc/apt")) } else { Vec::new() };
+        managed_from(snap, is_deb, &sources)
+    })
+}
+
+/// Debug builds only: `HEYLOOK_TEST_MANAGED=apt|snap` pretends this copy is managed (QA of the About texts on a system without the
+/// store), any other value (`none`) pretends it is not. Release builds never read it (compiled out). The outer Option is "the
+/// variable decides".
+fn test_managed() -> Option<Option<&'static str>> {
+    #[cfg(debug_assertions)]
+    {
+        std::env::var("HEYLOOK_TEST_MANAGED").ok().map(|v| match v.trim() {
+            "apt" => Some("apt"),
+            "snap" => Some("snap"),
+            _ => None,
+        })
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        None
+    }
 }
 
 /// The name snapcraft.yaml registers; the store name, the data folder `~/snap/<name>` and the plugs all carry it.
@@ -273,6 +302,101 @@ fn managed_by_env(snap_name: Option<&str>, snap: Option<&std::path::Path>, exe: 
         (Some(name), Some(root), Some(exe)) if name == SNAP_NAME && !root.as_os_str().is_empty() && exe.starts_with(root) => Some("snap"),
         _ => None,
     }
+}
+
+/// The address of the Hey Look! APT repository (docs/apt/heylook.sources, PACKAGING.md).
+const APT_REPO: &str = "heylook.namthai.site/apt";
+
+/// A file of the APT source configuration: its name (the extension says the format) and its text.
+struct AptSource {
+    name: String,
+    text: String,
+}
+
+/// The snap wins; else the `.deb` build with an enabled APT source for the Hey Look! repository is managed by `apt`. A pure function:
+/// the caller reads the files (`read_apt_sources`).
+fn managed_from(snap: Option<&'static str>, is_deb: bool, sources: &[AptSource]) -> Option<&'static str> {
+    if snap.is_some() {
+        return snap;
+    }
+    if is_deb && sources.iter().any(apt_source_enabled) {
+        return Some("apt");
+    }
+    None
+}
+
+/// `/etc/apt/sources.list` and the `*.list` / `*.sources` files of `/etc/apt/sources.list.d` that can be read. A file that cannot
+/// be read (permissions, not text) is skipped; a file larger than 1 MB is not read.
+fn read_apt_sources(etc: &std::path::Path) -> Vec<AptSource> {
+    let mut files = vec![etc.join("sources.list")];
+    if let Ok(dir) = std::fs::read_dir(etc.join("sources.list.d")) {
+        let mut found: Vec<_> = dir.flatten().map(|e| e.path()).filter(|p| matches!(p.extension().and_then(|e| e.to_str()), Some("list" | "sources"))).collect();
+        found.sort();
+        files.extend(found);
+    }
+    files
+        .into_iter()
+        .filter_map(|p| {
+            if std::fs::metadata(&p).ok()?.len() > 1_000_000 {
+                return None;
+            }
+            let text = std::fs::read_to_string(&p).ok()?;
+            Some(AptSource { name: p.file_name()?.to_string_lossy().into_owned(), text })
+        })
+        .collect()
+}
+
+/// Does `word` name the Hey Look! repository: http or https, the host and path of `APT_REPO`, an optional trailing slash.
+fn is_repo_uri(word: &str) -> bool {
+    let w = word.trim().to_ascii_lowercase();
+    let rest = w.strip_prefix("https://").or_else(|| w.strip_prefix("http://"));
+    matches!(rest, Some(r) if r.trim_end_matches('/') == APT_REPO)
+}
+
+/// Is there an enabled source for the repository in this file? `*.sources` is deb822 (stanzas of `Key: value`, `Types:` has `deb`,
+/// `URIs:` has the address, no `Enabled: no`); every other file is the one-line format (`deb [options] URI suite component`, a line
+/// that starts with `deb`, not commented out; `deb-src` does not count).
+fn apt_source_enabled(f: &AptSource) -> bool {
+    if f.name.ends_with(".sources") {
+        let mut stanza: Vec<(String, String)> = Vec::new();
+        let mut stanzas: Vec<Vec<(String, String)>> = Vec::new();
+        for line in f.text.lines() {
+            if line.trim().is_empty() {
+                if !stanza.is_empty() {
+                    stanzas.push(std::mem::take(&mut stanza));
+                }
+            } else if line.starts_with('#') {
+                continue;
+            } else if line.starts_with(' ') || line.starts_with('\t') {
+                // a continuation line belongs to the field above
+                if let Some(last) = stanza.last_mut() {
+                    last.1.push(' ');
+                    last.1.push_str(line.trim());
+                }
+            } else if let Some((k, v)) = line.split_once(':') {
+                stanza.push((k.trim().to_ascii_lowercase(), v.trim().to_string()));
+            }
+        }
+        if !stanza.is_empty() {
+            stanzas.push(stanza);
+        }
+        return stanzas.iter().any(|st| {
+            let field = |name: &str| st.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str());
+            let deb = field("types").is_some_and(|v| v.split_whitespace().any(|t| t.eq_ignore_ascii_case("deb")));
+            let uri = field("uris").is_some_and(|v| v.split_whitespace().any(is_repo_uri));
+            // the words apt reads as "no" for Enabled
+            let off = field("enabled").is_some_and(|v| matches!(v.to_ascii_lowercase().as_str(), "no" | "false" | "0" | "off" | "without" | "disable"));
+            deb && uri && !off
+        });
+    }
+    f.text.lines().any(|line| {
+        let line = line.trim_start();
+        if line.starts_with('#') {
+            return false;
+        }
+        let mut words = line.split_whitespace();
+        words.next() == Some("deb") && words.any(is_repo_uri)
+    })
 }
 
 /// How this copy of the app was installed (the bundler patches the bundle type into the binary).
@@ -298,6 +422,7 @@ pub fn platform_info() -> Platform {
         ("linux", "deb") => "Linux (.deb)".to_string(),
         ("linux", "rpm") => "Linux (.rpm)".to_string(),
         ("linux", "snap") => "Linux (Snap)".to_string(),
+        ("linux", "apt") => "Linux (APT)".to_string(),
         ("linux", _) => "Linux (.AppImage)".to_string(),
         (other, _) => other.to_string(),
     };
@@ -624,7 +749,7 @@ fn answer_text(r: &UpdateResult) -> String {
             Some(status) => format!("error (status {status})"),
             None => format!("error: {}", r.message.as_deref().unwrap_or("-")),
         },
-        Kind::Managed => format!("managed: this copy is updated by the {} store, no request is made", r.platform.installer),
+        Kind::Managed => format!("managed: this copy is updated by its package manager or store ({}), no request is made", r.platform.installer),
         Kind::Disabled | Kind::Throttled => format!("{:?}", r.kind),
     }
 }
@@ -637,7 +762,7 @@ pub async fn run_check<R: Runtime>(app: &AppHandle<R>, db: &Db, busy: &AtomicBoo
         return without_request(db, ctx, Kind::Throttled);
     };
     if ctx.managed.is_some() {
-        note(ctx, trigger, &format!("skipped, this copy is updated by its store ({})", ctx.platform.installer));
+        note(ctx, trigger, &format!("skipped, this copy is updated by its package manager or store ({})", ctx.platform.installer));
         return ctx.result(Kind::Managed, read_last_check(db));
     }
     let auto = trigger != Trigger::Manual;
@@ -718,10 +843,10 @@ pub async fn run_check<R: Runtime>(app: &AppHandle<R>, db: &Db, busy: &AtomicBoo
 
 static BUSY: AtomicBool = AtomicBool::new(false);
 
-/// A store-managed copy never downloads or installs a package itself (the UI never offers it; the commands can still be called).
+/// A store- or apt-managed copy never downloads or installs a package itself (the UI never offers it; the commands can still be called).
 fn refuse_if_managed() -> R<()> {
     match managed_by() {
-        Some(store) => Err(format!("this copy is updated by its store ({store}): the app downloads and installs no update itself")),
+        Some(store) => Err(format!("this copy is updated by its package manager or store ({store}): the app downloads and installs no update itself")),
         None => Ok(()),
     }
 }
@@ -1207,6 +1332,90 @@ mod tests {
         for (name, snap, exe, want, why) in cases {
             assert_eq!(managed_by_env(name, snap, exe), want, "{why}");
         }
+    }
+
+    fn src(name: &str, text: &str) -> AptSource {
+        AptSource { name: name.to_string(), text: text.to_string() }
+    }
+
+    /// WP15: the .deb is managed by apt when an enabled source for the Hey Look! repository exists, in the one-line and in the deb822 format.
+    #[test]
+    fn apt_source_one_line_and_deb822() {
+        let cases: Vec<(AptSource, bool, &str)> = vec![
+            (src("heylook.list", "deb [arch=amd64 signed-by=/etc/apt/keyrings/heylook-archive-keyring.gpg] https://heylook.namthai.site/apt stable main\n"), true, "one line, https, options"),
+            (src("heylook.list", "deb https://heylook.namthai.site/apt/ stable main\n"), true, "a trailing slash"),
+            (src("heylook.list", "  deb http://heylook.namthai.site/apt stable main # my comment\n"), true, "http, leading spaces, comment after"),
+            (src("heylook.list", "deb https://HeyLook.NamThai.Site/apt stable main\n"), true, "the host is not case sensitive"),
+            (src("sources.list", "deb http://archive.ubuntu.com/ubuntu jammy main\ndeb https://heylook.namthai.site/apt stable main\n"), true, "the line after other lines"),
+            (src("heylook.list", "# deb https://heylook.namthai.site/apt stable main\n"), false, "a commented line"),
+            (src("heylook.list", "deb-src https://heylook.namthai.site/apt stable main\n"), false, "deb-src only"),
+            (src("heylook.list", "deb https://example.org/heylook.namthai.site/apt stable main\n"), false, "the address inside another address"),
+            (src("heylook.list", "deb https://heylook.namthai.site/apt-extra stable main\n"), false, "another path that starts the same"),
+            (src("heylook.list", "deb https://heylook.namthai.site/ stable main\n"), false, "the site without /apt"),
+            (src("other.list", "deb https://mirror.example.org/apt stable main\n"), false, "another host"),
+            (src("heylook.sources", "Types: deb\nURIs: https://heylook.namthai.site/apt\nSuites: stable\nComponents: main\nSigned-By: /etc/apt/keyrings/heylook-archive-keyring.gpg\n"), true, "deb822 as the page writes it"),
+            (src("heylook.sources", "Types: deb\nURIs: https://heylook.namthai.site/apt\nSuites: stable\nComponents: main\nEnabled: yes\n"), true, "deb822 with Enabled: yes"),
+            (src("heylook.sources", "Types: deb\nURIs: https://heylook.namthai.site/apt\nSuites: stable\nComponents: main\nEnabled: no\n"), false, "deb822 with Enabled: no"),
+            (src("heylook.sources", "Types: deb\nURIs: https://heylook.namthai.site/apt\nSuites: stable\nComponents: main\nenabled: No\n"), false, "field names and the answer are not case sensitive"),
+            (src("heylook.sources", "Types: deb-src\nURIs: https://heylook.namthai.site/apt\nSuites: stable\nComponents: main\n"), false, "deb822 deb-src only"),
+            (src("heylook.sources", "Types: deb deb-src\nURIs: http://heylook.namthai.site/apt\nSuites: stable\nComponents: main\n"), true, "deb822 with both types, http"),
+            (src("heylook.sources", "Types: deb\nURIs: https://other.example.org/x\n https://heylook.namthai.site/apt/\nSuites: stable\n"), true, "the address on a continuation line"),
+            (src("heylook.sources", "Types: deb\nURIs: https://other.example.org/x\nSuites: stable\n\nTypes: deb\nURIs: https://heylook.namthai.site/apt\nSuites: stable\nEnabled: no\n"), false, "the second stanza is switched off"),
+            (src("heylook.sources", "Types: deb\nURIs: https://other.example.org/x\nSuites: stable\n\nTypes: deb\nURIs: https://heylook.namthai.site/apt\nSuites: stable\n"), true, "the second stanza"),
+            (src("heylook.sources", "# Types: deb\n# URIs: https://heylook.namthai.site/apt\n"), false, "deb822 all commented"),
+            (src("heylook.sources", "Types: deb\nURIs: https://mirror.example.org/\nSuites: stable\n"), false, "deb822, another host"),
+            (src("heylook.sources", ""), false, "an empty file"),
+        ];
+        for (file, want, why) in &cases {
+            assert_eq!(apt_source_enabled(file), *want, "{why}");
+        }
+    }
+
+    /// WP15: the bundle type, the snap and the sources together.
+    #[test]
+    fn managed_from_bundle_snap_and_sources() {
+        let on = vec![src("heylook.sources", "Types: deb\nURIs: https://heylook.namthai.site/apt\nSuites: stable\nComponents: main\n")];
+        let off = vec![src("heylook.sources", "Types: deb\nURIs: https://heylook.namthai.site/apt\nSuites: stable\nComponents: main\nEnabled: no\n")];
+        assert_eq!(managed_from(None, true, &on), Some("apt"), ".deb with the repository");
+        assert_eq!(managed_from(None, true, &off), None, ".deb with the source switched off keeps its own updater");
+        assert_eq!(managed_from(None, true, &[]), None, ".deb without the repository keeps its own updater");
+        assert_eq!(managed_from(None, false, &on), None, "AppImage or .rpm with the source present is not managed by apt");
+        assert_eq!(managed_from(Some("snap"), true, &on), Some("snap"), "the snap wins");
+        assert_eq!(managed_from(Some("snap"), false, &[]), Some("snap"), "the snap without sources");
+    }
+
+    /// WP15: the files of /etc/apt are read as they are: sources.list, *.list and *.sources of sources.list.d, nothing else; a file that
+    /// cannot be read as text is skipped without a failure; a missing folder gives an empty list.
+    #[test]
+    fn apt_sources_are_read_from_the_apt_folder() {
+        let etc = std::env::temp_dir().join(format!("heylook-apt-{}", uuid::Uuid::new_v4()));
+        assert!(read_apt_sources(&etc).is_empty(), "a missing folder");
+        let d = etc.join("sources.list.d");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(etc.join("sources.list"), "deb http://archive.ubuntu.com/ubuntu jammy main\n").unwrap();
+        std::fs::write(d.join("heylook.sources"), "Types: deb\nURIs: https://heylook.namthai.site/apt\nSuites: stable\n").unwrap();
+        std::fs::write(d.join("old.list.save"), "deb https://heylook.namthai.site/apt stable main\n").unwrap();
+        std::fs::write(d.join("binary.list"), [0xff, 0xfe, 0x00, 0x80]).unwrap(); // not text: skipped
+        std::fs::create_dir_all(d.join("a-folder.list")).unwrap(); // a folder with a .list name: skipped
+        let found = read_apt_sources(&etc);
+        let mut names: Vec<_> = found.iter().map(|f| f.name.as_str()).collect();
+        names.sort();
+        assert_eq!(names, ["heylook.sources", "sources.list"]);
+        assert_eq!(managed_from(None, true, &found), Some("apt"));
+        let _ = std::fs::remove_dir_all(&etc);
+    }
+
+    /// WP15: `HEYLOOK_TEST_MANAGED` is read only in debug builds: the read sits inside a `#[cfg(debug_assertions)]` block (the release
+    /// workflow also searches the built app for the name, .github/scripts/check-no-test-bridge.cjs).
+    #[test]
+    fn test_managed_switch_is_debug_only() {
+        let src = include_str!("update.rs");
+        let f = src.find("fn test_managed()").expect("test_managed exists");
+        let var = f + src[f..].find("HEYLOOK_TEST_MANAGED").expect("the variable is read");
+        let gate = src[f..var].rfind("#[cfg(debug_assertions)]").expect("a debug-only gate before the read");
+        assert!(gate < var - f, "the gate is before the read");
+        let read = format!("env::var(\"{}\")", ["HEYLOOK", "TEST", "MANAGED"].join("_")); // (spelled in pieces: this test must not count itself)
+        assert_eq!(src.matches(&read).count(), 1, "one place reads it");
     }
 
     /// A managed copy answers `Managed` to every trigger without one request, whatever the manifest says, and keeps nothing.
