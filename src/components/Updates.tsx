@@ -10,6 +10,9 @@ import { useStore } from "../store";
 import { isStaleOffer, openUpdateLink, pct, updateKindOf, UpdateFlow, useUpdates } from "../updates";
 import { fmtDay, fmtSize, fmtWhen } from "../util";
 
+/** The command a copy managed by apt names in Settings > About (a shell command, the same in every language). */
+const APT_UPGRADE = "sudo apt update && sudo apt upgrade";
+
 /** One line of release notes as plain text: markdown markers removed, links kept as their text, nothing is HTML. */
 const plainLine = (s: string) =>
   s
@@ -340,8 +343,8 @@ export function UpdatesBlock({ privacy, autoSwitch }: { privacy: ReactNode; auto
     );
 
   const version = update?.current || appVersion;
-  // a snap is updated by the Snap Store: the version, who updates it, the privacy statement without its update sentences, and neither
-  // the button nor the switch
+  // a snap is updated by the Snap Store and an apt copy by apt: the version, who updates it, the privacy statement without its update
+  // sentences, and neither the button nor the switch
   if (managed)
     return (
       <div>
@@ -350,7 +353,7 @@ export function UpdatesBlock({ privacy, autoSwitch }: { privacy: ReactNode; auto
             <b>{t("updates.status.version", { version })}</b>
           </span>
         </div>
-        <p className="muted small">{t("updates.managed.snap")}</p>
+        <p className="muted small">{managed === "apt" ? tx("updates.managed.apt", { command: <code>{APT_UPGRADE}</code> }) : t("updates.managed.snap")}</p>
         <p className="muted small">{t("settings.about.privacyManaged")}</p>
       </div>
     );

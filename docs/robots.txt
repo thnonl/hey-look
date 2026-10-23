@@ -2,5 +2,7 @@
 # The site is served at the root of https://heylook.namthai.site/, so crawlers read this file there.
 User-agent: *
 Allow: /
+# the APT repository (package files for apt, WP15): crawlers do not need them
+Disallow: /apt/
 
 Sitemap: https://heylook.namthai.site/sitemap.xml

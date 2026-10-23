@@ -8,6 +8,10 @@
 // elements. Inline tags (i b em strong span a kbd code small abbr sup sub) are removed without a space, any other tag becomes a space, an
 // entity becomes a space. Units = words (a run of non-space characters with a letter or digit, Latin, Cyrillic and Vietnamese alike) plus
 // ceil(Han + Hiragana + Katakana characters / 2) for Chinese and Japanese.
+// The APT how-to block of the download page is left out of the count (WP15, DEC-020), and ONLY that: exactly one `<details id="apt">` on a
+// download page, written exactly like that (closed by default: no `open`, no other attribute), without another <details> inside; on any other
+// page such an element is an error and is not skipped. Anything else that is skipped (a second block, an open one, another element) fails the test.
+// The ceilings below are unchanged (download 360 in English).
 // Also fails when index.html of a language has not exactly 3 demo regions (the markers are what keeps the demos out of the count).
 //
 // Ceilings: English index 560, features 760, help 1060, download 360 (with header and footer, about 139 words, these are 700 / 900 / 1200 / 500),
@@ -42,11 +46,40 @@ export function demoRegions(html) {
   }
 }
 
-// the text of <main> without the demo regions, as one string
-export function mainText(html) {
+/**
+ * The one exception to the count (DEC-020): the byte range of the `<details id="apt">…</details>` of a download page and the problems with it.
+ * Returns { range: [from, to] | null, problems: [] }. The range is only given when everything is as it must be.
+ */
+export function aptBlock(html, page) {
+  const problems = [];
+  const tags = [...html.matchAll(/<details\b[^>]*>/g)].filter((m) => /\bid\s*=\s*["']?apt\b/i.test(m[0]));
+  if (page !== 'download') {
+    if (tags.length) problems.push(`${tags.length} <details id="apt"> on a page that is not the download page (it is only skipped there)`);
+    return { range: null, problems };
+  }
+  if (tags.length !== 1) {
+    problems.push(`${tags.length} <details id="apt"> on the download page, expected exactly one`);
+    return { range: null, problems };
+  }
+  const [m] = tags;
+  if (m[0] !== '<details id="apt">') problems.push(`the block is ${m[0]}, expected exactly <details id="apt"> (closed by default: no open attribute, nothing else)`);
+  const from = m.index;
+  const end = html.indexOf('</details>', from);
+  if (end < 0) problems.push('the <details id="apt"> block is never closed');
+  const inner = end < 0 ? '' : html.slice(from + m[0].length, end);
+  if (/<details\b/i.test(inner)) problems.push('another <details> sits inside the APT block (the exception covers one flat element)');
+  return { range: problems.length ? null : [from, end + '</details>'.length], problems };
+}
+
+// the text of <main> without the demo regions (and, on the download page, the APT block), as one string
+export function mainText(html, page) {
   const a = html.indexOf('<main');
   const z = html.indexOf('</main>');
   let t = a >= 0 && z > a ? html.slice(a, z) : html;
+  // WP15 / DEC-020: the "Install with APT" how-to of the download page (a closed <details id="apt">: five commands, the key fingerprint, texts agreed
+  // with the language specialists) is not counted; scripts/test-site-apt.mjs holds its exact text. Only that one element, only there (aptBlock).
+  const apt = aptBlock(t, page).range;
+  if (apt) t = t.slice(0, apt[0]) + ' ' + t.slice(apt[1]);
   t = t.replace(/<!-- hl:demo-begin -->[\s\S]*?<!-- hl:demo-end -->/g, ' ');
   t = t.replace(/<!--[\s\S]*?-->/g, '');
   t = t.replace(/<(script|style|svg)\b[\s\S]*?<\/\1>/g, ' ');
@@ -56,14 +89,37 @@ export function mainText(html) {
   return t;
 }
 
-export function units(html) {
-  const t = mainText(html);
+export function units(html, page) {
+  const t = mainText(html, page);
   const cjk = (t.match(CJK) || []).length;
   const words = t.replace(CJK, ' ').split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
   return words + Math.ceil(cjk / 2);
 }
 
+// The exception is exactly one closed block on a download page (DEC-020): proof on synthetic pages.
+function selfcheck() {
+  const bad = [];
+  const main = (inner) => `<main>${inner}</main>`;
+  const blk = '<details id="apt"><summary>Install</summary><p>one two three four five six seven eight nine ten</p></details>';
+  const base = main('<p>alpha beta gamma</p>' + blk);
+  const is = (name, got, want) => { if (JSON.stringify(got) !== JSON.stringify(want)) bad.push(`${name}: got ${JSON.stringify(got)}, wanted ${JSON.stringify(want)}`); };
+  is('the block is skipped on the download page', units(base, 'download'), 3);
+  is('the same text outside the block is counted', units(main('<p>alpha beta gamma</p><p>one two three four five six seven eight nine ten</p>'), 'download'), 13);
+  is('text in the block does not change the count', units(base.replace('nine ten', 'nine ten eleven twelve'), 'download'), 3);
+  is('a valid block has no problem', aptBlock(base, 'download').problems, []);
+  is('two blocks are an error and none is skipped', [aptBlock(main(blk + blk), 'download').problems.length, aptBlock(main(blk + blk), 'download').range], [1, null]);
+  is('no block on the download page is an error', aptBlock(main('<p>x</p>'), 'download').problems.length, 1);
+  is('an open block is an error and is counted', [aptBlock(base.replace('<details id="apt">', '<details id="apt" open>'), 'download').problems.length, units(base.replace('<details id="apt">', '<details id="apt" open>'), 'download') > 3], [1, true]);
+  is('another attribute is an error and is counted', [aptBlock(base.replace('<details id="apt">', '<details id="apt" class="x">'), 'download').problems.length, units(base.replace('<details id="apt">', '<details id="apt" class="x">'), 'download') > 3], [1, true]);
+  is('a details inside the block is an error', aptBlock(main(blk.replace('<p>', '<details><summary>s</summary></details><p>')), 'download').problems.length, 1);
+  is('a block that never closes is an error', aptBlock(main(blk.replace('</details>', '')), 'download').problems.length, 1);
+  is('a block on another page is an error and is counted', [aptBlock(base, 'help').problems.length, units(base, 'help')], [1, 14]);
+  is('other closed details are counted', units(main('<details><summary>Notes</summary><p>a b c</p></details>' + blk), 'download'), 4);
+  if (bad.length) { console.error('selfcheck failed:\n  ' + bad.join('\n  ')); process.exit(1); }
+}
+
 function run() {
+  selfcheck();
   const errors = [];
   const rows = [];
   for (const lang of LANGS) {
@@ -71,7 +127,9 @@ function run() {
     for (const page of PAGES) {
       const file = fileOf(lang, page);
       const html = fs.readFileSync(file, 'utf8');
-      const n = units(html);
+      const n = units(html, page);
+      const inMain = html.slice(Math.max(0, html.indexOf('<main')), html.indexOf('</main>') > 0 ? html.indexOf('</main>') : undefined);
+      for (const pr of aptBlock(inMain, page).problems) errors.push(`${lang.dir || 'en'}/${page}.html: ${pr}`);
       const max = ceiling(lang.code, page);
       row[page] = `${n}/${max}`;
       if (n > max) errors.push(`${lang.dir || 'en'}/${page}.html: ${n} units, ceiling ${max}`);

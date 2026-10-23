@@ -8,7 +8,7 @@ A fast, private desktop mail client for Windows, macOS and Linux. Free and open 
 
 ## Download
 
-Get the latest version from the [download page](https://heylook.namthai.site/download.html) or from [GitHub Releases](https://github.com/thnonl/hey-look/releases/latest): Windows 10 and 11 (`.exe` or `.msi`), macOS 11 or later, Apple silicon and Intel (`.dmg`), and Linux (`.AppImage`, `.deb` or `.rpm`). Hey Look! updates itself after you agree.
+Get the latest version from the [download page](https://heylook.namthai.site/download.html) or from [GitHub Releases](https://github.com/thnonl/hey-look/releases/latest): Windows 10 and 11 (`.exe` or `.msi`), macOS 11 or later, Apple silicon and Intel (`.dmg`), and Linux (`.AppImage`, `.deb` or `.rpm`; on Debian 12 or later and Ubuntu 22.04 or later you can also install and update with `apt`: three commands on the download page, see [PACKAGING.md](PACKAGING.md#apt-repository-debian-and-ubuntu)). Hey Look! updates itself after you agree, except a copy installed from the Snap Store or the APT repository, which the system updates.
 
 The installers are not code-signed with a publisher certificate and the macOS app is not notarized, so the first start needs one extra step: see [First start on macOS](https://heylook.namthai.site/download.html#install-notes) and the [Help](https://heylook.namthai.site/help.html#g-install) for Windows and Linux.
 

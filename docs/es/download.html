@@ -126,6 +126,19 @@
       <div class="asset" data-asset="lin-appimage" data-pattern="HeyLook_&lt;version&gt;_linux_amd64.AppImage"><a class="btn btn-primary" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="Descargar AppImage"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">Descargar AppImage</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_amd64.AppImage</span><small class="sz"></small></div>
       <div class="asset" data-asset="lin-deb" data-pattern="HeyLook_&lt;version&gt;_linux_amd64.deb"><a class="btn btn-ghost" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="Descargar .deb (Debian, Ubuntu)"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">Descargar .deb (Debian, Ubuntu)</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_amd64.deb</span><small class="sz"></small></div>
       <div class="asset" data-asset="lin-rpm" data-pattern="HeyLook_&lt;version&gt;_linux_x86_64.rpm"><a class="btn btn-ghost" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="Descargar .rpm (Fedora, openSUSE)"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">Descargar .rpm (Fedora, openSUSE)</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_x86_64.rpm</span><small class="sz"></small></div>
+      <details id="apt"><summary>Instalar con APT y actualizar con el sistema</summary>
+        <p>Para Ubuntu 22.04 o posterior y Debian 12 o posterior, en PC de 64 bits (amd64). Añade el repositorio de Hey Look! una sola vez: Hey Look! se actualizará junto con el resto del sistema y la aplicación dejará de actualizarse por sí sola.</p>
+        <p>1. Descarga la clave de firma del repositorio:</p>
+        <div class="copy"><code>sudo wget -qO /etc/apt/keyrings/heylook-archive-keyring.gpg https://heylook.namthai.site/apt/heylook-archive-keyring.gpg</code><button class="btn btn-ghost btn-sm" type="button">Copiar</button></div>
+        <p>2. Añade el repositorio:</p>
+        <div class="copy"><code>sudo wget -qO /etc/apt/sources.list.d/heylook.sources https://heylook.namthai.site/apt/heylook.sources</code><button class="btn btn-ghost btn-sm" type="button">Copiar</button></div>
+        <p>3. Instala Hey Look!:</p>
+        <div class="copy"><code>sudo apt update &amp;&amp; sudo apt install hey-look</code><button class="btn btn-ghost btn-sm" type="button">Copiar</button></div>
+        <p>La huella digital de la clave de firma es <code>6A60 BC4B A845 ED1F C7DC 22A4 2718 BF04 5362 152C</code>. Para compararla con la clave que descargaste, ejecuta:</p>
+        <div class="copy"><code>gpg --show-keys /etc/apt/keyrings/heylook-archive-keyring.gpg</code><button class="btn btn-ghost btn-sm" type="button">Copiar</button></div>
+        <p>¿Ya instalaste el .deb de esta página? Sigue los mismos tres pasos. Tu correo, tus cuentas y tu configuración se conservan, y las actualizaciones llegarán después por APT.</p>
+        <p>Para desinstalar Hey Look! y el repositorio:</p>
+        <div class="copy"><code>sudo apt remove hey-look &amp;&amp; sudo rm /etc/apt/sources.list.d/heylook.sources /etc/apt/keyrings/heylook-archive-keyring.gpg</code><button class="btn btn-ghost btn-sm" type="button">Copiar</button></div></details>
       <details><summary>Notas para Linux</summary>
         <p>Si tu escritorio no tiene bandeja del sistema, al cerrar la ventana se cierra Hey Look!</p>
         <p>Los enlaces y los adjuntos se abren con <code>xdg-open</code>. Las contraseñas necesitan que GNOME Keyring o KWallet estén en ejecución y desbloqueados.</p></details>

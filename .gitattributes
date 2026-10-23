@@ -2,3 +2,5 @@
 # which fails on a Windows checkout with core.autocrlf=true (CRLF). Binary files are detected by git and left untouched.
 * text=auto eol=lf
 *.sh text eol=lf
+# the binary APT key must never go through line-ending conversion
+docs/apt/*.gpg binary

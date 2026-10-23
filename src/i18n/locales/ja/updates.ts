@@ -73,6 +73,7 @@ export default defineLocale<typeof ns.en>({
   "updates.noRelease": "GitHubでアップデート情報が見つかりませんでした。しばらくしてからもう一度試すか、{link}をご覧ください。",
   "updates.noRelease.link": "リリースページ",
   "updates.managed.snap": "このHey Look!はSnap Storeからインストールされ、Snap Storeが最新の状態に保ちます。アプリはGitHubでアップデートを確認しません。",
+  "updates.managed.apt": "このHey Look!は、Hey Look!のAPTリポジトリからアップデートを受け取ります。アップデートは、システムのソフトウェア更新ツールか{command}でインストールしてください。アプリはGitHubでアップデートを確認しません。",
   // ---- the update card
   "updates.card.availableHead": "Hey Look! {version}が利用可能です",
   "updates.card.readyHead": "Hey Look! {version}をインストールする準備ができました",

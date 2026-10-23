@@ -188,6 +188,11 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+    env:
+      # DEC-020: until the owner's real APT signing key is committed (docs/apt), scripts/test-site-apt.mjs fails on the throw-away key. A run that is not
+      # a tag push may go on with a warning (dry runs and branch runs stay green); a tag run never does, and publish needs this job. Set here and
+      # nowhere else (scripts/test-apt-placeholder-guard.mjs): not in pages.yml, not in .github/node-tests.txt.
+      APT_ALLOW_PLACEHOLDER_KEY: ${{ (github.event_name == 'push' && github.ref_type == 'tag') && '0' || '1' }}
     strategy:
       fail-fast: false
       matrix:
@@ -568,6 +573,9 @@ jobs:
           # Signs the update packages (minisign). Only this step gets the key.
           TAURI_SIGNING_PRIVATE_KEY: ${{ github.event_name == 'push' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ github.event_name == 'push' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+          # The .deb names the Ayatana tray library (libayatana-appindicator3-1: Debian 12 and Ubuntu have it, libappindicator3-1 is gone from Debian 12).
+          # The bundler takes it from the dev package it finds (install-linux-deps.sh); this makes the choice explicit. Checked after the build.
+          TAURI_LINUX_AYATANA_APPINDICATOR: "true"
         with:
           # Upload into the draft made by create-release. Empty on dry runs: build only, upload nothing.
           releaseId: ${{ needs.create-release.outputs.id }}
@@ -623,6 +631,20 @@ jobs:
           fi
           echo "searching: ${targets[*]}"
           node .github/scripts/check-no-test-bridge.cjs "${targets[@]}"
+
+      # WP15: the .deb must depend on the Ayatana tray library, not on libappindicator3-1 (which Debian 12 does not have). The APT repository
+      # (jobs apt-repo and apt-repo-dryrun) installs it on Debian 12 as well.
+      - name: The .deb depends on the Ayatana tray library
+        if: runner.os == 'Linux' && steps.sign.outputs.profile == 'release'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for deb in src-tauri/target/release/bundle/deb/*.deb; do
+            deps=$(dpkg-deb -f "$deb" Depends)
+            echo "$(basename "$deb"): Depends: $deps"
+            case ",$deps," in *"libayatana-appindicator3-1"*) ;; *) echo "::error::the .deb does not depend on libayatana-appindicator3-1"; exit 1 ;; esac
+            case ",$deps," in *"libappindicator3-1"*) echo "::error::the .deb still depends on libappindicator3-1"; exit 1 ;; esac
+          done
 
       # Every update signature must belong to the file next to it (public key = plugins.updater.pubkey of tauri.conf.json). The same
       # check runs again in the publish job on the files of the draft release, which is the one that decides.
@@ -1000,3 +1022,231 @@ jobs:
 
       - name: Publish and mark latest
         run: gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$ID" -F draft=false -f make_latest=true
+
+  apt-repo:
+    # The signed APT repository of the .deb (https://heylook.namthai.site/apt, WP15; PACKAGING.md > APT repository). TAG RUNS ONLY, after publish: the
+    # release is public, so its .deb can be downloaded and checked against the sha256 digest GitHub shows for the asset. The job lists the newest 3
+    # published releases, builds the repository with apt-ftparchive (.github/scripts/apt-repo.sh), signs it with the key of the Environment `release`
+    # (APT_SIGNING_KEY, APT_SIGNING_PASSPHRASE: read in the signing step only), checks it the way apt does, installs from it in three containers
+    # (.github/scripts/apt-install-test.sh), commits the signed metadata (text only, no .deb) to the branch `apt` and starts pages.yml on main,
+    # which assembles the site and checks it again. A failure here leaves the release published; fix the cause and "Re-run failed jobs": the
+    # job is idempotent (no new commit when nothing changed). A dry run has its own job, apt-repo-dryrun, with a throw-away key and no secret.
+    needs: [plan, publish]
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.publish.result == 'success' }}
+    name: APT repository
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: write # pushes the branch `apt`
+      actions: write # starts pages.yml (events of the GITHUB_TOKEN start no workflow, but a dispatch does)
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false # the push below hands the token to git for that one command
+
+      - name: Tools
+        run: |
+          set -euo pipefail
+          missing=""
+          for c in apt-ftparchive jq gpg gpgv xz docker; do command -v "$c" > /dev/null || missing="$missing $c"; done
+          if [ -n "$missing" ]; then
+            echo "missing:$missing, installing apt-utils jq gnupg xz-utils"
+            sudo apt-get update -qq && sudo apt-get install -y -qq apt-utils jq gnupg xz-utils
+          fi
+          echo "APT_GNUPGHOME=$RUNNER_TEMP/gnupg-apt" >> "$GITHUB_ENV"
+
+      # the branch `apt` as it is now (it does not exist before the first tag run): the old pool.json for the "a published file never changes"
+      # rule and the by-hash files of the last generation
+      - name: The branch apt, as it is
+        run: git clone --quiet --depth 1 --branch apt "https://github.com/$GITHUB_REPOSITORY" apt-prev || { echo "::notice::no branch apt yet"; mkdir apt-prev; }
+
+      - name: The .deb files of the newest 3 releases
+        run: |
+          set -euo pipefail
+          old=""; [ -f apt-prev/pool.json ] && old="--old-pool apt-prev/pool.json"
+          bash .github/scripts/apt-repo.sh fetch --repo "$GITHUB_REPOSITORY" --keep 3 --out debs --require-version "${GITHUB_REF_NAME#v}" $old
+          # the tray library: the .deb of this release must name the Ayatana one (Debian 12 has no libappindicator3-1)
+          deps=$(dpkg-deb -f "debs/hey-look_${GITHUB_REF_NAME#v}_amd64.deb" Depends)
+          echo "Depends of ${GITHUB_REF_NAME#v}: $deps"
+          case ",$deps," in *"libayatana-appindicator3-1"*) ;; *) echo "::error::the .deb does not depend on libayatana-appindicator3-1"; exit 1 ;; esac
+          case ",$deps," in *"libappindicator3-1"*) echo "::error::the .deb still depends on libappindicator3-1"; exit 1 ;; esac
+
+      - name: Build the repository
+        run: bash .github/scripts/apt-repo.sh build debs repo --previous apt-prev
+
+      # The only step that sees the key. Secrets are read on a tag push only; the key is imported into a folder of its own under RUNNER_TEMP
+      # (umask 077) and never touches the workspace; the passphrase goes to gpg on fd 0 (loopback pinentry); no `set -x`.
+      - name: Sign
+        env:
+          APT_SIGNING_KEY: ${{ github.event_name == 'push' && github.ref_type == 'tag' && secrets.APT_SIGNING_KEY || '' }}
+          APT_SIGNING_PASSPHRASE: ${{ github.event_name == 'push' && github.ref_type == 'tag' && secrets.APT_SIGNING_PASSPHRASE || '' }}
+        run: |
+          set -euo pipefail
+          for n in APT_SIGNING_KEY APT_SIGNING_PASSPHRASE; do
+            if [ -z "${!n}" ]; then echo "::error::the secret $n is not set in the Environment 'release' (PACKAGING.md > APT repository, owner steps)"; exit 1; fi
+          done
+          echo "::add-mask::$APT_SIGNING_PASSPHRASE"
+          umask 077
+          export GNUPGHOME="$APT_GNUPGHOME"
+          mkdir -p "$GNUPGHOME"
+          printf '%s\n' "$APT_SIGNING_KEY" | gpg --batch --quiet --import 2> /dev/null || { echo "::error::APT_SIGNING_KEY could not be imported (an ASCII-armoured secret key is expected)"; exit 1; }
+          # exactly one secret key, and it is the one whose public half is on the website
+          n=$(gpg --batch --list-secret-keys --with-colons | awk -F: '$1 == "sec" {n++} END {print n + 0}')
+          if [ "$n" != 1 ]; then echo "::error::APT_SIGNING_KEY holds $n secret keys, expected exactly one"; exit 1; fi
+          have=$(gpg --batch --list-secret-keys --with-colons | awk -F: '$1 == "fpr" {print $10; exit}')
+          want=$(bash .github/scripts/apt-repo.sh fingerprint docs/apt/heylook-archive-keyring.asc)
+          if [ "$have" != "$want" ]; then
+            echo "::error::the imported key has the fingerprint $have, docs/apt/heylook-archive-keyring.asc has $want. Nothing was signed."
+            exit 1
+          fi
+          bash .github/scripts/apt-repo.sh sign repo "$have"
+
+      - name: Remove the key
+        if: always()
+        run: |
+          GNUPGHOME="$APT_GNUPGHOME" gpgconf --kill gpg-agent 2> /dev/null || true
+          rm -rf "$APT_GNUPGHOME"
+
+      - name: Check the signed repository
+        run: |
+          set -euo pipefail
+          bash .github/scripts/apt-repo.sh verify repo docs/apt/heylook-archive-keyring.gpg
+          bash .github/scripts/apt-repo.sh summary repo docs/apt/heylook-archive-keyring.gpg >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install tests in ubuntu:22.04, ubuntu:24.04 and debian:12
+        run: |
+          set -euo pipefail
+          v="${GITHUB_REF_NAME#v}"
+          prev=$(jq -r --arg v "$v" '[.[].version | select(. != $v)] | sort_by(split(".") | map(tonumber)) | last // ""' repo/pool.json)
+          bash .github/scripts/apt-install-test.sh local --repo repo --keyring docs/apt/heylook-archive-keyring.gpg --sources docs/apt/heylook.sources --version "$v" ${prev:+--previous "$prev"}
+
+      # the metadata only (dists/ and pool.json, no .deb); nothing is pushed when Packages and pool.json are the same as on the branch
+      - name: Commit to the branch apt
+        id: branch
+        env:
+          APT_GIT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          bash .github/scripts/apt-repo.sh publish-branch repo "https://github.com/$GITHUB_REPOSITORY" | tee branch.out
+          echo "changed=$(sed -n 's/^changed=//p' branch.out | tail -1)" >> "$GITHUB_OUTPUT"
+
+      # The website is rebuilt by pages.yml on main. Started when the branch changed, and also when the live InRelease is not the one on the
+      # branch (a re-run after a failed dispatch, or a Pages deploy that never ran for this commit).
+      - name: Start pages.yml
+        env:
+          CHANGED: ${{ steps.branch.outputs.changed }}
+        run: |
+          set -euo pipefail
+          git clone --quiet --depth 1 --branch apt "https://github.com/$GITHUB_REPOSITORY" apt-now
+          branch_sha=$(sha256sum apt-now/dists/stable/InRelease | cut -d' ' -f1)
+          live_sha=$(curl -fsS -H 'Cache-Control: no-cache' https://heylook.namthai.site/apt/dists/stable/InRelease 2> /dev/null | sha256sum | cut -d' ' -f1 || true)
+          echo "InRelease on the branch $branch_sha, live $live_sha, branch changed: $CHANGED"
+          if [ "$CHANGED" = true ] || [ "$branch_sha" != "$live_sha" ]; then
+            gh workflow run pages.yml --ref main
+            echo "pages.yml started on main" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "the live site already serves this InRelease: pages.yml is not started" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  apt-repo-dryrun:
+    # The same repository, from the .deb of THIS dry run, with a throw-away key made in the job (no passphrase, deleted at the end). It reads no
+    # secret, has no Environment, pushes nothing and starts nothing. The result is the artifact apt-repo-dryrun (public key included, no private
+    # key). Releases older than the checkout's version are added to the pool, so the upgrade test (install the previous version, then upgrade) runs.
+    needs: [plan, build]
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && github.event.inputs.test_version == '' && needs.plan.outputs.tests == 'true' && needs.build.result == 'success' }}
+    name: APT repository (dry run)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Tools
+        run: |
+          set -euo pipefail
+          missing=""
+          for c in apt-ftparchive jq gpg gpgv xz docker; do command -v "$c" > /dev/null || missing="$missing $c"; done
+          if [ -n "$missing" ]; then
+            echo "missing:$missing, installing apt-utils jq gnupg xz-utils"
+            sudo apt-get update -qq && sudo apt-get install -y -qq apt-utils jq gnupg xz-utils
+          fi
+
+      - name: The script's own test
+        run: bash .github/scripts/apt-repo.sh --selftest
+
+      - name: The .deb of this run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: linux-amd64-deb
+          path: this-deb
+
+      - name: The .deb files
+        run: |
+          set -euo pipefail
+          ls -l this-deb
+          one=$(find this-deb -name '*.deb' | head -n 2)
+          if [ "$(printf '%s\n' "$one" | wc -l)" != 1 ]; then echo "::error::expected exactly one .deb in the artifact linux-amd64-deb"; exit 1; fi
+          control() { dpkg-deb -f "$one" "$1"; }
+          echo "package $(control Package) version $(control Version) architecture $(control Architecture)"
+          deps=$(control Depends)
+          echo "Depends: $deps"
+          {
+            echo "### The .deb of this run"
+            echo "\`Depends: $deps\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          case ",$deps," in *"libayatana-appindicator3-1"*) ;; *) echo "::error::the .deb does not depend on libayatana-appindicator3-1"; exit 1 ;; esac
+          case ",$deps," in *"libappindicator3-1"*) echo "::error::the .deb still depends on libappindicator3-1"; exit 1 ;; esac
+          echo "ONE_DEB=$one" >> "$GITHUB_ENV"
+          echo "DEB_VERSION=$(control Version)" >> "$GITHUB_ENV"
+          bash .github/scripts/apt-repo.sh fetch --repo "$GITHUB_REPOSITORY" --keep 3 --out debs --local-deb "$one"
+
+      # a key that exists in this job only
+      - name: A throw-away key
+        run: |
+          set -euo pipefail
+          fpr=$(bash .github/scripts/apt-repo.sh genkey "$RUNNER_TEMP/gnupg-throwaway" "Hey Look! APT test (throwaway)" "$RUNNER_TEMP/throwaway-public")
+          echo "THROWAWAY_FPR=$fpr" >> "$GITHUB_ENV"
+          echo "GNUPGHOME_THROWAWAY=$RUNNER_TEMP/gnupg-throwaway" >> "$GITHUB_ENV"
+          echo "throw-away key $fpr"
+
+      - name: Build, sign and check the repository
+        run: |
+          set -euo pipefail
+          bash .github/scripts/apt-repo.sh build debs repo
+          GNUPGHOME="$GNUPGHOME_THROWAWAY" bash .github/scripts/apt-repo.sh sign repo "$THROWAWAY_FPR"
+          bash .github/scripts/apt-repo.sh verify repo "$RUNNER_TEMP/throwaway-public/heylook-archive-keyring.gpg"
+          bash .github/scripts/apt-repo.sh summary repo "$RUNNER_TEMP/throwaway-public/heylook-archive-keyring.gpg" >> "$GITHUB_STEP_SUMMARY"
+          cp "$RUNNER_TEMP"/throwaway-public/heylook-archive-keyring.* repo/
+          cp docs/apt/heylook.sources repo/heylook.sources
+          # the artifact holds public material only
+          if grep -rl 'PRIVATE KEY BLOCK' repo; then echo "::error::a private key is in the repository folder"; exit 1; fi
+          sed -n 1,12p repo/dists/stable/Release
+
+      - name: Install tests in ubuntu:22.04, ubuntu:24.04 and debian:12
+        run: |
+          set -euo pipefail
+          prev=$(jq -r --arg v "$DEB_VERSION" '[.[].version | select(. != $v)] | sort_by(split(".") | map(tonumber)) | last // ""' repo/pool.json)
+          echo "version $DEB_VERSION, previous ${prev:-none}"
+          bash .github/scripts/apt-install-test.sh local --repo repo --keyring "$RUNNER_TEMP/throwaway-public/heylook-archive-keyring.gpg" --sources docs/apt/heylook.sources --version "$DEB_VERSION" ${prev:+--previous "$prev"}
+
+      - name: Remove the key
+        if: always()
+        run: |
+          GNUPGHOME="$RUNNER_TEMP/gnupg-throwaway" gpgconf --kill gpg-agent 2> /dev/null || true
+          rm -rf "$RUNNER_TEMP/gnupg-throwaway"
+
+      - name: Keep the repository of this dry run
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: apt-repo-dryrun
+          path: repo
+          retention-days: 1
+          if-no-files-found: error
