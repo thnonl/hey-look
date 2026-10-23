@@ -15,6 +15,7 @@
 //   node scripts/test-ai-tab-layout.mjs --lang=en,ru --size=960x560 --theme=dark --shots=<dir>   (PNGs of the key moments)
 //   node scripts/test-ai-tab-layout.mjs --url=http://127.0.0.1:1420/    use a dev server that is already running (default: starts its own vite)
 //   node scripts/test-ai-tab-layout.mjs --require-browser      fail (instead of skipping) when no Chrome/Chromium/Edge is installed
+//   node scripts/test-ai-tab-layout.mjs --font=Verdana --spacing=0.02   font stress: every font of the page replaced / extra letter spacing (em), as test-focus-tabs has
 //   CHROME_PATH=/path/to/chrome overrides the browser lookup. No dependencies (Node 22+, global WebSocket).
 import fs from 'node:fs';
 import path from 'node:path';
@@ -29,13 +30,23 @@ const CONFIGS = [];
 if (QUICK) CONFIGS.push({ lang: 'en', w: 960, h: 560, theme: 'light' }, { lang: 'de', w: 1280, h: 720, theme: 'dark' });
 else for (const lang of (arg('lang') || 'en,de').split(',')) for (const size of (arg('size') || '960x560,1280x720').split(',')) for (const theme of (arg('theme') || 'light,dark').split(',')) CONFIGS.push({ lang, w: Number(size.split('x')[0]), h: Number(size.split('x')[1]), theme });
 const SHOTS = arg('shots');
+const FONT = arg('font'), SPACING = arg('spacing');
 
 // ---------- the browser and the app: a vite dev server of this checkout (the dev preview has the mock backend) ----------
 // Both run on ports they bound themselves (scripts/cdp-harness.mjs), so this test cannot meet another one started at the same moment.
 const { base, cdp, evaluate, shutdown } = await startHarness('test-ai-tab-layout', { vitePort0: 5480 });
+if (FONT || SPACING) {
+  // a CI machine (Linux, DejaVu Sans) and macOS / Linux WebKit have other fallback fonts than this Windows PC: the tab must stand still with any metrics
+  const css = '*,*::before,*::after{' + (FONT ? 'font-family:' + FONT + '!important;' : '') + (SPACING ? 'letter-spacing:' + SPACING + 'em!important;' : '') + '}';
+  // a constructed sheet: the page's CSP blocks an inline <style>
+  await cdp('Page.addScriptToEvaluateOnNewDocument', { source: `(() => { const sh = new CSSStyleSheet(); sh.replaceSync(${JSON.stringify(css)}); document.adoptedStyleSheets = [...document.adoptedStyleSheets, sh]; })()` });
+}
 
 // ---------- the page side: a layout sample on every frame ----------
 const PAGE = `(() => {
+  // a button gives a 1 px press nudge while the pointer is down (.btn:active { transform: translateY(1px) }, a .06 s transition): visual feedback, not layout. A frame that lands in the
+  // middle of the click (CI, Linux) sees Save 0.5 px lower; the sampler measures the layout, so the nudge is switched off while measuring (a constructed sheet: the CSP blocks an inline <style>).
+  { const sh = new CSSStyleSheet(); sh.replaceSync('.btn:active:not(:disabled) { transform: none !important; }'); document.adoptedStyleSheets = [...document.adoptedStyleSheets, sh]; }
   const R = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return [r.left, r.top, r.width, r.height].map((n) => Math.round(n * 10) / 10); };
   const sample = () => {
     const body = document.querySelector('.settings-body'), form = body && body.querySelector('.form');
