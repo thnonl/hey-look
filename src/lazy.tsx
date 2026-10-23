@@ -122,5 +122,3 @@ function LazyRetry({ onRetry }: { onRetry: () => void }) {
   );
 }
 
-/** Starts a load without showing anything (idle prefetch, the pointer on a button that will need it). */
-export { loadLazy };

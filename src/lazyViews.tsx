@@ -4,7 +4,7 @@ import { Modal } from "./components/ui";
 import type { Key } from "./i18n";
 import { useT } from "./i18n/react";
 import { lazyView, LazyLoading } from "./lazy";
-import { LAZY_LOOK_MS, loadLazy, prefetchLazy } from "./lazyLoad";
+import { prefetchLazy } from "./lazyLoad";
 import { useStore } from "./store";
 
 // The big parts of the app that are loaded when they are needed (1.0.7 WP9d, W9.2; the plan is spec-107-wp9 section 2.2). THIS is the only place that imports them (a `import()` each);
@@ -170,4 +170,3 @@ const dialogsOpts = { key: "dialogs", kind: "dialogs", load: dialogsModule, dial
 export const LazyBulkCleaner = lazyView<DialogsModule, NoProps>({ ...dialogsOpts, pick: (m) => m.BulkCleaner, frame: frame("app.sweep.title", { wide: true }) });
 export const LazyShowOriginal = lazyView<DialogsModule, React.ComponentProps<DialogsModule["ShowOriginal"]>>({ ...dialogsOpts, pick: (m) => m.ShowOriginal, frame: frame("app.original.title", { wide: true }) });
 
-export { LAZY_LOOK_MS, loadLazy };
