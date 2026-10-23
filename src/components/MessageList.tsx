@@ -23,6 +23,7 @@ import { ScheduledList } from "./ScheduledList";
 import { EmptyState, SkeletonRows } from "./overlays";
 import { Avatar, Dropdown } from "./ui";
 import { downloadLine } from "../backfill";
+import { useDelayedFlag } from "../delayedFlag";
 import { badgeText, tabCounts, tabLabels } from "../focusCounts";
 import { VirtualList, VItem } from "./VirtualList";
 
@@ -218,6 +219,8 @@ export function MessageList({ hidden = false }: { hidden?: boolean } = {}) {
     prefs, focus, setFocus, filter, setFilter, accounts, loading, loadMore, loadingMore, exhausted, limited, backfill, firstSync, setDialog, folders, openingDraft,
   } = useStore();
   const scrollRef = useRef<HTMLDivElement>(null);
+  // (W13.14 A6 / A7) a search, a tab or a filter was asked for and the new rows are not here yet while the old ones are: "Loading…" over the top of the list after 100 ms, no layout shift
+  const reloading = useDelayedFlag(loading && threads.length > 0);
   const ctxMenu = useRowContextMenu(); // right-click / ContextMenu key on a row (components/ListContextMenu.tsx)
   const searching = search.trim().length > 0;
   const title = searching ? tr("mail.list.searchResults") : folderLabel(folder);
@@ -434,6 +437,11 @@ export function MessageList({ hidden = false }: { hidden?: boolean } = {}) {
       </div>
 
       <div className="ml-body" ref={scrollRef} role="listbox" aria-label={title} aria-multiselectable {...ctxMenu.handlers}>
+        {reloading && (
+          <div className="ml-loadwrap">
+            <div className="ml-loadpill" role="status" aria-busy="true"><span className="spin" aria-hidden /> {tr("common.loading")}</div>
+          </div>
+        )}
         {folder === "scheduled" ? (
           <ScheduledList />
         ) : (loading || firstHere) && threads.length === 0 ? (

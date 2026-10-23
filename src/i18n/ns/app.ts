@@ -265,6 +265,7 @@ export default define({
     "app.original.title": "Original message",
     "app.original.confidential": "This message is confidential, so the original message can’t be shown.",
     "app.original.fetching": "Fetching from server…",
+    "app.busy.many": "Working on {count} conversations…",
     "app.original.copied": "Copied",
   },
 });

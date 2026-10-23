@@ -36,6 +36,10 @@ import { InviteCard } from "./InviteCard";
 import { osNow } from "../platform";
 import { EmptyState } from "./overlays";
 import { useDelayedFlag } from "../delayedFlag";
+import { hlMark } from "../perfMarks";
+import { printFrame, usePrinting } from "../printStatus";
+import { pendingToast } from "../pendingToast";
+import { announceFrame, isHeavy, RpBody, useOpeningPending } from "../openStatus";
 import { ImportanceMark } from "./Importance";
 import { EncCard, importKeyFromMessage, isKeyAttachment, needsCard, SecBadges } from "./Pgp";
 import { Avatar, Dropdown } from "./ui";
@@ -165,6 +169,53 @@ function useCanvas() {
   return { dark, toggle: () => setPrefs({ mailCanvas: toggleMailCanvas(canvas) }) };
 }
 
+/** The cleaned HTML of the last messages that were opened (W13.6 S2): opening a mail again, or switching the picture choice back, does not clean it again. Capped by count and by size. */
+const CLEANED = new Map<string, { html: string; blocked: number }>();
+const CLEANED_MAX = 20;
+const CLEANED_CHARS = 8_000_000;
+let cleanedChars = 0;
+const cleanKey = (m: MessageFull, allowed: boolean) => `${m.id}|${allowed ? 1 : 0}|${m.html?.length ?? 0}`;
+export const isCleaned = (m: MessageFull, allowed: boolean): boolean => CLEANED.has(cleanKey(m, allowed));
+function cleanOf(m: MessageFull, allowed: boolean): { html: string; blocked: number } {
+  if (!m.html) return { html: plainToHtml(m.text ?? ""), blocked: 0 };
+  const key = cleanKey(m, allowed);
+  const hit = CLEANED.get(key);
+  if (hit) {
+    CLEANED.delete(key);
+    CLEANED.set(key, hit); // (most recently used last)
+    return hit;
+  }
+  hlMark("open:clean:start");
+  const r = sanitizeHtml(m.html, allowed);
+  hlMark("open:clean:end");
+  CLEANED.set(key, r);
+  cleanedChars += r.html.length;
+  while (CLEANED.size > CLEANED_MAX || (cleanedChars > CLEANED_CHARS && CLEANED.size > 1)) {
+    const oldest = CLEANED.keys().next().value as string;
+    cleanedChars -= CLEANED.get(oldest)?.html.length ?? 0;
+    CLEANED.delete(oldest);
+  }
+  return r;
+}
+
+/** Paint first, then work (W13.6 S3, RULE-4): a heavy HTML body is cleaned and drawn only after the status "Opening message…" was painted. */
+function AfterPaint({ wait, children }: { wait: boolean; children: React.ReactNode }) {
+  const [go, setGo] = useState(!wait);
+  useEffect(() => {
+    if (go) return;
+    let live = true;
+    const fin = () => live && setGo(true);
+    const raf = requestAnimationFrame(() => setTimeout(fin, 0)); // (after the frame that painted the status)
+    const guard = setTimeout(fin, 120); // (a window that is not painting gets no animation frame)
+    return () => {
+      live = false;
+      cancelAnimationFrame(raf);
+      clearTimeout(guard);
+    };
+  }, [go]);
+  return go ? <>{children}</> : null;
+}
+
 function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameRef: React.RefObject<HTMLIFrameElement | null>; dark: boolean; onPictures: (items: { src: string; name: string }[], index: number) => void }) {
   const t = useT();
   const lang = useLang(); // the picture placeholders carry text: rebuilt when the language changes
@@ -177,12 +228,14 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   const [loadedPics, setLoadedPics] = useState<Record<string, string>>({});
   const [picState, setPicState] = useState<Record<string, { status: "loading" | "failed"; error?: string }>>({});
   const allowed = loadRemote || allow;
-  const clean = useMemo(
-    () => (m.html ? sanitizeHtml(m.html, allowed) : { html: plainToHtml(m.text ?? ""), blocked: 0 }),
-    [m, allowed],
-  );
+  const clean = useMemo(() => cleanOf(m, allowed), [m, allowed]);
   const html = useMemo(
-    () => pictureHtml(allowed ? inlineImages(clean.html) : clean.html, m, loadedPics, picState),
+    () => {
+      hlMark("open:pics:start");
+      const out = pictureHtml(allowed ? inlineImages(clean.html) : clean.html, m, loadedPics, picState);
+      hlMark("open:pics:end");
+      return out;
+    },
     [clean, allowed, version, m, loadedPics, picState, lang], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
@@ -328,7 +381,11 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
       frame.dispatchEvent(new Event("rp-measured", { bubbles: true }));
     }
     if (h > 0 && !loading) heightCache.set(m.id, h);
-    frame.style.visibility = ""; // first measurement done: show the mail at its final height
+    if (frame.style.visibility === "hidden") {
+      frame.style.visibility = ""; // first measurement done: show the mail at its final height
+      hlMark("open:shown");
+      announceFrame(frame, m.id); // (the status "Opening message…" of the pane ends, openStatus.tsx)
+    }
   }, [frameRef, applyFill, m.id]);
 
   // first paint: open at the free height of the pane (no fixed 500px that then jumps)
@@ -340,7 +397,12 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     frame.style.height = `${Math.max(fill, heightCache.get(m.id) ?? 0)}px`;
     // stay invisible until the first measurement (a frame or two) so the height step after load is never seen as content jumping
     frame.style.visibility = "hidden";
-    const safety = setTimeout(() => (frame.style.visibility = ""), 600);
+    const safety = setTimeout(() => {
+      if (frame.style.visibility === "hidden") {
+        frame.style.visibility = "";
+        announceFrame(frame, m.id);
+      }
+    }, 600);
     return () => clearTimeout(safety);
   }, [frameRef, m.id]);
 
@@ -357,7 +419,9 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     if (hooked.current === doc) return measure(); // (the load event of a document that was hooked when it was parsed)
     hooked.current = doc;
     stopObserve.current();
+    hlMark("open:dark:start");
     setMailDark(doc, darkNow.current, DARK_CANVAS);
+    hlMark("open:dark:end");
     measure();
     // images without a height attribute (common in newsletters) only get their size once they load
     const imgs = Array.from(doc.images);
@@ -585,6 +649,21 @@ export async function translateMessage(m: MessageFull, lang: { en: string; key: 
   });
 }
 
+/** Does this message draw a frame (the status "Opening message…" ends when it is visible)? An encrypted message that needs its card, and an invitation with no text, do not. */
+export const hasFrame = (m: MessageFull): boolean => !needsCard(m) && !(m.invite && !m.html?.trim() && !m.text?.trim());
+
+/**
+ * A click that ends a text selection in the header (a drag over the sender or the recipients) is not a click on the message (W13.3, REQ-13.3.3). A double-click is two clicks that cancel
+ * each other (as before), a triple-click is not counted at all, so neither changes the message while they select a word or a line.
+ */
+const headClickIsSelection = (e: React.MouseEvent<HTMLElement>): boolean => {
+  if (e.detail >= 3) return true;
+  if (e.detail === 2) return false;
+  const head = e.currentTarget;
+  const sel = window.getSelection();
+  return !!sel && !sel.isCollapsed && sel.toString().trim().length > 0 && (head.contains(sel.anchorNode) || head.contains(sel.focusNode));
+};
+
 export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onToggle: () => void }) {
   const t = useT();
   const { showToast, setDialog, prefs } = useStore();
@@ -653,13 +732,17 @@ export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boole
   /** Every attachment into one folder (pictures included); a failed file does not stop the others. */
   const saveAll = async (ask = false) => {
     if (conf) return showToast(t("reading.strip.confSave"), undefined, "info");
+    // (W13.14 A5) several files into a folder the person did not have to choose: the download of the message and the disk take a while; "Loading…" says so until the result toast replaces it
+    const working = m.attachments.length >= 2 && !(ask || prefs.askWhereToSave) ? pendingToast("save-all", () => t("common.loading"), 300) : null;
     try {
       const r = await api.attachmentSaveAll(m.id, ask || prefs.askWhereToSave);
+      working?.end();
       if (!r) return;
       const folder = r.dir.split(/[\\/]/).filter(Boolean).pop() ?? r.dir;
       if (r.failed.length === 0) showToast(() => t("reading.strip.savedMany", { n: r.saved.length, folder }), undefined, "success", r.saved[0] ? [{ label: () => t("reading.att.showInFolder"), run: () => void revealSaved(r.saved[0]) }] : undefined);
       else showToast(() => t("reading.strip.savedPartial", { n: r.saved.length, total: m.attachments.length, name: r.failed[0].name, error: friendlyError(r.failed[0].error) }), undefined, "error", [{ label: () => t("common.retry"), run: () => void saveAll(ask) }]);
     } catch (e) {
+      working?.end();
       showToast(() => t("reading.strip.saveAllFailed", { error: friendlyError(e) }), undefined, "error", [{ label: () => t("common.retry"), run: () => void saveAll(ask) }]);
     }
   };
@@ -671,10 +754,11 @@ export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boole
   const reBusy = useAnswerBusy(answerKey("reply", m.id));
   const raBusy = useAnswerBusy(answerKey("replyAll", m.id));
   const fwBusy = useAnswerBusy(answerKey("forward", m.id));
+  const printing = usePrinting((s) => s.on);
   const ring = <span className="spin" aria-hidden />;
   return (
     <div className={`rp-msg ${open ? "open" : ""}`}>
-      <div className="rp-msg-head" onClick={onToggle}>
+      <div className="rp-msg-head" onClick={(e) => { if (!headClickIsSelection(e)) onToggle(); }}>
         <Avatar name={who} size={40} />
         <div className="rp-meta">
           <div className="rp-from ellipsis" data-email={m.fromEmail}>
@@ -682,7 +766,7 @@ export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boole
             <span className="muted"> &lt;{m.fromEmail}&gt;</span>
           </div>
           {(m.importance === "high" || m.importance === "low") && <ImportanceMark level={m.importance} size={13} label />}
-          <div className="muted small ellipsis">{open ? (m.cc ? t("reading.msg.toCc", { to: m.to, cc: m.cc }) : t("reading.msg.to", { to: m.to })) : needsCard(m) ? t("reading.msg.encrypted") : conf ? t("reading.msg.confidential") : (m.text ?? "").replace(/\s+/g, " ").slice(0, 140)}</div>
+          <div className={`muted small ellipsis${open ? " rp-to" : ""}`}>{open ? (m.cc ? t("reading.msg.toCc", { to: m.to, cc: m.cc }) : t("reading.msg.to", { to: m.to })) : needsCard(m) ? t("reading.msg.encrypted") : conf ? t("reading.msg.confidential") : (m.text ?? "").replace(/\s+/g, " ").slice(0, 140)}</div>
         </div>
         {open && (
           <div className="rp-msg-actions" onClick={(e) => e.stopPropagation()}>
@@ -700,7 +784,7 @@ export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boole
               items={[
                 { label: t("reading.msg.showOriginal"), disabled: conf, onClick: () => setDialog({ type: "original", messageId: m.id }) },
                 // WKWebView cannot print a message frame from the app: no Print entry on macOS
-                ...(osNow() === "macos" ? [] : [{ label: t("reading.msg.print"), disabled: conf, onClick: () => frameRef.current?.contentWindow?.print() }]),
+                ...(osNow() === "macos" ? [] : [{ label: t("reading.msg.print"), disabled: conf || printing, onClick: () => void printFrame(frameRef.current) }]),
                 {
                   label: t("reading.msg.createEvent"),
                   onClick: () => setDialog({ type: "event", init: { summary: m.subject.replace(/^((re|fwd?):\s*)+/i, ""), description: conf ? "" : (m.text ?? "").trim().slice(0, 1500) } }),
@@ -733,7 +817,7 @@ export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boole
             </div>
           )}
           {job && <TranslateBox job={job} />}
-          {needsCard(m) ? <EncCard m={m} /> : m.invite && !m.html?.trim() && !m.text?.trim() ? null : <MessageBody m={m} frameRef={frameRef} dark={cv.dark} onPictures={(items, index) => setLightbox({ items, index })} />}
+          {!hasFrame(m) ? (needsCard(m) ? <EncCard m={m} /> : null) : <AfterPaint wait={isHeavy(m) && !isCleaned(m, eff(prefs, m.accountId, "loadRemote"))}><MessageBody m={m} frameRef={frameRef} dark={cv.dark} onPictures={(items, index) => setLightbox({ items, index })} /></AfterPaint>}
           <AttachmentStrip m={m} />
           {lightbox && (
             <Lightbox
@@ -838,6 +922,10 @@ export function ReadingPane() {
   }, [selected]);
 
   useKeepReadingPosition();
+  // (W13.6) "Opening message…" over the body area from the selection until the frame of the open message is visible
+  const openError = useStore((s) => s.openError);
+  const opening = useOpeningPending(selected && summ ? selected : null, messages, hasFrame) && openError !== selected;
+  const printing = usePrinting((s) => s.on);
 
   // another conversation: a summary still being made is dropped (its request too), so it is never shown on the wrong mail
   useEffect(() => ai.cancel, [selected]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -985,7 +1073,7 @@ export function ReadingPane() {
           {summaryCut && <div className="muted small tr-hint">{t("reading.head.summaryCut")}</div>}
         </div>
       )}
-      <div className="rp-body" ref={bodyRef}>
+      <RpBody key={selected} pending={opening} heavy={isHeavy(last)} printing={printing} bodyRef={bodyRef}>
         {messages.map((m) => (
           <MessageCard
             key={m.id}
@@ -1001,7 +1089,7 @@ export function ReadingPane() {
             }
           />
         ))}
-      </div>
+      </RpBody>
     </section>
   );
 }

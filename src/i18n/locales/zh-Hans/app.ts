@@ -249,5 +249,6 @@ export default defineLocale<typeof ns.en>({
   "app.original.title": "原始邮件",
   "app.original.confidential": "此邮件为机密邮件，因此无法显示原始邮件。",
   "app.original.fetching": "正在从服务器获取…",
+  "app.busy.many": "正在处理{count}个对话…",
   "app.original.copied": "已复制",
 });

@@ -109,6 +109,10 @@ static | node scripts/test-site-languages.mjs --strict
 static | node scripts/test-site-404.mjs
 static | node scripts/test-site-seo.mjs
 static | node --experimental-strip-types scripts/test-site-commands.mjs
+# WP15: the APT block of the 8 download pages (agreed text, 5 commands byte for byte, one fingerprint = the key file), docs/apt (two key files, heylook.sources), robots.txt, pinned actions and images. FAILS while docs/apt carries the throw-away key, except in the node-tests job of a run that is not a tag push, where the workflow turns that one check into a warning (DEC-020; see the job env in release.yml)
+static | node scripts/test-site-apt.mjs
+# DEC-020: the throw-away key gate cannot be opened by accident: pages.yml and this list never carry the variable, release.yml sets it once (node-tests job, '1' unless a tag push), only the value 1 counts, and the guard is proven on mutated copies
+static | node scripts/test-apt-placeholder-guard.mjs
 # sentences the website was told to stop saying (no mobile apps, no "may come" for languages or a theme editor, no "new / may contain mistakes", the old update wording) do not come back in any language
 static | node scripts/test-site-statements.mjs
 # proof that the test above fails when a removed sentence is put back, in each language (AC-10.13.2, AC-10.14.2), and when an English app path comes back on a translated page
@@ -125,8 +129,12 @@ static | node scripts/test-legal-dates.mjs
 ui-e | node scripts/test-site-appearance.mjs --quick --require-browser
 # the Support page (W10.17) in all 8 languages with 6 % of extra letter spacing, a stand-in for a wider fallback font (fix batch 6: a CI runner's fonts are wider than Windows's; card links may need two lines)
 ui-e | node scripts/test-site-appearance.mjs --only=support --require-browser --spacing=0.06
+# WP15: the "Install with APT" block of the download page in all 8 languages at 375, 960 and 1280 px, light and dark, with 6 % of extra letter spacing (a CI runner's fonts are wider than Windows's): no sideways page scroll, five command boxes and Copy buttons inside the Linux card, Copy puts the exact command on the clipboard
+ui-e | node scripts/test-site-appearance.mjs --only=apt --require-browser --spacing=0.06
 # Settings > AI Assistant stands still while it is used: the real layout, frame by frame, in the dev preview (two of the 12 combinations; the full run is `node scripts/test-ai-tab-layout.mjs`)
 ui-c | node scripts/test-ai-tab-layout.mjs --quick --require-browser
+# WP15: Settings > About of a copy updated by apt (and by the Snap Store): the dictionary sentence with the command in <code>, no Check for updates button, no switch, nothing clipped, light and dark (English, German, Japanese at 960 x 560; the full run is `node --experimental-strip-types scripts/test-about-managed.mjs`, 8 languages x 2 sizes)
+ui-c | node --experimental-strip-types scripts/test-about-managed.mjs --quick --require-browser
 # the AI Assistant problem toast through every entry point (not set up, 401, 404, timeout ...): stays 20 s, leads to Settings > AI Assistant, Esc / X close it, and a new request removes the old problem toast at once (full run: `node scripts/test-ai-guide.mjs`)
 ui-b | node scripts/test-ai-guide.mjs --quick --require-browser
 # Settings > Add account and Calendar stand still while a sign-in runs and ends (two of the combinations; the full run is `node scripts/test-settings-layout.mjs`)
@@ -292,6 +300,20 @@ static | node scripts/test-unsub-server.mjs --require-openssl
 ui-e | node scripts/test-unsub-outcomes.mjs --quick --require-browser
 # Reply / Reply all / Forward of a 2 MB mail with a slow server: the compose shell (fields and Send off, "Preparing reply…") within one frame, the message after the longest step, the To field does not move, Discard / Esc while it prepares leave no draft, a failing server, Forward with attachments, a window of its own (hand-over, second press), the texts in 8 languages at 960 x 560 and 1280 x 800, reduced motion (the timing alone: `node scripts/measure-reply-open.mjs`)
 ui-c | node scripts/test-reply-feedback.mjs --require-browser
+# 1.0.7 W13.2: "new since you last looked" - the rules of the session-only map (an arrival on the folder in view is ignored while the window is in front, opening / coming forward / no unread mail clears it, the all-mailboxes Inbox, the Unread view) and the wiring of store, window events and side menu
+static | node --experimental-strip-types scripts/test-new-mail.mjs
+# 1.0.7 W13.3: the CSS allow list of user-select (body none, fields / open message / reference text text, no all, the confidential rule after the message-body rule), the About lines marked, the header click guard, the Select all scopes
+static | node --experimental-strip-types scripts/test-user-select.mjs
+# 1.0.7 W13.14 / W13.6: the show-after-100-ms-keep-300-ms rule of the pending states (the Opening message block and the sticky working toasts) with a fake clock
+static | node --experimental-strip-types scripts/test-pending-core.mjs
+# 1.0.7 W13.2: the dot, the bolder name, the avatar ring and the icon-column dot in the side menu from mail-arrived (two mailboxes), clearing by opening / coming forward / unread count, dark, forced colors, 8 languages
+ui-d | node scripts/test-new-mail-ui.mjs --require-browser
+# 1.0.7 W13.3: real double / triple clicks select nothing in the list, side menu, Settings labels, toolbar and normal toasts, and select in the subject, sender, date, fields, error toasts and the About version; dragging over the sender does not collapse the message
+ui-d | node scripts/test-user-select-ui.mjs --require-browser
+# 1.0.7 W13.6: "Opening message…" over the body area (up within 150 ms, no flash for a quick open, 300 ms minimum, painted before a heavy mail is cleaned, replaced by a newer selection, dots under reduced motion, the reader window never blank)
+ui-b | node scripts/test-open-loading.mjs --require-browser
+# 1.0.7 W13.14: the pending states of a big batch (count toast), Send (busy button, Sending toasts), Print, Save all, search / tab / folder loading and the Check mail button, and the texts in 8 languages
+ui-e | node scripts/test-busy-actions.mjs --require-browser
 # 1.0.7 WP9d (W9.2): the parts that load on demand (src/lazyLoad.ts): one import at a time, a success kept, a failure retried once after 500 ms and not remembered, the dev seam, the prefetch swallowing a failure; and the source guards: only lazyViews.tsx starts the editor, Settings, Calendar, PGP dialogs and pop-out views, App.tsx draws the wrappers, the idle / pointer / focus prefetch is installed, the compose shell does not need the editor
 static | node --experimental-strip-types scripts/test-lazy-load.mjs
 # 1.0.7 WP9d (REQ-9.2.4 - 9.2.6) in the real page, the network slowed down so a part takes a while: the first open of Settings, the Calendar, the PGP dialogs and the editor draws the frame at once, the loading look only after 150 ms (and not at all for a part that is loaded), the dialog replaces its frame with no second opening animation and the focus in it; three presses of c while the editor is on its way give ONE message with nothing typed into To; a Reply shows its shell (status, Send off, Discard) without the editor; #lazyfail=<settings|calendar|pgp|compose> gives the toast "Failed: ..." in English and German with nothing half open and the next try works; the reader window loads no editor module, the compose window loads it before it draws

@@ -9,6 +9,7 @@ import { api, Att, Draft, DraftSecurity, errorCode, InlineImage, OwnKeyStatus, R
 import { eff } from "../prefs";
 import { kbd, osNow } from "../platform";
 import { ComposeInit, friendlyError, useStore } from "../store";
+import { pendingToast } from "../pendingToast";
 import { useAiSlot } from "../useAiSlot";
 import { aiReady, clearAiProblem, leaveAiContext, showAiNotSetUp, showAiProblem } from "../aiGuide";
 import type { ComposeProbe, SavedDraft } from "../leaveCompose";
@@ -1040,8 +1041,24 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     void writer.clear();
   };
 
+  // (W13.14 A9) the Send button is busy (a ring, aria-busy, no second press) from the press until the Undo toast or the window lock is there: the checks, the size question, the
+  // save that is settled first and the hand-over of a big message to the outbox can take seconds with big attachments
+  const [sendPending, setSendPending] = useState(false);
+  const sendPendingRef = useRef(false);
   const send = async (sendAt?: number) => {
-    if (preparing) return; // (the shell has no recipients yet; the button is off, this is for a key)
+    if (preparing || sendPendingRef.current) return; // (the shell has no recipients yet; the button is off, this is for a key. A second press while the first checks: nothing)
+    sendPendingRef.current = true;
+    setSendPending(true);
+    try {
+      await sendWork(sendAt);
+    } finally {
+      sendPendingRef.current = false;
+      setSendPending(false);
+    }
+  };
+
+  const sendWork = async (sendAt?: number) => {
+    if (preparing) return;
     let d = buildDraft();
     // To may stay empty when Cc or Bcc has someone (Gmail and Outlook allow it; a Bcc-only message shows undisclosed-recipients)
     if (!hasRecipient(d)) return showToast(() => t("compose.err.noRecipient"), undefined, "error");
@@ -1153,6 +1170,9 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     noteScrolls(); // (what Send leaves behind: the window keeps it, the pane that Undo makes again gets it, D-053)
     if (composeSeam()) lockForSend(wait);
     else void openCompose(null, { sending: wait });
+    // in the pane the compose is gone now; handing a big message to the outbox (Undo on) or to the server (Undo off, below) can take seconds: a "Sending…" toast with a ring says so (W13.14 A9),
+    // replaced at once by the Undo toast
+    const gap = composeSeam() ? null : pendingToast("send-hold", () => t("compose.toast.sending"), 100, 0);
     let cancelled = false;
     let started = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1163,6 +1183,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       try {
         heldId = await api.outboxHold(d, Math.floor(Date.now() / 1000) + wait, replacesRef());
       } catch (e) {
+        gap?.end();
         showToast(() => t("compose.toast.sendFailed", { error: friendlyError(e) }), undefined, "error");
         finishSend();
         reopen(d);
@@ -1175,6 +1196,9 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       started = true;
       clearTimeout(timer);
       const quitting = useStore.getState().quitting;
+      // the Undo time is over (or there is none): the server takes the message; with a big one that is long, and in the pane nothing else says so (W13.14 A9)
+      const going = composeSeam() ? null : pendingToast("send-run", () => t("compose.toast.sending"));
+      gap?.end();
       try {
         if (heldId) await api.outboxHoldSend(heldId, quitting);
         else await api.sendMessage(d, null, replacesRef());
@@ -1187,6 +1211,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
         showToast(await sendFailedText(e, d), undefined, "error"); // i18n-ok: sendFailedText gives a function // i18n-ok: sendFailedText gives a function
         reopen(d);
       } finally {
+        going?.end();
         done();
         finishSend();
       }
@@ -1214,6 +1239,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
         done();
         reopen(d);
       };
+      gap?.end(); // (the "Sending…" toast with the ring gives way to the one with Undo)
       // in a window of its own the Undo button of the window's card takes the message back; in the main window it is the toast's
       const seam = composeSeam();
       if (seam) seam.undoOffer(undoSend);
@@ -2045,8 +2071,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       <div className="cp-head" ref={headRef} onFocus={restHeader} onScroll={markMore}>
       <div className="cp-bar">
         <div className="split-btn" ref={schedRef} data-fit="fixed">
-          <button ref={sendBtnRef} className="btn primary" disabled={busy || !!preparing} style={locked && sendW ? { minWidth: sendW } : undefined} onClick={() => void (init.outboxId ? send(init.sendAt) : send())} title={init.outboxId ? t("compose.bar.scheduleTip") : kbd(t("compose.bar.sendTip"))}>
-            {locked ? <><span className="spin" aria-hidden /> <span className="btn-lbl">{t("compose.toast.sending")}</span></> : init.outboxId ? <><CalendarClock size={14} /> <span className="btn-lbl">{t("compose.bar.schedule")}</span></> : meeting ? <><CalendarPlus size={14} /> <span className="btn-lbl">{t("compose.bar.sendInvite")}</span></> : <><Send size={14} /> <span className="btn-lbl">{t("compose.bar.send")}</span></>}
+          <button ref={sendBtnRef} className="btn primary" disabled={busy || !!preparing} aria-busy={sendPending || undefined} style={locked && sendW ? { minWidth: sendW } : undefined} onClick={() => void (init.outboxId ? send(init.sendAt) : send())} title={init.outboxId ? t("compose.bar.scheduleTip") : kbd(t("compose.bar.sendTip"))}>
+            {locked ? <><span className="spin" aria-hidden /> <span className="btn-lbl">{t("compose.toast.sending")}</span></> : sendPending ? <><span className="spin" aria-hidden /> <span className="btn-lbl">{init.outboxId ? t("compose.bar.schedule") : meeting ? t("compose.bar.sendInvite") : t("compose.bar.send")}</span></> : init.outboxId ? <><CalendarClock size={14} /> <span className="btn-lbl">{t("compose.bar.schedule")}</span></> : meeting ? <><CalendarPlus size={14} /> <span className="btn-lbl">{t("compose.bar.sendInvite")}</span></> : <><Send size={14} /> <span className="btn-lbl">{t("compose.bar.send")}</span></>}
           </button>
           <button
             className="btn primary split-caret"

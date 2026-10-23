@@ -7,6 +7,9 @@ import { applyBackfill } from "./backfill";
 import { holdOpenThread } from "./openThread";
 import { planOpen } from "./notifyOpen";
 import { withThreadsGone, withUnreadChange } from "./focusCounts";
+import { hlMark } from "./perfMarks";
+import { startPending, type Pending } from "./pendingCore";
+import { addArrivals, clearByCounts, clearOnOpen, type Arrivals, type NewMap } from "./newMail";
 import { QueuedMoves } from "./queuedMoves";
 import { Latest } from "./latestOnly";
 import { StateIntents, type IntentKind } from "./readIntent";
@@ -204,6 +207,8 @@ export interface AskState {
 }
 
 const VIRTUAL = new Set(["starred", "pinned", "snoozed", "all", "scheduled"]);
+/** A move, mark or flag of this many conversations or more can take long: a sticky toast with the count says that it works (W13.14 A8, RULE-3 d / e). */
+export const BUSY_MANY = 20;
 const MOVE_LIKE = new Set(["archive", "trash", "junk", "block", "move", "inbox", "delete_forever"]);
 
 /** The IMAP-side folder a move should act on (undefined for cross-folder views). */
@@ -287,6 +292,10 @@ interface State {
   threads: ThreadSummary[];
   outbox: OutboxItem[];
   folders: FolderInfo[];
+  /** (W13.2) mailboxes and folders that got new mail since the person last looked, for the dot in the side menu; session only */
+  newMail: NewMap;
+  /** (W13.6, RULE-5) the read of this conversation failed: the status "Opening message…" ends and the error is told (toast) */
+  openError: string | null;
   selected: string | null;
   checked: Set<string>;
   messages: MessageFull[];
@@ -373,6 +382,10 @@ interface State {
 
   init: () => Promise<void>;
   setView: (folder: string, accountId?: string | null) => Promise<void>;
+  /** (W13.2) `mail-arrived`: mark the folders that got new mail, unless the folder is on screen and the window is in front */
+  noteArrivals: (a: Arrivals, front: boolean) => void;
+  /** (W13.2) the main window came to the front: the folder on screen is looked at */
+  lookedAtFolder: () => void;
   setSearch: (q: string, remember?: boolean) => Promise<void>;
   setSearchScope: (s: SearchScope) => Promise<void>;
   setFocus: (f: "focused" | "other") => Promise<void>;
@@ -405,6 +418,8 @@ interface State {
   setChecked: (ids: string[]) => void;
   /** `view`: the view the person acts from, when it is not the open one (a reader window asks for a move from the view it was opened in). */
   act: (ids: string[], action: string, arg?: string, label?: Lazy, view?: string) => Promise<void>;
+  /** `act` without the pending state: `busy` is ended as soon as the result is shown (W13.14 A8) */
+  actNow: (ids: string[], action: string, arg: string | undefined, label: Lazy | undefined, view: string | undefined, busy: Pending | null) => Promise<void>;
   /** `restore: false` (closing): the reading pane is not given back the mail that was open before writing (the caller opens another).
    *  `sending`: the message is on its way, not over (the Undo time in seconds, 0 for none or a scheduled message); only a compose window reads it. */
   openCompose: (c: ComposeInit | null, opts?: { restore?: boolean; sending?: number }) => Promise<void>;
@@ -684,6 +699,8 @@ export const useStore = create<State>((set, get) => ({
   threads: [],
   outbox: [],
   folders: [],
+  newMail: {},
+  openError: null,
   selected: null,
   checked: new Set(),
   messages: [],
@@ -864,9 +881,22 @@ export const useStore = create<State>((set, get) => ({
   setView: async (folder, accountId = null) => {
     cancelMore();
     // (a folder pressed while a message is written in a narrow window: the person wants to see it, so the list comes back next to the message, W2.26)
-    set({ folder, accountId, selected: null, messages: [], threads: [], loading: true, checked: new Set(), search: "", module: "mail", ...(get().compose ? { listAsked: true } : {}) });
+    set({ folder, accountId, newMail: clearOnOpen(get().newMail, folder, accountId), selected: null, messages: [], threads: [], loading: true, checked: new Set(), search: "", module: "mail", ...(get().compose ? { listAsked: true } : {}) });
     if (get().prefs.lastModule !== "mail") get().setPrefs({ lastModule: "mail" });
     await get().refresh();
+  },
+
+  noteArrivals: (a, front) => {
+    const { folder, accountId, newMail } = get();
+    const next = addArrivals(newMail, a, { folder, accountId, front }, Date.now());
+    if (next !== newMail) set({ newMail: next });
+  },
+
+  lookedAtFolder: () => {
+    const { folder, accountId, newMail, module } = get();
+    if (module !== "mail") return;
+    const next = clearOnOpen(newMail, folder, accountId);
+    if (next !== newMail) set({ newMail: next });
   },
 
   setSearch: async (search, remember = false) => {
@@ -905,8 +935,10 @@ export const useStore = create<State>((set, get) => ({
     // (F-16/F-17) what is asked of the server while this read runs is laid over its answer; folder counts that predate it are not shown
     const tok = intents.begin();
     const run = listReads.start();
+    const readAt = Date.now();
     const foldersP = api.listFolders().then((folders) => {
-      if (!intents.changedSince(tok)) set({ folders });
+      // (W13.2: a folder with no unread mail left has nothing new; an arrival noted after this read began is newer than its numbers)
+      if (!intents.changedSince(tok)) set((s) => ({ folders, newMail: clearByCounts(s.newMail, folders, readAt) }));
     });
     // scheduled messages feed the Scheduled view and its badge, so they are read on every refresh
     const outboxP = api.listOutbox().then((outbox) => set({ outbox })).catch(() => undefined);
@@ -1094,16 +1126,25 @@ export const useStore = create<State>((set, get) => ({
     // the person moves on: the conversation `refresh` held in the list (F-12) goes now
     const held = heldOpen && heldOpen !== id ? heldOpen : null;
     if (held) heldOpen = null;
-    set((s) => ({ selected: id, messages: [], ...(held ? { threads: s.threads.filter((t) => t.threadId !== held) } : {}) }));
+    set((s) => ({ selected: id, messages: [], openError: null, ...(held ? { threads: s.threads.filter((t) => t.threadId !== held) } : {}) }));
     if (!id) return;
     const { folder, prefs } = get();
     const tok = intents.begin();
     let messages: MessageFull[];
+    hlMark("open:thread:start");
     try {
       messages = intents.messages(id, await api.getThread(id, scopeOf(folder)), tok);
+    } catch (e) {
+      // (W13.6, RULE-5) a read that fails ends the status "Opening message…" and says why, instead of leaving a blank pane for the safety end
+      if (get().selected === id) {
+        set({ openError: id });
+        get().showToast(() => t("errors.toast.failed", { error: friendlyError(e) }), undefined, "error");
+      }
+      return;
     } finally {
       intents.end(tok);
     }
+    hlMark("open:thread:end");
     if (get().selected !== id) return;
     set({ messages });
     if (messages.some((m) => !m.seen) && prefs.markReadDelay >= 0) {
@@ -1211,6 +1252,19 @@ export const useStore = create<State>((set, get) => ({
   setChecked: (ids) => set({ checked: new Set(ids) }),
 
   act: async (ids, action, arg, label, view) => {
+    // a big selection: the work (looking up the folder, the optimistic update, the server) can take long, so one sticky toast with the count shows after 100 ms and goes with the result (W13.14 A8)
+    const n = ids.length;
+    const busy = n >= BUSY_MANY
+      ? startPending(() => get().setStickyToast("busy-many", { text: () => t("app.busy.many", { count: n }), kind: "info", busy: true, hideClose: true }), () => get().setStickyToast("busy-many", null))
+      : null;
+    try {
+      await get().actNow(ids, action, arg, label, view, busy);
+    } finally {
+      busy?.end();
+    }
+  },
+
+  actNow: async (ids, action, arg, label, view, busy) => {
     if (ids.length === 0) return;
     // (1.0.5) no Junk folder on the account: the buttons are off already; this is for the keyboard and any other way in
     if (JUNK_ACTIONS.has(action) && !canMoveToJunk(get().folders, accountsOf(get().threads, ids))) {
@@ -1224,6 +1278,7 @@ export const useStore = create<State>((set, get) => ({
       // (F-16/F-17, flag and pin too) last write wins, one idempotent call per conversation at a time; see readIntent.ts
       const r = await intents.set(ids, intent.want, intent.kind);
       if (r.superseded) return; // a later click on the same conversations reports for both
+      busy?.end();
       if (r.failed.length > 0) {
         get().showToast(() => t("errors.toast.failed", { error: friendlyError(r.error) }), undefined, "error");
         const open = get().selected;
@@ -1287,6 +1342,7 @@ export const useStore = create<State>((set, get) => ({
           // what to put back if the move is refused or undone while the person is still on the next mail (see autoAdvance.ts)
           advances.record(token, startAdvance(selected, nextSel, nextUnread, Date.now()));
         }
+        busy?.end();
         if (advance && label) {
           get().showToast(
             label, // i18n-ok: a function (Lazy) like the text of every toast
@@ -1309,6 +1365,7 @@ export const useStore = create<State>((set, get) => ({
 
     try {
       await api.threadAction(ids, action, arg, scopeOf(view ?? folder));
+      busy?.end();
       if (label) {
         get().showToast(label, action === "snooze" ? () => void get().act(ids, "unsnooze") : undefined, "success"); // i18n-ok: a function (Lazy)
       }

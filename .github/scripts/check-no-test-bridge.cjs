@@ -9,7 +9,8 @@ const path = require("path");
 
 // assembled so that this script does not carry the name itself
 const NAME = ["HEYLOOK", "TEST", "BRIDGE"].join("_");
-const NEEDLES = [NAME, ["test bridge", " listening"].join(":"), ["__", "hlb"].join("")];
+// (the fourth is the debug-only switch that pretends a copy is managed by apt or a store, src-tauri/src/update.rs `test_managed`, WP15)
+const NEEDLES = [NAME, ["test bridge", " listening"].join(":"), ["__", "hlb"].join(""), ["HEYLOOK", "TEST", "MANAGED"].join("_")];
 
 function variants(s) {
   return [Buffer.from(s, "utf8"), Buffer.from(s, "utf16le")];
@@ -64,6 +65,7 @@ function selftest() {
   is("the variable name, UTF-16", scan(Buffer.from("a" + NAME + "b", "utf16le")), [NAME]);
   is("the log text", scan(Buffer.from("..." + NEEDLES[1] + "...")), [NEEDLES[1]]);
   is("the page global", scan(Buffer.from("window." + NEEDLES[2] + ".take")), [NEEDLES[2]]);
+  is("the debug-only managed switch", scan(Buffer.from("x" + NEEDLES[3] + "y")), [NEEDLES[3]]);
   is("a prefix is not enough", scan(Buffer.from("HEYLOOK_TEST_QUIT_PAGE HEYLOOK_TEST_START_FAIL")), []);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nobridge-"));
   try {
@@ -91,7 +93,7 @@ if (!args.length) {
 const { searched, hits } = check(args);
 if (hits.length) {
   for (const [f, found] of hits) console.error(`FOUND in ${f}: ${found.join(", ")}`);
-  console.error("a release build contains the test bridge");
+  console.error("a release build contains debug-only test code (the test bridge or HEYLOOK_TEST_MANAGED)");
   process.exit(1);
 }
 if (!searched) {

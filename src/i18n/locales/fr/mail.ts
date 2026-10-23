@@ -104,6 +104,7 @@ export default defineLocale<typeof ns.en>({
   "mail.pane.calendarTitle": "Calendrier (Ctrl+2)",
   "mail.side.collapse": "Réduire le menu latéral",
   "mail.side.expand": "Développer le menu latéral",
+  "mail.side.newMail": "Nouveau courrier",
   "mail.side.unread": { one: "{n} non lu", other: "{n} non lus" },
 
   // right-click menu of a list row

@@ -72,6 +72,7 @@ export default defineLocale<typeof ns.en>({
   "updates.noRelease": "Không tìm thấy thông tin cập nhật trên GitHub. Hãy thử lại sau, hoặc xem {link}.",
   "updates.noRelease.link": "trang phát hành",
   "updates.managed.snap": "Bản Hey Look! này được cài từ Snap Store và được Snap Store cập nhật. Ứng dụng không kiểm tra cập nhật trên GitHub.",
+  "updates.managed.apt": "Bản Hey Look! này được cập nhật từ kho APT của Hey Look! Hãy cài bản cập nhật bằng trình cập nhật phần mềm của hệ thống hoặc bằng {command}. Ứng dụng không kiểm tra cập nhật trên GitHub.",
 
   "updates.card.availableHead": "Hey Look! {version} đã có sẵn",
   "updates.card.readyHead": "Hey Look! {version} đã sẵn sàng để cài đặt",

@@ -4,6 +4,13 @@ name: Pages
 # It validates all SEO, metadata, language reciprocal links, word budgets, and 404 behavior,
 # then builds an optimized production bundle (_site) with minified CSS/JS and LCP preloads.
 # It runs when docs/, site scripts, or this workflow change on main or release branches, or manually.
+#
+# The APT repository (https://heylook.namthai.site/apt, WP15, PACKAGING.md > APT repository) is part of the site: when the branch `apt` exists
+# (the release workflow writes it on every tag run: signed metadata, text only), its dists/ and pool.json are added under apt/, the .deb files
+# named by pool.json are downloaded from the GitHub releases, and everything is checked the way a client checks it (signature with the public key
+# committed in docs/apt, every hash, every .deb against Packages) BEFORE anything is uploaded: write access to the branch alone cannot publish a
+# forged repository. No secret is used here. The release workflow starts this one (workflow_dispatch on main) after it updated the branch, because
+# events of the GITHUB_TOKEN start no workflow. After the deploy the job apt-live-check waits for the live InRelease and installs from the live address.
 on:
   push:
     branches: [main, "release/**"]
@@ -13,6 +20,8 @@ on:
       - "scripts/generate-site-languages.mjs"
       - "scripts/lib/site-seo.mjs"
       - ".github/workflows/pages.yml"
+      - ".github/scripts/apt-assemble.sh"
+      - ".github/scripts/apt-live-check.sh"
   workflow_dispatch:
 
 permissions:
@@ -27,13 +36,35 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      apt: ${{ steps.apt.outputs.present }}
+      apt_version: ${{ steps.apt.outputs.version }}
+      inrelease_sha256: ${{ steps.apt.outputs.inrelease_sha256 }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          persist-credentials: false
+
+      # the signed metadata of the APT repository; before the first tag run there is none and the site is built as it always was
+      - name: Is there an APT repository?
+        id: aptbranch
+        run: |
+          if git ls-remote --exit-code --heads "https://github.com/$GITHUB_REPOSITORY" apt > /dev/null 2>&1; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No branch apt yet: the site is deployed without /apt/ (the first tag run of the release workflow makes the branch)"
+          fi
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: steps.aptbranch.outputs.present == 'true'
+        with:
+          ref: apt
+          path: apt-branch
           persist-credentials: false
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -47,9 +78,30 @@ jobs:
           node scripts/test-site-seo.mjs
           node scripts/test-site-length.mjs
           node scripts/test-site-404.mjs
+          node scripts/test-site-apt.mjs
 
       - name: Build and optimize production site
         run: node scripts/build-site.mjs _site
+
+      # signature, hashes and pool files are checked here; a failure stops the deploy and the site stays as it is
+      - name: Add the APT repository
+        id: apt
+        env:
+          PRESENT: ${{ steps.aptbranch.outputs.present }}
+        run: |
+          set -euo pipefail
+          if [ "$PRESENT" != true ]; then
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          command -v jq > /dev/null && command -v gpgv > /dev/null && command -v xz > /dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq jq gpgv xz-utils; }
+          out=$(bash .github/scripts/apt-assemble.sh _site apt-branch docs/apt/heylook-archive-keyring.gpg | tee /dev/stderr)
+          echo "present=true" >> "$GITHUB_OUTPUT"
+          echo "$out" | grep -E '^(version|inrelease_sha256)=' >> "$GITHUB_OUTPUT"
+          {
+            echo "### APT repository deployed"
+            echo "newest version \`$(echo "$out" | sed -n 's/^version=//p')\`, InRelease sha256 \`$(echo "$out" | sed -n 's/^inrelease_sha256=//p')\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
 
@@ -59,3 +111,31 @@ jobs:
 
       - id: deployment
         uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
+
+  apt-live-check:
+    # After a deploy that carried the APT repository: the live files are the deployed ones and a user can install from them.
+    needs: deploy
+    if: ${{ needs.deploy.outputs.apt == 'true' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      # waits up to 20 minutes for the CDN (and the owner's Caddy cache), then curl -I of InRelease, Packages.xz, a by-hash file and the newest
+      # .deb (200, no Location, no Content-Encoding, the right length), the sha256 of the .deb against Packages and the GitHub release digest
+      - name: The live files
+        env:
+          INRELEASE_SHA256: ${{ needs.deploy.outputs.inrelease_sha256 }}
+        run: bash .github/scripts/apt-live-check.sh "$INRELEASE_SHA256"
+
+      # the three commands of the download page, against the live https address, in a fresh ubuntu:24.04
+      - name: Install from the live address
+        env:
+          VERSION: ${{ needs.deploy.outputs.apt_version }}
+        run: bash .github/scripts/apt-install-test.sh live --version "$VERSION"

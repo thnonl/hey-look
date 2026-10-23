@@ -2017,7 +2017,7 @@ function AboutTab() {
     <div>
       <h3>{t("settings.about.title")}</h3>
       <p>{tx("settings.about.tagline", { name: <b>Hey Look!</b> })}</p>
-      {testData && <div className="notice info">{t("settings.about.testBuild", { dir: testData })}</div>}
+      {testData && <div className="notice info selectable">{t("settings.about.testBuild", { dir: testData })}</div>}
       <UpdatesBlock
         privacy={
           <p className="muted small">{t("settings.about.privacy")}</p>

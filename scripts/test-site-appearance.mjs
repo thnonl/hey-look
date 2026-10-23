@@ -28,6 +28,7 @@ import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { checkFormula, siteDarkTopBar } from './lib/site-top-bar.mjs';
 import { SUPPORT_PROBE } from './lib/site-support-probe.mjs';
+import { APT_PROBE } from './lib/site-apt-probe.mjs';
 import { launchChrome } from './cdp-harness.mjs';
 import { installHermeticNet, releaseStub, LATEST_RELEASE_URL, CANNED_TAG } from './lib/hermetic-net.mjs';
 
@@ -39,7 +40,7 @@ const LANGS = (arg('lang') || ALL_LANGS.join(',')).split(',');
 const WIDTHS = (arg('width') || '375,768,1024,1280,1920').split(',').map(Number);
 const QUICK = flag('quick');
 const SHOTS = arg('shots');
-const ONLY = arg('only'); // --only=support: just the Support page (all 8 languages x light/dark x 375/960/1280 unless --quick), for a font-stress run
+const ONLY = arg('only'); // --only=support: just the Support page (all 8 languages x light/dark x 375/960/1280 unless --quick), for a font-stress run; --only=apt: just the APT block of the download page
 const SPACING = arg('spacing'); // e.g. --spacing=0.04: extra letter spacing (em) on every element, another stand-in for a wider fallback font
 const FONT = arg('font'); // e.g. --font=Verdana: stress the layout with a wider font than the site's own (the CI machine has other fonts than a Windows PC)
 
@@ -301,6 +302,34 @@ async function scanPages() {
   }
 }
 
+// The "Install with APT" block of the download page (WP15, scripts/lib/site-apt-probe.mjs): opened, in all 8 languages at 375, 960 and 1280 px, light and dark (the quick run: English,
+// German, Japanese and Russian, light and dark): the page never scrolls sideways, the five command boxes and their Copy buttons lie inside the Linux card (a long command scrolls inside its
+// box), the buttons are at least 24 x 24 px, the summary is at most three lines. Clicking Copy puts the exact command on the clipboard (the macOS box and the five boxes are one component).
+async function aptPass() {
+  const PAIRS = QUICK ? [['en', false], ['en', true], ['de', false], ['ru', true], ['ja', false]] : LANGS.flatMap((l) => [[l, false], [l, true]]);
+  for (const [lang, dark] of PAIRS) for (const width of [375, 960, 1280]) {
+    await cdp('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
+    await cdp('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: dark ? 'dark' : 'light' }] });
+    consoleProblems = []; expectedLoadFails.length = 0; net.reset();
+    await cdp('Page.navigate', { url: `${base}/${lang === 'en' ? '' : lang + '/'}download.html` });
+    for (let i = 0; i < 200; i++) { if (await evaluate("document.readyState === 'complete'").catch(() => false)) break; await new Promise((r) => setTimeout(r, 50)); }
+    await evaluate('new Promise((r) => (document.fonts ? document.fonts.ready : Promise.resolve()).then(() => setTimeout(r, 150)))');
+    if (FONT || SPACING) await evaluate(`(() => { const sh = new CSSStyleSheet(); sh.replaceSync(${JSON.stringify('*,*::before,*::after{' + (FONT ? 'font-family:' + FONT + '!important;' : '') + (SPACING ? 'letter-spacing:' + SPACING + 'em!important;' : '') + '}')}); document.adoptedStyleSheets = [...document.adoptedStyleSheets, sh]; })()`);
+    const r = await evaluate(APT_PROBE);
+    const bad = [...r.bad];
+    // the first command box: Copy puts the whole command on the clipboard
+    const want = await evaluate(`document.querySelector('#apt .copy code').textContent`);
+    const got = await evaluate(`(async () => { window.__copied = null; const orig = navigator.clipboard && navigator.clipboard.writeText; try { Object.defineProperty(navigator, 'clipboard', { value: { writeText: (t) => { window.__copied = t; return Promise.resolve(); } }, configurable: true }); } catch (e) { return 'cannot stub: ' + e.message; } document.querySelector('#apt .copy button').click(); await new Promise((r) => setTimeout(r, 50)); return window.__copied; })()`);
+    if (got !== want) bad.push('Copy of box 1 put ' + JSON.stringify(got) + ' on the clipboard, expected ' + JSON.stringify(want));
+    pages++; checked++;
+    const where = `${lang} ${width}px ${dark ? 'dark' : 'light'} download.html#apt`;
+    if (bad.length) fail(where, 'apt', bad.slice(0, 6).join('\n      '));
+    if (consoleProblems.length) fail(where, 'console', [...new Set(consoleProblems)].slice(0, 5).join('\n      '));
+    if (process.argv.includes('--probe')) console.log(JSON.stringify({ where, ...r.info }));
+  }
+  await cdp('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] });
+}
+
 // The Support page (W10.17): the letter and the coffee card side by side (2 columns) from 1021 px and stacked below, the four "other ways" in 4 / 2 / 1 columns, nothing cut or
 // sticking out, the card links' bottom edges in one line at 1280 px (a link may wrap to two lines; then its top is higher), the text readable (4.5:1) in light and dark, and no request for the bank QR images or for Ko-fi before the button is pressed.
 async function supportPass() {
@@ -446,6 +475,7 @@ async function shots() {
 
 try {
   if (ONLY === 'support') await supportPass();
+  else if (ONLY === 'apt') await aptPass();
   else {
   for (const lang of LANGS) for (const width of WIDTHS) await runPage(lang, width);
   for (const lang of (QUICK ? ['en'] : LANGS)) await runPage(lang, 375, { reduced: true });
@@ -455,6 +485,7 @@ try {
   await folderPass();
   await scanPages();
   await supportPass();
+  await aptPass();
   await headerPass();
   // the download page against a good answer, a rate limit (what a CI runner gets), a server error and no network
   await downloadPass('ok', LANGS);

@@ -258,5 +258,6 @@ export default defineLocale<typeof ns.en>({
   "app.original.title": "Originalnachricht",
   "app.original.confidential": "Diese Nachricht ist vertraulich, daher kann die Originalnachricht nicht angezeigt werden.",
   "app.original.fetching": "Wird vom Server abgerufen…",
+  "app.busy.many": "{count} Unterhaltungen werden bearbeitet…",
   "app.original.copied": "Kopiert",
 });

@@ -104,6 +104,7 @@ export default defineLocale<typeof ns.en>({
   "mail.pane.calendarTitle": "カレンダー (Ctrl+2)",
   "mail.side.collapse": "サイドメニューを折りたたむ",
   "mail.side.expand": "サイドメニューを展開",
+  "mail.side.newMail": "新着メール",
   "mail.side.unread": { other: "未読{n}件" },
   // right-click menu of a list row
   "mail.ctx.copySubject": "件名をコピー",

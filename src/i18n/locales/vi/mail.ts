@@ -104,6 +104,7 @@ export default defineLocale<typeof ns.en>({
   "mail.pane.calendarTitle": "Lịch (Ctrl+2)",
   "mail.side.collapse": "Thu gọn menu bên",
   "mail.side.expand": "Mở rộng menu bên",
+  "mail.side.newMail": "Thư mới",
   "mail.side.unread": { one: "{n} chưa đọc", other: "{n} chưa đọc" },
 
   // right-click menu of a list row

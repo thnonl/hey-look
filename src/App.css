@@ -84,6 +84,16 @@
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
 body { background: var(--bg); color: var(--fg); overflow: hidden; -webkit-font-smoothing: antialiased; }
+/* No text selection outside fields, the message and a few reference texts (W13.3): a double-click on a row or a label must not highlight a word. The allow list below is the only place with
+   `user-select: text` (scripts/test-user-select.mjs keeps it that way); the confidential rule near .conf-banner stays none and wins. -webkit- is needed for WKWebView, and an input
+   under `-webkit-user-select: none` cannot be typed into there unless it says text itself. */
+body { user-select: none; -webkit-user-select: none; }
+/* A. fields */
+input, textarea, [contenteditable="true"], .ProseMirror { user-select: text; -webkit-user-select: text; }
+/* B. the open message: subject, sender, recipients, date, the body area and the AI boxes */
+.rp-head h2, .rp-from, .rp-to, .rp-date, .rp-msg-body, .summary { user-select: text; -webkit-user-select: text; }
+/* C. reference text: show original, diagnostics, fingerprints and key ids, About lines, the text of an error toast; .selectable marks the rest */
+pre.original, .fpr, .mono, .selectable, .toast.error .toast-text { user-select: text; -webkit-user-select: text; }
 button { font: inherit; color: inherit; cursor: pointer; }
 button:disabled { opacity: .45; cursor: default; }
 input, select, textarea { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 6px 9px; transition: border-color .12s, box-shadow .12s; }
@@ -359,6 +369,12 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
 .fp-lbl { flex: 1; min-width: 0; }
 .fp-badge { font-size: .86em; color: var(--muted); font-variant-numeric: tabular-nums; }
 .fp-badge.strong { color: var(--accent-text); font-weight: 650; }
+/* new mail since the person last looked (W13.2): a dot after the label (a shape, never a colour alone) and a bolder name; no blinking, one 150 ms fade-in (none with reduced motion, the global rule) */
+.fp-new { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--accent-text); animation: fp-new-in .15s ease-out; }
+.fp-row.fresh .fp-lbl { font-weight: 650; flex: 0 1 auto; }
+.fp-head.fresh .fp-acct { color: var(--fg); flex: 0 1 auto; }
+.fp-row.fresh .fp-new, .fp-head.fresh .fp-new { margin-inline-end: auto; } /* the dot sits right after the name, the count / star stay at the end */
+@keyframes fp-new-in { from { opacity: 0; } to { opacity: 1; } }
 .fp-star { background: none; border: 0; padding: 0; width: 24px; height: 24px; margin: -3px 0; /* 24px target, but never taller than the row's text line */ justify-content: center; align-items: center; color: var(--muted); display: none; border-radius: 4px; }
 .fp-star.on { color: #e0a100; display: inline-flex; }
 .fp-row:hover .fp-star, .fp-row:focus-within .fp-star { display: inline-flex; }
@@ -391,6 +407,12 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
 .is-rail .fp-row .fp-lbl { display: none; }
 .is-rail .fp-row .fp-badge { position: absolute; top: 0; right: 0; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 8px; background: var(--accent); color: var(--accent-fg); font-size: 10px; line-height: 16px; font-weight: 700; text-align: center; box-shadow: 0 0 0 2px var(--bg2); }
 .is-rail .fp-row .fp-badge.err { background: var(--danger); color: #fff; }
+.is-rail .fp-row .fp-new { position: absolute; top: 4px; left: 6px; width: 6px; height: 6px; box-shadow: 0 0 0 2px var(--bg2); }
+.is-rail .fp-avatar.fresh .dot { box-shadow: 0 0 0 2px var(--bg2), 0 0 0 4px var(--accent-text); }
+@media (forced-colors: active) {
+  .fp-new { background: CanvasText; forced-color-adjust: none; }
+  .is-rail .fp-avatar.fresh .dot { box-shadow: none; outline: 2px solid CanvasText; outline-offset: 2px; }
+}
 .is-rail .fp-modules { flex-direction: column; align-items: center; padding: 6px 0; margin-left: 0; margin-right: 0; width: 100%; box-sizing: border-box; }
 .is-rail .fp-modules button { flex: none; width: 40px; height: 36px; padding: 0; }
 .fp-mlbl { min-width: 0; }
@@ -491,6 +513,9 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
 .empty-art { width: 76px; height: 76px; border-radius: 50%; background: var(--bg2); color: var(--muted); display: grid; place-items: center; margin-bottom: 4px; }
 .empty-title { font-weight: 650; font-size: 1.1em; }
 .skeleton-list { padding: 4px 0; }
+/* the old rows stay while a search / tab / filter loads (W13.14): a pill over the top of the list, in a zero-height sticky wrapper so that no row moves */
+.ml-loadwrap { position: sticky; top: 0; height: 0; z-index: 3; display: flex; justify-content: center; pointer-events: none; }
+.ml-loadpill { margin-top: 8px; display: inline-flex; align-items: center; gap: 7px; padding: 4px 12px; border-radius: 999px; background: var(--bg2); border: 1px solid var(--border); box-shadow: var(--shadow); color: var(--muted); font-size: .88em; }
 .ml-firstsync { display: flex; align-items: center; gap: 9px; padding: 12px 16px 4px; color: var(--muted); font-size: .92em; }
 .sk-row { display: flex; gap: 12px; padding: 11px 14px; }
 .sk { border-radius: 6px; background: linear-gradient(90deg, var(--bg2) 25%, var(--bg3) 37%, var(--bg2) 63%); background-size: 400% 100%; animation: shimmer 1.4s ease-in-out infinite; }
@@ -509,6 +534,9 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
 .rp-body { flex: 1; overflow-y: auto; overflow-x: auto; overflow-anchor: none; padding: 4px 24px 28px; }
 .summary { margin: 10px 24px; padding: 11px 15px; border-radius: var(--r-md); background: var(--accent-soft); border-left: 3px solid var(--accent); }
 .rp-body .summary { margin: 10px 0; }
+/* "Opening message…" over the body area while the open message's frame is not visible yet (W13.6, openStatus.tsx): no scrolling, the block covers the area */
+.rp-body.opening { position: relative; overflow: hidden; }
+.rp-opening { position: absolute; top: 0; right: 0; bottom: 0; left: 0; z-index: 2; margin: 0; max-width: none; justify-content: center; background: var(--bg); }
 .tr-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
 /* the sentence keeps a readable width and the time + Cancel drop to their own line when the card is narrow (a long translated sentence used to be squeezed to three lines) */
 .tr-main { display: flex; align-items: center; gap: 8px; flex: 1 1 15em; min-width: 0; }
@@ -713,7 +741,7 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 .rich-body .tiptap pre code { font-size: inherit; background: none; }
 .editor .tiptap p.is-empty:first-child::before { content: attr(data-placeholder); color: var(--muted); float: left; height: 0; pointer-events: none; }
 /* the signature region of a message: shown live, not editable, with its own picker */
-.sig-block { margin: 14px 0 6px; border-top: 1px solid var(--border); padding-top: 8px; cursor: default; user-select: text; }
+.sig-block { margin: 14px 0 6px; border-top: 1px solid var(--border); padding-top: 8px; cursor: default; user-select: text; -webkit-user-select: text; }
 .sig-head { display: flex; align-items: center; justify-content: flex-end; min-height: 28px; }
 .sig-pick { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: .86em; min-width: 0; max-width: 100%; }
 .sig-select { max-width: 240px; min-width: 0; flex: 0 1 auto; font-size: .94em; } /* in a narrow pane the list shrinks (the label used to be pushed out at the left) */
@@ -1163,7 +1191,7 @@ body:has(.popover.pinned:not(.alt-pop), .suggest.pinned, .dd-fixed) .img-tools-a
 .pv-card { gap: 10px; align-content: center; justify-items: center; max-width: 480px; margin: 0 auto; }
 .pv-card-name { max-width: 100%; color: var(--fg); font-size: 1.05em; }
 .pv-card-acts { display: flex; gap: 8px; margin-top: 6px; }
-.pv-diag { padding: 3px 16px; border-bottom: 1px solid var(--border); user-select: text; }
+.pv-diag { padding: 3px 16px; border-bottom: 1px solid var(--border); user-select: text; -webkit-user-select: text; }
 .pv-nav { z-index: 2; position: absolute; top: 50%; transform: translateY(-50%); width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--border); background: var(--bg); box-shadow: var(--shadow-sm); display: grid; place-items: center; color: var(--fg); }
 .pv-nav:hover { background: var(--bg2); }
 .pv-nav.prev { left: 14px; } .pv-nav.next { right: 14px; }
@@ -1520,7 +1548,8 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 .invite-actions .rsvp .btn:first-child { padding: 6px 10px; }
 .invite-actions .link-btn { white-space: nowrap; }
 .invite-actions .rsvp { position: relative; }
-.invite-actions .btn[aria-busy="true"] { cursor: progress; }
+.invite-actions .btn[aria-busy="true"], .cp-bar .split-btn .btn[aria-busy="true"], .top-actions .icon-btn[aria-busy="true"] { cursor: progress; } /* a pending press (W13.14): the ring, and no second start */
+.cp-bar .split-btn .btn[aria-busy="true"] .spin { width: 14px; height: 14px; margin: 0; } /* the size of the icon it replaces: the button does not change its width */
 .rsvp .btn.chosen { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); font-weight: 650; }
 .invite .cal-tile[data-cancelled="1"] b { background: var(--danger); color: #fff; }
 

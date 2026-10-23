@@ -279,5 +279,6 @@ export default defineLocale<typeof ns.en>({
   "app.original.title": "Оригинал письма",
   "app.original.confidential": "Это письмо конфиденциально, поэтому показать оригинал письма нельзя.",
   "app.original.fetching": "Загрузка с сервера…",
+  "app.busy.many": "Обработка бесед: {count}…",
   "app.original.copied": "Скопировано",
 });

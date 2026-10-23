@@ -43,7 +43,7 @@ export function TopBar() {
       <div className="top-actions" data-tauri-drag-region="false">
         <UpdateChip />
         {mail && (
-          <button className="icon-btn" title={t("app.top.sync")} onClick={() => void sync()}>
+          <button className="icon-btn" title={t("app.top.sync")} aria-busy={syncing || undefined} onClick={() => void sync()}>
             <RefreshCw size={16} className={syncing || firstSync ? "spin" : ""} />
           </button>
         )}

@@ -28,6 +28,7 @@ export default define({
     "reading.popout.loadFailed": "Couldn’t open this message ({error}).",
     "reading.popout.noId": "this window has no conversation to show",
     "reading.popout.loading": "Opening message…",
+    "reading.print.preparing": "Preparing to print…",
     "reading.popout.toolbar": "Message actions",
     "reading.popout.unread": "Unread",
     "reading.popout.read": "Read",

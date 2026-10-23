@@ -76,6 +76,7 @@ export default define({
     "updates.noRelease": "Couldn’t find update information on GitHub. Try again later, or see the {link}.",
     "updates.noRelease.link": "releases page",
     "updates.managed.snap": "This copy of Hey Look! was installed from the Snap Store, which keeps it up to date. The app doesn’t check GitHub for updates.",
+    "updates.managed.apt": "This copy of Hey Look! gets its updates from the Hey Look! APT repository. Install them with your system’s software updater or with {command}. The app doesn’t check GitHub for updates.",
 
     // ---- the update card
     "updates.card.availableHead": "Hey Look! {version} is available",
