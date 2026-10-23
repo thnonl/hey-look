@@ -52,12 +52,16 @@ pub fn close_to_tray(db: &Db) -> bool {
 pub fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let was_hidden = !w.is_visible().unwrap_or(true);
+        let was_minimized = w.is_minimized().unwrap_or(false);
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
-        // a window that was hidden (first show, a tray click after a --minimized start, a second start) is looked at: is the web view still running?
-        if was_hidden {
+        // a window that was hidden or minimized (first show, a tray click after a --minimized start, a second start, a notification) is looked at: is
+        // the web view still running, and does the window show the page (D-057: a white window after a show from the tray)?
+        if was_hidden || was_minimized {
             crate::startup::verify_painting(app);
+        }
+        if was_hidden {
             // Linux: a window that sat in the tray may come back with a white page (linuxview.rs)
             crate::linuxview::after_show(app);
         }
