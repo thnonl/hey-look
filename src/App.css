@@ -123,6 +123,11 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
 .app-loading { display: flex; height: 100vh; align-items: center; justify-content: center; font-size: 22px; font-weight: 600; color: var(--muted); }
+/* A part of the app that is loaded on demand (lazy.tsx, WP9d): the loading look in the place of the part (the ring and "Loading…", as in the list footer), centred; the box is there from the first frame so nothing moves when the part arrives. */
+.lazy-load { flex: 1 1 auto; display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 96px; color: var(--muted); font-size: 13px; }
+.cp-editor > .lazy-load { color: var(--pv-muted); }
+/* a dialog frame replaced by its dialog does not play the opening animation a second time */
+:root[data-lazy-handoff] .modal-back, :root[data-lazy-handoff] .modal { animation: none; }
 
 /* scrollbars */
 * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--muted), transparent 55%) transparent; }

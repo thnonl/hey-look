@@ -80,7 +80,7 @@ function relId(id) {
   const q = s.indexOf("?");
   if (q > 0) s = s.slice(0, q);
   if (path.isAbsolute(s)) s = posix(path.relative(ROOT, s));
-  return s;
+  return s.replace(/^(\.\.\/)+node_modules\//, "node_modules/"); // (a worktree with a node_modules junction to the main clone: the same ids as in the main clone and on CI)
 }
 
 async function buildInto(outDir) {

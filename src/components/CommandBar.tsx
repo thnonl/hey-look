@@ -4,7 +4,7 @@ import { newMail } from "../actions";
 import { useLang, useT } from "../i18n/react";
 import { folderVisible } from "../junk";
 import { folderLabel } from "../prefs";
-import { newEvent } from "./Calendar";
+import { newEvent } from "../newEvent";
 import { useStore } from "../store";
 import { commandsFor } from "../mailControls";
 import { openReader } from "../popout/openReader";

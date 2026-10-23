@@ -247,7 +247,8 @@ if (existsSync(tiptap)) {
   assert.equal(w.composeMounts, 1, "... and the composer is the same instance (see the source guard below)");
 }
 // Source guard: the composer sits in ONE place of the App tree, so a module switch cannot unmount it; the decisions above are what App.tsx uses.
-assert.equal((app.match(/<Compose\b/g) ?? []).length, 1, "App.tsx renders <Compose> in exactly one place");
+assert.equal((app.match(/<LazyCompose\b/g) ?? []).length, 1, "App.tsx renders <LazyCompose> (the composer, loaded on demand: lazyViews.tsx) in exactly one place");
+assert.ok(!/<Compose\b/.test(app), "App.tsx does not import the editor stack: only the lazy wrapper draws the composer");
 assert.match(app, /\(compose \|\| module === "mail"\) &&/, "the reading region (Compose or the reading pane) is the same element in Mail and Calendar");
 assert.match(app, /moduleSwitchKey\(e, \{ inField: false, inCompose, modalOpen \}\)/);
 assert.match(app, /composeSwallowsAppKey\(e, \{ composeOpen: !!st\.compose, inCompose, module: st\.module \}\)/);

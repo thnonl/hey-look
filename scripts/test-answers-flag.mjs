@@ -33,7 +33,7 @@ assert.ok(actions.includes('answers: answersRef("forwarded", m, h.messageId)'), 
 assert.ok(/messageId \? \{ kind, accountId: m\.accountId, messageId \} : undefined/.test(actions), "the original's own account, not the account the answer is sent from");
 const compose = read("src/components/Compose.tsx");
 assert.ok(compose.includes("answers: init.answers,"), "buildDraft carries it (send, schedule, hold, save draft: one object)");
-assert.ok(compose.includes("answers: rc?.answers ?? undefined"), "a saved reply opened from Drafts has it again");
+assert.ok(read("src/draftOpen.ts").includes("answers: rc?.answers ?? undefined"), "a saved reply opened from Drafts has it again");
 assert.ok(compose.includes("...(init.answers ? { answers: init.answers } : {})"), "the crash snapshot keeps it");
 assert.ok(!/answers:\s*undefined/.test(compose), "a window, Undo and a failed send keep it (initOf spreads the init)");
 assert.ok(read("src/api.ts").includes("answers?: AnswersRef | null"), "draft_recipients tells the page");

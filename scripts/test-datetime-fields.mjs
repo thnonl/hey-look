@@ -189,7 +189,7 @@ assert.ok(!NATIVE.test(readFileSync("index.html", "utf8")));
 // ---- the places that had them use the fields
 const src = (p) => readFileSync(p, "utf8");
 const count = (text, re) => (text.match(re) ?? []).length;
-const cal = src("src/components/Calendar.tsx");
+const cal = src("src/components/Calendar.tsx") + src("src/components/MeetingStrip.tsx"); // (the meeting strip moved out of Calendar.tsx, WP9d)
 assert.equal(count(cal, /<DateField\b/g), 4, "event dialog (start, end) and meeting strip (start, end)");
 assert.equal(count(cal, /<TimeField\b/g), 4);
 assert.equal(count(src("src/components/SchedulePicker.tsx"), /<(DateField|TimeField)\b/g), 2, "Send later");

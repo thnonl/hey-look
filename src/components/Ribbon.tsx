@@ -7,7 +7,7 @@ import { api } from "../api";
 import { calTz, today } from "../calendar";
 import { useT } from "../i18n/react";
 import { friendlyError, useStore, scopeOf } from "../store";
-import { newEvent } from "./Calendar";
+import { newEvent } from "../newEvent";
 import { accountsOf, canMoveToJunk } from "../junk";
 import { moveChoices } from "../rowMenu";
 import { folderLabel } from "../prefs";
@@ -15,9 +15,9 @@ import { snoozePresets } from "../util";
 import { ribbonAvailability } from "../composeSelection";
 import { Dropdown, MenuItem } from "./ui";
 
-function Btn({ icon, label, onClick, disabled, title }: { icon: ReactNode; label: string; onClick?: () => void; disabled?: boolean; title?: string }) {
+function Btn({ icon, label, onClick, disabled, title, intent }: { icon: ReactNode; label: string; onClick?: () => void; disabled?: boolean; title?: string; intent?: "editor" }) {
   return (
-    <button className="rb" onClick={onClick} disabled={disabled} title={title ?? label} aria-label={title ?? label}>
+    <button className="rb" data-intent={intent} onClick={onClick} disabled={disabled} title={title ?? label} aria-label={title ?? label}>
       {icon}
       <span>{label}</span>
     </button>
@@ -55,7 +55,7 @@ function HomeTab() {
   return (
     <div className="ribbon-row home">
       <div className="rg">
-        <button className="rb primary" onClick={() => void newMail()}>
+        <button className="rb primary" data-intent="editor" onClick={() => void newMail()}>
           <MailPlus size={18} />
           <span>{t("app.ribbon.newMail")}</span>
         </button>
@@ -76,9 +76,9 @@ function HomeTab() {
         <DdBtn icon={<FolderInput size={16} />} label={t("app.ribbon.moveTo")} disabled={!av.onSelection} items={moveItems} />
       </div>
       <div className="rg">
-        <Btn icon={<Reply size={16} />} label={t("app.ribbon.reply")} disabled={!av.reply} onClick={() => replyLast(false)} />
-        <Btn icon={<ReplyAll size={16} />} label={t("app.ribbon.replyAll")} disabled={!av.reply} onClick={() => replyLast(true)} />
-        <Btn icon={<Forward size={16} />} label={t("app.ribbon.forward")} disabled={!av.forward} title={lastConfidential ? t("app.ribbon.noForward") : undefined} onClick={forwardLast} />
+        <Btn icon={<Reply size={16} />} label={t("app.ribbon.reply")} intent="editor" disabled={!av.reply} onClick={() => replyLast(false)} />
+        <Btn icon={<ReplyAll size={16} />} label={t("app.ribbon.replyAll")} intent="editor" disabled={!av.reply} onClick={() => replyLast(true)} />
+        <Btn icon={<Forward size={16} />} label={t("app.ribbon.forward")} intent="editor" disabled={!av.forward} title={lastConfidential ? t("app.ribbon.noForward") : undefined} onClick={forwardLast} />
       </div>
       <div className="rg">
         <Btn

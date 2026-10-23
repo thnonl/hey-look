@@ -1,7 +1,7 @@
 // The part of the editor that is loaded on demand: the table nodes (prosemirror-tables is about 40 KB) and the picture node with its alignment and link
 // (kitExtensions.ts). The main chunk only holds this loader. The extension set (extensions.ts) takes the nodes from here, so an editor must not be created
-// before they are there: `useKit()` is true once they are (Compose and the signature editor wait for it; the chunk is fetched at start-up, long before a person
-// opens a message, so in practice they never wait).
+// before they are there: `useKit()` is true once they are (Compose and the signature editor wait for it; the loader of the editor chunk, lazyViews.tsx, fetches the kit
+// with it, so in practice they never wait).
 
 import type { AnyExtension } from "@tiptap/react";
 import { useEffect, useState } from "react";
@@ -13,7 +13,13 @@ let pending: Promise<void> | null = null;
 
 /** Fetches the kit (once). */
 export function loadKit(): Promise<void> {
-  pending ??= import("./kitExtensions").then((m) => void (kit = m));
+  pending ??= import("./kitExtensions").then(
+    (m) => void (kit = m),
+    (e: unknown) => {
+      pending = null; // a failure is not remembered: the next try fetches again (WP9d)
+      throw e;
+    },
+  );
   return pending;
 }
 
@@ -29,9 +35,9 @@ export function useKit(): boolean {
   return ready;
 }
 
-// (start-up: the first editor opens a moment later and finds it there; the table, link and picture tools of insertUi.tsx follow, so the first click in a link or a table
-// shows its bubble or bar at once)
+// (this module belongs to the editor chunk, which is fetched when the browser is idle after the first paint: the kit comes with it, and the table, link and picture tools of
+// insertUi.tsx follow a moment later, so the first click in a link or a table shows its bubble or bar at once - they run after the editor chunk, WP9d)
 if (typeof window !== "undefined") {
-  setTimeout(() => void loadKit(), 800);
-  setTimeout(() => void import("./insertUi"), 2500);
+  setTimeout(() => void loadKit().catch(() => undefined), 800);
+  setTimeout(() => void import("./insertUi").catch(() => undefined), 2500);
 }

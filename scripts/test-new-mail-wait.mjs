@@ -27,6 +27,8 @@ const keyC = async () => {
 const toast = () => evaluate(`(() => { const t = document.querySelector('.toasts .toast'); return t ? { text: t.textContent.trim(), spinner: !!t.querySelector('.spin, .busy, [class*=spin]'), buttons: [...t.querySelectorAll('.toast-act')].map((b) => b.textContent.trim()), count: document.querySelectorAll('.toasts .toast').length } : null; })()`);
 const composes = () => evaluate(`document.querySelectorAll('.compose-pane').length`);
 const loadingScreen = () => evaluate(`!!document.querySelector('.app-loading')`);
+// (the message is a chunk of its own, WP9d: after the mailboxes arrive it is fetched first - wait for the pane, then 1.2 s more in which a second one could still appear)
+const untilCompose = async (ms = 20000) => { const t0 = Date.now(); while (Date.now() - t0 < ms && (await composes()) < 1) await sleep(100); await sleep(1200); };
 
 /** Loads the preview with the switches and returns as soon as the page runs (the store is not up when the delay is long). */
 async function load(hash, before) {
@@ -52,7 +54,7 @@ try {
   ok(w && w.count === 1, `${w?.count} messages for three presses, expected one`);
   ok(await composes() === 0, 'a message opened before the mailboxes were read');
   await untilUi(8000);
-  await sleep(1500);
+  await untilCompose();
   ok(await composes() === 1, `${await composes()} messages open after the mailboxes arrived, expected one`);
   const after = await toast();
   ok(!after || !/Opening a new message/.test(after.text), 'the waiting message is still there after the message opened');
@@ -64,7 +66,7 @@ try {
   const t = await toast();
   ok(!!t && /Opening a new message/.test(t.text), `the tray request shows the waiting message while the mailboxes are read: ${JSON.stringify(t)}`);
   await untilUi(8000);
-  await sleep(1500);
+  await untilCompose();
   ok(await composes() === 1, `${await composes()} messages after the tray request, expected one`);
   ok(await evaluate(`window.__trayCompose === false`), 'the page did not take the request from the backend');
 
@@ -103,7 +105,7 @@ try {
     await sleep(30_000);
     await errorToast();
     await untilUi(12_000);
-    await sleep(1500);
+    await untilCompose();
     ok(await composes() === 1, `${await composes()} messages after the mailboxes arrived behind the error message, expected one`);
     ok(!(await toast()), `the error message is still there: ${JSON.stringify(await toast())}`);
     await sleep(1000);
@@ -121,7 +123,7 @@ try {
     ok(!!again && /Opening a new message/.test(again.text), `Retry before the mailboxes arrived should wait again: ${JSON.stringify(again)}`);
     ok(await composes() === 0, 'Retry opened a message before the mailboxes arrived');
     await untilUi(12_000);
-    await sleep(1500);
+    await untilCompose();
     ok(await composes() === 1, `${await composes()} messages after Retry, expected one`);
     ok(!(await toast()), 'a message is still shown after the message opened');
 

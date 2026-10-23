@@ -70,7 +70,8 @@ moveStart(hour, { st: "11:00" }, false);
 assert.equal(JSON.stringify(hour), before);
 
 // ---- the end alone never moves the start: both dialogs set the end fields directly; the start only ever goes through moveStart
-const cal = readFileSync(new URL("../src/components/Calendar.tsx", import.meta.url), "utf8");
+// (the meeting strip lives in MeetingStrip.tsx since WP9d)
+const cal = readFileSync(new URL("../src/components/Calendar.tsx", import.meta.url), "utf8") + readFileSync(new URL("../src/components/MeetingStrip.tsx", import.meta.url), "utf8");
 assert.match(cal, /onChange=\{\(v\) => \(setEd\(v\), touch\(\)\)\}/, "event dialog: the end date sets the end date only");
 assert.match(cal, /onChange=\{\(v\) => \(setEt\(v\), touch\(\)\)\}/, "event dialog: the end time sets the end time only");
 assert.match(cal, /onChange=\{\(v\) => set\(\{ ed: v \}\)\}/, "meeting strip: the end date sets the end date only");

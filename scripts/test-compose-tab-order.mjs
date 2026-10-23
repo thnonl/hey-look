@@ -3,7 +3,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const src = readFileSync(new URL("../src/components/Compose.tsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+// (the recipient field lives in RecipientField.tsx since WP9d; it comes first in the text, as it did in Compose.tsx)
+const src = (readFileSync(new URL("../src/components/RecipientField.tsx", import.meta.url), "utf8") + readFileSync(new URL("../src/components/Compose.tsx", import.meta.url), "utf8")).replace(/\r\n/g, "\n");
 
 // 1. The "Cc" / "Bcc" show-links are not in the Tab order, so the DOM order To -> Subject has no stop between them.
 // (the visible texts are dictionary keys now: {t("compose.cc")} shows "Cc", {t("compose.bcc")} shows "Bcc")

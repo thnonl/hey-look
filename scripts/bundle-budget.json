@@ -1,12 +1,12 @@
 {
   "policy": "Bundle budget of the production frontend, checked by scripts/check-bundle-budget.mjs (CI static shard). KB = 1,000 bytes. Raising a value = a change of this file in the branch, with a `history` entry and a reason, approved by the BA at the merge. Every value needs a reason; the script refuses the file otherwise.",
   "initialJsGzip": {
-    "bytes": 519687,
-    "reason": "B1 after WP9c. Measured 483,687 B (entry chunk + static import closure, gzip level 9 per file; English dictionary only, every other language is its own chunk) + 36,000 B allowance for the work packages that land before WP9d. Lowered again by WP9d (final: 370,000 B, WP9d must land at 330,000 B or less)."
+    "bytes": 370000,
+    "reason": "B1, the final budget of spec-107-wp9 section 2.1 (from the WP9d merge). Measured at WP9d: 280,882 B (entry chunk + static import closure, gzip level 9 per file; the editor stack, Settings, the Calendar views, the PGP dialogs and the pop-out views are chunks of their own). WP9d had to land at 330,000 B or less. Raising it needs a history entry, a measured reason, the BA and at most +10,000 B per work package (DEC-015)."
   },
   "initialJsRaw": {
-    "bytes": 1699399,
-    "reason": "B2 after WP9c. Measured 1,589,399 B + 110,000 B allowance for the work packages that land before WP9d. Final: 1,300,000 B (WP9d)."
+    "bytes": 1300000,
+    "reason": "B2, the final budget of spec-107-wp9 section 2.1 (from the WP9d merge). Measured at WP9d: 872,788 B."
   },
   "langChunkGzip": {
     "bytes": 55000,
@@ -17,8 +17,8 @@
     "reason": "B4. No lazy chunk of the 1.0.7 release is above 21 KB gzip today; 170 KB leaves room for the PDF.js module of WP5 only through a named exception."
   },
   "cssGzip": {
-    "bytes": 26005,
-    "reason": "B5. Measured 22,005 B + 4,000 B allowance; one render-blocking stylesheet. Final: 26,000 B."
+    "bytes": 26000,
+    "reason": "B5, the final budget of spec-107-wp9 section 2.1. Measured at WP9d: 24,074 B (one render-blocking stylesheet)."
   },
   "exceptions": [],
   "mustBeLazy": [
@@ -29,6 +29,19 @@
     { "module": "src/editor/FindBar.tsx", "reason": "Find bar, loaded when opened", "since": "1.0.5" },
     { "module": "src/editor/changeCase.ts", "reason": "Change case, loaded when used", "since": "1.0.5" },
     { "module": "src/editor/findReplace.ts", "reason": "Find and replace, loaded when used", "since": "1.0.5" },
+    { "module": "src/components/Compose.tsx", "reason": "the composer (editor stack), a chunk of its own: fetched when the browser is idle after the first paint and when a pointer reaches a Reply / New mail button (lazyViews.tsx)", "since": "1.0.7" },
+    { "module": "src/components/RichEditor.tsx", "reason": "the editor of the signatures and templates, with Settings", "since": "1.0.7" },
+    { "module": "src/components/LinkPopover.tsx", "reason": "the link bubble of the editors, with the editor stack", "since": "1.0.7" },
+    { "module": "src/components/RecipientField.tsx", "reason": "the recipient box, with the composer and the event dialog (a shared chunk, never in the main chunk)", "since": "1.0.7" },
+    { "module": "src/components/SettingsDialog.tsx", "reason": "the Settings dialog, loaded on open (the frame of the dialog is drawn at once)", "since": "1.0.7" },
+    { "module": "src/components/Updates.tsx", "reason": "the updates block of Settings, with Settings", "since": "1.0.7" },
+    { "module": "src/components/Calendar.tsx", "reason": "the Calendar views, its side menu and the event dialog, loaded on the first switch to Calendar / the first event dialog", "since": "1.0.7" },
+    { "module": "src/components/PgpDialogs.tsx", "reason": "Generate key, Import key, Key details and the passphrase question, loaded on open (the badges and cards of the reading pane stay in Pgp.tsx)", "since": "1.0.7" },
+    { "module": "src/components/Dialogs.tsx", "reason": "the bulk cleaner and Show original, loaded on open", "since": "1.0.7" },
+    { "module": "src/popout/ComposeView.tsx", "reason": "the view of the compose window, a chunk of its own, only in that window", "since": "1.0.7" },
+    { "module": "src/popout/ReaderView.tsx", "reason": "the view of the reader window, a chunk of its own, only in that window (it never loads the editor)", "since": "1.0.7" },
+    { "module": "node_modules/prosemirror-*", "reason": "the editor engine, with the editor stack", "since": "1.0.7" },
+    { "module": "node_modules/@tiptap/*", "reason": "the editor framework, with the editor stack", "since": "1.0.7" },
     { "module": "src/editor/emojiSearch.ts", "reason": "emoji search and the loader of the names, with the picker", "since": "1.0.7" },
     { "module": "src/editor/emojiData.ts", "reason": "the emoji list, with the picker", "since": "1.0.7" },
     { "module": "src/editor/emojiNames/en.json", "reason": "CLDR emoji names (en), one chunk per language, fetched when the picker opens", "since": "1.0.7" },
@@ -77,6 +90,10 @@
     { "date": "2026-10-19", "branch": "feature/v107-wp9a", "field": "all", "old": null, "new": "interim budgets", "reason": "First version: measured on the branch head (cf70a5a + W9.9) plus the allowances of spec-107-wp9 section 2.1." },
     { "date": "2026-10-24", "branch": "feature/v107-wp9c", "field": "initialJsGzip", "old": 783042, "new": 519687, "reason": "WP9c lowered (DEC-015, REQ-9.0.6): measured 483,687 B (was 767,510 B at the branch start, -283,823 B) + 36,000 B." },
     { "date": "2026-10-24", "branch": "feature/v107-wp9c", "field": "initialJsRaw", "old": 2762417, "new": 1699399, "reason": "WP9c lowered: measured 1,589,399 B (was 2,721,500 B) + 110,000 B." },
-    { "date": "2026-10-24", "branch": "feature/v107-wp9c", "field": "langChunkGzip", "old": null, "new": 55000, "reason": "WP9c: B3 comes into force (the largest chunk, ru, is 49,405 B gzip)." }
+    { "date": "2026-10-24", "branch": "feature/v107-wp9c", "field": "langChunkGzip", "old": null, "new": 55000, "reason": "WP9c: B3 comes into force (the largest chunk, ru, is 49,405 B gzip)." },
+    { "date": "2026-10-24", "branch": "feature/v107-wp9d", "field": "initialJsGzip", "old": 519687, "new": 370000, "reason": "WP9d lowered to the final budget (DEC-015, REQ-9.2.7): measured 280,882 B (was 486,351 B at the branch start, -205,469 B); the spec asked for 330,000 B or less." },
+    { "date": "2026-10-24", "branch": "feature/v107-wp9d", "field": "initialJsRaw", "old": 1699399, "new": 1300000, "reason": "WP9d lowered to the final budget: measured 872,788 B (was 1,597,637 B)." },
+    { "date": "2026-10-24", "branch": "feature/v107-wp9d", "field": "cssGzip", "old": 26005, "new": 26000, "reason": "WP9d lowered to the final budget: measured 24,074 B (+ the loading look and the dialog hand-off, 62 B)." },
+    { "date": "2026-10-24", "branch": "feature/v107-wp9d", "field": "mustBeLazy", "old": null, "new": "13 modules", "reason": "B6 final list: Compose, RichEditor, LinkPopover, RecipientField, SettingsDialog, Updates, Calendar (views and event dialog), PgpDialogs, Dialogs, ComposeView, ReaderView, prosemirror-*, @tiptap/*." }
   ]
 }

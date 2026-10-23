@@ -7,7 +7,7 @@
 // Pure functions only (no React, no Tauri), so scripts/test-meeting-draft.mjs runs them as they are. The text is checked on the way in: whatever
 // does not look exactly like a form we wrote is ignored (the draft opens without a meeting, as before).
 
-/** The fields of the meeting strip (components/Calendar.tsx MeetingState), as typed in its inputs. */
+/** The fields of the meeting strip (components/MeetingStrip.tsx MeetingState), as typed in its inputs. */
 export interface MeetingForm {
   sd: string;
   st: string;

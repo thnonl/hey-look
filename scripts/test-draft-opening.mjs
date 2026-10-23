@@ -163,7 +163,7 @@ await check('compose.draft.opening is in all 8 languages, with the text the lang
 await check('the compose window shows the status until its Compose is ready', async () => {
   const v = read('src/popout/ComposeView.tsx');
   assert.ok(/useDelayedFlag\(!ready && isObj\(init\) && typeof init\.replaces === "string" && init\.replaces\.startsWith\("m:"\)\)/.test(v) && /draftBusy && !ready/.test(v) && /compose\.draft\.opening/.test(v), 'ComposeView');
-  const c = read('src/components/Compose.tsx');
+  const c = read('src/draftOpen.ts'); // (openDraftThread and the ring moved out of Compose.tsx, WP9d)
   assert.ok(/setOpeningDraft\(threadId\)[\s\S]{0,300}finally \{\s*if \(ringOwner === mine\) useStore\.getState\(\)\.setOpeningDraft\(null\)/.test(c), 'openDraftThread owns the ring and clears it in a finally');
 });
 

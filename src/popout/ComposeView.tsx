@@ -17,7 +17,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { orderAccounts } from "../accountOrder";
 import { api } from "../api";
 import { configureCalendar } from "../calendar";
-import { Compose } from "../components/Compose";
+import { Compose, loadEditorKit } from "../components/Compose";
 import { PassphraseHost } from "../components/Pgp";
 import { t as tNow } from "../i18n";
 import { loadPlatform } from "../platform";
@@ -41,6 +41,9 @@ const SEND_TOAST = "compose-send";
 type Level = "info" | "success" | "error";
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+
+/** The loader of this view (lazyViews.tsx) waits for this too: the nodes of the editor kit come with the window's view, so the body is there when the window shows (REQ-9.2.3). */
+export const ready = (): Promise<void> => loadEditorKit();
 
 export default function ComposeView({ label, init }: PopoutViewProps) {
   const prefs = useStore((s) => s.prefs);

@@ -43,7 +43,7 @@ const walk = (dir) => readdirSync(new URL(`../${dir}/`, import.meta.url)).flatMa
 });
 const direct = walk("src").filter((f) => /clipboard\??\.writeText/.test(read(f)) && !["src/open.ts", "src/protect.ts", "src/devMock.ts"].includes(f));
 assert.deepEqual(direct, [], `direct navigator.clipboard.writeText in: ${direct.join(", ")}`);
-for (const [file, key] of [["src/components/Dialogs.tsx", "app.original.copied"], ["src/components/Pgp.tsx", "pgp.copied"], ["src/components/Pgp.tsx", "pgp.details.publicCopied"], ["src/components/ReadingPane.tsx", "reading.msg.copied"], ["src/popout/ReaderView.tsx", "reading.msg.copied"]]) {
+for (const [file, key] of [["src/components/Dialogs.tsx", "app.original.copied"], ["src/components/PgpDialogs.tsx", "pgp.copied"], ["src/components/PgpDialogs.tsx", "pgp.details.publicCopied"], ["src/components/ReadingPane.tsx", "reading.msg.copied"], ["src/popout/ReaderView.tsx", "reading.msg.copied"]]) {
   const src = read(file);
   const at = src.indexOf(`"${key}"`);
   const line = src.slice(src.lastIndexOf("\n", at), src.indexOf("\n", at));

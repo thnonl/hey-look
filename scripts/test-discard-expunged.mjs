@@ -41,7 +41,7 @@ async function opened(flags = '') {
   await sleep(300);
   const saved = await drafts();
   assert.equal(saved.length, 1, 'the first draft was not saved');
-  await evaluate(`${mod('/src/components/Compose.tsx')}.then((m) => m.openDraftThread(${JSON.stringify(saved[0].id)}, true))`);
+  await evaluate(`${mod('/src/draftOpen.ts')}.then((m) => m.openDraftThread(${JSON.stringify(saved[0].id)}, true))`);
   await waitPane();
   return saved[0].id;
 }

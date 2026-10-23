@@ -171,7 +171,7 @@ assert.match(guard, /if \(policy === "native" \|\| p\.own\) return;/, "a field a
 // the screens
 assert.match(read("src/components/ReadingPane.tsx"), /lockedNow\.current \? undefined : guardFrame\(frame, doc\)/, "the message frame has it, confidential mail has no menu at all");
 assert.match(read("src/components/ReadingPane.tsx"), /className="rp-from ellipsis" data-email=\{m\.fromEmail\}/, "the sender of a message in the reader");
-assert.match(read("src/components/Compose.tsx"), /data-email=\{EMAIL\.test\(bareAddress\(v\)\) \? bareAddress\(v\) : undefined\}/, "a recipient chip in Compose");
+assert.match(read("src/components/RecipientField.tsx"), /data-email=\{EMAIL\.test\(bareAddress\(v\)\) \? bareAddress\(v\) : undefined\}/, "a recipient chip in Compose");
 assert.match(read("src/components/ListContextMenu.tsx"), /"data-own-menu"/);
 assert.match(read("src/components/AccountReorder.tsx"), /"data-own-menu"/);
 // links are opened by the reading pane's own click path (look-alike warning, safe external opener); the webview never navigates

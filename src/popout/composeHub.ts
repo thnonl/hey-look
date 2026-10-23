@@ -2,7 +2,7 @@
 // which the backend sends to `main` only, with the label of the caller stamped on it). Registered next to the reader's handler in App.tsx.
 import { listen } from "@tauri-apps/api/event";
 import { api } from "../api";
-import { openDraftThread, picturesToEditor } from "../components/Compose";
+import { openDraftThread, picturesToEditor } from "../draftOpen";
 import { t } from "../i18n";
 import { friendlyError, useStore, type Dialog } from "../store";
 import { fmtWhen } from "../util";

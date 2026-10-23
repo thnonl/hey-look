@@ -28,11 +28,12 @@ assert.equal(keyProblemKey(undefined, "chipTitle"), "compose.rcpt.keyMissing");
 const api = read("src/api.ts");
 assert.match(api, /export type KeyStatus = "ok" \| "missing" \| "expired" \| "revoked" \| "signOnly";/);
 const compose = read("src/components/Compose.tsx");
-assert.ok(compose.includes('keyProblemKey(keys[keyPop].status, "chipTitle")') && compose.includes('keyProblemKey(keys[keyPop].status, "chipHelp")'), "the chip popover uses the status");
+const rcpt = read("src/components/RecipientField.tsx"); // (the recipient field moved out of Compose.tsx, WP9d)
+assert.ok(rcpt.includes('keyProblemKey(keys[keyPop].status, "chipTitle")') && rcpt.includes('keyProblemKey(keys[keyPop].status, "chipHelp")'), "the chip popover uses the status");
 assert.ok(compose.includes('keyProblemKey(st, "strip")') && /st === "expired" \|\| st === "revoked" \|\| st === "signOnly"/.test(compose), "the strip names the status of the first recipient with a problem");
 assert.ok(!compose.includes('"compose.rcpt.keyExpired"') && !compose.includes('"compose.sec.theirExpired"'), "the texts are not chosen by hand any more");
 // the native tooltip of the chip says the same as the popover (it said "No usable public key" for a key that can only sign: 1.0.7 WP2a QA BUG-3)
-assert.ok(compose.includes('t(keyProblemKey(ks?.status, "chipTitle"), { addr }) : v)'), "the title of a chip with a key problem is the popover's title");
+assert.ok(rcpt.includes('t(keyProblemKey(ks?.status, "chipTitle"), { addr }) : v)'), "the title of a chip with a key problem is the popover's title");
 assert.ok(!compose.includes("compose.rcpt.noUsableKey"), "the old generic title is gone");
 const rust = read("src-tauri/src/pgpstore.rs");
 assert.ok(rust.includes('(None, Some(Unusable::NoEncryptionKey)) =>') && rust.includes('status: "signOnly".into()'), "the backend reports signOnly");

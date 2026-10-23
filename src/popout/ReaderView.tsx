@@ -16,7 +16,7 @@ import { copyToClipboard } from "../open";
 import { AiRunning, hasFrame, MessageCard, TRANSLATE_TO, translateMessage, useKeepReadingPosition } from "../components/ReadingPane";
 import { isHeavy, RpBody, useOpeningPending } from "../openStatus";
 import { usePrinting } from "../printStatus";
-import { ShowOriginal } from "../components/Dialogs";
+import { LazyShowOriginal } from "../lazyViews";
 import { needsCard, PassphraseHost } from "../components/Pgp";
 import { Dropdown } from "../components/ui";
 import { t as tNow } from "../i18n";
@@ -499,7 +499,7 @@ function Reader({ info }: { info: ReaderInit }) {
           ))}
         </RpBody>
       </section>
-      {dialog?.type === "original" && <ShowOriginal messageId={dialog.messageId} />}
+      {dialog?.type === "original" && <LazyShowOriginal messageId={dialog.messageId} />}
       <PassphraseHost />
     </div>
   );
