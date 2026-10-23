@@ -68,7 +68,7 @@ export default defineLocale<typeof ns.en>({
   "calendar.side.paused": "{email}のカレンダー同期は一時停止中です。",
   "calendar.side.pausedGeneric": "このメールボックスのカレンダー同期は一時停止中です。",
   "calendar.side.fix": "設定で修正",
-  "calendar.side.offer": "{email}の{service}のカレンダーも、ここに表示しますか？",
+  "calendar.side.offer": "{email}の{service}のカレンダーも表示しますか？",
   "calendar.side.offerOn": "オンにする…",
   "calendar.side.offerLater": "今はしない",
   // ---- event popover
