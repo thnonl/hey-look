@@ -639,7 +639,7 @@ jobs:
       # WP14: the exe of this build goes into the Microsoft Store package (job msix) byte for byte; the sha256 is on both run summaries.
       - name: Keep hey-look.exe for the Store package
         if: runner.os == 'Windows' && needs.plan.outputs.msix == 'true' && steps.sign.outputs.profile == 'release'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows-exe
           path: src-tauri/target/release/hey-look.exe
@@ -708,7 +708,7 @@ jobs:
 
       - name: Upload the unsigned Windows installers
         if: runner.os == 'Windows' && needs.plan.outputs.signpath == 'true' && steps.sign.outputs.profile == 'release'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows-unsigned
           path: unsigned/*
@@ -719,7 +719,7 @@ jobs:
       # macOS update package (.app.tar.gz, not an installer artifact) that its signature belongs to
       - name: Keep the signatures of a dry run
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: signatures-${{ runner.os }}
           path: |
@@ -878,7 +878,7 @@ jobs:
       - name: Hand the installers to SignPath
         id: up
         if: steps.cfg.outputs.enabled == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows-for-signpath
           path: unsigned/*
@@ -973,7 +973,7 @@ jobs:
 
       - name: Keep the signed installers of a dry run
         if: steps.cfg.outputs.enabled == 'true' && github.event_name != 'push'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows-signed
           path: out/*
@@ -1290,7 +1290,7 @@ jobs:
           rm -rf "$RUNNER_TEMP/gnupg-throwaway"
 
       - name: Keep the repository of this dry run
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: apt-repo-dryrun
           path: repo
@@ -1388,7 +1388,7 @@ jobs:
       # what the owner uploads to Partner Center (tag runs only, never the GitHub release)
       - name: Keep the package for Partner Center
         if: github.event_name == 'push'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ steps.build.outputs.ready == 'true' && 'msix-store' || 'msix-store-NOT-READY' }}
           path: msix-out/HeyLook_*_x64.msix
@@ -1396,7 +1396,7 @@ jobs:
           if-no-files-found: error
 
       - name: Keep the Store listing images
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: msix-store-logos
           path: msix-out/store/*.png
@@ -1405,7 +1405,7 @@ jobs:
 
       # the test-signed copy and its PUBLIC certificate (msix-check, Windows Sandbox)
       - name: Keep the test-signed copy
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: msix-test
           path: |
@@ -1443,7 +1443,7 @@ jobs:
 
       - name: Keep the certification kit report
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: msix-wack-report
           path: ${{ runner.temp }}\wack-report.xml
@@ -1608,7 +1608,7 @@ jobs:
 
       - name: Keep the installer of a dry run
         if: github.event_name != 'push'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: store-exe-dryrun
           path: ${{ steps.file.outputs.name }}
