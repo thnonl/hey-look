@@ -22,6 +22,16 @@
 //! back) is no longer a blank window and a line in the log: the person gets a native message box that says the app could not
 //! load its interface and why that usually is, with Retry, Open log folder and Quit (`loadfail.rs` is the state machine; the
 //! texts are the Rust ones of `i18n`, since the page is what is missing).
+//!
+//! 1.0.7 (D-057): a window that is shown from the tray can be WHITE although everything above says it is fine (owner, 1.0.6, after a
+//! restart of the machine: the autostarted app was opened 53 s later, the log said "the web view is running ... visible", "page state
+//! after show: visibility=visible, animation frames=true", no cure ran). The page reports `visible` and gets frames in that window
+//! too, and the browser process is alive: only the pixels tell. So the looks after a show now include one that reads the pixels of the
+//! window FROM THE SCREEN (`screen_probe`): what the desktop compositor shows, with a copy that never reaches the web view's processes
+//! (the `PrintWindow` read of round 10 asked the browser process to render, and that is what crashed it with an overlay hook). Points
+//! covered by another window are left out, a window that is not on screen (cloaked, minimized, locked desktop) gives no verdict. A
+//! window of one colour 1 s after the show, or at any look after a cure, walks the ladder below: re-assert the web view, nudge its size
+//! by 1 px, hide + show, reload, restart; every step logs a line and the look that follows says which one cured it.
 // (the restart, the failure reaction and the escalation need the Windows web view's events: other systems compile them unused)
 #![cfg_attr(not(windows), allow(dead_code))]
 use crate::webview_health::{self, BrowserState, Reaction};
@@ -212,67 +222,170 @@ fn hide_and_show(app: &AppHandle, why: &str) {
     });
 }
 
-/// True when the sampled pixels are one single colour: nothing is painted (the black window, or a white one). Pure, for the test.
-pub fn is_blank(samples: impl IntoIterator<Item = [u8; 3]>) -> bool {
-    let mut first: Option<[u8; 3]> = None;
-    for p in samples {
-        match first {
-            None => first = Some(p),
-            Some(f) if f != p => return false,
-            _ => {}
-        }
-    }
-    true
+/// What a look at the pixels of the shown window found.
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum Paint {
+    /// More than one colour: the page is on screen.
+    Painted,
+    /// One colour over the whole area (the web view's background, or black): nothing of the page is on screen.
+    Blank,
+    /// No verdict (the window is not on screen, other windows cover it, the copy failed).
+    Unknown,
 }
 
-/// When, after a window was shown, the web view is looked at (ms after the show), and whether the look reads the window's pixels.
+/// The share of the sampled points one colour must reach for the area to count as blank. A web view that is not presented shows its one
+/// background colour everywhere (measured: 100 %, or 97.4 % when the taskbar lies over a hit-test transparent strip of the window's own area); a
+/// real screen has a side bar, a list and text, and none of them is 95 % one colour (the dark QA screen: 40 to 47 %).
+pub const BLANK_SHARE: f64 = 0.95;
+/// At least this share of the grid points must lie on the window itself (not on a window in front of it) for a look to be a verdict.
+pub const OWNED_SHARE: f64 = 0.6;
+/// The grid of points that are read: columns x rows over the client area (2560 points: the copy is the cost, not the count).
+pub const GRID: (usize, usize) = (64, 40);
+
+/// The verdict and the numbers behind it (they go to `startup.log`).
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub struct Judged {
+    pub paint: Paint,
+    /// The share of the points that have the most common colour.
+    pub top_share: f64,
+    pub top: [u8; 3],
+    pub colours: usize,
+}
+
+/// Judge the sampled points (`asked` = how many points were meant to be read; the rest lay on other windows). Pure, for the test.
+pub fn judge(samples: &[[u8; 3]], asked: usize) -> Judged {
+    let mut counts: std::collections::HashMap<[u8; 3], usize> = std::collections::HashMap::new();
+    for &p in samples {
+        *counts.entry(p).or_insert(0) += 1;
+    }
+    let (top, n) = counts.iter().max_by_key(|(c, n)| (**n, std::cmp::Reverse(**c))).map(|(c, n)| (*c, *n)).unwrap_or(([0, 0, 0], 0));
+    let top_share = if samples.is_empty() { 0.0 } else { n as f64 / samples.len() as f64 };
+    let enough = !samples.is_empty() && asked > 0 && samples.len() as f64 >= asked as f64 * OWNED_SHARE;
+    let paint = if !enough {
+        Paint::Unknown
+    } else if top_share >= BLANK_SHARE {
+        Paint::Blank
+    } else {
+        Paint::Painted
+    };
+    Judged { paint, top_share, top, colours: counts.len() }
+}
+
+/// The points that are read: `cols` x `rows` evenly spread over a `w` x `h` area, 4 px in from its edges. Pure, for the test.
+pub fn grid_points(w: i32, h: i32, cols: usize, rows: usize) -> Vec<(i32, i32)> {
+    if w < 16 || h < 16 || cols < 2 || rows < 2 {
+        return vec![];
+    }
+    let mut out = Vec::with_capacity(cols * rows);
+    for j in 0..rows {
+        for i in 0..cols {
+            out.push((4 + (w - 9) * i as i32 / (cols as i32 - 1), 4 + (h - 9) * j as i32 / (rows as i32 - 1)));
+        }
+    }
+    out
+}
+
+/// One look after a show: when (ms after the show), whether it reads the screen, and whether it reads with `PrintWindow` (the diagnostic).
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub struct Look {
+    pub ms: u64,
+    pub screen: bool,
+    pub print: bool,
+}
+
+/// When, after a window was shown, the web view is looked at. Every look asks the process and the window manager (is the browser process
+/// there, is the web view's own window there, how big, visible?); the first three also read the screen (300 ms, 1 s, 3 s: D-057).
 ///
 /// QA BUG-11 (evidence in `webview_health.rs`): reading the window's pixels with `PrintWindow(PW_RENDERFULLCONTENT)`, the way a
 /// screenshot does, asks the web view's browser process to render the window for the capture. On the QA PC, where a graphics overlay
 /// hook (`RTSSHooks64.dll`) sits in that process, the call stalled for 0.3 to 0.9 s and the browser process crashed (an access violation
 /// in the hook) in 3 of 3 blank starts of round 6, exactly at the capture 2.5 s after the show; the window stayed white for good. The
-/// check that was meant to find a blank window was making it. So by default no look reads pixels: the looks ask the process (still
-/// running?) and the window manager (is the web view's own window there, how big, visible?), neither of which sends the browser
-/// process anything, and the failure event of `webview_health` reports a death at once. The pixel read stays as a diagnostic that is
-/// switched on with `HEYLOOK_PIXEL_CHECK=1` (a machine without such hooks, a QA run that wants it).
-const LOOKS_MS: [u64; 5] = [1500, 2500, 4000, 8000, 15000];
+/// check that was meant to find a blank window was making it. So `PrintWindow` stays a diagnostic that is switched on with
+/// `HEYLOOK_PIXEL_CHECK=1`; the default read copies from the SCREEN (`GetDC(NULL)` + `BitBlt`), which is the desktop compositor's output
+/// and sends the browser process nothing.
+const LOOKS_MS: [u64; 5] = [300, 1000, 3000, 8000, 15000];
+/// How many of `LOOKS_MS` read the screen.
+const SCREEN_LOOKS: usize = 3;
 /// After a step of the escalation (it needs an answer sooner).
-const STEP_LOOKS_MS: [u64; 2] = [1500, 4000];
+const STEP_LOOKS_MS: [u64; 2] = [700, 2000];
+/// A blank window is left alone at the first look (a window that was just shown may need a moment); from this look on it is cured.
+pub const CURE_FROM_MS: u64 = 1000;
 
-/// Whether the diagnostic pixel read is on (`HEYLOOK_PIXEL_CHECK=1`).
+/// Whether the diagnostic `PrintWindow` read is on (`HEYLOOK_PIXEL_CHECK=1`).
 fn pixel_check_enabled() -> bool {
     std::env::var("HEYLOOK_PIXEL_CHECK").is_ok_and(|v| v == "1")
 }
 
-/// The looks of a run: `(ms after the show, reads pixels)`. Pixels only when the diagnostic is on, and never in the first seconds.
-pub fn schedule(in_ladder: bool, pixels_on: bool) -> Vec<(u64, bool)> {
+/// The looks of a run. The screen is read at the first three looks (every look of the escalation); `PrintWindow` only when the diagnostic is
+/// on, and never in the first seconds of a normal run.
+pub fn schedule(in_ladder: bool, print_on: bool) -> Vec<Look> {
     let times: &[u64] = if in_ladder { &STEP_LOOKS_MS } else { &LOOKS_MS };
-    times.iter().map(|&ms| (ms, pixels_on && (in_ladder || ms >= 8000))).collect()
+    times
+        .iter()
+        .enumerate()
+        .map(|(i, &ms)| Look { ms, screen: in_ladder || i < SCREEN_LOOKS, print: print_on && (in_ladder || ms >= 8000) })
+        .collect()
+}
+
+/// Whether a look that found `seen` starts the next step of the escalation: a blank window at 1 s or later, and any blank window after a
+/// step (the look that judges it). Pure, for the test.
+pub fn cure_needed(in_ladder: bool, ms: u64, seen: Paint) -> bool {
+    seen == Paint::Blank && (in_ladder || ms >= CURE_FROM_MS)
 }
 
 /// Set once the escalation has started: later looks use `STEP_LOOKS_MS`.
 static IN_LADDER: AtomicBool = AtomicBool::new(false);
+/// Steps of the escalation taken since the window last showed content.
+static STEPS_TAKEN: AtomicU32 = AtomicU32::new(0);
 /// The step taken last, until a look says whether it helped.
 static LAST_STEP: Mutex<Option<&'static str>> = Mutex::new(None);
+/// Raised by every `verify_painting`: a look thread whose number is no longer the latest ends (a second show while it still waits).
+static LOOK_GEN: AtomicU32 = AtomicU32::new(0);
 
 /// The step the last escalation took, if no look has judged it yet (taken: it is judged once).
 fn judged_step() -> Option<&'static str> {
     LAST_STEP.lock().unwrap_or_else(|p| p.into_inner()).take()
 }
 
-/// Look at the web view at the times of `schedule` after the window was shown, on its own thread: a browser process that is gone (or,
-/// with the diagnostic on, a window of one colour) starts the escalation. A healthy window is only looked at.
+/// The window showed content: the next blank window starts the ladder from its first step again (a run that is open for weeks shows its
+/// window many times; the limits that must hold for ever are those of the restarts, `restart_allowed`).
+fn ladder_done() {
+    if IN_LADDER.swap(false, Ordering::SeqCst) {
+        *LADDER.lock().unwrap_or_else(|p| p.into_inner()) = Ladder::default();
+        REMEDIES.store(0, Ordering::SeqCst);
+    }
+    STEPS_TAKEN.store(0, Ordering::SeqCst);
+}
+
+/// The text of a look at the screen for `startup.log`.
+pub fn describe(j: &Judged, took_ms: u128) -> String {
+    let pct = (j.top_share * 100.0).round();
+    match j.paint {
+        Paint::Painted => format!("the window shows content (most common colour {pct} %, {} colours, read in {took_ms} ms)", j.colours),
+        Paint::Blank => format!("one colour only (rgb {},{},{} on {pct} % of the points, {} colours): a blank window; read in {took_ms} ms", j.top[0], j.top[1], j.top[2], j.colours),
+        Paint::Unknown => "no verdict (too few points of the window are on screen)".into(),
+    }
+}
+
+/// Look at the web view at the times of `schedule` after the window was shown, on its own thread: a browser process that is gone, or a
+/// window of one colour, starts the escalation. A healthy window is only looked at.
 pub fn verify_painting(app: &AppHandle) {
     if !cfg!(windows) {
         return;
     }
     let app = app.clone();
+    let mine = LOOK_GEN.fetch_add(1, Ordering::SeqCst) + 1;
     std::thread::spawn(move || {
-        let looks = schedule(IN_LADDER.load(Ordering::SeqCst), pixel_check_enabled());
+        let in_ladder = IN_LADDER.load(Ordering::SeqCst);
+        let looks = schedule(in_ladder, pixel_check_enabled());
         let mut at = 0;
-        for (ms, pixels) in looks {
+        for look in looks {
+            let ms = look.ms;
             std::thread::sleep(Duration::from_millis(ms - at));
             at = ms;
+            if LOOK_GEN.load(Ordering::SeqCst) != mine {
+                return; // the window was shown again meanwhile: that show has its own looks
+            }
             let shown = app.get_webview_window("main").map(|w| w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(false)).unwrap_or(false);
             if !shown {
                 return; // hidden to the tray or minimized meanwhile: nothing to look at
@@ -284,24 +397,40 @@ pub fn verify_painting(app: &AppHandle) {
                 escalate(&app, true);
                 return;
             }
-            if !pixels {
-                stage(Some(&app), &format!("native check at {ms} ms: the web view is running (browser process {}; {child})", state.text()));
-                continue;
+            let mut seen = Paint::Unknown;
+            let mut said = String::new();
+            for (read, on) in [(Capture::Screen, look.screen), (Capture::Print, look.print)] {
+                if !on {
+                    continue;
+                }
+                let started = Instant::now();
+                let (j, why) = look_at(&app, read);
+                let text = match j {
+                    Some(j) => describe(&j, started.elapsed().as_millis()),
+                    None => format!("no verdict ({})", why.unwrap_or_default()),
+                };
+                let verdict = j.map_or(Paint::Unknown, |j| j.paint);
+                said.push_str(&format!("; {}: {text}", if read == Capture::Screen { "screen" } else { "PrintWindow" }));
+                // a blank read wins over a read that found content (the diagnostic exists to catch what the other misses)
+                if verdict == Paint::Blank || (verdict == Paint::Painted && seen != Paint::Blank) {
+                    seen = verdict;
+                }
             }
-            let started = Instant::now();
-            let painted = window_paints(&app);
-            let took = started.elapsed().as_millis();
-            match painted {
-                Some(true) => {
+            let line = format!("native check at {ms} ms: the web view is running (browser process {}; {child}){said}", state.text());
+            match seen {
+                Paint::Painted => {
                     let cured = judged_step().map(|s| format!(" (cured by: {s})")).unwrap_or_default();
-                    stage(Some(&app), &format!("native check at {ms} ms: the window shows content{cured}"));
+                    stage(Some(&app), &format!("{line}{cured}"));
+                    ladder_done();
                 }
-                Some(false) => {
-                    stage(Some(&app), &format!("native check at {ms} ms: one colour only (black or blank window); capture took {took} ms; browser process {}; {child}", state.text()));
-                    escalate(&app, false);
-                    return;
+                Paint::Blank => {
+                    stage(Some(&app), &line);
+                    if cure_needed(in_ladder, ms, seen) {
+                        escalate(&app, false);
+                        return;
+                    }
                 }
-                None => stage(Some(&app), &format!("native check at {ms} ms: the window could not be captured")),
+                Paint::Unknown => stage(Some(&app), &line),
             }
         }
     });
@@ -535,6 +664,8 @@ fn navigate_home(app: &AppHandle) {
 pub enum Step {
     /// Tell the web view controller to take up its visibility, position and bounds again (no flicker).
     Reassert,
+    /// Change the web view's size by 1 px and back (a surface that was not presented again takes up its size anew).
+    Nudge,
     /// Hide the window and show it again.
     HideShow,
     /// Load the page again.
@@ -547,12 +678,13 @@ pub enum Step {
 #[derive(Default)]
 pub struct Ladder {
     reasserted: bool,
+    nudged: bool,
     reloaded: bool,
     restarted: bool,
 }
 
 impl Ladder {
-    /// The next step. A dead browser process skips straight to the restart (nothing else can revive it); otherwise re-assert, hide +
+    /// The next step. A dead browser process skips straight to the restart (nothing else can revive it); otherwise re-assert, nudge, hide +
     /// show (`hide_shows` done so far, at most `MAX_REMEDIES`), reload, restart.
     pub fn next(&mut self, hide_shows: u32, browser_gone: bool) -> Step {
         if browser_gone && !self.restarted {
@@ -562,6 +694,10 @@ impl Ladder {
         if !self.reasserted {
             self.reasserted = true;
             return Step::Reassert;
+        }
+        if !self.nudged {
+            self.nudged = true;
+            return Step::Nudge;
         }
         if hide_shows < MAX_REMEDIES {
             return Step::HideShow; // the counter is raised by `hide_and_show`
@@ -578,7 +714,7 @@ impl Ladder {
     }
 }
 
-static LADDER: Mutex<Ladder> = Mutex::new(Ladder { reasserted: false, reloaded: false, restarted: false });
+static LADDER: Mutex<Ladder> = Mutex::new(Ladder { reasserted: false, nudged: false, reloaded: false, restarted: false });
 
 fn took_step(name: &'static str) {
     *LAST_STEP.lock().unwrap_or_else(|p| p.into_inner()) = Some(name);
@@ -592,11 +728,20 @@ fn escalate(app: &AppHandle, browser_gone: bool) {
         stage(Some(app), &format!("after \"{prev}\": still blank"));
     }
     let step = LADDER.lock().unwrap_or_else(|p| p.into_inner()).next(REMEDIES.load(Ordering::SeqCst), browser_gone);
+    if !matches!(step, Step::Restart | Step::GiveUp) {
+        STEPS_TAKEN.fetch_add(1, Ordering::SeqCst);
+    }
     match step {
         Step::Reassert => {
             stage(Some(app), "blank window: re-asserting the web view (visibility, position, bounds)");
             took_step("re-asserting the web view");
             webview_health::reassert(app);
+            verify_painting(app);
+        }
+        Step::Nudge => {
+            stage(Some(app), "still blank: changing the web view's size by 1 px and back");
+            took_step("changing the web view's size by 1 px and back");
+            webview_health::nudge(app);
             verify_painting(app);
         }
         Step::HideShow => {
@@ -620,26 +765,102 @@ fn escalate(app: &AppHandle, browser_gone: bool) {
     }
 }
 
+/// How the pixels of the window are read.
+#[derive(Debug, PartialEq, Clone, Copy)]
+enum Capture {
+    /// Copied from the screen: what the desktop compositor shows (default; nothing is sent to the web view's processes).
+    Screen,
+    /// `PrintWindow`: the browser process renders the window (the diagnostic, `HEYLOOK_PIXEL_CHECK=1`).
+    Print,
+}
+
+/// Read the window's pixels the way `how` says and judge them. `(None, reason)` when the pixels could not be read at all.
+fn look_at(app: &AppHandle, how: Capture) -> (Option<Judged>, Option<String>) {
+    #[cfg(debug_assertions)]
+    if how == Capture::Screen {
+        fault::before_look(app);
+    }
+    match capture_samples(app, how) {
+        Ok((samples, asked)) => (Some(judge(&samples, asked)), None),
+        Err(why) => (None, Some(why)),
+    }
+}
+
+/// Debug builds only: a blank window on demand, so the cures can be proved with real pixels. `HEYLOOK_TEST_BLANK_AFTER_SHOW=<k>` hides the
+/// web view (for real: the window then shows its background colour) at the first look after a show, and keeps hiding it again before every
+/// look until the escalation has taken `k` steps (1 = re-assert, 2 = nudge, 3 = hide + show, 4 = the second hide + show, 5 = reload). The
+/// steps before `k` are really taken and then undone by the injection; step `k` finds the web view shown again, as a cure that works would.
+#[cfg(debug_assertions)]
+mod fault {
+    use super::*;
+    static HIDDEN: AtomicBool = AtomicBool::new(false);
+    static DONE: AtomicBool = AtomicBool::new(false);
+
+    pub fn before_look(app: &AppHandle) {
+        let Some(k) = std::env::var("HEYLOOK_TEST_BLANK_AFTER_SHOW").ok().and_then(|v| v.trim().parse::<u32>().ok()).filter(|k| *k >= 1) else { return };
+        if DONE.load(Ordering::SeqCst) {
+            return;
+        }
+        let steps = STEPS_TAKEN.load(Ordering::SeqCst);
+        if steps >= k {
+            DONE.store(true, Ordering::SeqCst);
+            webview_health::set_visible(app, true);
+            stage(Some(app), &format!("test fault: the web view is shown again (the escalation has taken {steps} steps, the fault ends with step {k})"));
+        } else {
+            if !HIDDEN.swap(true, Ordering::SeqCst) {
+                stage(Some(app), &format!("test fault: the web view is hidden on purpose (the fault ends with step {k} of the escalation)"));
+            }
+            webview_health::set_visible(app, false);
+        }
+        std::thread::sleep(Duration::from_millis(250)); // the compositor shows the change
+    }
+}
+
+/// The sampled points of the window and how many were meant to be read.
 #[cfg(windows)]
-fn window_paints(app: &AppHandle) -> Option<bool> {
-    use windows::Win32::Foundation::RECT;
+fn capture_samples(app: &AppHandle, how: Capture) -> Result<(Vec<[u8; 3]>, usize), String> {
+    use windows::Win32::Foundation::{POINT, RECT};
+    use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
     use windows::Win32::Graphics::Gdi::*;
     use windows::Win32::Storage::Xps::{PrintWindow, PRINT_WINDOW_FLAGS};
-    use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
-    let hwnd = app.get_webview_window("main")?.hwnd().ok()?;
+    use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GetClientRect, GetWindowRect, IsIconic, IsWindowVisible, WindowFromPoint, GA_ROOT};
+    let hwnd = app.get_webview_window("main").ok_or("no window")?.hwnd().map_err(|e| e.to_string())?;
     unsafe {
+        if !IsWindowVisible(hwnd).as_bool() {
+            return Err("the window is not visible".into());
+        }
+        if IsIconic(hwnd).as_bool() {
+            return Err("the window is minimized".into());
+        }
+        let mut cloaked = 0u32;
+        if DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, &mut cloaked as *mut u32 as *mut _, 4).is_ok() && cloaked != 0 {
+            return Err("the window is cloaked (on another virtual desktop)".into());
+        }
+        // the screen read: the client area, where its top left corner lies on the screen; PrintWindow draws the whole window
         let mut r = RECT::default();
-        GetWindowRect(hwnd, &mut r).ok()?;
+        let mut origin = POINT { x: 0, y: 0 };
+        if how == Capture::Print {
+            GetWindowRect(hwnd, &mut r).map_err(|e| e.to_string())?;
+        } else {
+            GetClientRect(hwnd, &mut r).map_err(|e| e.to_string())?;
+            if !ClientToScreen(hwnd, &mut origin).as_bool() {
+                return Err("the client area has no place on the screen".into());
+            }
+        }
         let (w, h) = (r.right - r.left, r.bottom - r.top);
         if w < 200 || h < 200 || w > 8000 || h > 8000 {
-            return None;
+            return Err(format!("the window is {w}x{h}"));
         }
         let screen = GetDC(None);
         let mem = CreateCompatibleDC(Some(screen));
         let bmp = CreateCompatibleBitmap(screen, w, h);
         let old = SelectObject(mem, bmp.into());
-        // PW_RENDERFULLCONTENT (2): also draws the web view
-        let printed = PrintWindow(hwnd, mem, PRINT_WINDOW_FLAGS(2)).as_bool();
+        let copied = match how {
+            // PW_RENDERFULLCONTENT (2): also draws the web view
+            Capture::Print => PrintWindow(hwnd, mem, PRINT_WINDOW_FLAGS(2)).as_bool(),
+            // CAPTUREBLT: also layered windows, which is how the web view may be composed
+            Capture::Screen => BitBlt(mem, 0, 0, w, h, Some(screen), origin.x, origin.y, ROP_CODE(SRCCOPY.0 | CAPTUREBLT.0)).is_ok(),
+        };
         let mut bi = BITMAPINFO::default();
         bi.bmiHeader = BITMAPINFOHEADER { biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32, biWidth: w, biHeight: -h, biPlanes: 1, biBitCount: 32, ..Default::default() };
         let mut buf = vec![0u8; (w as usize) * (h as usize) * 4];
@@ -648,25 +869,30 @@ fn window_paints(app: &AppHandle) -> Option<bool> {
         let _ = DeleteObject(bmp.into());
         let _ = DeleteDC(mem);
         ReleaseDC(None, screen);
-        if !printed || lines == 0 {
-            return None;
+        if !copied || lines == 0 {
+            return Err("the copy failed (a locked screen?)".into());
         }
-        // a grid below the 50 px top bar
-        let (w, h) = (w as usize, h as usize);
-        let samples = (80..h.saturating_sub(10)).step_by((h / 24).max(1)).flat_map(|y| {
-            let buf = &buf;
-            (10..w.saturating_sub(10)).step_by((w / 40).max(1)).map(move |x| {
-                let o = (y * w + x) * 4;
-                [buf[o], buf[o + 1], buf[o + 2]]
-            })
-        });
-        Some(!is_blank(samples))
+        let points = grid_points(w, h, GRID.0, GRID.1);
+        let asked = points.len();
+        let mut out = Vec::with_capacity(asked);
+        for (x, y) in points {
+            // a point that lies on another window (one in front of ours) says nothing about ours
+            if how == Capture::Screen {
+                let at = POINT { x: origin.x + x, y: origin.y + y };
+                if GetAncestor(WindowFromPoint(at), GA_ROOT) != hwnd {
+                    continue;
+                }
+            }
+            let o = (y as usize * w as usize + x as usize) * 4;
+            out.push([buf[o + 2], buf[o + 1], buf[o]]);
+        }
+        Ok((out, asked))
     }
 }
 
 #[cfg(not(windows))]
-fn window_paints(_app: &AppHandle) -> Option<bool> {
-    None
+fn capture_samples(_app: &AppHandle, _how: Capture) -> Result<(Vec<[u8; 3]>, usize), String> {
+    Err("the pixel read is Windows only".into())
 }
 
 /// Only one guard talks to the person at a time: the one of the start, or one begun by `report_dead_page`.
@@ -878,12 +1104,70 @@ mod tests {
 
     #[test]
     fn one_colour_everywhere_is_a_window_that_paints_nothing() {
-        assert!(is_blank(vec![[0, 0, 0]; 50]), "black");
-        assert!(is_blank(vec![[255, 255, 255]; 50]), "white");
-        assert!(is_blank(Vec::<[u8; 3]>::new()));
-        let mut ui = vec![[250, 250, 250]; 50];
-        ui[17] = [30, 30, 30];
-        assert!(!is_blank(ui), "a real screen has more than one colour");
+        let asked = 2560;
+        for c in [[0, 0, 0], [255, 255, 255], [27, 28, 32]] {
+            let j = judge(&vec![c; asked], asked);
+            assert_eq!((j.paint, j.top, j.colours), (Paint::Blank, c, 1), "{c:?}");
+        }
+        // a real screen: a side bar, a list, a few lines of text (the dark theme of the QA build: 47 % one colour, 191 colours)
+        let mut ui = vec![[27, 28, 32]; 1200];
+        ui.extend(vec![[36, 37, 42]; 900]);
+        ui.extend(vec![[250, 250, 250]; 400]);
+        ui.extend((0..60).map(|i| [i as u8, 80, 120]));
+        let j = judge(&ui, asked);
+        assert_eq!(j.paint, Paint::Painted);
+        assert!(j.top_share < 0.5 && j.colours > 60, "{j:?}");
+    }
+
+    #[test]
+    fn a_handful_of_stray_pixels_on_a_blank_window_does_not_make_it_painted_but_a_real_icon_does() {
+        // 5 % of 2560 points = 128: the taskbar over a strip of the window, a cursor, an overlay icon on a window that is otherwise one colour
+        let mut samples = vec![[255, 255, 255]; 2560];
+        for s in samples.iter_mut().take(128) {
+            *s = [20, 20, 20];
+        }
+        assert_eq!(judge(&samples, 2560).paint, Paint::Blank);
+        for s in samples.iter_mut().take(129) {
+            *s = [20, 20, 20];
+        }
+        assert_eq!(judge(&samples, 2560).paint, Paint::Painted, "129 points of another colour: the boundary");
+        assert_eq!(BLANK_SHARE, 0.95);
+    }
+
+    #[test]
+    fn a_window_that_other_windows_cover_or_that_gave_no_points_has_no_verdict_and_so_no_cure() {
+        // 59 % of the points on our window: not enough to say anything, even if all of them are white
+        assert_eq!(judge(&vec![[255, 255, 255]; 1510], 2560).paint, Paint::Unknown);
+        assert_eq!(judge(&vec![[255, 255, 255]; 1536], 2560).paint, Paint::Blank, "60 %: enough");
+        assert_eq!(judge(&[], 2560).paint, Paint::Unknown);
+        assert_eq!(judge(&[[1, 2, 3]], 0).paint, Paint::Unknown);
+        assert!(!cure_needed(true, 700, Paint::Unknown) && !cure_needed(false, 3000, Paint::Unknown));
+    }
+
+    #[test]
+    fn the_grid_covers_the_client_area_inside_its_edges_and_is_the_same_size_for_every_window() {
+        let g = grid_points(1600, 1037, GRID.0, GRID.1);
+        assert_eq!(g.len(), GRID.0 * GRID.1);
+        assert!(g.iter().all(|&(x, y)| (4..1600 - 4).contains(&x) && (4..1037 - 4).contains(&y)), "inside");
+        assert_eq!((g[0], *g.last().unwrap()), ((4, 4), (4 + 1591, 4 + 1028)));
+        assert_eq!(grid_points(960, 560, GRID.0, GRID.1).len(), GRID.0 * GRID.1);
+        assert!(grid_points(10, 10, GRID.0, GRID.1).is_empty(), "a window with no area has no points");
+    }
+
+    #[test]
+    fn a_blank_window_is_left_alone_for_the_first_look_and_cured_from_the_second_and_after_every_step() {
+        // the looks of a show from the tray: 300 ms, 1 s, 3 s read the screen; only a blank window at 1 s or later starts a cure
+        let looks = schedule(false, false);
+        assert_eq!(looks.iter().map(|l| (l.ms, l.screen)).collect::<Vec<_>>(), [(300, true), (1000, true), (3000, true), (8000, false), (15000, false)]);
+        assert!(!cure_needed(false, 300, Paint::Blank), "a window that was just shown may need a moment");
+        assert!(cure_needed(false, 1000, Paint::Blank) && cure_needed(false, 3000, Paint::Blank));
+        assert!(!cure_needed(false, 1000, Paint::Painted) && !cure_needed(false, 3000, Paint::Unknown), "a painted window costs nothing more");
+        // after a step: the look that judges it (700 ms later) cures again at once
+        assert!(cure_needed(true, 700, Paint::Blank) && !cure_needed(true, 700, Paint::Painted));
+        let after = schedule(true, false);
+        assert_eq!(after.iter().map(|l| (l.ms, l.screen)).collect::<Vec<_>>(), [(700, true), (2000, true)]);
+        // bounded: the looks of one show are five at most, the steps of the ladder six at most (below)
+        assert!(looks.len() <= 5 && after.len() <= 2);
     }
 
     #[test]
@@ -906,9 +1190,10 @@ mod tests {
     }
 
     #[test]
-    fn the_ladder_is_reassert_then_hide_show_twice_then_reload_then_restart_then_give_up() {
+    fn the_ladder_is_reassert_then_nudge_then_hide_show_twice_then_reload_then_restart_then_give_up() {
         let mut l = Ladder::default();
         assert_eq!(l.next(0, false), Step::Reassert);
+        assert_eq!(l.next(0, false), Step::Nudge);
         assert_eq!(l.next(0, false), Step::HideShow);
         assert_eq!(l.next(1, false), Step::HideShow);
         assert_eq!(l.next(MAX_REMEDIES, false), Step::Reload);
@@ -924,26 +1209,63 @@ mod tests {
         assert_eq!(l.next(0, true), Step::Restart);
         // the restart was refused (three in ten minutes): the rest of the ladder still runs, once
         assert_eq!(l.next(0, true), Step::Reassert);
+        assert_eq!(l.next(0, true), Step::Nudge);
         assert_eq!(l.next(0, true), Step::HideShow);
     }
 
     #[test]
-    fn by_default_no_look_reads_the_windows_pixels_because_that_capture_crashes_the_web_view_on_some_pcs() {
+    fn a_window_that_showed_content_again_starts_the_next_blank_window_at_the_first_step() {
+        // D-057: a run that stays open for weeks shows its window many times; one cured blank window must not use up the ladder
+        let mut l = LADDER.lock().unwrap_or_else(|p| p.into_inner());
+        *l = Ladder::default();
+        assert_eq!(l.next(0, false), Step::Reassert);
+        drop(l);
+        IN_LADDER.store(true, Ordering::SeqCst);
+        STEPS_TAKEN.store(3, Ordering::SeqCst);
+        ladder_done();
+        assert!(!IN_LADDER.load(Ordering::SeqCst) && STEPS_TAKEN.load(Ordering::SeqCst) == 0);
+        assert_eq!(LADDER.lock().unwrap_or_else(|p| p.into_inner()).next(0, false), Step::Reassert);
+        *LADDER.lock().unwrap_or_else(|p| p.into_inner()) = Ladder::default();
+    }
+
+    #[test]
+    fn the_cures_are_bounded_six_steps_and_a_restart_that_the_history_file_limits() {
+        let mut l = Ladder::default();
+        let mut steps = vec![];
+        let mut hide_shows = 0;
+        loop {
+            let s = l.next(hide_shows, false);
+            if s == Step::HideShow {
+                hide_shows += 1;
+            }
+            steps.push(s);
+            if s == Step::GiveUp {
+                break;
+            }
+            assert!(steps.len() < 12, "no end: {steps:?}");
+        }
+        assert_eq!(steps, [Step::Reassert, Step::Nudge, Step::HideShow, Step::HideShow, Step::Reload, Step::Restart, Step::GiveUp]);
+    }
+
+    #[test]
+    fn the_default_look_copies_from_the_screen_and_never_asks_the_web_view_to_render_because_that_capture_crashes_it_on_some_pcs() {
         for in_ladder in [false, true] {
             let looks = schedule(in_ladder, false);
-            assert!(!looks.is_empty() && looks.iter().all(|(_, px)| !px), "{in_ladder}: {looks:?}");
-            assert!(looks.windows(2).all(|w| w[0].0 < w[1].0), "in time order");
+            assert!(!looks.is_empty() && looks.iter().all(|l| !l.print), "{in_ladder}: {looks:?}");
+            assert!(looks.windows(2).all(|w| w[0].ms < w[1].ms), "in time order");
         }
-        // the diagnostic: pixels only later in a normal run (never in the first seconds), at once after a step of the escalation
+        // the diagnostic: PrintWindow only later in a normal run (never in the first seconds), at every look after a step of the escalation
         let on = schedule(false, true);
-        assert!(on.iter().filter(|(ms, _)| *ms < 8000).all(|(_, px)| !px), "{on:?}");
-        assert!(on.iter().any(|(_, px)| *px), "{on:?}");
-        assert!(schedule(true, true).iter().all(|(_, px)| *px));
-        // and the capture is behind the switch in the code
+        assert!(on.iter().filter(|l| l.ms < 8000).all(|l| !l.print), "{on:?}");
+        assert!(on.iter().any(|l| l.print), "{on:?}");
+        assert!(schedule(true, true).iter().all(|l| l.print));
+        // and the code: PrintWindow is only called for `Capture::Print`, which only a look that asks for it reads; the default read is BitBlt from the screen
         let src = include_str!("startup.rs").replace('\r', "");
         let code = &src[..src.find("#[cfg(test)]\nmod tests").unwrap()];
-        let call = code.find("let painted = window_paints(&app);").expect("the capture call");
-        assert!(code[..call].rfind("if !pixels {").is_some(), "the capture is only reached by a look that asks for pixels");
+        let print = code.find("PrintWindow(hwnd, mem").expect("the print call");
+        assert!(code[..print].rfind("Capture::Print =>").is_some() && code[print..].find("Capture::Screen => BitBlt(").is_some(), "PrintWindow sits in its own arm");
+        assert!(code.contains("for (read, on) in [(Capture::Screen, look.screen), (Capture::Print, look.print)]") && code.contains("if !on {"), "each read only when its look asks for it");
+        assert!(code.contains("GetDC(None)") && !code.contains("GetDC(Some("), "the screen's device context");
     }
 
     #[test]
@@ -1106,6 +1428,24 @@ mod tests {
         let nav = &code[code.find("fn navigate_home(").unwrap()..];
         let nav = &nav[..nav.find("\n}\n").unwrap()];
         assert!(nav.contains("configured_address(app)") && !nav.contains(".url()"), "{nav}");
+    }
+
+    #[test]
+    fn every_road_that_shows_the_hidden_window_goes_through_the_look_at_its_pixels() {
+        // D-057: the tray click, the tray menu, a second start, a notification and the reopen all end in `show_main`, and it looks at a window that was
+        // hidden or minimized (a window that is shown some other way is not looked at, so none may exist for the main window)
+        let shell = include_str!("shell.rs").replace('\r', "");
+        let show = &shell[shell.find("pub fn show_main").unwrap()..];
+        let show = &show[..show.find("
+}
+").unwrap()];
+        assert!(show.contains("if was_hidden || was_minimized {") && show.contains("crate::startup::verify_painting(app)"), "{show}");
+        assert!(show.find("w.show()").unwrap() < show.find("verify_painting").unwrap(), "the look follows the show");
+        let lib = include_str!("lib.rs");
+        let second = &lib[lib.find("a second start was handed to this instance").unwrap()..];
+        assert!(second[..300].contains("shell::show_main(app)"), "the second start shows the window through show_main");
+        let uses = shell.matches("show_main(").count();
+        assert!(uses >= 5, "the tray icon, its menu and the notification buttons use show_main: {uses}");
     }
 
     #[test]

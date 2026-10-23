@@ -191,6 +191,8 @@ pub fn watch(_app: &tauri::AppHandle) {}
 #[cfg(not(windows))]
 pub fn reassert(_app: &tauri::AppHandle) {}
 #[cfg(not(windows))]
+pub fn nudge(_app: &tauri::AppHandle) {}
+#[cfg(not(windows))]
 pub fn browser_state() -> BrowserState {
     BrowserState::Unknown
 }
@@ -199,7 +201,9 @@ pub fn child_info(_app: &tauri::AppHandle) -> Option<String> {
     None
 }
 #[cfg(windows)]
-pub use win::{browser_state, child_info, reassert, wait_for_previous_run, watch};
+pub use win::{browser_state, child_info, nudge, reassert, wait_for_previous_run, watch};
+#[cfg(all(windows, debug_assertions))]
+pub use win::set_visible;
 
 // ---------- Windows ----------
 
@@ -396,6 +400,39 @@ mod win {
             if GetClientRect(HWND(hwnd as *mut _), &mut r).is_ok() {
                 let _ = c.SetBounds(RECT { left: 0, top: 0, right: r.right - r.left, bottom: r.bottom - r.top });
             }
+        });
+    }
+
+    /// The size of the web view is changed by one pixel and back (80 ms apart, so a frame of the smaller size is composed): a web view whose
+    /// surface was not presented again after a show takes up its size anew. D-057, the second step of the cures of a window that shows
+    /// one colour.
+    pub fn nudge(app: &AppHandle) {
+        set_bounds(app, 1);
+        std::thread::sleep(Duration::from_millis(80));
+        set_bounds(app, 0);
+    }
+
+    /// The bounds of the whole client area, `shrink` pixels narrower and lower.
+    fn set_bounds(app: &AppHandle, shrink: i32) {
+        let Some(win) = app.get_webview_window("main") else { return };
+        let Ok(hwnd) = win.hwnd() else { return };
+        let hwnd = hwnd.0 as isize;
+        let _ = win.with_webview(move |pw| unsafe {
+            let c = pw.controller();
+            let _ = c.NotifyParentWindowPositionChanged();
+            let mut r = RECT::default();
+            if GetClientRect(HWND(hwnd as *mut _), &mut r).is_ok() {
+                let _ = c.SetBounds(RECT { left: 0, top: 0, right: (r.right - r.left - shrink).max(1), bottom: (r.bottom - r.top - shrink).max(1) });
+            }
+        });
+    }
+
+    /// Debug builds only (`HEYLOOK_TEST_BLANK_AFTER_SHOW`, startup.rs): the web view is hidden or shown for real, so the window really shows one colour.
+    #[cfg(debug_assertions)]
+    pub fn set_visible(app: &AppHandle, visible: bool) {
+        let Some(win) = app.get_webview_window("main") else { return };
+        let _ = win.with_webview(move |pw| unsafe {
+            let _ = pw.controller().SetIsVisible(visible);
         });
     }
 
