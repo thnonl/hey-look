@@ -32,6 +32,12 @@ pub struct State {
     /// a server whose SEARCH does not look at HEADER: it answers with every message of the folder
     pub search_ignores_header: bool,
     pub deleted: BTreeSet<(String, u32)>,
+    /// folders LIST shows with `\Noinferiors` (they cannot have children)
+    pub noinferiors: Vec<String>,
+    /// folders that exist but LIST leaves out (another client made them a moment ago, or a server that lists late)
+    pub hide_from_list: Vec<String>,
+    /// the folders SUBSCRIBE was sent for
+    pub subscribed: BTreeSet<String>,
     next_uid: u32,
 }
 
@@ -57,6 +63,9 @@ impl Fake {
             messages: BTreeMap::new(),
             search_ignores_header: false,
             deleted: BTreeSet::new(),
+            noinferiors: vec![],
+            hide_from_list: vec![],
+            subscribed: BTreeSet::new(),
             next_uid: 1000,
         };
         st.folders.entry("INBOX".into()).or_default();
@@ -119,6 +128,11 @@ impl Fake {
         st.messages.remove(&(folder.to_string(), uid));
     }
 
+    /// The folders SUBSCRIBE was sent for.
+    pub fn subscribed(&self) -> Vec<String> {
+        self.state.lock().unwrap().subscribed.iter().cloned().collect()
+    }
+
     pub fn commands(&self) -> Vec<String> {
         self.state.lock().unwrap().log.clone()
     }
@@ -171,9 +185,10 @@ fn serve(c: TcpStream, shared: Arc<Mutex<State>>) {
         } else if upper.starts_with("CAPABILITY") {
             out += &format!("* CAPABILITY IMAP4rev1{}\r\n{tag} OK done\r\n", if st.no_move { "" } else { " MOVE" });
         } else if upper.starts_with("LIST") {
-            for name in st.folders.keys() {
+            for name in st.folders.keys().filter(|n| !st.hide_from_list.contains(n)) {
                 let special = st.special.get(name).map(|s| format!(" {s}")).unwrap_or_default();
-                out += &format!("* LIST (\\HasNoChildren{special}) \"{}\" \"{name}\"\r\n", st.delimiter);
+                let kind = if st.noinferiors.contains(name) { "\\Noinferiors" } else { "\\HasNoChildren" };
+                out += &format!("* LIST ({kind}{special}) \"{}\" \"{name}\"\r\n", st.delimiter);
             }
             out += &format!("{tag} OK LIST done\r\n");
         } else if upper.starts_with("SELECT") {
@@ -196,6 +211,8 @@ fn serve(c: TcpStream, shared: Arc<Mutex<State>>) {
                 out += &format!("{tag} OK CREATE done\r\n");
             }
         } else if upper.starts_with("SUBSCRIBE") {
+            let (name, _) = arg(&cmd[9..]);
+            st.subscribed.insert(name);
             out += &format!("{tag} OK SUBSCRIBE done\r\n");
         } else if upper.starts_with("APPEND") {
             let (name, rest) = arg(&cmd[6..]);

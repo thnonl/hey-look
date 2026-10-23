@@ -9,7 +9,7 @@ import { singleLabelHostsOf } from "../addresses";
 import { backendText } from "../backendErrors";
 import { parseReplyTo } from "../replyTo";
 import { calendarErrorCode, calendarStepFailure, calendarSyncKind, providerName, serviceName, statusLine, truncatedNote } from "../calendarSync";
-import { ACCENT_PRESETS, ACCOUNT_PALETTE, accountColor, DEFAULT_PREFS, eff, folderLabel, isOverridden, MAX_DOWNLOAD_PRESETS, NOTIFY_ACTIONS, Overridable, Prefs, staleAccountPrefs, validHex } from "../prefs";
+import { ACCENT_PRESETS, ACCOUNT_PALETTE, accountColor, DEFAULT_PREFS, eff, folderLabel, folderTitle, isOverridden, MAX_DOWNLOAD_PRESETS, NOTIFY_ACTIONS, Overridable, Prefs, staleAccountPrefs, validHex } from "../prefs";
 import { aiSettingsSaved } from "../aiGuide";
 import { normalizeSidebar } from "../sidebarState";
 import { folderVisible } from "../junk";
@@ -1242,7 +1242,7 @@ function FoldersPanel({ scope }: { scope: string | null }) {
   const { folders, prefs, setPrefs } = useStore();
   const isFav = (id: string) => prefs.favorites.includes(id);
   const toggle = (id: string) => setPrefs({ favorites: isFav(id) ? prefs.favorites.filter((f) => f !== id) : [...prefs.favorites, id] });
-  const keys = (scope ? folders.filter((f) => f.accountId === scope).map((f) => ({ key: f.key, label: folderLabel(f.key, f.name) })) : ["inbox", "drafts", "sent", "archive", "junk", "trash"].map((k) => ({ key: k, label: folderLabel(k) }))).filter((k) => folderVisible(folders, scope, k.key));
+  const keys = (scope ? folders.filter((f) => f.accountId === scope).map((f) => ({ key: f.key, label: folderTitle(f, folders) })) : ["inbox", "drafts", "sent", "archive", "junk", "trash"].map((k) => ({ key: k, label: folderLabel(k) }))).filter((k) => folderVisible(folders, scope, k.key));
   return (
     <>
       <div className="muted small pad">{scope ? t("settings.folders.account") : t("settings.folders.all")}</div>

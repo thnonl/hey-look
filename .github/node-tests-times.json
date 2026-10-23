@@ -206,6 +206,7 @@
   "node scripts/test-search-panel.mjs --require-browser": 22,
   "node --experimental-strip-types scripts/test-notify-sound.mjs": 0,
   "node scripts/test-notify-sound-ui.mjs --require-browser": 20,
+  "node --experimental-strip-types scripts/test-folder-create.mjs --require-browser": 55,
   "node scripts/check-shards.mjs": 0,
   "node scripts/test-release-gates.mjs": 0
  }

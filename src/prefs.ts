@@ -358,6 +358,17 @@ export function folderLabel(key: string, name?: string): string {
   return n.split(/[/.]/).pop() || n;
 }
 
+/**
+ * The name of a folder in a list of folders (Move to...): a folder of the person under another one is "Parent / Child", so two folders called "2026" in different parents can be told apart.
+ * (a folder's own `label` comes from the backend; `folderLabel` is the fallback for data without it)
+ */
+export function folderTitle(f: { key: string; name: string; label?: string; parent?: string | null; accountId?: string }, all: readonly { key: string; name: string; label?: string; accountId?: string }[]): string {
+  if (ROLE_LABELS[f.key]) return t(ROLE_LABELS[f.key]);
+  const own = f.label ?? folderLabel(f.key, f.name);
+  const p = f.parent ? all.find((x) => x.key === f.parent && x.accountId === f.accountId) : undefined;
+  return p ? `${p.label ?? folderLabel(p.key, p.name)} / ${own}` : own;
+}
+
 /** Folder nesting depth for custom folders ("Projects/Hey Look" = 1). */
 export function folderDepth(key: string, name?: string): number {
   if (ROLE_LABELS[key]) return 0;

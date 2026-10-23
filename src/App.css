@@ -273,6 +273,16 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .sb-recent-x { flex: none; }
 .sb-clear { background: none; border: 0; padding: 2px 6px; border-radius: var(--r-sm); color: var(--accent-text); font-size: 12px; font-weight: 600; white-space: nowrap; }
 .sb-clear:hover { background: var(--bg3); }
+/* the side menu's folders of the person: the chevron of a folder that holds subfolders sits in the indent, so the icons of its siblings stay aligned (W13.10) */
+.fp-chev { flex: none; width: 14px; height: 18px; margin: 0 -9px 0 -14px; padding: 0; border: 0; background: none; color: var(--muted); display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; position: relative; z-index: 1; }
+.fp-chev:hover { background: var(--bg3); color: var(--fg); }
+/* New folder / New subfolder (W13.10) */
+.fd-lbl { font-size: .86em; color: var(--muted); }
+.fd-where { font-weight: 600; margin-top: 2px; }
+.fd-err { font-size: .9em; }
+.fd-actions { justify-content: flex-end; }
+.fd-actions .btn { display: inline-flex; align-items: center; gap: 6px; }
+.fd-actions .btn[aria-busy="true"] { cursor: progress; }
 .sb-advtoggle { padding: 6px 0; border-bottom: 0; }
 .sb-advtoggle.open { border-bottom: 1px solid var(--border); }
 .sb-advanced { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; background: none; border: 0; border-radius: var(--r-sm); padding: 6px 9px; text-align: left; font-weight: 600; color: var(--accent-text); }

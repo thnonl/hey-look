@@ -139,7 +139,9 @@ export type Dialog =
   | { type: "pgp-generate"; accountId?: string; back?: string }
   | { type: "pgp-import"; armored?: string; paste?: boolean; back?: string }
   | { type: "pgp-key"; fingerprint: string; back?: string }
-  | { type: "event"; eventId?: string; init?: EventInit };
+  | { type: "event"; eventId?: string; init?: EventInit }
+  /** (W13.10) New folder (`parentKey` null) / New subfolder (the key of the folder it goes under) in a mailbox */
+  | { type: "folder-new"; accountId: string; parentKey: string | null };
 
 /** Why a PGP key has to be unlocked right now (the title of the passphrase prompt). */
 export type UnlockReason = "sign" | "decrypt" | "draft" | "schedule";
@@ -389,6 +391,8 @@ interface State {
   lookedAtFolder: () => void;
   setSearch: (q: string, remember?: boolean) => Promise<void>;
   setSearchScope: (s: SearchScope) => Promise<void>;
+  /** (W13.10) a folder that was just created is in the side menu at once (no full sync needed); its parent is expanded */
+  addFolder: (f: FolderInfo) => void;
   /** (W13.4) one entry of the recent searches goes, at once and without a question */
   removeRecentSearch: (q: string) => void;
   clearRecentSearches: () => void;
@@ -923,6 +927,14 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
+  addFolder: (f) => {
+    set((s) => ({ folders: [...s.folders.filter((x) => !(x.accountId === f.accountId && x.key === f.key)), f] }));
+    // (a new folder may have taken folders that were there already as its children: the list is read again, which gives every folder its parent)
+    void api.listFolders().then((folders) => set({ folders })).catch(() => undefined);
+    // a collapsed parent opens, so the new row is in view
+    const pk = f.parent ? f.accountId + "|" + f.parent : null;
+    if (pk && get().prefs.collapsed[pk]) get().setPrefs({ collapsed: { ...get().prefs.collapsed, [pk]: false } });
+  },
   removeRecentSearch: (q) => get().setPrefs({ recentSearches: removeRecent(get().prefs.recentSearches, q) }),
   clearRecentSearches: () => get().setPrefs({ recentSearches: [] }),
 

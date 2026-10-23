@@ -3,6 +3,7 @@
 // through the same store actions as the ribbon, so behaviour is identical.
 import { accountsOf, canMoveToJunk, folderVisible } from "./junk.ts";
 import type { FolderLike } from "./junk.ts";
+import { orderTree } from "./folderTree.ts";
 
 /** What a right-click on `clicked` acts on. `makeSelection`: the row is not part of the selection, so it becomes the only selected one first. */
 export function contextTargets(
@@ -94,8 +95,10 @@ export function rowMenu(threads: readonly MenuThread[], ctx: { view: string; fol
  * The folders "Move to" offers for a mailbox: the same rule as the ribbon's Move to menu - not the folder the mail is in (`scope`), not
  * Drafts / Sent, and no Junk where the mailbox has none.
  */
-export function moveChoices<F extends FolderLike & { name: string }>(folders: readonly F[], accountId: string | undefined, scope: string | undefined): F[] {
-  return folders.filter((f) => f.accountId === accountId && f.key !== scope && f.key !== "drafts" && f.key !== "sent" && folderVisible(folders, f.accountId, f.key));
+export function moveChoices<F extends FolderLike & { name: string; label?: string; parent?: string | null }>(folders: readonly F[], accountId: string | undefined, scope: string | undefined): F[] {
+  const all = folders.filter((f) => f.accountId === accountId && f.key !== scope && f.key !== "drafts" && f.key !== "sent" && folderVisible(folders, f.accountId, f.key));
+  // the standard folders as they come, then the folders of the person in tree order (each parent followed by its subfolders, W13.10)
+  return [...all.filter((f) => !f.key.startsWith("f:")), ...orderTree(all.filter((f) => f.key.startsWith("f:")))];
 }
 
 /** The address "Copy sender address" copies: the latest message from someone else, else the latest message (a conversation you started yourself). null: nothing to copy. */

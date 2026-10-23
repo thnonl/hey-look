@@ -171,9 +171,31 @@ const mockLayerMsgs = [
 mockThreadMsgs.tlayer = mockLayerMsgs;
 threads.push(t("tlayer", "Layering check", ["Linh Tran"], "A conversation whose first message has attachments.", 1 * H, { count: 4, hasAttach: true }));
 
-const folders = ["inbox", "drafts", "sent", "archive", "junk", "trash"].flatMap((k, i) =>
+type MockFolder = { accountId: string; key: string; name: string; unread: number; total: number; listed?: boolean; unreadFocused?: number; unreadOther?: number };
+const folders: MockFolder[] = ["inbox", "drafts", "sent", "archive", "junk", "trash"].flatMap((k, i) =>
   accounts.map((a) => ({ accountId: a.id, key: k, name: k, unread: k === "inbox" ? (a.id === "a1" ? 4 : 2) : 0, total: 10 + i })),
 ).concat([{ accountId: "a1", key: "f:Projects/Hey Look", name: "Projects/Hey Look", unread: 0, total: 5 }, { accountId: "a1", key: "f:Clients/International customers/Very long folder name for layout testing", name: "Clients/International customers/Very long folder name for layout testing", unread: 0, total: 3 }]);
+
+// dev checks: `__mockAddFolder(accountId, serverName)` makes a folder on the mock server (as another client would); the page sees it at the next folder list
+(window as unknown as { __mockAddFolder: unknown }).__mockAddFolder = (accountId: string, name: string) => void folders.push({ accountId, key: "f:" + name, name, unread: 0, total: 0 });
+
+/** The delimiter and the namespace prefix of the mock server (`#dot`: "." with the INBOX namespace). */
+function mockFolderMeta(): { delimiter: string; prefix: string } {
+  return /(^|&)dot(=|&|$)/.test(window.location.hash.slice(1)) ? { delimiter: ".", prefix: "INBOX." } : { delimiter: "/", prefix: "" };
+}
+/** The folders with what the backend adds in `folder_infos` (W13.10): parent, depth, label (modified UTF-7 decoded is not needed here), canNest, delimiter. */
+function placed(rows: MockFolder[]) {
+  const { delimiter, prefix } = mockFolderMeta();
+  const customNames = new Set(rows.filter((f) => f.key.startsWith("f:")).map((f) => f.accountId + "|" + f.name));
+  return rows.map((f) => {
+    if (!f.key.startsWith("f:")) return { ...f, parent: null, depth: 0, label: f.name, canNest: false, delimiter };
+    const rest = prefix && f.name.toLowerCase().startsWith(prefix.toLowerCase()) ? f.name.slice(prefix.length) : f.name;
+    const parts = rest.split(delimiter);
+    const depth = parts.length - 1;
+    const pname = depth > 0 ? f.name.slice(0, f.name.length - parts[parts.length - 1].length - delimiter.length) : "";
+    return { ...f, parent: pname && customNames.has(f.accountId + "|" + pname) ? "f:" + pname : null, depth, label: parts[parts.length - 1], canNest: depth === 0, delimiter };
+  });
+}
 
 // A long, real-looking newsletter (several screens tall, 800px wide table, big images, web font, 100vh / height:100% / overflow in the mail's own CSS)
 // so the body-frame sizing can be tried in the browser: the frame must show all of it with no scrollbar of its own.
@@ -1215,7 +1237,7 @@ export function installMock() {
       case "set_setting": if (a.key === "ai_endpoint" && String(a.value).includes("savefail")) return later(200, () => { throw new Error("The settings database could not be written: disk I/O error (code 10)"); }); settings[a.key as string] = a.value as string; if (persistSettings) localStorage.setItem("hl-mock-settings", JSON.stringify(settings)); return null;
       // #nojunk: the second mailbox's server has no Junk folder (the saved list does not name one): its Junk row and the Junk actions go
       case "list_folders": {
-        const rows = hashHas("nojunk") ? folders.map((f) => (f.accountId === "a2" && f.key === "junk" ? { ...f, listed: false } : f)) : folders;
+        const rows = placed(hashHas("nojunk") ? folders.map((f) => (f.accountId === "a2" && f.key === "junk" ? { ...f, listed: false } : f)) : folders);
         // the Inbox rows carry the numbers of the Focused / Other tabs (W13.12), counted from the mock mail so a mock action changes them;
         // `#tabcounts=<focused>,<other>` forces fixed numbers (on the first mailbox) for layout checks, for example `#tabcounts=150,1234`
         const forced = /(^|&)tabcounts=(\d+),(\d+)/.exec(window.location.hash.slice(1));
@@ -1227,6 +1249,28 @@ export function installMock() {
           // the side-menu number is the mock's fixed one, less the unread conversations that wait out their Undo time (the backend counts the rest itself)
           const waiting = gone.size ? [...threads, ...localMail(f.accountId)].filter((x) => x.accountId === f.accountId && x.folder === "inbox" && !x.snoozedUntil && x.unread > 0 && gone.has(x.threadId)).length : 0;
           return { ...f, unread: Math.max(0, f.unread - waiting), unreadFocused: unread.filter((x) => !x.bulk).length, unreadOther: unread.filter((x) => x.bulk).length };
+        });
+      }
+      // W13.10: `#dot` = a server with the "." delimiter and the INBOX namespace (folders are INBOX.Clients, INBOX.Clients.Acme); `#createfail=noperm|exists|fail|slow` makes "New folder" fail;
+      // `window.__mockFolderCreates` lists every create_mail_folder call
+      case "create_mail_folder": {
+        const own = a as { accountId: string; parentKey: string | null; name: string };
+        (window as unknown as { __mockFolderCreates: unknown[] }).__mockFolderCreates ??= [];
+        (window as unknown as { __mockFolderCreates: unknown[] }).__mockFolderCreates.push({ ...own });
+        const mode = /(^|&)createfail=(\w+)/.exec(window.location.hash.slice(1))?.[2];
+        const delay = mode === "slow" ? 2500 : 40;
+        return later(delay, () => {
+          if (mode === "noperm") throw "FOLDER_NOPERM: The server doesn’t let you create a folder here.";
+          if (mode === "exists") throw "FOLDER_EXISTS: A folder with this name already exists here.";
+          if (mode === "fail") throw "The server did not answer within 20 seconds.";
+          const { delimiter, prefix } = mockFolderMeta();
+          const rows = placed(folders);
+          const parent = own.parentKey ? rows.find((f) => f.accountId === own.accountId && f.key === own.parentKey) : undefined;
+          if (own.parentKey && !parent?.canNest) throw "FOLDER_PARENT: A subfolder can’t be made here.";
+          const full = parent ? parent.name + delimiter + own.name.trim() : prefix + own.name.trim();
+          if (folders.some((f) => f.accountId === own.accountId && f.name.toLowerCase() === full.toLowerCase())) throw "FOLDER_EXISTS: A folder with this name already exists here.";
+          folders.push({ accountId: own.accountId, key: "f:" + full, name: full, unread: 0, total: 0 });
+          return placed(folders).find((f) => f.accountId === own.accountId && f.key === "f:" + full);
         });
       }
       case "list_threads": {

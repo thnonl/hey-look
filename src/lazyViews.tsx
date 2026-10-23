@@ -16,6 +16,7 @@ import { useStore } from "./store";
 //   pgp         Generate key, Import key, Key details, the passphrase question        on open
 //   dialogs     the bulk cleaner and Show original                                   on open
 //   search      "Advanced search" of the search panel (filters, dates, fields)       when the person opens it
+//   folder      the New folder / New subfolder dialog                                on open
 //   popout      the compose window's and the reader window's view                    their own window (popout/views.tsx)
 // Loading, retry and failure: lazy.tsx / lazyLoad.ts.
 
@@ -29,6 +30,7 @@ const calendarModule = () => import("./components/Calendar");
 const pgpModule = () => import("./components/PgpDialogs");
 const dialogsModule = () => import("./components/Dialogs");
 const searchAdvancedModule = () => import("./components/SearchAdvanced");
+const folderModule = () => import("./components/FolderDialog");
 
 export const loadComposeWindowView = () => import("./popout/ComposeView").then(async (m) => (await m.ready(), m));
 export const loadReaderWindowView = () => import("./popout/ReaderView");
@@ -181,4 +183,16 @@ export const LazySearchAdvanced = lazyView<SearchAdvancedModule, SearchAdvancedP
   load: searchAdvancedModule,
   pick: (m) => m.SearchAdvanced,
   failed: (p) => p.onFail?.(),
+});
+
+type FolderModule = Awaited<ReturnType<typeof folderModule>>;
+/** New folder / New subfolder: the frame (title and box) at once, the form when the part is there. */
+export const LazyFolderDialog = lazyView<FolderModule, React.ComponentProps<FolderModule["FolderDialog"]>>({
+  key: "folder",
+  kind: "folder",
+  load: folderModule,
+  pick: (m) => m.FolderDialog,
+  dialog: true,
+  frame: (p, late) => <DialogFrame title={p.parentKey ? "mail.folder.dlgTitleSub" : "mail.folder.dlgTitle"} late={late} width={440} onClose={closeDialog} />,
+  failed: closeDialog,
 });

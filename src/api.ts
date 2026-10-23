@@ -335,6 +335,16 @@ export interface FolderInfo {
   unreadOther?: number;
   /** the account's saved folder list names a server folder for this row (false for Junk: hide it, Junk is never created) */
   listed?: boolean;
+  /** (W13.10) the key of the parent folder, for a folder of the person under another one that the server lists */
+  parent?: string | null;
+  /** (W13.10) 0 = top level (after the namespace prefix of the server), 1 = a subfolder */
+  depth?: number;
+  /** (W13.10) the last part of the name, decoded from modified UTF-7 (absent in data of an older backend) */
+  label?: string;
+  /** (W13.10) "New subfolder…" may be offered: a top-level folder of the person that can have children */
+  canNest?: boolean;
+  /** (W13.10) the hierarchy delimiter of the server (a folder name may not contain it); null while it is not known */
+  delimiter?: string | null;
 }
 
 export interface SenderInfo {
@@ -593,6 +603,8 @@ export const api = {
   setAutostart: (enabled: boolean) => invoke<void>("set_autostart", { enabled }),
   syncAccount: (accountId: string) => invoke<SyncResult>("sync_account", { accountId }),
   listFolders: () => invoke<FolderInfo[]>("list_folders"),
+  /** CREATE + SUBSCRIBE a folder (W13.10): at the top level of the mailbox, or under its folder `parentKey`; the new folder comes back. The refusals are coded errors (FOLDER_EXISTS, FOLDER_NOPERM, FOLDER_NAME, FOLDER_PARENT). */
+  createMailFolder: (accountId: string, parentKey: string | null, name: string) => invoke<FolderInfo>("create_mail_folder", { accountId, parentKey, name }),
   listThreads: (filter: ThreadFilter) => invoke<ThreadSummary[]>("list_threads", { filter }),
   /** Which list has a conversation (a click on its notification opens it there, notifyOpen.ts); null = it is not on this computer. */
   locateThread: (threadId: string) => invoke<ThreadHome | null>("locate_thread", { threadId }),
