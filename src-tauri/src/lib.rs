@@ -3,6 +3,7 @@ mod attach;
 mod bgcolor;
 mod calendar;
 mod calsync;
+mod credwipe;
 mod clipdecode;
 mod db;
 mod discover;
@@ -49,6 +50,7 @@ mod navguard;
 mod newmail;
 mod pdfmode;
 mod oauth;
+mod pkg;
 mod oauth_page;
 mod outgoing;
 mod openpgp;
@@ -1993,15 +1995,26 @@ fn shell_info() -> ShellInfo {
     ShellInfo { os: std::env::consts::OS, tray: shell::tray_ready(), test_data: legacy_names::test_data_dir().map(|p| p.display().to_string()), managed: update::managed_by(), pdf_view: pdfmode::view().name(), pdf_test: pdfmode::experiment_on(), copy_fail: copy_forced_to_fail(), open_fail: open_forced_to_fail(), accounts_delay_ms: accounts_delay_ms() }
 }
 
+/// The "Start Hey Look! when I sign in" switch: the registry entry of the autostart plugin, or in the Microsoft Store package the package's startup task
+/// (the person can turn it off in Windows, the organisation can decide: `locked` says which, and the switch is then grey). pkg.rs.
 #[tauri::command]
-fn get_autostart(app: tauri::AppHandle) -> bool {
+fn get_autostart(app: tauri::AppHandle) -> pkg::AutostartInfo {
     use tauri_plugin_autostart::ManagerExt;
-    app.autolaunch().is_enabled().unwrap_or(false)
+    if let Some(forced) = pkg::simulated_autostart_lock() {
+        return forced; // (debug builds, QA of the two hints)
+    }
+    if pkg::packaged() {
+        return pkg::autostart_now();
+    }
+    pkg::AutostartInfo { enabled: app.autolaunch().is_enabled().unwrap_or(false), locked: None }
 }
 
 #[tauri::command]
 fn set_autostart(app: tauri::AppHandle, enabled: bool) -> R<()> {
     use tauri_plugin_autostart::ManagerExt;
+    if pkg::packaged() {
+        return pkg::set_startup_task(enabled);
+    }
     let m = app.autolaunch();
     if enabled { m.enable() } else { m.disable() }.map_err(err)
 }
@@ -3773,7 +3786,8 @@ async fn attachment_open(app: tauri::AppHandle, state: tauri::State<'_, AppState
         if warn && !confirmed && (attach::is_risky(&name) || attach::is_risky(&stored)) {
             return Err(format!("ATT_RISKY: {stored} can run programs on your computer."));
         }
-        let dir = std::env::temp_dir().join("HeyLook").join(attach::safe_id(&message_id));
+        // (in the Microsoft Store package: the package's TempState, a real path that the other program can open, pkg.rs)
+        let dir = pkg::temp_root().join(attach::safe_id(&message_id));
         std::fs::create_dir_all(&dir).map_err(err)?;
         let path = dir.join(&stored);
         std::fs::write(&path, bytes).map_err(err)?;
@@ -5660,12 +5674,22 @@ async fn ai_list_models(endpoint: String, key: Option<String>) -> R<Vec<String>>
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // `hey-look.exe --remove-saved-credentials` (run by the Windows uninstaller, credwipe.rs): removes the saved passwords and tokens and ends, nothing else is started
+    if credwipe::wanted(&std::env::args().collect::<Vec<_>>()) {
+        std::process::exit(credwipe::run());
+    }
     startup::init_clock();
     // (the names shared with other copies of the app: credential store service, notification id; see identity.rs)
     let mut context = tauri::generate_context!();
     // (the policy of this run: the PDF experiment on macOS / Linux changes one directive, see pdfmode.rs)
     pdfmode::apply_csp(context.config_mut());
     identity::init(&context.config().identifier);
+    // the Microsoft Store package keeps its data in its own folders: the data folder is LocalState and the web view's folder LocalCache (every window, the
+    // main one, the gated one and the pop-outs, takes it from here; see pkg.rs). Unpackaged copies are not touched.
+    if let Some(d) = pkg::dirs() {
+        context.config_mut().app.app_directories_override = Some(pkg::directories_override(d));
+        startup::line("package", &format!("running in the Microsoft Store package: data {}, web view {}, temporary files {}", d.local_state.display(), d.local_cache.display(), d.temp_state.display()));
+    }
     // a QA build has no inspector, its native menus are the release's (D-037, see identity.rs)
     if identity::devtools_off() {
         for w in context.config_mut().app.windows.iter_mut() {
@@ -5745,7 +5769,7 @@ pub fn run() {
             std::thread::spawn(move || outbox_worker(worker_app, worker_db));
             // files from "Open" are kept for a day
             std::thread::spawn(|| {
-                let _ = attach::cleanup_older_than(&std::env::temp_dir().join("HeyLook"), 24 * 3600, std::time::SystemTime::now());
+                let _ = attach::cleanup_older_than(&pkg::temp_root(), 24 * 3600, std::time::SystemTime::now());
             });
             app.manage(AppState { db: db.clone() });
             // the window and its web view get the colour of the theme before anything else: until the page has painted they show this, not white (bgcolor.rs)
@@ -5802,7 +5826,9 @@ pub fn run() {
 
             // started by "launch at login" => stay in the tray (only when there is a tray to come back from). The window is shown
             // when its page has reported itself (not here: see startup.rs), and the page is reloaded if it never does.
-            let show_at_start = !std::env::args().any(|a| a == "--minimized") || !shell::tray_ready();
+            // (the package's startup task passes no argument: Windows says it started the app, pkg.rs)
+            let minimized = std::env::args().any(|a| a == "--minimized") || pkg::started_by_startup_task();
+            let show_at_start = !minimized || !shell::tray_ready();
             if startgate::is_deferred() {
                 // Windows autostart: the window does not exist yet. A thread waits for the desktop (the tray, the sync and the outbox run meanwhile),
                 // makes the window, does the steps above that need one (frame, theme) and starts the load watch
@@ -6586,6 +6612,8 @@ mod quit_tests {
     /// - update.rs `update_install`: the page saved the draft and waited for the sends before it asked for the install (REQ-27 / 28).
     /// - startup.rs: the restart for a dead web view (the page is gone, there is nothing to ask; Undo-window messages are in the outbox).
     /// - startfail.rs: the app could not start (Windows message box, then exit code 1): there is no page and no draft or send yet.
+    /// - lib.rs `run`: `--remove-saved-credentials` (the Windows uninstaller's call, credwipe.rs) only talks to the credential store and ends at once; it is the first thing `run` does,
+    ///   before any window, page, draft or send exists.
     #[test]
     fn every_place_that_ends_the_process_is_known() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -6608,7 +6636,7 @@ mod quit_tests {
         found.sort();
         assert_eq!(
             found,
-            vec![("lib.rs".to_string(), 3, 0), ("startfail.rs".to_string(), 1, 0), ("startup.rs".to_string(), 0, 1), ("update.rs".to_string(), 1, 1)],
+            vec![("lib.rs".to_string(), 4, 0), ("startfail.rs".to_string(), 1, 0), ("startup.rs".to_string(), 0, 1), ("update.rs".to_string(), 1, 1)],
             "a way to end or restart the process was added or removed: make sure it goes through the quit sequence (request_quit) or is justified in the comment above"
         );
     }

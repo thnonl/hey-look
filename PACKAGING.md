@@ -177,10 +177,22 @@ certificate and no hosting of ours). An EXE installer for the Store (option B) i
 The release workflow makes and checks the package on every Windows build; **what is submitted and when is the owner's decision**: nothing here
 publishes, and nothing reads a store credential, unless a repository variable (below) says so.
 
-**State of the package (WP14 part 1).** The package, its checks and the logos are built by the workflow. The app itself does not know yet that it runs inside a package
-(WP14 part 2: data in the package's own folder, the keyring service `heylook.store`, the updater off, Windows' startup task, the Store texts in Settings > About). Until that
-is in, a tag run names its artifact **`msix-store-NOT-READY`** and `store-submit` refuses to run: do not upload that package to Partner Center. Part 2 sets
-`appPackagedMode` to `true` in `src-tauri/msix/readiness.json` in the commit that lands it, and from then on the artifact is called `msix-store`.
+**The app in the package (packaged mode, `src-tauri/src/pkg.rs`).** The same `hey-look.exe` notices that it has a package identity (`GetCurrentPackageFullName`) and then
+- keeps its data in the package's own folder `%LOCALAPPDATA%\Packages\<family>\LocalState` (a Tauri directories override, so the main window, the gated start and every pop-out take the same folders), the web view's data in
+  `...\LocalCache` and the files that "Open" hands to other programs in `...\TempState\HeyLook`; it never touches `%APPDATA%\thnonl.heylook` (a GitHub install on the same PC keeps its data, nothing is migrated);
+- keeps its passwords and tokens under the credential store service `heylook.store` (a GitHub install uses `heylook`), and does not migrate the entries of the oldest service names;
+- shows its toasts under the package's own AppUserModelID and writes nothing to the registry for them;
+- does not update itself: `update::managed_by` answers "msstore", every check answers "managed", the download and install commands refuse; Settings > About shows "Updates come from the Microsoft Store." and the Store form of the
+  privacy text, without the "Check for updates" button and the switch;
+- starts at sign-in through the package's startup task `HeyLookStartup` (off until the person turns it on; the person can turn it off in Windows Settings > Apps > Startup, an organisation can decide: the switch is then grey
+  with a hint); a start by the task behaves like `--minimized` (tray only, when there is a tray).
+
+Not done in the package: single instance is the plugin's (it keys on the app identifier, so a GitHub copy and a Store copy running together hand a second start to the first: use one of them), and a notification that
+is clicked after the app was closed does not start it (as in the GitHub version). `appPackagedMode` in `src-tauri/msix/readiness.json` is `true`; the job `msix-check` then requires the database in `LocalState` on the runner,
+so the first dry run shows whether the packaged mode really works in a package. **Never tested yet in a real package** (the packaged paths, the startup task and the activation kind need a package, which the owner's PC and
+the developers' PCs must not install): the CI job `msix-check`, the owner's smoke list and QA rows M-7 to M-11 do that. If `msix-check` fails, set `appPackagedMode` back to `false` until the cause is fixed.
+QA without a package (debug builds only): `HEYLOOK_SIMULATE_PACKAGED=1` shows the Store texts (the updater logic and the UI), `HEYLOOK_SIMULATE_AUTOSTART_LOCK=user|policy` forces the grey autostart switch; they never change a path, the credential store or the
+system. In the dev preview of the page: `#managed=msstore` and `#autostartlock=user|policy`.
 
 | File | What it is |
 |---|---|

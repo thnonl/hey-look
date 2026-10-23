@@ -73,6 +73,10 @@ fn log_dir() -> Option<PathBuf> {
     if let Some(d) = crate::startup::log_dir() {
         return Some(d);
     }
+    // a package keeps its data (and so its log) in its own folder
+    if let Some(d) = crate::pkg::dirs() {
+        return Some(d.local_state.clone());
+    }
     if let Some(d) = crate::legacy_names::test_data_dir() {
         return Some(d);
     }

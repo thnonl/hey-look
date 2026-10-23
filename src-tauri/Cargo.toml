@@ -3,7 +3,7 @@ name = "hey-look"
 version = "1.0.6"
 description = "Hey Look! desktop mail client"
 license = "MIT"
-authors = ["you"]
+authors = ["thnonl"]
 edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -67,7 +67,7 @@ tauri-winrt-notification = "0.8"
 # custom window frame: caption-button hit-testing (Snap Layouts) + system menu, see src/winframe.rs
 # the web view's own process events (webview_health.rs): the same version tauri's runtime uses, so the types are shared
 webview2-com = "0.39"
-windows = { version = "0.62", features = ["Wdk_System_Threading", "Win32_Foundation", "Win32_Globalization", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_Storage_Xps", "Win32_System_Com", "Win32_System_Diagnostics_ToolHelp", "Win32_System_LibraryLoader", "Win32_System_RemoteDesktop", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.62", features = ["ApplicationModel", "ApplicationModel_Activation", "Foundation", "Wdk_System_Threading", "Win32_Foundation", "Win32_Globalization", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_Security_Credentials", "Win32_Storage_Packaging_Appx", "Win32_Storage_Xps", "Win32_System_Com", "Win32_System_Diagnostics_ToolHelp", "Win32_System_LibraryLoader", "Win32_System_RemoteDesktop", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 windows-version = "0.1"
 keyring = { version = "3", features = ["windows-native"] }
 
