@@ -50,4 +50,8 @@ assert.match(rp, /frameRootClass\(darkNow\.current \? "dark" : "original"\)/);
 assert.match(rp, /\$\{frameBaseCss\(\)\}/);
 assert.equal((rp.match(/setMailDark\(doc, /g) ?? []).length, 2, "recoloured in place on a toggle and once on load (the off switch is the same call)");
 
+// WK-F7.02: the way out of hm-pend does not depend on the animation timeline alone (it stands still while the window is hidden): a timer of 1.5 s takes the class off too
+assert.match(rp, /setTimeout\(\(\) => frameRef\.current\?\.contentDocument\?\.documentElement\?\.classList\.remove\("hm-pend"\), 1500\)/);
+assert.match(rp, /window\.clearTimeout\(failsafe\)/);
+
 console.log("ok - test-mail-canvas");

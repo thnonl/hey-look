@@ -25,6 +25,8 @@
 
 ### Fixed
 
+- macOS: the unread number on the Dock icon is set on the main thread, as soon as the window is up and again when you change the badge settings (Settings > Notifications & tray), and every attempt is written to the log (`startup.log`, lines `[badge ...]`) with the result, so a Dock icon that still shows no number can be explained instead of guessed at
+- The website's Support page: the two buttons of the coffee card ("Buy me a coffee" and the widget button) stay on one line when they fit within 8 px of the card's width, instead of wrapping on a 1 px difference (seen in Japanese at 700 px)
 - The Focused and Other tabs and their numbers stay inside the message list whatever the font is (Russian and German on a Mac or Linux are wider than on Windows): when the two tabs alone are wider than the list, their text gets a little smaller until they fit, the header never scrolls sideways, and the Filter button keeps its icon (on a line of its own when even that does not fit beside the tabs).
 - When you delete, archive or move a conversation, the unread numbers of the side menu and of the Focused / Other tabs drop at once, together with the row, and not only after the Undo time; Undo puts the numbers back.
 - Saving a draft of a message with big pictures no longer stops the whole app. An encrypted draft (the default when Encrypt is on) with 20 MB of pictures took half an hour to build on a Mac with the window not answering; it is now built in about a second (the time grew with the square of the size), the database is no longer locked while a message is encrypted, signed, decrypted or put together for the outbox, and a draft over 100 MB gets a clear message instead of a try (the limit for sending stays 25 MB)

@@ -7,7 +7,7 @@
 //   - the page does not scroll sideways; no text box is cut (scrollWidth <= clientWidth + 1); nothing sticks out of <main>
 //   - .support-top has 2 columns above 1020 px, 1 below; .more-ways has 4 columns above 1020 px, 2 up to 720 px, 1 below; there are four cards
 //   - above 1020 px the letter and the coffee card start at the same height (1 px) and the four card links end on one line (their bottom edges within 1 px; a link that needs two lines under a wider font starts one line higher, which is fine)
-//   - up to 480 px the coffee buttons are full width; from 481 to 1020 px they sit in one row when they fit
+//   - up to 480 px the coffee buttons are full width; from 481 to 1020 px they sit in one row when they fit (up to 8 px of the card's padding may be used), else one per line
 //   - the Ko-fi button is at least 44 px high; the text a person reads has at least 4.5:1 contrast with the background it sits on
 // Engine features the page relies on: CSS grid with minmax(0, 1fr), flex, color-mix() (the dark accent colours; a browser without it shows the plain colours), `hyphens: auto` (with -webkit-).
 export const SUPPORT_PROBE = `(() => {
@@ -39,7 +39,14 @@ export const SUPPORT_PROBE = `(() => {
   }
   const bs = [...document.querySelectorAll('.kofi .btn-row .btn')].filter((e) => R(e).height); m.buttons = bs.map((e) => [Math.round(R(e).width), Math.round(R(e).height)]);
   if (w <= 480) { for (const e of bs) if (R(e).width < k.width - 60) bad.push('the coffee buttons are not full width at ' + w + ' px (' + R(e).width.toFixed(0) + ')'); }
-  else if (w <= 1020 && bs.length === 2 && R(bs[1]).top >= R(bs[0]).bottom - 1 && R(bs[0]).width + R(bs[1]).width + 10 < k.width - 44) bad.push('the coffee buttons wrap although they would fit in one row');
+  else if (w <= 1020 && bs.length === 2) {
+    // D-055: a pair that fits within 7 px of the card's content width stays on one row (the row is allowed 8 px; the last pixel is left to the layout's rounding), a wider pair wraps cleanly, and a pair on one row never gets closer than 10 px to the card's edge
+    const cs = getComputedStyle(q('.way.kofi')), inner = k.width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - parseFloat(cs.borderLeftWidth) - parseFloat(cs.borderRightWidth);
+    const wrapped = R(bs[1]).top >= R(bs[0]).bottom - 1, sum = R(bs[0]).width + R(bs[1]).width + parseFloat(getComputedStyle(q('.kofi .btn-row')).columnGap || 10);
+    m.coffeeRow = { inner: +inner.toFixed(1), sum: +sum.toFixed(1), wrapped };
+    if (wrapped && sum <= inner + 7) bad.push('the coffee buttons wrap although they fit in one row (' + sum.toFixed(1) + ' <= ' + (inner + 7).toFixed(1) + ' px; the row takes up to 8 px more than the content box)');
+    if (!wrapped && R(bs[1]).right > k.right - 12) bad.push('the coffee buttons come closer than 10 px to the card edge (' + (k.right - R(bs[1]).right).toFixed(1) + ' px)');
+  }
   const kofi = q('#kofi-link'); if (!kofi || R(kofi).height < 44) bad.push('the Ko-fi button is smaller than 44 px');
   // contrast of the text a person reads (WCAG 2.x), against the first opaque background above it
   const rgba = (c) => { const n = c.match(/-?[\\d.]+/g).map(Number); return c.startsWith('color(') ? [n[0] * 255, n[1] * 255, n[2] * 255, n[3] ?? 1] : [n[0], n[1], n[2], n[3] ?? 1]; };

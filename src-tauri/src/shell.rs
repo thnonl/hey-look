@@ -237,19 +237,28 @@ pub fn update_badge(app: &AppHandle, db: &Db) {
         }
         crate::popout::set_overlay(app, icon);
     }
-    // macOS Dock icon: the same number as the tray, off at 0 and with the "None" choice of the badge setting (shown as "Dock badge")
+    // macOS Dock icon: the same number as the tray, off at 0 and with the "None" choice of the badge setting (shown as "Dock badge"). The call runs on
+    // the main thread (NSDockTile) and its Result is logged and kept for the QA bridge (D-056, dockbadge.rs)
     #[cfg(target_os = "macos")]
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.set_badge_label(dock_label(count, &task_style));
+    {
+        let handle = app.clone();
+        crate::dockbadge::request_into(
+            &crate::dockbadge::LAST,
+            crate::dockbadge::label(count, &task_style),
+            |job| app.run_on_main_thread(job).map_err(|e| e.to_string()),
+            move |label| set_dock_badge(&handle, label),
+        );
     }
     #[cfg(not(any(windows, target_os = "macos")))]
     let _ = task_style;
 }
 
-/// The text of the macOS Dock badge: the unread number, nothing at 0 or when the setting is "off" (`None` removes the badge).
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-fn dock_label(count: u32, style: &str) -> Option<String> {
-    (count > 0 && style == "number").then(|| count.to_string())
+/// The platform call of the Dock badge (main thread): sets the label and returns what the Dock tile reports afterwards.
+#[cfg(target_os = "macos")]
+fn set_dock_badge(app: &AppHandle, label: Option<String>) -> Result<Option<String>, String> {
+    let w = app.get_webview_window("main").ok_or("the main window does not exist (yet)")?;
+    w.set_badge_label(label).map_err(|e| e.to_string())?;
+    crate::macdock::tile_label()
 }
 
 // ---------- macOS app menu ----------
@@ -951,18 +960,6 @@ mod platform_tests {
         for id in ["\"compose\" if MAIL_AVAILABLE", "\"sync\" if MAIL_AVAILABLE"] {
             assert!(src.contains(id), "{id}");
         }
-    }
-
-    #[test]
-    fn the_dock_badge_is_the_unread_number_unless_it_is_zero_or_turned_off() {
-        assert_eq!(dock_label(7, "number"), Some("7".into()));
-        assert_eq!(dock_label(1234, "number"), Some("1234".into()));
-        assert_eq!(dock_label(0, "number"), None, "cleared at 0");
-        assert_eq!(dock_label(7, "off"), None, "the setting's None");
-        assert_eq!(dock_label(7, "dot"), None, "an unknown style shows nothing");
-        // the Dock follows the same count and the same style setting as the taskbar badge, on macOS only
-        let src = include_str!("shell.rs");
-        assert!(src.contains("w.set_badge_label(dock_label(count, &task_style))"));
     }
 
     #[test]
