@@ -106,7 +106,8 @@ function generate(o) {
   // nothing may be left over: every asset is a known installer, its signature, or the manifest itself
   for (const a of assets) {
     const known = Object.values(PLATFORMS).some((ext) => a.name.endsWith(ext) || a.name.endsWith(`${ext}.sig`)) || a.name.endsWith(".dmg");
-    if (!known && a.name !== "latest.json") problem(`unexpected asset: ${a.name}`);
+    // (WP14 option B: the Store's offline installer is a release asset that the updater never uses; it is not in latest.json and no platform key points at it)
+    if (!known && a.name !== "latest.json" && a.name !== `HeyLook_${version}_windows_x64_offline.exe`) problem(`unexpected asset: ${a.name}`);
   }
   if (problems.length) return null;
   const notes = fs.readFileSync(o.notes, "utf8").replace(/^\s+|\s+$/g, "");

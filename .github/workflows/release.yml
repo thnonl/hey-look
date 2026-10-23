@@ -12,6 +12,15 @@ name: Release
 # Use `platforms` there for just the system that is being tested (windows, macos, linux, or a list such as windows,macos).
 # Windows signing (SignPath) is OFF unless the repo variables SIGNPATH_ORGANIZATION_ID, SIGNPATH_PROJECT_SLUG and
 # SIGNPATH_SIGNING_POLICY_SLUG exist; a dry run signs only with the input `sign_windows` (a signing request needs the owner's approval).
+# Microsoft Store (WP14, PACKAGING.md > Microsoft Store). Option A, always when Windows is built (not for a test build): the job `msix` packs the release
+# exe into an MSIX with the Windows SDK (unsigned: the Store signs it itself; a copy signed with a throw-away certificate is `msix-test`) and the job
+# `msix-check` installs that copy on the disposable runner, starts it and removes it. Neither reads a secret or has an Environment, and neither is needed
+# by `publish`: a problem with the Store package never holds back the GitHub release (re-run the failed job). The artifact `msix-store` of a tag run is what the
+# owner uploads to Partner Center; it is named `msix-store-NOT-READY` until the app has its packaged mode (src-tauri/msix/readiness.json, WP14 part 2).
+# Everything that publishes is OFF unless a repository variable says so (DEC-005): `store-submit` (STORE_SUBMIT=true, Environment `store`) sends the MSIX to
+# Partner Center; option B (STORE_EXE=true) builds the signed offline installer (`store-exe`), serves it from the website (`store-url`, pages.yml) and
+# `store-submit-exe` (both variables) gives Partner Center its address. Without the variables none of these jobs exists in the run, no asset is added and no
+# secret is read.
 # The node tests run in shards (.github/node-tests.txt): the shard `static` (about 1.5 minutes, the fast gate) always, the UI shards ui-a ... ui-e
 # (a headless browser each, about 9 minutes in parallel) on every tag run and, in a dry run, only with the input `ui_tests` (default false).
 # A dry run without ui_tests therefore runs plan, static, the Rust tests and the builds; it never publishes, so nothing waits for the UI shards.
@@ -70,6 +79,9 @@ jobs:
       tests: ${{ steps.plan.outputs.tests }}
       shards: ${{ steps.plan.outputs.shards }}
       ui_tests: ${{ steps.plan.outputs.ui_tests }}
+      msix: ${{ steps.plan.outputs.msix }}
+      store_exe: ${{ steps.plan.outputs.store_exe }}
+      store_submit: ${{ steps.plan.outputs.store_submit }}
     steps:
       - id: plan
         shell: bash
@@ -83,6 +95,8 @@ jobs:
           SP_PROJECT: ${{ vars.SIGNPATH_PROJECT_SLUG }}
           SP_POLICY: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
           REQUIRE_WIN: ${{ vars.REQUIRE_WIN_SIGNING }}
+          STORE_EXE: ${{ vars.STORE_EXE }}
+          STORE_SUBMIT: ${{ vars.STORE_SUBMIT }}
         run: |
           set -euo pipefail
           want="all"
@@ -140,6 +154,20 @@ jobs:
           fi
           echo "signpath=$signpath" >> "$GITHUB_OUTPUT"
           echo "Windows signing with SignPath: $signpath"
+          # Microsoft Store (WP14). The MSIX package (option A) is made whenever Windows is built, except for a test build (its exe is a debug build).
+          msix=false
+          if [ "$win" = true ] && [ -z "$TEST_VERSION" ]; then msix=true; fi
+          # Option B (the signed offline EXE installer for the Store) is built but OFF (DEC-005): only the repository variable STORE_EXE=true, exactly,
+          # turns it on. A dry run then builds it and keeps it as an artifact; a tag run attaches it to the release and serves it from the website.
+          store_exe=false
+          if [ "$msix" = true ] && [ "$STORE_EXE" = "true" ]; then store_exe=true; fi
+          # The submission to Partner Center (Entra application) is built but OFF (DEC-005): tag runs with STORE_SUBMIT=true, exactly.
+          store_submit=false
+          if [ "$EVENT" = "push" ] && [ "$STORE_SUBMIT" = "true" ]; then store_submit=true; fi
+          echo "msix=$msix" >> "$GITHUB_OUTPUT"
+          echo "store_exe=$store_exe" >> "$GITHUB_OUTPUT"
+          echo "store_submit=$store_submit" >> "$GITHUB_OUTPUT"
+          echo "Microsoft Store: MSIX package $msix, EXE installer (STORE_EXE) $store_exe, submission (STORE_SUBMIT) $store_submit"
 
   create-release:
     # Tag runs only. Creates the one draft release that all build jobs upload into.
@@ -608,6 +636,16 @@ jobs:
           node .github/scripts/check-pe-subsystem.cjs --selftest
           node .github/scripts/check-pe-subsystem.cjs src-tauri/target/release/hey-look.exe --expect gui
 
+      # WP14: the exe of this build goes into the Microsoft Store package (job msix) byte for byte; the sha256 is on both run summaries.
+      - name: Keep hey-look.exe for the Store package
+        if: runner.os == 'Windows' && needs.plan.outputs.msix == 'true' && steps.sign.outputs.profile == 'release'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-exe
+          path: src-tauri/target/release/hey-look.exe
+          retention-days: 1
+          if-no-files-found: error
+
       # The test bridge (src-tauri/src/testbridge/, a remote control of the windows for QA) exists in debug builds only: the built release app
       # must not contain it. Searched for the name of its environment variable (and its log text): the binaries, the macOS .app, and the
       # unpacked .deb on Linux (the other bundles are compressed, they hold the same binary).
@@ -777,6 +815,10 @@ jobs:
             find src-tauri/target -path '*/bundle/*' -type f -mmin -180 \( -name '*-setup.exe' -o -name '*.msi' -o -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' -o -name '*.sig' \) 2>/dev/null | sort | while IFS= read -r f; do
               printf '| %s | %s |\n' "$(basename "$f")" "$(( $(wc -c < "$f") / 1024 ))"
             done
+            if [ "$RUNNER_OS" = Windows ] && [ "$PROFILE" = release ] && [ -f src-tauri/target/release/hey-look.exe ]; then
+              echo
+              echo "hey-look.exe sha256 \`$(sha256sum src-tauri/target/release/hey-look.exe | cut -d' ' -f1)\` (the same file goes into the Store package, job msix)"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
   sign-windows:
@@ -940,15 +982,17 @@ jobs:
 
   publish:
     # Runs only when create-release and all three builds succeeded and sign-windows either succeeded or was not wanted (skipped).
-    needs: [plan, create-release, build, sign-windows, node-tests, rust-tests]
+    needs: [plan, create-release, build, sign-windows, store-exe, node-tests, rust-tests]
     timeout-minutes: 30
     permissions:
       contents: write # uploads latest.json and publishes the release
-    if: ${{ !cancelled() && github.event_name == 'push' && needs.plan.outputs.ui_tests == 'true' && needs.create-release.result == 'success' && needs.build.result == 'success' && needs.node-tests.result == 'success' && needs.rust-tests.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.sign-windows.result) }}
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.plan.outputs.ui_tests == 'true' && needs.create-release.result == 'success' && needs.build.result == 'success' && needs.node-tests.result == 'success' && needs.rust-tests.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.sign-windows.result) && contains(fromJSON('["success","skipped"]'), needs.store-exe.result) }}
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       ID: ${{ needs.create-release.outputs.id }}
+      # WP14 option B: with STORE_EXE the release must carry the Store's offline installer (exactly once), without it not at all
+      STORE_EXE: ${{ needs.plan.outputs.store_exe }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
@@ -980,7 +1024,8 @@ jobs:
         run: |
           gh api "repos/$GITHUB_REPOSITORY/releases/$ID/assets" --paginate --jq '.[].name' > names.txt
           cat names.txt
-          bash .github/scripts/check-release-assets.sh "${GITHUB_REF_NAME#v}" --pre < names.txt
+          flag=""; if [ "$STORE_EXE" = true ]; then flag="--store-exe"; fi
+          bash .github/scripts/check-release-assets.sh "${GITHUB_REF_NAME#v}" --pre $flag < names.txt
 
       # Whatever happened to the files after the build (Authenticode, a re-upload), each update signature must still verify against the
       # file it is published with; otherwise every installed app would refuse the update. This stops the release before latest.json exists.
@@ -1017,7 +1062,8 @@ jobs:
           V="${GITHUB_REF_NAME#v}"
           gh api "repos/$GITHUB_REPOSITORY/releases/$ID/assets" --paginate --jq '.[].name' > names.txt
           cat names.txt
-          bash .github/scripts/check-release-assets.sh "$V" < names.txt
+          flag=""; if [ "$STORE_EXE" = true ]; then flag="--store-exe"; fi
+          bash .github/scripts/check-release-assets.sh "$V" $flag < names.txt
           node .github/scripts/make-latest-json.cjs check latest.json --version "$V"
 
       - name: Publish and mark latest
@@ -1250,3 +1296,455 @@ jobs:
           path: repo
           retention-days: 1
           if-no-files-found: error
+
+  msix:
+    # WP14 option A (spec WA.1): the Microsoft Store package. Whenever Windows is built and it is not a test build (the plan job says). The exe is the
+    # one of the Windows build job (artifact windows-exe), byte for byte; the package is made by scripts/msix-build.mjs with the Windows SDK of the runner
+    # (makeappx, makepri, signtool). The package for Partner Center is NOT signed (the Store signs it after certification, MSIX-REQ); a copy signed with a
+    # throw-away certificate (subject = Publisher, key deleted at once) is the artifact msix-test, for msix-check and for a Windows Sandbox.
+    # No Environment, no secret: the identity values are public repository variables (Partner Center > Product identity). A tag run fails without them;
+    # a dry run uses a placeholder identity and its package is never named msix-store. The job is not a need of `publish`.
+    needs: [plan, build]
+    if: ${{ !cancelled() && needs.plan.outputs.msix == 'true' && needs.build.result == 'success' }}
+    name: MSIX package (Microsoft Store)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      ready: ${{ steps.build.outputs.ready }}
+      version: ${{ steps.build.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      - name: The exe of the build job
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: windows-exe
+          path: exe
+
+      # the same tests as the node shard `static` runs (the pure ones) and, here where the Windows SDK and a browser exist, a real pack and unpack
+      - name: Tests of the package scripts
+        shell: bash
+        run: node scripts/test-msix-build.mjs
+
+      - name: Build the package
+        id: build
+        shell: bash
+        env:
+          MSIX_IDENTITY_NAME: ${{ vars.MSIX_IDENTITY_NAME }}
+          MSIX_PUBLISHER: ${{ vars.MSIX_PUBLISHER }}
+          MSIX_PUBLISHER_DISPLAY_NAME: ${{ vars.MSIX_PUBLISHER_DISPLAY_NAME }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          extra=()
+          # a tag run needs the real identity and the version of the tag
+          if [ "$EVENT" = "push" ]; then extra+=(--require-identity --expect-version "${GITHUB_REF_NAME#v}"); fi
+          node scripts/msix-build.mjs --exe exe/hey-look.exe --out msix-out --test-sign --store-logos --github-output --tmp "$RUNNER_TEMP/msix-sign" "${extra[@]}"
+          ls -l msix-out
+
+      # AC-WA.1.1: makeappx unpack of both packages, manifest as the spec says, hey-look.exe byte-identical to the exe of the NSIS build
+      - name: Unpack and check both packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in msix-out/HeyLook_*_x64.msix msix-out/HeyLook_*_x64_test.msix; do
+            echo "== $f"
+            node scripts/msix-verify.mjs "$f" --from msix-out/msix-build.json --exe exe/hey-look.exe
+          done
+
+      # nothing private may leave the job
+      - name: No key in the output
+        shell: bash
+        run: |
+          if find msix-out -type f \( -name '*.pfx' -o -name '*.key' -o -name '*.p12' -o -name '*.pem' \) | grep .; then echo "::error::key material in msix-out"; exit 1; fi
+          if grep -rIl 'PRIVATE KEY' msix-out; then echo "::error::a private key in msix-out"; exit 1; fi
+          if ls "$RUNNER_TEMP"/msix-sign/* > /dev/null 2>&1; then echo "::error::key files are left in the signing folder"; ls -l "$RUNNER_TEMP/msix-sign"; exit 1; fi
+          echo "no key material in the output"
+
+      - name: Summary
+        if: always()
+        shell: bash
+        env:
+          READY: ${{ steps.build.outputs.ready }}
+        run: |
+          {
+            echo "### MSIX package (Microsoft Store)"
+            if [ -f msix-out/msix-build.json ]; then
+              jq -r '"version `\(.version)` (package version `\(.msixVersion)`), x64", "identity name `\(.identity.name)`, publisher `\(.identity.publisher)`, publisher display name `\(.identity.publisherDisplayName)`" + (if .identity.dev then " (PLACEHOLDER: the repository variables are not set)" else "" end), "hey-look.exe sha256 `\(.exe.sha256)` (the same as in the NSIS build job)", "", "| file | KB |", "|---|---:|", "| \(.msix.file) | \(.msix.bytes / 1024 | floor) |", (if .test then "| \(.test.file) (throw-away certificate) | \(.test.bytes / 1024 | floor) |" else empty end)' msix-out/msix-build.json
+              if [ "$READY" != "true" ]; then echo; echo "NOT FOR SUBMISSION: the app has no packaged mode yet (src-tauri/msix/readiness.json, WP14 part 2). The tag-run artifact is named msix-store-NOT-READY."; fi
+            else
+              echo "the package was not made"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # what the owner uploads to Partner Center (tag runs only, never the GitHub release)
+      - name: Keep the package for Partner Center
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ steps.build.outputs.ready == 'true' && 'msix-store' || 'msix-store-NOT-READY' }}
+          path: msix-out/HeyLook_*_x64.msix
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Keep the Store listing images
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: msix-store-logos
+          path: msix-out/store/*.png
+          retention-days: ${{ github.event_name == 'push' && 14 || 1 }}
+          if-no-files-found: error
+
+      # the test-signed copy and its PUBLIC certificate (msix-check, Windows Sandbox)
+      - name: Keep the test-signed copy
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: msix-test
+          path: |
+            msix-out/HeyLook_*_x64_test.msix
+            msix-out/HeyLook-test.cer
+            msix-out/msix-build.json
+          retention-days: 1
+          if-no-files-found: error
+
+  msix-check:
+    # WP14 option A (spec WA.4): installs the test-signed package on this disposable runner (the throw-away certificate goes into the machine store of the
+    # VM, which is thrown away), starts it, checks it, removes it (.github/scripts/msix-check.ps1), and runs the Windows App Certification Kit when the
+    # runner has one. No Environment, no secret. Windows PowerShell 5.1 (`shell: powershell`): the Appx cmdlets live there.
+    needs: [msix]
+    if: ${{ !cancelled() && needs.msix.result == 'success' }}
+    name: MSIX install check
+    runs-on: windows-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: The test-signed package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: msix-test
+          path: msix-test
+
+      - name: Install, start, check and remove
+        shell: powershell
+        run: .\.github\scripts\msix-check.ps1 -Dir msix-test -WackReport "$env:RUNNER_TEMP\wack-report.xml"
+
+      - name: Keep the certification kit report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: msix-wack-report
+          path: ${{ runner.temp }}\wack-report.xml
+          retention-days: 1
+          if-no-files-found: ignore
+
+  store-submit:
+    # WP14 WA.5, OFF (DEC-005 item 6): runs only on a tag run with the repository variable STORE_SUBMIT=true, and only for a package whose app has its packaged
+    # mode. The Environment `store` (owner as required reviewer; secrets AZURE_AD_TENANT_ID, AZURE_AD_APPLICATION_CLIENT_ID, AZURE_AD_APPLICATION_SECRET,
+    # SELLER_ID; variable STORE_PRODUCT_ID) is only asked for when the job runs, so without STORE_SUBMIT nothing waits and no secret is read.
+    # Partner Center takes an update only after the first submission was made by hand (Microsoft: "You can't use the CLI to complete the first publication").
+    # The commands are written from Microsoft's documentation of the Store Developer CLI and have never run (PACKAGING.md > Microsoft Store).
+    needs: [plan, publish, msix, msix-check]
+    if: ${{ !cancelled() && needs.plan.outputs.store_submit == 'true' && needs.publish.result == 'success' && needs.msix.result == 'success' && needs.msix-check.result == 'success' && needs.msix.outputs.ready == 'true' }}
+    name: Store submission (MSIX)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    environment: store
+    permissions:
+      contents: read
+    steps:
+      - name: The package for Partner Center
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: msix-store
+          path: msix-store
+
+      - name: Microsoft Store Developer CLI
+        uses: microsoft/microsoft-store-apppublisher@cc9910a8d59f2eb55cbb83df0a3800cf3b5300e0 # v1.4
+
+      - name: Configure the CLI
+        shell: pwsh
+        env:
+          TENANT_ID: ${{ secrets.AZURE_AD_TENANT_ID }}
+          CLIENT_ID: ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
+          SELLER_ID: ${{ secrets.SELLER_ID }}
+        run: |
+          foreach ($n in 'TENANT_ID', 'CLIENT_ID', 'CLIENT_SECRET', 'SELLER_ID') {
+            if (-not (Get-Item "env:$n").Value) { throw "the secret for $n is not set in the Environment 'store'" }
+          }
+          Write-Host "::add-mask::$env:CLIENT_SECRET"
+          msstore reconfigure --tenantId $env:TENANT_ID --sellerId $env:SELLER_ID --clientId $env:CLIENT_ID --clientSecret $env:CLIENT_SECRET
+          if ($LASTEXITCODE -ne 0) { throw "msstore reconfigure failed" }
+
+      - name: Publish the package
+        shell: pwsh
+        env:
+          PRODUCT_ID: ${{ vars.STORE_PRODUCT_ID }}
+        run: |
+          if (-not $env:PRODUCT_ID) { throw "the repository variable STORE_PRODUCT_ID is not set" }
+          $pkg = Get-ChildItem msix-store -Filter 'HeyLook_*_x64.msix' | Select-Object -First 1
+          if (-not $pkg) { throw "no HeyLook_*_x64.msix in the artifact msix-store" }
+          msstore publish msix-store --inputFile $pkg.FullName --appId $env:PRODUCT_ID
+          if ($LASTEXITCODE -ne 0) { throw "msstore publish failed" }
+
+  store-exe:
+    # WP14 option B (spec W14.2), OFF (DEC-005): only with the repository variable STORE_EXE=true (the plan job). The offline NSIS installer for the
+    # Store (the WebView2 Runtime inside, about 127 MB more) is built from the same source with a second configuration (src-tauri/tauri.store-exe.conf.json),
+    # named HeyLook_<V>_windows_x64_offline.exe (not *-setup.exe, so latest.json and the one-setup.exe checks never see it) and attached to the draft release
+    # (a tag run) or kept as the artifact store-exe-dryrun. It is built here and not in the Windows build job because the bundler overwrites the normal
+    # installer; the build reads the same embedded client ids (tag runs, Environment release), no update key. Microsoft wants it Authenticode-signed
+    # (W14.3: SignPath Foundation or a certificate, only on a trigger, section 8 of the spec): until a signing step exists the job says so and `store-url`
+    # refuses to publish an unsigned file.
+    needs: [plan, create-release]
+    if: ${{ !cancelled() && needs.plan.outputs.store_exe == 'true' && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped') }}
+    name: Store offline installer (option B)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    environment: ${{ github.event_name == 'push' && 'release' || '' }}
+    permissions:
+      contents: write # uploads the installer into the draft release (tag runs)
+    outputs:
+      signed: ${{ steps.file.outputs.signed }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch (a SHA pin needs the toolchain named)
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          save-if: ${{ github.ref_type != 'tag' }}
+
+      - name: OAuth client ids present (tag runs)
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          MICROSOFT_CLIENT_ID: ${{ secrets.MICROSOFT_CLIENT_ID }}
+        run: |
+          bad=0
+          for n in GOOGLE_CLIENT_ID MICROSOFT_CLIENT_ID; do
+            if [ -z "${!n}" ]; then echo "::error::$n is not set (add it to the environment 'release'): the Store installer would have no sign-in"; bad=1; fi
+          done
+          exit $bad
+
+      - name: Verify version
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = "push" ]; then V="${GITHUB_REF_NAME#v}"; PUBKEY=error; else V="-"; PUBKEY=warn; fi
+          node .github/scripts/verify-version.cjs "$V" . --pubkey="$PUBKEY"
+
+      - run: npm ci
+
+      # the same build as the release (the embedded client ids are part of the binary), bundled as the offline NSIS installer only
+      - name: Build the offline installer
+        shell: bash
+        env:
+          GOOGLE_CLIENT_ID: ${{ github.event_name == 'push' && secrets.GOOGLE_CLIENT_ID || '' }}
+          GOOGLE_CLIENT_SECRET: ${{ github.event_name == 'push' && secrets.GOOGLE_CLIENT_SECRET || '' }}
+          MICROSOFT_CLIENT_ID: ${{ github.event_name == 'push' && secrets.MICROSOFT_CLIENT_ID || '' }}
+          MICROSOFT_CLIENT_SECRET: ${{ github.event_name == 'push' && secrets.MICROSOFT_CLIENT_SECRET || '' }}
+        run: npx tauri build --bundles nsis --config src-tauri/tauri.store-exe.conf.json
+
+      - name: The Windows app is a GUI program, without the test bridge
+        shell: bash
+        run: |
+          node .github/scripts/check-pe-subsystem.cjs src-tauri/target/release/hey-look.exe --expect gui
+          node .github/scripts/check-no-test-bridge.cjs src-tauri/target/release/hey-look.exe
+
+      - name: Name the installer
+        id: file
+        shell: pwsh
+        run: |
+          $v = (Get-Content -Raw src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          $setups = @(Get-ChildItem src-tauri/target/release/bundle/nsis -Filter '*-setup.exe')
+          if ($setups.Count -ne 1) { throw "expected exactly one *-setup.exe, found $($setups.Count)" }
+          $name = "HeyLook_${v}_windows_x64_offline.exe"
+          Copy-Item $setups[0].FullName $name
+          $item = Get-Item $name
+          # the WebView2 Runtime is inside: a normal installer is about 8 MB, this one about 135 MB
+          if ($item.Length -lt 100MB) { throw "$name has $($item.Length) bytes: it does not look like an offline installer (WebView2 Runtime inside)" }
+          $sig = Get-AuthenticodeSignature -FilePath $name
+          $signed = ($sig.Status -eq 'Valid')
+          "name=$name" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "signed=$($signed.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          $sha = (Get-FileHash -Algorithm SHA256 $name).Hash.ToLower()
+          "### Store offline installer (option B)`n`n$name, $([math]::Round($item.Length / 1MB, 1)) MB, sha256 ``$sha``, Authenticode: $($sig.Status)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          if (-not $signed) { Write-Host "::warning::$name is not Authenticode-signed (W14.3 is not built yet): the Store refuses it, and store-url will not publish it" }
+
+      # tag run: into the draft release (publish checks the list: exactly one, no signature); dry run: an artifact
+      - name: Attach to the draft release
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          NAME: ${{ steps.file.outputs.name }}
+        run: gh release upload "$GITHUB_REF_NAME" "$NAME" --clobber
+
+      - name: Keep the installer of a dry run
+        if: github.event_name != 'push'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: store-exe-dryrun
+          path: ${{ steps.file.outputs.name }}
+          retention-days: 1
+          if-no-files-found: error
+
+  store-url:
+    # WP14 option B (spec W14.1), OFF with STORE_EXE. After `publish`: the offline installer of the published release is checked (the sha256 GitHub states for
+    # the asset, a valid Authenticode signature), pages.yml is started on main (it adds the installers of the newest 3 releases under /downloads/<V>/ and
+    # checks every one against its digest), and when that deploy is done the address Partner Center gets is checked from outside: 200, no redirect,
+    # the size, the sha256 (.github/scripts/store-url-check.sh). The pages.yml on main must already be the one with this step: merge the release branch first,
+    # or re-run this job after the merge ("Re-run failed jobs"). A failure here leaves the release published.
+    needs: [plan, publish, store-exe]
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.plan.outputs.store_exe == 'true' && needs.publish.result == 'success' && needs.store-exe.result == 'success' }}
+    name: Store installer address (option B)
+    runs-on: windows-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: write # starts pages.yml (events of the GITHUB_TOKEN start no workflow, but a dispatch does)
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: The published installer
+        id: asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          V="${GITHUB_REF_NAME#v}"
+          NAME="HeyLook_${V}_windows_x64_offline.exe"
+          info=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" --jq ".assets[] | select(.name == \"$NAME\") | {digest, size}")
+          digest=$(jq -r .digest <<< "$info" | tr -d '\r'); size=$(jq -r .size <<< "$info" | tr -d '\r')
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::GitHub states no sha256 digest for $NAME ('$digest')"; exit 1; }
+          mkdir dl
+          gh release download "$GITHUB_REF_NAME" --pattern "$NAME" --dir dl
+          got=$(sha256sum "dl/$NAME" | cut -d' ' -f1)
+          [ "sha256:$got" = "$digest" ] || { echo "::error::the download has sha256 $got, GitHub says $digest"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "sha256=$got" >> "$GITHUB_OUTPUT"
+          echo "size=$size" >> "$GITHUB_OUTPUT"
+
+      # Partner Center (MS-POL 10.2.9): the installer and its PE files must be signed by the publisher with a Trusted Root Program CA
+      - name: Authenticode signature
+        shell: pwsh
+        env:
+          NAME: ${{ steps.asset.outputs.name }}
+        run: |
+          $s = Get-AuthenticodeSignature -FilePath "dl/$env:NAME"
+          Write-Host "$($env:NAME): $($s.Status) | $($s.SignerCertificate.Subject)"
+          if ($s.Status -ne 'Valid') { throw "$($env:NAME) has no valid Authenticode signature ($($s.Status)): the Store refuses it. W14.3 (signing) is not in place." }
+
+      - name: Start pages.yml on main and wait for it
+        shell: bash
+        run: |
+          set -euo pipefail
+          before=$(date -u -d '60 seconds ago' +%Y-%m-%dT%H:%M:%SZ)
+          gh workflow run pages.yml --ref main
+          id=""
+          for i in $(seq 1 30); do
+            id=$(gh run list --workflow pages.yml --branch main --event workflow_dispatch --limit 10 --json databaseId,createdAt --jq "[.[] | select(.createdAt >= \"$before\")] | sort_by(.createdAt) | last | .databaseId // empty")
+            [ -n "$id" ] && break
+            sleep 10
+          done
+          [ -n "$id" ] || { echo "::error::the dispatched pages.yml run was not found"; exit 1; }
+          echo "pages.yml run $id"
+          gh run watch "$id" --exit-status
+
+      - name: The address from outside
+        shell: bash
+        env:
+          V: ${{ steps.asset.outputs.version }}
+          SHA: ${{ steps.asset.outputs.sha256 }}
+          SIZE: ${{ steps.asset.outputs.size }}
+        run: |
+          bash .github/scripts/store-url-check.sh "$V" "$SHA" "$SIZE" | tee url.out
+          {
+            echo "### Store installer address"
+            echo "https://heylook.namthai.site/downloads/$V/HeyLook_${V}_windows_x64_offline.exe (sha256 \`$SHA\`, $SIZE bytes)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  store-submit-exe:
+    # WP14 W14.8b, OFF: needs both STORE_EXE and STORE_SUBMIT (tag runs). Gives Partner Center the address of the new offline installer: `msstore submission get`,
+    # the old versioned address in that JSON replaced by the new one (nothing else changes), `submission update`, `publish`, `poll`. The EXE/MSI product is
+    # another Partner Center product than the MSIX one (variable STORE_EXE_PRODUCT_ID); Microsoft requires its first submission to be made by hand. Environment `store`.
+    # Written from Microsoft's documentation of the Store Developer CLI (MSI/EXE); has never run.
+    needs: [plan, store-url]
+    if: ${{ !cancelled() && needs.plan.outputs.store_exe == 'true' && needs.plan.outputs.store_submit == 'true' && needs.store-url.result == 'success' }}
+    name: Store submission (EXE installer)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    environment: store
+    permissions:
+      contents: read
+    steps:
+      - name: Microsoft Store Developer CLI
+        uses: microsoft/microsoft-store-apppublisher@cc9910a8d59f2eb55cbb83df0a3800cf3b5300e0 # v1.4
+
+      - name: Configure the CLI
+        shell: pwsh
+        env:
+          TENANT_ID: ${{ secrets.AZURE_AD_TENANT_ID }}
+          CLIENT_ID: ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
+          SELLER_ID: ${{ secrets.SELLER_ID }}
+        run: |
+          foreach ($n in 'TENANT_ID', 'CLIENT_ID', 'CLIENT_SECRET', 'SELLER_ID') {
+            if (-not (Get-Item "env:$n").Value) { throw "the secret for $n is not set in the Environment 'store'" }
+          }
+          Write-Host "::add-mask::$env:CLIENT_SECRET"
+          msstore reconfigure --tenantId $env:TENANT_ID --sellerId $env:SELLER_ID --clientId $env:CLIENT_ID --clientSecret $env:CLIENT_SECRET
+          if ($LASTEXITCODE -ne 0) { throw "msstore reconfigure failed" }
+
+      - name: Give Partner Center the new address
+        shell: pwsh
+        env:
+          PRODUCT_ID: ${{ vars.STORE_EXE_PRODUCT_ID }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if (-not $env:PRODUCT_ID) { throw "the repository variable STORE_EXE_PRODUCT_ID is not set" }
+          $v = $env:TAG.TrimStart('v')
+          $new = "https://heylook.namthai.site/downloads/$v/HeyLook_${v}_windows_x64_offline.exe"
+          $pattern = 'https://heylook\.namthai\.site/downloads/[0-9]+\.[0-9]+\.[0-9]+/HeyLook_[0-9]+\.[0-9]+\.[0-9]+_windows_x64_offline\.exe'
+          $json = (msstore submission get $env:PRODUCT_ID | Out-String)
+          if ($LASTEXITCODE -ne 0) { throw "msstore submission get failed" }
+          $n = [regex]::Matches($json, $pattern).Count
+          if ($n -lt 1) { throw "the submission holds no address of the form $pattern: set the first address by hand in Partner Center" }
+          $updated = [regex]::Replace($json, $pattern, $new)
+          msstore submission update $env:PRODUCT_ID $updated
+          if ($LASTEXITCODE -ne 0) { throw "msstore submission update failed" }
+          msstore submission publish $env:PRODUCT_ID
+          if ($LASTEXITCODE -ne 0) { throw "msstore submission publish failed" }
+          msstore submission poll $env:PRODUCT_ID
+          if ($LASTEXITCODE -ne 0) { throw "msstore submission poll reports a failed submission" }
+          "### Store submission (EXE)`n$n address(es) in the submission now point to $new" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8

@@ -16,6 +16,12 @@ name: Pages
 # no variable can change that. Off: build-site.mjs takes the "Install with APT" block out of the 8 download pages and does not copy docs/apt/, and
 # `test-site-apt.mjs --built=_site` proves the built site has none of it, so the site never advertises a repository that does not exist and the
 # throw-away key of docs/apt (until the owner's real key is committed) never reaches the site. On: the throw-away key fails the run hard, before the upload.
+#
+# THE STORE'S OFFLINE INSTALLER (WP14 option B, DEC-005): with the repository variable STORE_EXE = true (and only then) the site also carries
+# /downloads/<V>/HeyLook_<V>_windows_x64_offline.exe for the newest 3 published releases that have it (.github/scripts/store-exe-assemble.sh: downloaded from
+# the release, sha256 and size checked against what GitHub states for the asset, before anything is uploaded), and robots.txt disallows /downloads/.
+# Without the variable (unset, or any other value) the step does nothing and the site is what it always was. This is the only use of `vars.` here
+# (scripts/test-apt-placeholder-guard.mjs keeps it that way): the APT repository is still decided by the branch check alone.
 on:
   push:
     branches: [main, "release/**"]
@@ -27,6 +33,7 @@ on:
       - ".github/workflows/pages.yml"
       - ".github/scripts/apt-assemble.sh"
       - ".github/scripts/apt-live-check.sh"
+      - ".github/scripts/store-exe-assemble.sh"
   workflow_dispatch:
 
 permissions:
@@ -90,6 +97,7 @@ jobs:
       - name: Build and optimize production site
         env:
           APT_SITE: ${{ steps.aptbranch.outputs.present == 'true' && 'on' || 'off' }}
+          STORE_EXE: ${{ vars.STORE_EXE == 'true' && 'on' || 'off' }}
         run: node scripts/build-site.mjs _site
 
       # off: the built site has no APT block, marker, apt/ folder, link or text; on: it has the block on the 8 download pages and the key files
@@ -118,6 +126,23 @@ jobs:
           {
             echo "### APT repository deployed"
             echo "newest version \`$(echo "$out" | sed -n 's/^version=//p')\`, InRelease sha256 \`$(echo "$out" | sed -n 's/^inrelease_sha256=//p')\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # WP14 option B: only with STORE_EXE = true; a mismatch of any file stops the deploy and the site stays as it is
+      - name: Add the Store offline installers
+        env:
+          STORE_EXE: ${{ vars.STORE_EXE == 'true' && 'on' || 'off' }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$STORE_EXE" != on ]; then
+            echo "STORE_EXE is not true: the site gets no /downloads/"
+            exit 0
+          fi
+          out=$(bash .github/scripts/store-exe-assemble.sh _site "$GITHUB_REPOSITORY" 3 | tee /dev/stderr)
+          {
+            echo "### Store offline installers deployed"
+            echo "$out" | tr '\n' ' '
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
