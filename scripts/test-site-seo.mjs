@@ -247,7 +247,9 @@ checkPage(EN, '404', path.join(DOCS, '404.html'));
     const lines = read(f).split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
     if (!lines.includes('User-agent: *')) fail('robots.txt', 'no "User-agent: *"');
     if (!lines.includes('Allow: /')) fail('robots.txt', 'no "Allow: /"');
-    for (const l of lines) if (/^Disallow:\s*\S/i.test(l)) fail('robots.txt', `"${l}": nothing may be blocked (the assets are needed to render the pages)`);
+    // only the APT repository is blocked (its package files are for apt, not for search engines)
+    for (const l of lines) if (/^Disallow:\s*\S/i.test(l) && l !== 'Disallow: /apt/') fail('robots.txt', `"${l}": nothing but /apt/ may be blocked (the assets are needed to render the pages)`);
+    if (!lines.includes('Disallow: /apt/')) fail('robots.txt', 'no "Disallow: /apt/"');
     const sm = lines.filter((l) => /^Sitemap:/i.test(l));
     if (sm.length !== 1 || sm[0] !== `Sitemap: ${SITE}sitemap.xml`) fail('robots.txt', `Sitemap line is ${JSON.stringify(sm)}, expected "Sitemap: ${SITE}sitemap.xml"`);
   }
