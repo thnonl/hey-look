@@ -6,9 +6,11 @@
 //     page is the fingerprint of the key file (needs gpg: CI has it; without gpg this part is skipped with a notice)
 //   - docs/robots.txt blocks /apt/
 //   - the workflows: every `uses:` is pinned by a full SHA, the container images of the install test by digest, pages.yml runs this test
-//   - THE PLACEHOLDER KEY: until the owner's real signing key is committed, docs/apt carries a throw-away key with the UID "Hey Look! APT test
-//     (throwaway)". That is a FAILURE here (the website must not go live with a fingerprint nobody can sign with), exactly as the spec says. To work
-//     on something else meanwhile: APT_ALLOW_PLACEHOLDER_KEY=1 turns it into a notice (never set it in a workflow).
+//   - THE PLACEHOLDER KEY (DEC-020, DEC-001): until the owner's real signing key is committed, docs/apt carries a throw-away key with the UID
+//     "Hey Look! APT test (throwaway)". That is a FAILURE here, in every mode (the website and a release must not go with a fingerprint nobody
+//     can sign with). Only the exact value APT_ALLOW_PLACEHOLDER_KEY=1 turns this ONE check into a ::warning:: line; every other check stays strict.
+//     Where the variable is set: release.yml, job node-tests, on every run that is not a tag push (so branch runs and dry runs are green with the
+//     warning and a tag run fails). pages.yml and node-tests.txt never set it (scripts/test-apt-placeholder-guard.mjs keeps it that way).
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -20,6 +22,7 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => fs.readFileSync(path.join(root, p), "utf8");
 const errors = [];
 const notes = [];
+const warnings = [];
 const fail = (where, msg) => errors.push(`${where}: ${msg}`);
 
 // ---------- the key files (gpg) ----------
@@ -70,7 +73,7 @@ if (fs.existsSync(path.join(root, "docs/apt/heylook-archive-keyring.gpg"))) {
       if (!uidOk) fail("docs/apt", `the key UID is ${JSON.stringify(a.uids)}, expected exactly "${REAL_UID}" (or the placeholder "${PLACEHOLDER_UID}")`);
       if (placeholder) {
         const msg = `docs/apt holds the throw-away key (${a.fpr}, UID "${PLACEHOLDER_UID}"), not the owner's signing key. Replace heylook-archive-keyring.asc/.gpg and the fingerprint on the 8 download pages (spec-107-wp15-apt.md section 12) before the website or a tag run uses them.`;
-        if (process.env.APT_ALLOW_PLACEHOLDER_KEY === "1") notes.push(`PLACEHOLDER KEY allowed by APT_ALLOW_PLACEHOLDER_KEY=1. ${msg}`);
+        if (process.env.APT_ALLOW_PLACEHOLDER_KEY === "1") warnings.push(`APT signing key is the throw-away placeholder (DEC-001): tag runs and Pages deploys fail until the real key is committed`);
         else fail("docs/apt", msg);
       }
     }
@@ -139,13 +142,16 @@ for (const f of [".github/workflows/release.yml", ".github/workflows/pages.yml"]
   const imgs = [...t.matchAll(/^IMG_\w+='([^']+)'/gm)].map((x) => x[1]);
   if (imgs.length !== 3) fail("apt-install-test.sh", `${imgs.length} images, expected 3 (ubuntu:22.04, ubuntu:24.04, debian:12)`);
   for (const i of imgs) if (!/^(ubuntu:2[24]\.04|debian:12)@sha256:[0-9a-f]{64}$/.test(i)) fail("apt-install-test.sh", `image '${i}' is not pinned by digest`);
-  if (!read(".github/workflows/pages.yml").includes("node scripts/test-site-apt.mjs")) fail("pages.yml", "does not run scripts/test-site-apt.mjs before the deploy");
+  const pages = read(".github/workflows/pages.yml");
+  const at = pages.indexOf("node scripts/test-site-apt.mjs");
+  if (at < 0 || at > pages.indexOf("actions/upload-pages-artifact")) fail("pages.yml", "does not run scripts/test-site-apt.mjs before it uploads the site");
   const rel = read(".github/workflows/release.yml");
   for (const need of ["apt-repo.sh fetch", "apt-install-test.sh local", "apt-repo.sh publish-branch", "gh workflow run pages.yml --ref main", "name: apt-repo-dryrun"]) if (!rel.includes(need)) fail("release.yml", `no '${need}'`);
   if (!KEYRING_PATH.startsWith("/etc/apt/keyrings/")) fail("site-apt.mjs", "the key goes to /etc/apt/keyrings");
 }
 
 for (const n of notes) console.log(`NOTE: ${n}`);
+for (const w of warnings) console.log(`::warning::${w}`);
 if (errors.length) {
   console.error(`test-site-apt: ${errors.length} problem(s)`);
   for (const e of errors) console.error(`  ${e}`);

@@ -84,7 +84,9 @@ release workflow searches the built app for the name).
 3. Export the public key into `docs/apt/`: `gpg --armor --export <FPR> > docs/apt/heylook-archive-keyring.asc` and
    `gpg --export <FPR> > docs/apt/heylook-archive-keyring.gpg`, and write the fingerprint (10 groups of 4) on the 8 download pages
    (`docs/*/download.html`, `<details id="apt">`; `node scripts/test-site-apt.mjs` shows what is wrong). Until the real key is there the
-   directory holds a throw-away key ("Hey Look! APT test (throwaway)") and that test fails on purpose.
+   directory holds a throw-away key ("Hey Look! APT test (throwaway)") and that test fails on purpose: in a tag run and in the Pages deploy
+   always, in other runs of `release.yml` (dry runs, branch runs) it is only a warning (DEC-020; the variable is set in one place, the
+   `node-tests` job, and `scripts/test-apt-placeholder-guard.mjs` keeps it there).
 4. Export the secret key: `gpg --armor --export-secret-keys <FPR> > apt-signing-secret.asc`. In GitHub > Settings > Environments > `release`
    add the Environment secrets `APT_SIGNING_KEY` (the file's text) and `APT_SIGNING_PASSPHRASE`. Then `shred -u apt-signing-secret.asc`.
 5. Backup (mandatory): the secret key export, the passphrase and the revocation certificate GnuPG wrote to `~/.gnupg/openpgp-revocs.d/<FPR>.rev`,

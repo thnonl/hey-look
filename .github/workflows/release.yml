@@ -188,6 +188,11 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+    env:
+      # DEC-020: until the owner's real APT signing key is committed (docs/apt), scripts/test-site-apt.mjs fails on the throw-away key. A run that is not
+      # a tag push may go on with a warning (dry runs and branch runs stay green); a tag run never does, and publish needs this job. Set here and
+      # nowhere else (scripts/test-apt-placeholder-guard.mjs): not in pages.yml, not in .github/node-tests.txt.
+      APT_ALLOW_PLACEHOLDER_KEY: ${{ (github.event_name == 'push' && github.ref_type == 'tag') && '0' || '1' }}
     strategy:
       fail-fast: false
       matrix:

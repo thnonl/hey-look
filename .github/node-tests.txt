@@ -107,8 +107,10 @@ static | node scripts/test-site-languages.mjs --strict
 static | node scripts/test-site-404.mjs
 static | node scripts/test-site-seo.mjs
 static | node --experimental-strip-types scripts/test-site-commands.mjs
-# WP15: the APT block of the 8 download pages (agreed text, 5 commands byte for byte, one fingerprint = the key file), docs/apt (two key files, heylook.sources), robots.txt, pinned actions and images. FAILS while docs/apt carries the throw-away key (the website and a tag run must not use it; APT_ALLOW_PLACEHOLDER_KEY=1 only for local work)
+# WP15: the APT block of the 8 download pages (agreed text, 5 commands byte for byte, one fingerprint = the key file), docs/apt (two key files, heylook.sources), robots.txt, pinned actions and images. FAILS while docs/apt carries the throw-away key, except in the node-tests job of a run that is not a tag push, where the workflow turns that one check into a warning (DEC-020; see the job env in release.yml)
 static | node scripts/test-site-apt.mjs
+# DEC-020: the throw-away key gate cannot be opened by accident: pages.yml and this list never carry the variable, release.yml sets it once (node-tests job, '1' unless a tag push), only the value 1 counts, and the guard is proven on mutated copies
+static | node scripts/test-apt-placeholder-guard.mjs
 # sentences the website was told to stop saying (no mobile apps, no "may come" for languages or a theme editor, no "new / may contain mistakes", the old update wording) do not come back in any language
 static | node scripts/test-site-statements.mjs
 # proof that the test above fails when a removed sentence is put back, in each language (AC-10.13.2, AC-10.14.2), and when an English app path comes back on a translated page
