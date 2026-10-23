@@ -67,14 +67,19 @@ fetch "$apt/$file" "$work/newest.deb" || die "download of $file failed"
 got=$(sha256sum "$work/newest.deb" | cut -d' ' -f1)
 [ "$got" = "$sha" ] || die "$file: the downloaded sha256 $got is not the one in Packages ($sha)"
 echo "ok  $file $ver: sha256 = Packages"
-if [ -n "${GH_TOKEN:-}" ] && command -v gh > /dev/null; then
-  digest=$(gh api "repos/thnonl/hey-look/releases/tags/v$ver" --jq ".assets[] | select(.name == \"HeyLook_${ver}_linux_amd64.deb\") | .digest" 2> /dev/null)
-  if [ -n "$digest" ]; then
-    [ "$digest" = "sha256:$got" ] || die "$file: the GitHub release digest $digest is not the sha256 of the served file ($got)"
-    echo "ok  the digest of the GitHub release asset v$ver is the same"
-  else
-    echo "::warning::no release digest found for v$ver (a dry run?)"
+if [ -n "${GH_TOKEN:-}" ] && command -v gh > /dev/null 2>&1; then
+  # What GitHub says the release asset is. Only an answer of the form sha256:<64 hex digits> counts: an HTTP error (gh prints the JSON body of a 404
+  # on stdout and exits 1), an error body, an empty answer or anything else is an error of its own, never compared as if it were a digest.
+  digest=$(gh api "repos/thnonl/hey-look/releases/tags/v$ver" --jq ".assets[] | select(.name == \"HeyLook_${ver}_linux_amd64.deb\") | .digest" 2> "$work/gh.err")
+  rc=$?
+  if [ "$rc" != 0 ] || ! [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    detail="exit $rc; stderr: $(head -c 200 "$work/gh.err" | tr '\n' ' '); answer: $(printf '%s' "$digest" | head -c 200 | tr '\n' ' ')"
+    die "could not read the release digest for $ver (HTTP/gh error: $detail)"
   fi
+  [ "$digest" = "sha256:$got" ] || die "$file: the GitHub release digest $digest is not the sha256 of the served file ($got)"
+  echo "ok  the digest of the GitHub release asset v$ver is the same"
+else
+  echo "note: the digest of the GitHub release asset was not compared (no GH_TOKEN or no gh)"
 fi
 
 # 4. http -> https (the real address only)

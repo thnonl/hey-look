@@ -459,21 +459,60 @@ selftest() {
   expect "the branch moved" [ "$(git -C "$t/remote.git" rev-parse apt)" != "$c1" ]
   expect "the summary has the version and the Depends line" bash -c "'$0' summary '$out2' '$t/pub1/heylook-archive-keyring.gpg' | grep -q 'libayatana-appindicator3-1'"
 
-  # fetch, with a fake `gh` that answers from files: which releases are chosen, the digest check, the pool rule
+  # THE SELFTEST IS HERMETIC: no network, no real gh, no token. A fake `gh` and a fake `curl` stand first in PATH for everything below (and a real
+  # gh or GH_TOKEN of the machine, a CI runner has both, is never reached: GH_TOKEN is unset here and set only per case). Every call is logged in
+  # $HL_NETLOG; the fake curl serves the release assets from local files, passes calls to this machine (127.0.0.1) to the real curl, and REFUSES
+  # every other host (logged as BLOCKED, and the selftest fails if there is one). Before this, a case called the real GitHub API on a runner and got a 404.
   local bin="$t/bin" fk="$t/fake"
   mkdir -p "$bin"
+  local real_curl
+  real_curl=$(command -v curl || true)
+  export HL_NETLOG="$t/netlog" REAL_CURL="$real_curl"
+  : > "$HL_NETLOG"
   cat > "$bin/gh" << 'GH'
 #!/usr/bin/env bash
-# a fake gh: `gh api repos/X/releases --paginate --jq FILTER` and `gh api -H ... repos/X/releases/assets/ID`
-args=("$@"); last="${args[$((${#args[@]} - 1))]}"
-case "$last" in
-  */releases/assets/*) cat "$FAKE/asset-${last##*/}"; exit 0 ;;
+# a fake gh: `gh api repos/X/releases --paginate --jq FILTER`, `gh api -H ... repos/X/releases/assets/ID` and `gh api repos/X/releases/tags/vV --jq FILTER`
+echo "gh $*" >> "$HL_NETLOG"
+args=("$@"); path=""
+for a in "${args[@]}"; do case "$a" in repos/*) path="$a" ;; esac; done
+case "$path" in
+  */releases/assets/*) cat "$FAKE/asset-${path##*/}"; exit 0 ;;
+  */releases/tags/*)
+    # the release of one tag, as the live check asks for the digest of an asset; FAKE_GH_MODE says what GitHub answers
+    case "${FAKE_GH_MODE:-404}" in
+      ok) printf 'sha256:%s\n' "$FAKE_GH_DIGEST"; exit 0 ;;
+      wrong) printf 'sha256:%064d\n' 0; exit 0 ;;
+      empty) exit 0 ;;
+      json) printf '{"message":"Not Found","status":"404"}\n'; exit 0 ;;
+      *) # what the real gh does on a 404: the JSON body on stdout, the error on stderr, exit 1
+        printf '{"message":"Not Found","documentation_url":"https://docs.github.com/rest/releases/releases#get-a-release-by-tag-name","status":"404"}\n'
+        echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
+    esac ;;
 esac
 filter=""
 for i in "${!args[@]}"; do [ "${args[$i]}" = "--jq" ] && filter="${args[$((i + 1))]}"; done
 jq -c "$filter" "$FAKE/releases.json"
 GH
   chmod +x "$bin/gh"
+  cat > "$bin/curl" << 'CURL'
+#!/usr/bin/env bash
+# a fake curl: the release assets of apt-assemble.sh come from local files ($ASSETS); this machine goes to the real curl; nothing else is allowed
+out=""; url=""
+args=("$@")
+for i in "${!args[@]}"; do [ "${args[$i]}" = "-o" ] && out="${args[$((i + 1))]}"; case "${args[$i]}" in http*://*) url="${args[$i]}" ;; esac; done
+case "$url" in
+  https://github.com/thnonl/hey-look/releases/download/v*/HeyLook_*_linux_amd64.deb)
+    echo "curl asset $url" >> "$HL_NETLOG"
+    v="${url##*/HeyLook_}"; v="${v%%_linux_amd64.deb}"
+    cp "$ASSETS/hey-look_${v}_amd64.deb" "$out" ;;
+  http://127.0.0.1:* | http://localhost:*) exec "$REAL_CURL" "$@" ;;
+  *) echo "curl BLOCKED $url" >> "$HL_NETLOG"; echo "the selftest is hermetic: no request to $url" >&2; exit 7 ;;
+esac
+CURL
+  chmod +x "$bin/curl"
+  unset GH_TOKEN GITHUB_TOKEN
+  export PATH="$bin:$PATH"
+  # fetch, with the fake gh: which releases are chosen, the digest check, the pool rule
   # fakerel DIR VERSION DRAFT PRERELEASE WITHDEB [corrupt]: adds a release to the fake GitHub in DIR
   fakerel() {
     local dir="$1" ver="$2" assets="[]" f d id
@@ -522,20 +561,6 @@ GH
   # the site: apt-assemble.sh (pages.yml) and apt-live-check.sh, with a fake curl that "downloads" the release assets from local files
   local here
   here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  cat > "$bin/curl" << 'CURL'
-#!/usr/bin/env bash
-# a fake curl for apt-assemble.sh: -o FILE URL copies the file of the release asset; any other call goes to the real curl
-out=""; url=""
-args=("$@")
-for i in "${!args[@]}"; do [ "${args[$i]}" = "-o" ] && out="${args[$((i + 1))]}"; url="${args[$i]}"; done
-case "$url" in
-  https://github.com/thnonl/hey-look/releases/download/v*/HeyLook_*_linux_amd64.deb)
-    v="${url##*/HeyLook_}"; v="${v%%_linux_amd64.deb}"
-    cp "$ASSETS/hey-look_${v}_amd64.deb" "$out" ;;
-  *) exec /usr/bin/curl "$@" ;;
-esac
-CURL
-  chmod +x "$bin/curl"
   assemble() { mkdir -p "$1"; ( export PATH="$bin:$PATH" ASSETS="${ASSETS_DIR:-$t/f2}"; bash "$here/apt-assemble.sh" "$@" ); }
   cmd_build "$t/f2" "$t/arepo" > /dev/null 2>&1
   with_home "$t/gh1" cmd_sign "$t/arepo" "$fpr" > /dev/null 2>&1
@@ -563,6 +588,18 @@ CURL
     want_sha=$(sha256sum "$t/site/apt/dists/stable/InRelease" | cut -d' ' -f1)
     expect "live check: the served files are right (200, no Location, no Content-Encoding, the sizes, the hashes)" env APT_SKIP_HTTP_REDIRECT=1 APT_WAIT=5 bash "$here/apt-live-check.sh" "$want_sha" http://127.0.0.1:18799
     expect_fail "live check: another InRelease than the deployed one is waited for and then fails" "is not the deployed one" env APT_SKIP_HTTP_REDIRECT=1 APT_WAIT=1 bash "$here/apt-live-check.sh" 0000000000000000000000000000000000000000000000000000000000000000 http://127.0.0.1:18799
+    # the digest of the GitHub release asset: only the answer sha256:<64 hex> counts, an error is an error (never compared as a digest)
+    local live_sha
+    live_sha=$(sha256sum "$t/site/apt/pool/main/h/hey-look/hey-look_1.0.10_amd64.deb" | cut -d' ' -f1)
+    : > "$HL_NETLOG"
+    expect "live check: the digest GitHub gives for the release asset is the sha256 of the served .deb" env GH_TOKEN=selftest-token FAKE_GH_MODE=ok FAKE_GH_DIGEST="$live_sha" APT_SKIP_HTTP_REDIRECT=1 APT_WAIT=5 bash "$here/apt-live-check.sh" "$want_sha" http://127.0.0.1:18799
+    expect "live check: that call went to the fake gh (releases/tags/v1.0.10), nowhere else" grep -q 'gh api repos/thnonl/hey-look/releases/tags/v1.0.10' "$HL_NETLOG"
+    expect_fail "live check: another digest than the served file's fails" "is not the sha256 of the served file" env GH_TOKEN=selftest-token FAKE_GH_MODE=wrong APT_SKIP_HTTP_REDIRECT=1 APT_WAIT=5 bash "$here/apt-live-check.sh" "$want_sha" http://127.0.0.1:18799
+    expect_fail "live check: a 404 of the GitHub API (JSON body, exit 1) is an error that names the version" "could not read the release digest for 1.0.10 (HTTP/gh error" env GH_TOKEN=selftest-token FAKE_GH_MODE=404 APT_SKIP_HTTP_REDIRECT=1 APT_WAIT=5 bash "$here/apt-live-check.sh" "$want_sha" http://127.0.0.1:18799
+    expect_fail "live check: an error body with exit 0 is an error, not a digest" "could not read the release digest for 1.0.10" env GH_TOKEN=selftest-token FAKE_GH_MODE=json APT_SKIP_HTTP_REDIRECT=1 APT_WAIT=5 bash "$here/apt-live-check.sh" "$want_sha" http://127.0.0.1:18799
+    expect_fail "live check: an empty answer is an error, not a missing digest to be ignored" "could not read the release digest for 1.0.10" env GH_TOKEN=selftest-token FAKE_GH_MODE=empty APT_SKIP_HTTP_REDIRECT=1 APT_WAIT=5 bash "$here/apt-live-check.sh" "$want_sha" http://127.0.0.1:18799
+    : > "$HL_NETLOG"
+    expect "live check: without GH_TOKEN the digest is not compared and gh is not called" bash -c "env -u GH_TOKEN -u GITHUB_TOKEN APT_SKIP_HTTP_REDIRECT=1 APT_WAIT=5 bash '$here/apt-live-check.sh' '$want_sha' http://127.0.0.1:18799 | grep -q 'not compared' && ! grep -q '^gh ' '$HL_NETLOG'"
     printf 'x' >> "$t/site/apt/pool/main/h/hey-look/hey-look_1.0.10_amd64.deb"
     expect_fail "live check: a .deb that is not the one of Packages fails" "Content-Length" env APT_SKIP_HTTP_REDIRECT=1 APT_WAIT=5 bash "$here/apt-live-check.sh" "$want_sha" http://127.0.0.1:18799
     kill "$(cat "$t/http.pid")" 2> /dev/null
@@ -570,6 +607,7 @@ CURL
     echo "note  live check not tried (python3 or curl is missing)"
   fi
 
+  expect "hermetic: no request went anywhere but to this machine and the fake gh" bash -c "! grep -q BLOCKED '$HL_NETLOG'"
   if [ "$fails" = 0 ]; then echo "apt-repo selftest: all cases passed"; return 0; fi
   echo "apt-repo selftest: $fails case(s) failed"
   return 1
