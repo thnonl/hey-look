@@ -161,7 +161,9 @@ try {
   });
 
   // ---------- the Scheduled list: Edit and a second Edit
-  const rowEdit = (name) => evaluate(`(() => { const r = [...document.querySelectorAll('.ml-row.sched')].find((x) => x.innerText.includes(${JSON.stringify(name)})); if (!r) return false; r.click(); return true; })()`);
+  const rowEditOnce = (name) => evaluate(`(() => { const r = [...document.querySelectorAll('.ml-row.sched')].find((x) => x.innerText.includes(${JSON.stringify(name)})); if (!r) return false; r.click(); return true; })()`);
+  // (the list is drawn in steps after a view change or a window ending: the row is waited for, a click that finds nothing is not the answer)
+  const rowEdit = async (name) => { for (let n = 0; n < 60; n++) { if (await rowEditOnce(name)) return true; await sleep(150); } return false; };
   await H.openApp('lang=en', 1280, 720);
   await evaluate(`window.__store.getState().setView('scheduled', null); 1`);
   assert.ok(await waitFor(`!!document.querySelector('.ml-row.sched')`, 10000), 'no scheduled rows');
