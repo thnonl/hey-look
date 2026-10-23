@@ -326,7 +326,7 @@ try {
   await check('AC-13.11.8 / AC-13.12.20 the Appearance preview: tab numbers and the Inbox number', async () => {
     await fresh();
     await evaluate(`${S('setDialog')}({ type: 'settings', tab: 'appearance' }); 1`);
-    const opened = await waitFor(`!!document.querySelector('.ap-preview')`, 8000);
+    const opened = await waitFor(`!!document.querySelector('.ap-preview')`, 25000); // (Settings is a chunk of its own, WP9d: the first open of a run fetches it)
     assert.ok(opened, 'Settings > Appearance shows the preview');
     await sleep(300);
     const read = () => evaluate(`(() => { const p = document.querySelector('.ap-preview'); const bold = (g) => [...p.querySelectorAll('.ap-list .ml-row.unread')].length; return { inbox: p.querySelector('.ap-folders .fp-badge')?.textContent || '', focused: p.querySelector('.ap-pivots span:nth-child(1) .fp-badge')?.textContent || '', other: p.querySelector('.ap-pivots span:nth-child(2) .fp-badge')?.textContent || '', bold: bold(), classes: p.querySelector('.ap-pivots .fp-badge')?.className }; })()`);

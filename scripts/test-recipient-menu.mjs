@@ -29,7 +29,7 @@ const inputOf = (f) => `document.querySelectorAll('.cf-field.rcpt')[${FIELDS.ind
 async function openCompose(opts) {
   await H.openApp('lang=en&nativemenu=off', 1280, 800);
   await evaluate(`(async () => { await window.__store.getState().openCompose(${JSON.stringify({ accountId: 'a1', subject: 'Hello', bodyHtml: '<p>text</p>', ...opts })}); return 1; })()`);
-  await evaluate(`new Promise((ok) => { const t0 = Date.now(), t = setInterval(() => { if (document.querySelectorAll('.cf-field.rcpt input').length >= 3 || Date.now() - t0 > 10000) { clearInterval(t); ok(1); } }, 100); })`);
+  await evaluate(`new Promise((ok) => { const t0 = Date.now(), t = setInterval(() => { if (document.querySelectorAll('.cf-field.rcpt input').length >= 3 || Date.now() - t0 > 25000) { clearInterval(t); ok(1); } }, 100); })`); // (the message is a chunk of its own, WP9d)
   await sleep(500);
 }
 
