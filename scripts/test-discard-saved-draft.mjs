@@ -95,7 +95,7 @@ try {
   const paneUp = () => evaluate(`!!document.querySelector('.cp-editor .tiptap')?.editor`);
   const editText = () => evaluate(`document.querySelector('.cp-editor .tiptap').editor.getText()`);
   const waitPane = async () => { for (let i = 0; i < 80 && !(await paneUp()); i++) await sleep(100); await sleep(500); };
-  const openFromDrafts = async (id) => { await evaluate(`${mod('/src/components/Compose.tsx')}.then((m) => m.openDraftThread(${JSON.stringify(id)}, true))`); await waitPane(); };
+  const openFromDrafts = async (id) => { await evaluate(`${mod('/src/draftOpen.ts')}.then((m) => m.openDraftThread(${JSON.stringify(id)}, true))`); await waitPane(); };
   /** a saved draft with the text 'Original text', then opened again and given ' plus edits', and the autosave has run */
   async function openedAndEdited(flags = '') {
     await H.openApp(`lang=en${flags}`, 1280, 720);

@@ -61,7 +61,7 @@ try {
   });
 
   // ---------- opened again from Drafts: the meeting is back
-  await evaluate(`${mod('/src/components/Compose.tsx')}.then((m) => m.openDraftThread('dt1', true))`);
+  await evaluate(`${mod('/src/draftOpen.ts')}.then((m) => m.openDraftThread('dt1', true))`);
   assert.ok(await waitFor(`${PANE} && !!document.querySelector('.cp-event')`, 10000), 'the draft opened without its meeting (no strip)');
   await sleep(400);
   const after = await evaluate(STRIP);
@@ -79,7 +79,7 @@ try {
   await sleep(1200);
   const d3 = await lastDraft();
   await check('no meeting: the draft has no meeting and no form', () => { assert.equal(d3.meeting, undefined); assert.equal(d3.meetingForm, undefined); });
-  await evaluate(`${mod('/src/components/Compose.tsx')}.then((m) => m.openDraftThread('dt1', true))`);
+  await evaluate(`${mod('/src/draftOpen.ts')}.then((m) => m.openDraftThread('dt1', true))`);
   assert.ok(await waitFor(PANE, 10000));
   await sleep(500);
   await check('no meeting: it opens without a strip, Meeting not pressed', async () => { assert.equal(await evaluate(`document.querySelector('.cp-event')`), null); const p = await evaluate(`[...document.querySelectorAll('.compose-pane [aria-pressed]')].find((b) => /Meeting/.test(b.textContent))?.getAttribute('aria-pressed')`); assert.equal(p, 'false'); });

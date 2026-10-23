@@ -106,7 +106,7 @@ try {
   await evaluate(`window.__store.getState().openCompose(null); 1`);
   await sleep(300);
   const tid = await evaluate(`${mod('/src/api.ts')}.then(async (m) => (await m.api.listThreads({ folder: 'drafts' }))[0]?.threadId)`);
-  await evaluate(`${mod('/src/components/Compose.tsx')}.then((m) => m.openDraftThread(${JSON.stringify(tid)}, true))`);
+  await evaluate(`${mod('/src/draftOpen.ts')}.then((m) => m.openDraftThread(${JSON.stringify(tid)}, true))`);
   assert.ok(await waitFor(`!!document.querySelector('.cp-editor .tiptap')?.editor && !!document.querySelector('.sig-select')`, 10000));
   await sleep(900);
   await check('a draft opened from Drafts: the signature found in its text is selected', async () => {
@@ -172,7 +172,7 @@ try {
   await evaluate(`window.__store.getState().openCompose(null); 1`);
   await sleep(300);
   const tid2 = await evaluate(`${mod('/src/api.ts')}.then(async (m) => (await m.api.listThreads({ folder: 'drafts' }))[0]?.threadId)`);
-  await evaluate(`window.__lastDraft = null; ${mod('/src/components/Compose.tsx')}.then((m) => m.openDraftThread(${JSON.stringify(tid2)}, true))`);
+  await evaluate(`window.__lastDraft = null; ${mod('/src/draftOpen.ts')}.then((m) => m.openDraftThread(${JSON.stringify(tid2)}, true))`);
   assert.ok(await waitFor(`!!document.querySelector('.cp-editor .tiptap')?.editor`, 10000));
   await sleep(700);
   await evaluate(`document.querySelector('.cp-editor .tiptap').editor.commands.insertContent(' more'); window.__store.getState().composeSaver({ quiet: true }); 1`);
@@ -273,13 +273,13 @@ try {
   await evaluate(`window.__store.getState().openCompose(null); 1`);
   await sleep(300);
   const tid3 = await evaluate(`${mod('/src/api.ts')}.then(async (m) => (await m.api.listThreads({ folder: 'drafts' }))[0]?.threadId)`);
-  const openIt = (call) => evaluate(`window.__popoutOpens = 0; ${mod('/src/components/Compose.tsx')}.then((m) => ${call}).then((r) => String(r))`);
+  const openIt = (call) => evaluate(`window.__popoutOpens = 0; ${mod('/src/draftOpen.ts')}.then((m) => ${call}).then((r) => String(r))`);
   const typeAndLeaveFocus = async () => {
     await evaluate(`document.querySelector('.cp-editor .tiptap').editor.commands.insertContent('x'); document.activeElement?.blur?.(); document.body.focus(); 1`);
     await sleep(200);
   };
   const focusInPane = () => evaluate(`!!document.activeElement?.closest?.('.compose-pane .ProseMirror')`);
-  await evaluate(`${mod('/src/components/Compose.tsx')}.then((m) => m.openDraftThread(${JSON.stringify(tid3)}, true))`);
+  await evaluate(`${mod('/src/draftOpen.ts')}.then((m) => m.openDraftThread(${JSON.stringify(tid3)}, true))`);
   assert.ok(await waitFor(`!!document.querySelector('.cp-editor .tiptap')?.editor`, 10000), 'the draft did not open in the pane');
   await sleep(700);
   await typeAndLeaveFocus();
@@ -314,15 +314,15 @@ try {
     await evaluate(`window.__store.getState().composeSaver({ quiet: true }); 1`);
     await sleep(900);
     const tNew = await evaluate(`${mod('/src/api.ts')}.then(async (m) => (await m.api.listThreads({ folder: 'drafts' }))[0]?.threadId)`);
-    assert.equal(await evaluate(`${mod('/src/components/Compose.tsx')}.then((m) => m.inlineHasDraft(${JSON.stringify(tNew)}))`), true);
-    assert.equal(await evaluate(`${mod('/src/components/Compose.tsx')}.then((m) => m.inlineHasDraft('no-such-thread'))`), false);
+    assert.equal(await evaluate(`${mod('/src/draftOpen.ts')}.then((m) => m.inlineHasDraft(${JSON.stringify(tNew)}))`), true);
+    assert.equal(await evaluate(`${mod('/src/draftOpen.ts')}.then((m) => m.inlineHasDraft('no-such-thread'))`), false);
   });
   // closed again: nothing is "open" any more, and an untouched draft moves to a window on a double click (REQ-2.11.2)
   await evaluate(`window.__store.getState().openCompose(null, { restore: false }); 1`);
   await sleep(400);
   const tid4 = await evaluate(`${mod('/src/api.ts')}.then(async (m) => (await m.api.listThreads({ folder: 'drafts' }))[0]?.threadId)`);
-  await check('W2.11 after the pane is closed the draft is not in the pane', async () => assert.equal(await evaluate(`${mod('/src/components/Compose.tsx')}.then((m) => m.inlineHasDraft(${JSON.stringify(tid4)}))`), false));
-  await evaluate(`${mod('/src/components/Compose.tsx')}.then((m) => m.openDraftThread(${JSON.stringify(tid4)}, true))`);
+  await check('W2.11 after the pane is closed the draft is not in the pane', async () => assert.equal(await evaluate(`${mod('/src/draftOpen.ts')}.then((m) => m.inlineHasDraft(${JSON.stringify(tid4)}))`), false));
+  await evaluate(`${mod('/src/draftOpen.ts')}.then((m) => m.openDraftThread(${JSON.stringify(tid4)}, true))`);
   assert.ok(await waitFor(`!!document.querySelector('.cp-editor .tiptap')?.editor`, 10000));
   await sleep(700);
   await check('W2.11 REQ-2.11.2: an untouched draft moves to a window on a double click (the pane closes, one window is asked for)', async () => {

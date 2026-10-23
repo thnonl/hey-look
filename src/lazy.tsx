@@ -38,10 +38,17 @@ export function reportLazyFailure(e: unknown): void {
 }
 
 /**
- * A dialog frame replaced by the dialog itself would play the opening animation of the dialog a second time (a flicker): while a frame is on screen the page carries this attribute
- * (App.css `[data-lazy-handoff]` switches the animations off), and it is taken away after the real dialog was drawn.
+ * A dialog frame replaced by the dialog itself would play the opening animation of the dialog a second time (a flicker). A dialog that is loaded on demand (its frame was drawn from
+ * the first render) therefore opens without the animation, frame and dialog alike: the page carries this attribute while it is open (App.css `[data-lazy-handoff]` switches the opening
+ * animations off) and loses it when the dialog closes. Taking it away earlier would start the animation of the dialog that is on screen. Counted: two such dialogs can overlap.
  */
 const HANDOFF = "data-lazy-handoff";
+let handoffs = 0;
+function markHandoff(on: boolean): void {
+  handoffs = Math.max(0, handoffs + (on ? 1 : -1));
+  if (handoffs > 0) document.documentElement.setAttribute(HANDOFF, "");
+  else document.documentElement.removeAttribute(HANDOFF);
+}
 
 export interface LazyViewOptions<M, P> {
   /** names the module in the cache, shared by the views of one chunk */
@@ -87,16 +94,13 @@ export function lazyView<M, P extends object>(o: LazyViewOptions<M, P>): Compone
       );
       return () => void (live = false);
     }, [attempt]); // eslint-disable-line react-hooks/exhaustive-deps
-    // the frame is up: the dialog that replaces it must not play its opening animation again
-    const framed = !mod && !!o.dialog;
+    // the frame is up from the first render: the dialog that replaces it must not play its opening animation again (see HANDOFF)
+    const framedAtStart = useRef(!mod && !!o.dialog);
     useLayoutEffect(() => {
-      if (!framed) return;
-      document.documentElement.setAttribute(HANDOFF, "");
-    }, [framed]);
-    useEffect(() => {
-      if (mod && o.dialog) document.documentElement.removeAttribute(HANDOFF);
-    }, [mod]);
-    useEffect(() => () => document.documentElement.removeAttribute(HANDOFF), []);
+      if (!framedAtStart.current) return;
+      markHandoff(true);
+      return () => markHandoff(false);
+    }, []);
     if (mod) {
       const View = o.pick(mod);
       return <View {...props} />;

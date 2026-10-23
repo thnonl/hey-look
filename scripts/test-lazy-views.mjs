@@ -13,6 +13,7 @@
 //   windows    the reader window page loads no editor module (resource list), the compose window page loads the editor before it draws and shows its body
 //   node scripts/test-lazy-views.mjs [--require-browser]
 import { sleep, startHarness } from './cdp-harness.mjs';
+import { PROBE_INSTALL, PROBE_PRESS, PROBE_READ, fill, verdict } from './lib/lazy-open-probe.mjs';
 
 const H = await startHarness('test-lazy-views', { vitePort0: 5020 });
 const { evaluate, cdp } = H;
@@ -55,7 +56,7 @@ const startProbe = (trigger, frameSel, doneSel) => evaluate(`(() => {
     if (o.done === null && document.querySelector(${JSON.stringify(doneSel)})) {
       o.done = now;
       o.focusInModal = !!document.activeElement?.closest?.('.modal');
-      o.animsAtDone = document.getAnimations().filter((a) => ['pop', 'fade'].includes(a.animationName)).length;
+      setTimeout(() => { o.animsAtDone = document.getAnimations().filter((a) => ['pop', 'fade'].includes(a.animationName)).length; }, 60);
       return;
     }
     if (now < 20000) requestAnimationFrame(tick);
@@ -88,13 +89,16 @@ try {
     ok(r.done !== null, 'the dialog is there');
     await sleep(150);
     ok(await evaluate(`!!document.activeElement?.closest?.('.modal')`), 'the focus is in the dialog');
-    ok(r.animsAtDone === 0, `the dialog that replaced the frame played no opening animation again (${r.animsAtDone} running)`);
     await sleep(100);
-    ok(await evaluate(`!document.documentElement.hasAttribute('data-lazy-handoff')`), 'the hand-off mark is gone');
+    const animsAtDone = await evaluate('window.__lz.animsAtDone');
+    ok(animsAtDone === 0, `the dialog that replaced the frame played no opening animation again (${animsAtDone} running 60 ms later)`);
+    ok(await evaluate(`document.documentElement.hasAttribute('data-lazy-handoff')`), 'the hand-off mark stays while the dialog is open (taking it away would start the opening animation of the dialog on screen)');
+    ok(await evaluate(`getComputedStyle(document.querySelector('.modal')).animationName === 'none'`), 'and the dialog has no opening animation');
     ok(await evaluate(`document.querySelectorAll('.modal').length === 1 && !!document.querySelector('.settings-nav button.active')`), 'Settings is complete (a tab is selected)');
     // second open: no frame step, no look
     await closeDialog();
     await sleep(200);
+    ok(await evaluate(`!document.documentElement.hasAttribute('data-lazy-handoff')`), 'the hand-off mark is gone when the dialog is closed');
     await slow(450); // (even on a slow network: the part is loaded already)
     await startProbe('window.__store.getState().setDialog({ type: "settings" })', '.modal', '.modal .settings');
     const r2 = await probeResult(3000);
@@ -233,6 +237,22 @@ try {
       await closeDialog();
       await evaluate('window.__store.getState().setModule("calendar"); 1');
       ok(await waitFor(`!!document.querySelector('.cal-view .cal-head')`, 20000), 'Calendar opens at the next try');
+    });
+  }
+
+  // ---- the QA probe (scripts/lib/lazy-open-probe.mjs, the bridge script of the Mac / Linux rows) works on the real page: real presses, then the numbers
+  for (const kind of ['settings', 'calendar', 'compose']) {
+    await scenario(`probe-${kind}`, async () => {
+      await boot('lang=en');
+      ok((await evaluate(`(() => { ${fill(PROBE_INSTALL, kind)} })()`)).installed, 'the recorder is installed');
+      const pressed = await evaluate(`(() => { ${fill(PROBE_PRESS, kind)} })()`);
+      ok(pressed.pressed, `the button of "${kind}" was found and pressed`);
+      ok(await waitFor('window.__lazyOpen.part !== null && window.__lazyOpen.focus !== null', 30000), 'the part appeared');
+      await sleep(300);
+      const r = await evaluate(`(() => { ${PROBE_READ} })()`);
+      const bad = verdict(r, { partMax: 5000 }); // (the dev preview is not a release build: the 300 ms are for the kits)
+      ok(bad.length === 0, `probe verdict: ${bad.join('; ')} ${JSON.stringify(r)}`);
+      ok(r.chunks.length > 0, 'the chunks fetched by the first open are listed');
     });
   }
 
