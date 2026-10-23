@@ -26,6 +26,7 @@ export default defineLocale<typeof ns.en>({
   "reading.popout.loadFailed": "Không mở được thư này ({error}).",
   "reading.popout.noId": "cửa sổ này không có cuộc trò chuyện nào để hiển thị",
   "reading.popout.loading": "Đang mở thư…",
+  "reading.print.preparing": "Đang chuẩn bị để in…",
   "reading.popout.toolbar": "Thao tác với thư",
   "reading.popout.unread": "Chưa đọc",
   "reading.popout.read": "Đã đọc",

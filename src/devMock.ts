@@ -703,7 +703,7 @@ function mockNewAccount(email: string, displayName: string, auth: string, imapHo
   return acc;
 }
 /** Delays a check sets on `window.__mockDelays` to make a slow server: see reply_headers and attachment_data. */
-interface MockDelays { replyHeaders?: number; replyHeadersFail?: boolean; quote?: number; quoteFirst?: number }
+interface MockDelays { replyHeaders?: number; replyHeadersFail?: boolean; quote?: number; quoteFirst?: number; /** get_thread (the read of a conversation) takes that long, W13.6 */ thread?: number; /** get_thread ends with an error (the database could not be read), W13.6 */ threadFail?: boolean; /** any other command takes that long (ms), by name: `{ outbox_hold: 800 }`, W13.14 */ cmds?: Record<string, number> }
 const later = <T,>(ms: number, f: () => T) => new Promise<T>((res, rej) => setTimeout(() => { try { res(f()); } catch (e) { rej(e); } }, ms));
 /** Conversations a "move" of a secondary window took away (dev preview of the reader window). */
 const mockGone = new Set<string>();
@@ -1182,14 +1182,24 @@ export function installMock() {
       return true;
     },
   });
+  // `#threaddelay=600`: the read of a conversation takes that long (a long mail on a slow disk; the status "Opening message…" of W13.6, also in the dev preview of the reader window)
+  const threadDelay = Number(hashTokens().get("threaddelay"));
+  if (threadDelay > 0) (window as unknown as { __mockDelays?: MockDelays }).__mockDelays = { thread: threadDelay };
   // a window object for `getCurrentWindow()` (a secondary window sets its title and theme; the label is the one the backend would give it)
   const which = new URLSearchParams(window.location.search).get("w");
   mockWindows(which === "reader" || which === "compose" ? `${which}-1` : "main");
   mockIPC(function handle(cmd, args): unknown {
     const a = (args ?? {}) as Record<string, unknown>;
     if (cmd.startsWith("calendar_")) (((window as unknown as { __mockCalls?: unknown[] }).__mockCalls) ??= []).push({ cmd, args: a }); // (dev check: which calendar commands the page called)
+    // `window.__mockDelays.cmds[cmd]` (ms): a slow command (a big batch, a big message), answered after that time (W13.14 checks)
+    const cmdWait = (window as unknown as { __mockDelays?: MockDelays }).__mockDelays?.cmds?.[cmd] ?? 0;
+    if (cmdWait > 0 && !a.__waited) return later(cmdWait, () => handle(cmd, { ...a, __waited: true }));
     // a conversation's read / flag state is kept (as the server does), so the Unread and Flagged filters behave like the real list
     if (cmd === "get_thread" && !a.raw) {
+      const delays = (window as unknown as { __mockDelays?: MockDelays }).__mockDelays;
+      const wait = delays?.thread ?? 0;
+      if (delays?.threadFail && !a.internal) return later(wait, () => { throw new Error("mock: the conversation could not be read"); });
+      if (wait > 0 && !a.internal) return later(wait, () => handle(cmd, { ...a, internal: true }));
       const msgs = handle(cmd, { ...a, raw: true });
       const th = threads.find((x) => x.threadId === a.threadId);
       if (!th || !Array.isArray(msgs) || msgs.length === 0) return msgs;

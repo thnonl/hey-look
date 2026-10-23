@@ -256,5 +256,6 @@ export default defineLocale<typeof ns.en>({
   "app.original.title": "Thư gốc",
   "app.original.confidential": "Đây là thư mật nên không thể hiển thị thư gốc.",
   "app.original.fetching": "Đang tải từ máy chủ…",
+  "app.busy.many": "Đang xử lý {count} cuộc trò chuyện…",
   "app.original.copied": "Đã sao chép",
 });

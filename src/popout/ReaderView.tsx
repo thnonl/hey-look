@@ -13,7 +13,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, u
 import { forward, replyTo } from "../actions";
 import { api, type MessageFull } from "../api";
 import { copyToClipboard } from "../open";
-import { AiRunning, MessageCard, TRANSLATE_TO, translateMessage, useKeepReadingPosition } from "../components/ReadingPane";
+import { AiRunning, hasFrame, MessageCard, TRANSLATE_TO, translateMessage, useKeepReadingPosition } from "../components/ReadingPane";
+import { isHeavy, RpBody, useOpeningPending } from "../openStatus";
+import { usePrinting } from "../printStatus";
 import { ShowOriginal } from "../components/Dialogs";
 import { needsCard, PassphraseHost } from "../components/Pgp";
 import { Dropdown } from "../components/ui";
@@ -232,6 +234,9 @@ function Reader({ info }: { info: ReaderInit }) {
   }, [messages.length]);
   useEffect(() => ai.cancel, []); // eslint-disable-line react-hooks/exhaustive-deps
   useKeepReadingPosition();
+  // (W13.6, REQ-13.6.2) "Opening message…" stays until the frame of the open message is visible, not only until the data arrives
+  const printing = usePrinting((s) => s.on);
+  const opening = useOpeningPending(phase === "ready" && messages.length > 0 ? info.threadId : null, messages, hasFrame);
   useContentProtection(messages.some((m) => m.confidential)); // confidential mail: the window is out of screen capture (REQ-R3)
 
   // the window title: the subject (REQ-W7), in the language in use
@@ -476,7 +481,7 @@ function Reader({ info }: { info: ReaderInit }) {
             {summaryCut && <div className="muted small tr-hint">{t("reading.head.summaryCut")}</div>}
           </div>
         )}
-        <div className="rp-body" ref={bodyRef}>
+        <RpBody pending={opening} heavy={isHeavy(last)} after={0} min={0} printing={printing} bodyRef={bodyRef}>
           {messages.map((m) => (
             <MessageCard
               key={m.id}
@@ -492,7 +497,7 @@ function Reader({ info }: { info: ReaderInit }) {
               }
             />
           ))}
-        </div>
+        </RpBody>
       </section>
       {dialog?.type === "original" && <ShowOriginal messageId={dialog.messageId} />}
       <PassphraseHost />

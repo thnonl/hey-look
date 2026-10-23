@@ -26,6 +26,7 @@ export default defineLocale<typeof ns.en>({
   "reading.popout.loadFailed": "Impossible d’ouvrir ce message ({error}).",
   "reading.popout.noId": "cette fenêtre n’a aucune conversation à afficher",
   "reading.popout.loading": "Ouverture du message…",
+  "reading.print.preparing": "Préparation de l’impression…",
   "reading.popout.toolbar": "Actions sur le message",
   "reading.popout.unread": "Non lu",
   "reading.popout.read": "Lu",

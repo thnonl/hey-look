@@ -155,7 +155,8 @@ async function mainCases(theme) {
   await sleep(700);
   const lbl = await evaluate(`(() => { const e = [...document.querySelectorAll('.settings *')].find((x) => x.children.length === 0 && x.getBoundingClientRect().width > 0 && /^(Undo window|Date format|Default account|Language)/.test(x.textContent.trim())); if (!e) return null; e.scrollIntoView({ block: 'center' }); const r = e.getBoundingClientRect(); return [Math.round(r.left + 8), Math.round(r.top + r.height / 2)]; })()`);
   ok(!!lbl, 'no label text in Settings');
-  if (lbl) { await expectAt('Settings text', lbl[0], lbl[1], 'prevented', 1); await closeMenus(); }
+  // (1.0.7 W13.3: a Settings label is not selectable text, so there is nothing to copy: the engine's menu is still kept away and the app's text menu does not open either)
+  if (lbl) { await expectAt('Settings text', lbl[0], lbl[1], 'prevented', 0); await closeMenus(); }
   await expectOn('Settings select/menu button', '.settings button[aria-haspopup]', 'prevented', 0);
   const inp = await evaluate(`!!document.querySelector('.settings input[type=text], .settings input:not([type]), .settings textarea')`);
   if (inp) await expectOn('Settings text input', '.settings input[type=text], .settings input:not([type]), .settings textarea', 'native', 0);

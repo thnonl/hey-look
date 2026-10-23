@@ -119,8 +119,8 @@ export function emailAtOffset(text: string, offset: number): string | null {
   return null;
 }
 
-/** How far "Select all" reaches from the text it was asked on: the closest of these (a message's frame has its whole body instead; see contextGuard.ts). */
-export const SELECT_SCOPE = "[data-select-scope], [role=dialog], [role=alertdialog], [role=alert], [role=status], .summary, .rp-msg, .toast, .popover, .pv-text, .sig-block, section, aside";
+/** How far "Select all" reaches from the text it was asked on (W13.3: the header line or the body of a message, not the whole page): the closest of these (a message's frame has its whole body instead; see contextGuard.ts). */
+export const SELECT_SCOPE = "[data-select-scope], .rp-head h2, .rp-from, .rp-to, .rp-date, .rp-msg-body, [role=dialog], [role=alertdialog], [role=alert], [role=status], .summary, .rp-msg, .toast, .popover, .pv-text, .sig-block, section, aside";
 
 /** The hosts of a document the engine draws itself (a PDF in its viewer): the engine's menu stays there (`Probe.plugin`). */
 export const PLUGIN_HOST = "object, embed, iframe.pv-pdf";

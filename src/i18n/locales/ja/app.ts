@@ -249,5 +249,6 @@ export default defineLocale<typeof ns.en>({
   "app.original.title": "元のメッセージ",
   "app.original.confidential": "このメッセージは機密のため、元のメッセージを表示できません。",
   "app.original.fetching": "サーバーから取得中…",
+  "app.busy.many": "会話{count}件を処理しています…",
   "app.original.copied": "コピーしました",
 });

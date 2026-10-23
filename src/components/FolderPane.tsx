@@ -13,6 +13,7 @@ import { useT } from "../i18n/react";
 import { kbd } from "../platform";
 import { folderVisible } from "../junk";
 import { useStore } from "../store";
+import { hasNew, hasNewMailbox } from "../newMail";
 import { useSidebarPeek } from "../sidebarPeek";
 import { sidebarControlOpen, toggleSidebar } from "../sidebarState";
 import { sidebarInput, useWindowWidth } from "../useSidebar";
@@ -44,7 +45,7 @@ const RAIL_BADGE_KEYS = ["inbox", "unread", "junk"];
  */
 export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
   const t = useT();
-  const { accounts, folders, folder, accountId, setView, prefs, setPrefs, syncErrors, sync, outbox, module, setModule, firstSync, reauth } = useStore();
+  const { accounts, folders, folder, accountId, setView, prefs, setPrefs, syncErrors, sync, outbox, module, setModule, firstSync, reauth, newMail } = useStore();
   const toggleReq = useStore((s) => s.sidebarToggle);
   useWindowWidth(); // (the control follows the window: whether the full menu would fit next to the panes)
   const tree = useRef<HTMLDivElement>(null);
@@ -111,10 +112,15 @@ export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
       peek.close(); // a folder was chosen: the menu that opened over the panes goes away
     };
     const full = name && name !== label ? name : label;
+    // (W13.2) new mail since the person last looked: a dot and a bolder label, and the words in the tooltip / the name for a screen reader
+    const fresh = hasNew(newMail, acct, key);
+    const newText = fresh ? t("mail.side.newMail") : "";
     // the icon column has no words: the name and the unread count are the tooltip and the name for a screen reader
     const tip = rail
-      ? [full, unreadText(RAIL_BADGE_KEYS.includes(key) ? c.unread : 0), failed > 0 ? t("mail.pane.failedTitle", { n: failed }) : ""].filter(Boolean).join("\n")
-      : name && name !== label ? name : undefined;
+      ? [full, unreadText(RAIL_BADGE_KEYS.includes(key) ? c.unread : 0), failed > 0 ? t("mail.pane.failedTitle", { n: failed }) : "", newText].filter(Boolean).join("\n")
+      : fresh
+        ? [full, unreadText(RAIL_BADGE_KEYS.includes(key) ? c.unread : 0), newText].filter(Boolean).join("\n")
+        : name && name !== label ? name : undefined;
     return (
       <div
         key={`${acct}|${key}`}
@@ -122,7 +128,7 @@ export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
         aria-selected={active}
         aria-label={tip && rail ? tip.replace(/\n/g, ", ") : undefined}
         tabIndex={0}
-        className={`fp-row ${active ? "active" : ""}`}
+        className={`fp-row ${active ? "active" : ""} ${fresh ? "fresh" : ""}`}
         style={rail ? undefined : { paddingLeft: 12 + indent * 16 }}
         onClick={go}
         onKeyDown={(e) => {
@@ -135,6 +141,8 @@ export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
       >
         <span className="fp-ico">{ICONS[key] ?? <Folder size={16} />}</span>
         <span className="fp-lbl ellipsis">{label}</span>
+        {fresh && <span className="fp-new" aria-hidden />}
+        {fresh && !rail && <span className="sr-only">, {newText}</span>}
         {badge > 0 && (!rail || RAIL_BADGE_KEYS.includes(key)) && <span className={`fp-badge ${key === "inbox" || key === "unread" ? "strong" : ""}`}>{badge > 99 ? "99+" : badge}</span>}
         {failed > 0 ? (
           <span className="fp-badge err" title={t("mail.pane.failedTitle", { n: failed })}>{rail ? "!" : t("mail.pane.failedBadge", { n: failed })}</span>
@@ -175,10 +183,12 @@ export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
     return acct ? `${base} — ${acctName(acct)}` : base;
   };
 
-  const head = (id: string, label: ReactNode, movable = false) => (
-    <button className="fp-head" onClick={() => toggle(id)} aria-expanded={!collapsed(id)} data-reorder-focus={movable ? "" : undefined}>
+  const head = (id: string, label: ReactNode, movable = false, fresh = false) => (
+    <button className={`fp-head ${fresh ? "fresh" : ""}`} onClick={() => toggle(id)} aria-expanded={!collapsed(id)} data-reorder-focus={movable ? "" : undefined}>
       {collapsed(id) ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
       {label}
+      {fresh && <span className="fp-new" aria-hidden />}
+      {fresh && <span className="sr-only">, {t("mail.side.newMail")}</span>}
     </button>
   );
 
@@ -187,14 +197,16 @@ export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
     const l = accountLabel(a);
     const unread = counts(a.id, "inbox").unread;
     const warn = !!error || !!reauth[a.id];
+    const fresh = hasNewMailbox(newMail, a.id); // (W13.2) its Inbox got new mail: a ring around the avatar
+    const newText = fresh ? t("mail.side.newMail") : "";
     // the display name and the address, the unread count, then what is wrong; a mailbox without a display name shows the address once
-    const tip = [l.tip ?? l.text, unreadText(unread), error ?? ""].filter(Boolean).join("\n");
+    const tip = [l.tip ?? l.text, unreadText(unread), error ?? "", newText].filter(Boolean).join("\n");
     return (
       <button
-        className={`fp-head fp-avatar ${accountId === a.id ? "on" : ""}`}
+        className={`fp-head fp-avatar ${accountId === a.id ? "on" : ""} ${fresh ? "fresh" : ""}`}
         data-reorder-focus=""
         aria-current={accountId === a.id ? "true" : undefined}
-        aria-label={[l.name ? `${l.name} (${a.email})` : a.email, unreadText(unread), error ?? ""].filter(Boolean).join(", ")}
+        aria-label={[l.name ? `${l.name} (${a.email})` : a.email, unreadText(unread), error ?? "", newText].filter(Boolean).join(", ")}
         title={tip}
         onClick={() => {
           void setView("inbox", a.id);
@@ -279,6 +291,7 @@ export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
                 )}
               </>,
               true,
+              hasNewMailbox(newMail, a.id),
             )}
             </div>
             {!rail && <ReauthNotice account={a} compact />}

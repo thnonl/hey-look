@@ -27,6 +27,7 @@ export default defineLocale<typeof ns.en>({
   "reading.popout.loadFailed": "Не удалось открыть это письмо ({error}).",
   "reading.popout.noId": "в этом окне нет беседы для показа",
   "reading.popout.loading": "Открытие письма…",
+  "reading.print.preparing": "Подготовка к печати…",
   "reading.popout.toolbar": "Действия с письмом",
   "reading.popout.unread": "Не прочитано",
   "reading.popout.read": "Прочитано",
