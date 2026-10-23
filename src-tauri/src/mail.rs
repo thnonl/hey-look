@@ -841,7 +841,7 @@ pub fn parse(uid: u32, raw: &[u8], seen: bool, flagged: bool, fallback_date: i64
         seen,
         flagged,
         attachments,
-        list_unsub: m.header_raw("List-Unsubscribe").map(|s| s.trim().to_string()),
+        list_unsub: m.header_raw("List-Unsubscribe").map(|s| decode_encoded_words(s).trim().to_string()),
         list_unsub_post: m.header_raw("List-Unsubscribe-Post").is_some(),
         pgp,
         pgp_raw: keep.then(|| raw.to_vec()),
@@ -1164,6 +1164,80 @@ pub(crate) fn replace_cid_refs(html: &str, cid: &str, uri: &str) -> String {
         last = b;
     }
     out.push_str(&html[last..]);
+    out
+}
+
+/// A header value with its RFC 2047 encoded-words (`=?charset?Q|B?text?=`) decoded and its folding removed. SendGrid and some other
+/// bulk senders put the whole `List-Unsubscribe` value into encoded-words (dozens of folded pieces), which hides the `<https://...>`
+/// brackets from a plain search. Whitespace between two encoded-words is dropped (RFC 2047 6.2); anything that is not a well-formed
+/// encoded-word stays as it is.
+pub fn decode_encoded_words(raw: &str) -> String {
+    fn bytes_of(charset: &str, bytes: Vec<u8>) -> String {
+        match charset.to_ascii_lowercase().as_str() {
+            "iso-8859-1" | "latin1" | "windows-1252" => bytes.iter().map(|b| *b as char).collect(),
+            _ => String::from_utf8_lossy(&bytes).into_owned(),
+        }
+    }
+    fn decode_q(text: &str) -> Vec<u8> {
+        let b = text.as_bytes();
+        let mut out = Vec::with_capacity(b.len());
+        let mut i = 0;
+        while i < b.len() {
+            match b[i] {
+                b'_' => out.push(b' '),
+                b'=' if i + 2 < b.len() && b[i + 1].is_ascii_hexdigit() && b[i + 2].is_ascii_hexdigit() => {
+                    out.push(u8::from_str_radix(&text[i + 1..i + 3], 16).unwrap_or(b'='));
+                    i += 2;
+                }
+                c => out.push(c),
+            }
+            i += 1;
+        }
+        out
+    }
+    let unfolded = raw.replace("\r\n", "").replace('\n', "").replace('\r', "");
+    let mut out = String::with_capacity(unfolded.len());
+    let mut rest = unfolded.as_str();
+    let mut last_was_word = false;
+    while let Some(start) = rest.find("=?") {
+        let (before, tail) = rest.split_at(start);
+        // `=?charset?enc?text?=`
+        let parsed = (|| {
+            let body = &tail[2..];
+            let (charset, r) = body.split_once('?')?;
+            let (enc, r) = r.split_once('?')?;
+            let (text, after) = r.split_once("?=")?;
+            if charset.is_empty() || charset.contains(' ') || enc.len() != 1 || text.contains(' ') {
+                return None;
+            }
+            let bytes = match enc {
+                "Q" | "q" => decode_q(text),
+                "B" | "b" => {
+                    use base64::Engine;
+                    base64::engine::general_purpose::STANDARD.decode(text.trim_end_matches('=')).or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(text.trim_end_matches('='))).ok()?
+                }
+                _ => return None,
+            };
+            Some((bytes_of(charset.split('*').next().unwrap_or(charset), bytes), after))
+        })();
+        match parsed {
+            Some((decoded, after)) => {
+                if !(last_was_word && before.trim().is_empty()) {
+                    out.push_str(before);
+                }
+                out.push_str(&decoded);
+                rest = after;
+                last_was_word = true;
+            }
+            None => {
+                out.push_str(before);
+                out.push_str("=?");
+                rest = &tail[2..];
+                last_was_word = false;
+            }
+        }
+    }
+    out.push_str(rest);
     out
 }
 
@@ -1632,3 +1706,43 @@ mod folder_role_tests {
     }
 }
 
+
+#[cfg(test)]
+mod encoded_words_tests {
+    use super::decode_encoded_words;
+
+    #[test]
+    fn a_list_unsubscribe_value_in_folded_q_words_is_readable() {
+        let raw = " =?us-ascii?Q?=3Chttps=3A=2F=2Fu1.ct.sendgrid.net=2Flu=2Funsubscribe=3Foc=3Dab=5Fc-d?=\r\n =?us-ascii?Q?ef=3E=2C=3Cmailto=3Aunsubscribe=40em5860=2Ebunny=2Enet=3Fsubject=3D1=3E?=";
+        let d = decode_encoded_words(raw);
+        assert_eq!(d.trim(), "<https://u1.ct.sendgrid.net/lu/unsubscribe?oc=ab_c-def>,<mailto:unsubscribe@em5860.bunny.net?subject=1>");
+    }
+
+    #[test]
+    fn b_words_charsets_and_plain_text_are_handled() {
+        assert_eq!(decode_encoded_words("=?utf-8?B?SMOpbGxv?= world"), "Héllo world");
+        assert_eq!(decode_encoded_words("=?iso-8859-1?Q?caf=E9?="), "café");
+        assert_eq!(decode_encoded_words("<https://a.example/u>, <mailto:u@a.example>"), "<https://a.example/u>, <mailto:u@a.example>");
+        assert_eq!(decode_encoded_words("a =?broken and =?utf-8?Q?x?= y"), "a =?broken and x y");
+    }
+
+    #[test]
+    fn whitespace_between_two_words_is_dropped_and_between_word_and_text_kept() {
+        assert_eq!(decode_encoded_words("=?utf-8?Q?a?= =?utf-8?Q?b?= c"), "ab c");
+    }
+}
+
+#[cfg(test)]
+mod list_unsubscribe_tests {
+    use super::parse;
+
+    #[test]
+    fn a_sendgrid_style_list_unsubscribe_in_encoded_words_is_stored_decoded() {
+        let raw = "From: News <hop@news.example>\r\nTo: me@example.org\r\nSubject: Update\r\nMessage-ID: <a@news.example>\r\nList-Unsubscribe: \r\n =?us-ascii?Q?=3Chttps=3A=2F=2Fu1=2Ect=2Esendgrid=2Enet=2Flu=2Funsubscribe=3Foc=3Dxy?=\r\n =?us-ascii?Q?z=3E=2C=3Cmailto=3Aunsubscribe=40em1=2Enews=2Eexample=3Fsubject=3D1=3E?=\r\nList-Unsubscribe-Post: List-Unsubscribe=One-Click\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nhello\r\n";
+        let p = parse(1, raw.as_bytes(), false, false, 0).unwrap();
+        let h = p.list_unsub.expect("the header is kept");
+        assert!(h.starts_with("<https://u1.ct.sendgrid.net/lu/unsubscribe?oc=xyz>"), "{h}");
+        assert!(h.contains("<mailto:unsubscribe@em1.news.example?subject=1>"), "{h}");
+        assert!(p.list_unsub_post);
+    }
+}

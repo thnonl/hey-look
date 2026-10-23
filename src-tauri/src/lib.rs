@@ -5429,6 +5429,8 @@ async fn unsubscribe(state: tauri::State<'_, AppState>, message_id: String) -> R
             |r| Ok((r.get(0)?, r.get::<_, i64>(1)? != 0)),
         )
         .map_err(err)?;
+    // mails stored before the header was decoded when it was read still hold the raw encoded-words
+    let hdr = mail::decode_encoded_words(&hdr);
     let targets: Vec<String> = hdr
         .split('<')
         .skip(1)
