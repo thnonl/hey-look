@@ -39,7 +39,7 @@ for (let i = jobsAt + 1; i < yml.length; i++) {
   const c = /^    if:\s*(.*)$/.exec(l);
   if (c) cur.cond = c[1].trim().replace(/^\$\{\{\s*/, "").replace(/\s*\}\}$/, "");
 }
-for (const n of ["plan", "create-release", "node-tests", "rust-tests", "build", "sign-windows", "publish"]) assert.ok(jobs[n], `job ${n} not found`);
+for (const n of ["plan", "create-release", "node-tests", "rust-tests", "build", "sign-windows", "publish", "apt-repo", "apt-repo-dryrun"]) assert.ok(jobs[n], `job ${n} not found`);
 
 const planScript = (() => {
   const at = yml.findIndex((l, i) => i > jobs.plan.start && /^ {8}run: \|\s*$/.test(l));
@@ -90,6 +90,7 @@ const evalCond = (cond, ctx) => {
     .replace(/needs\.([\w-]+)\.outputs\.(\w+)/g, (_, j, k) => `N(${JSON.stringify(j)}).outputs[${JSON.stringify(k)}]`)
     .replace(/needs\.([\w-]+)\.result/g, (_, j) => `N(${JSON.stringify(j)}).result`)
     .replace(/github\.event_name/g, "EVENT")
+    .replace(/github\.event\.inputs\.test_version/g, "TV")
     .replace(/ == /g, " === ")
     .replace(/ != /g, " !== ")
     .replace(/fromJSON\(/g, "JSON.parse(")
@@ -99,19 +100,19 @@ const evalCond = (cond, ctx) => {
     return ctx.needs[j];
   };
   const contains = (arr, v) => arr.includes(v);
-  return Boolean(new Function("N", "EVENT", "contains", `return (${js});`)(N, ctx.event, contains));
+  return Boolean(new Function("N", "EVENT", "TV", "contains", `return (${js});`)(N, ctx.event, ctx.testVersion ?? "", contains));
 };
 
 // `fail` = names of jobs (or "node-tests:ui-c" legs) that fail when they run. Returns {result per job, legs of node-tests}.
-const simulate = ({ event, plan, fail = [] }) => {
+const simulate = ({ event, plan, fail = [], testVersion = "" }) => {
   const result = { plan: { result: "success", outputs: plan } };
   const legs = [];
-  const order = ["plan", "create-release", "node-tests", "rust-tests", "build", "sign-windows", "publish"];
+  const order = ["plan", "create-release", "node-tests", "rust-tests", "build", "sign-windows", "publish", "apt-repo", "apt-repo-dryrun"];
   for (const name of order.slice(1)) {
     const job = jobs[name];
     const needs = {};
     for (const n of job.needs) needs[n] = result[n] ?? assert.fail(`${name} needs ${n}, which is later in the order`);
-    const ctx = { needs, event };
+    const ctx = { needs, event, testVersion };
     const allOk = job.needs.every((n) => needs[n].result === "success");
     const run = hasStatusFn(job.cond) ? evalCond(job.cond, ctx) : allOk && (job.cond === null || evalCond(job.cond, ctx));
     if (!run) {
@@ -206,6 +207,8 @@ for (const uiTests of ["", "false"]) {
       build: "success",
       "sign-windows": "skipped",
       publish: "skipped",
+      "apt-repo": "skipped",
+      "apt-repo-dryrun": "success",
     });
   });
 }
@@ -240,6 +243,52 @@ check("(d) dispatch asking for SignPath: signing follows the tests, with and wit
   assert.equal(run({ ...base, uiTests: "true" }).result["sign-windows"], "success");
   assert.equal(run({ ...base, fail: ["node-tests:static"] }).result["sign-windows"], "skipped");
   assert.equal(run({ ...base, uiTests: "true", fail: ["node-tests:ui-a"] }).result["sign-windows"], "skipped");
+});
+
+// (e) WP15, the APT repository: the tag job needs the published release and no secret is reachable from a dry run; the dry-run job has its own throw-away key
+check("(e) tag, all green: apt-repo runs after publish, the dry-run job does not", () => {
+  const r = run({ event: "push" });
+  assert.equal(r.result["apt-repo"], "success");
+  assert.equal(r.result["apt-repo-dryrun"], "skipped");
+});
+check("(e) tag, publish fails: no APT repository is made", () => {
+  assert.equal(run({ event: "push", fail: ["publish"] }).result["apt-repo"], "skipped");
+  assert.equal(run({ event: "push", fail: ["node-tests:ui-a"] }).result["apt-repo"], "skipped");
+});
+check("(e) tag, apt-repo fails: the release stays published", () => {
+  const r = run({ event: "push", fail: ["apt-repo"] });
+  assert.equal(r.result.publish, "success");
+  assert.equal(r.result["apt-repo"], "failure");
+});
+check("(e) dry run: the dry-run job needs a green build, never the tag job", () => {
+  assert.equal(run({ event: "workflow_dispatch", platforms: "all", fail: ["build"] }).result["apt-repo-dryrun"], "skipped");
+  assert.equal(run({ event: "workflow_dispatch", platforms: "linux" }).result["apt-repo-dryrun"], "success");
+  assert.equal(run({ event: "workflow_dispatch", platforms: "windows" }).result["apt-repo-dryrun"], "skipped");
+  assert.equal(run({ event: "workflow_dispatch", platforms: "linux", testVersion: "0.9.0" }).result["apt-repo-dryrun"], "skipped");
+  assert.equal(run({ event: "workflow_dispatch", platforms: "all", uiTests: "true" }).result["apt-repo"], "skipped");
+});
+check("(e) secrets: only the tag job and only in its signing step; no Environment on the dry-run job", () => {
+  const text = readFileSync(path.join(root, ".github/workflows/release.yml"), "utf8");
+  const block = (name) => {
+    const head = `\n  ${name}:\n`;
+    const at = text.indexOf(head);
+    assert.ok(at >= 0, `${name} not found`);
+    const next = text.slice(at + head.length).search(/\n  [a-z][\w-]*:\n/);
+    return text.slice(at, next < 0 ? undefined : at + head.length + next);
+  };
+  const dry = block("apt-repo-dryrun");
+  assert.ok(!/secrets\.(?!GITHUB_TOKEN)/.test(dry), "the dry-run job reads a secret");
+  assert.ok(!/^    environment:/m.test(dry), "the dry-run job has an Environment");
+  assert.match(dry, /^    permissions:\n      contents: read\n/m);
+  const tag = block("apt-repo");
+  assert.match(tag, /^    environment: release$/m);
+  const keyLines = tag.split("\n").filter((l) => /secrets\.APT_SIGNING_/.test(l));
+  assert.equal(keyLines.length, 2, "the two APT secrets are named once each");
+  for (const l of keyLines) assert.match(l, /github\.event_name == 'push' && github\.ref_type == 'tag' && secrets\.APT_SIGNING_\w+ \|\| ''/, "a secret is read on a tag push only");
+  // both are in the env of the Sign step, which is the only step with them
+  const sign = tag.slice(tag.indexOf("- name: Sign\n"), tag.indexOf("- name: Remove the key"));
+  assert.equal(sign.split("\n").filter((l) => /secrets\.APT_SIGNING_/.test(l)).length, 2, "both secrets sit in the Sign step");
+  assert.ok(!/^\s*set -\w*x/m.test(tag + dry), "no set -x near a key");
 });
 
 rmSync(dir, { recursive: true, force: true });
