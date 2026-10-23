@@ -125,10 +125,10 @@ const mock = read("src/devMock.ts");
 assert.ok(mock.includes("unreadFocused:") && mock.includes("tabcounts="), "the dev preview computes the numbers and forces them with #tabcounts");
 
 // ---- texts: the key exists in all 8 languages with the placeholders {tab} and {n}, and the plural forms of the language
-const files = { en: "src/i18n/ns/mail.ts", vi: "src/i18n/ns/mail.ts", fr: "src/i18n/ns/mail.ts", de: "src/i18n/locales/de/mail.ts", es: "src/i18n/locales/es/mail.ts", ja: "src/i18n/locales/ja/mail.ts", ru: "src/i18n/locales/ru/mail.ts", "zh-Hans": "src/i18n/locales/zh-Hans/mail.ts" };
+const files = { en: "src/i18n/ns/mail.ts", vi: "src/i18n/locales/vi/mail.ts", fr: "src/i18n/locales/fr/mail.ts", de: "src/i18n/locales/de/mail.ts", es: "src/i18n/locales/es/mail.ts", ja: "src/i18n/locales/ja/mail.ts", ru: "src/i18n/locales/ru/mail.ts", "zh-Hans": "src/i18n/locales/zh-Hans/mail.ts" };
 const lines = new Set();
 for (const f of new Set(Object.values(files))) for (const l of read(f).split("\n")) if (l.includes('"mail.tabs.unreadAria"')) lines.add(l.trim());
-assert.equal(lines.size, 8, "eight different texts (en, vi, fr in ns/mail.ts and five locale files)");
+assert.equal(lines.size, 8, "eight different texts (en in ns/mail.ts and seven locale files)");
 for (const l of lines) assert.ok(l.includes("{tab}") && l.includes("{n}"), `placeholders in ${l}`);
 assert.ok([...lines].some((l) => l.includes("few:") && l.includes("many:")), "Russian has its four plural forms");
 

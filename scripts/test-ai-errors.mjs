@@ -7,7 +7,9 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { backendText } from "../src/backendErrors.ts";
-import { LANGS, setLangPref } from "../src/i18n/index.ts";
+import { LANGS, loadAllLanguages, setLangPref } from "../src/i18n/index.ts";
+
+await loadAllLanguages(); // (the languages are chunks of their own: setLangPref needs them loaded)
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 

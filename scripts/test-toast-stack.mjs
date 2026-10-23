@@ -4,7 +4,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { addToast, clearableOfKind, isPersistent, lazyText, MAX_PERSISTENT, MAX_TIMED, stackItems, trimToasts } from "../src/toastStack.ts";
-import { setLangPref, t } from "../src/i18n/index.ts";
+import { loadAllLanguages, setLangPref, t } from "../src/i18n/index.ts";
+
+await loadAllLanguages(); // (the languages are chunks of their own: setLangPref needs them loaded)
 
 let id = 0;
 const toast = (kind, extra = {}) => ({ id: ++id, text: `t${id}`, kind, ...extra });

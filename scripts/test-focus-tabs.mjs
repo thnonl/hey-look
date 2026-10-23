@@ -16,7 +16,7 @@
 //   node scripts/test-focus-tabs.mjs [--full] [--require-browser] [--url=http://127.0.0.1:1420/]
 // Default: en, de, ru, ja at 960 x 480, light and dark. --full: all 8 languages at 960 x 480, 960 x 560 and 1280 x 800.
 import assert from 'node:assert/strict';
-import { arg, flag, sleep, startHarness } from './cdp-harness.mjs';
+import { arg, flag, languageJs, sleep, startHarness } from './cdp-harness.mjs';
 import { TABN_JS, verdict } from './lib/tab-number-probe.mjs';
 
 const FULL = flag('full');
@@ -415,7 +415,8 @@ try {
     const wide = await probe();
     assert.equal(wide.filterIcon, false, 'at 600 px the Filter shows its text');
     assert.equal(wide.filterText, 'Filter');
-    await evaluate(`${S('setPrefs')}({ listW: 300, language: 'ru' }); ${S('setFilter')}('unread'); 1`);
+    await evaluate(languageJs('ru'));
+    await evaluate(`${S('setPrefs')}({ listW: 300 }); ${S('setFilter')}('unread'); 1`);
     await sleep(400);
     const narrow = await probe();
     assert.equal(narrow.filterIcon, true, 'Russian at 300 px with Filter = Unread: icon only');

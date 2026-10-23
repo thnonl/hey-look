@@ -12,7 +12,9 @@ import { mock } from "node:test";
 import { readFileSync } from "node:fs";
 import { createRecoveryToast, toastText, RECOVERY_TOAST_KEY } from "../src/recoveryToast.ts";
 import { openKept } from "../src/recovery.ts";
-import { setLangPref, t } from "../src/i18n/index.ts";
+import { loadAllLanguages, setLangPref, t } from "../src/i18n/index.ts";
+
+await loadAllLanguages(); // (the languages are chunks of their own: setLangPref needs them loaded)
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const kept = (id, where, savedAt, o = {}) => ({ id, accountId: "a1", subject: `Subject ${id}`, savedAt, where, threadId: where === "drafts" ? `t-${id}` : null, inWindow: false, ...o });

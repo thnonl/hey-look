@@ -11,7 +11,7 @@
 //
 //   node scripts/test-calendar-fold.mjs [--require-browser | --url=http://127.0.0.1:1420/] [--quick] [--shots=dir]
 //   --quick  English, German and Japanese for the texts; the full run (no flag) is the 8 languages
-import { flag, arg, sleep, startHarness, inputs } from './cdp-harness.mjs';
+import { flag, arg, languageJs, sleep, startHarness, inputs } from './cdp-harness.mjs';
 import { loadDict } from './lib/i18n-dicts.mjs';
 
 const ALL = ['en', 'vi', 'fr', 'zh-Hans', 'es', 'ja', 'de', 'ru'];
@@ -46,7 +46,7 @@ const openApp = async (hash, w, h) => {
   await sleep(300 + 250 * hash.split('&').filter(Boolean).length + 250);
 };
 const setLook = async (lang) => {
-  await evaluate(`window.__store.getState().setPrefs({ language: ${JSON.stringify(lang)} }); 1`);
+  await evaluate(languageJs(lang));
   await waitFor(`document.documentElement.lang === ${JSON.stringify(lang)}`, `the page language ${lang}`, 25000);
   await sleep(150);
 };

@@ -4,10 +4,14 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { applySavedLanguage } from "../src/bootLang.ts";
-import { getLang, setLangPref, t } from "../src/i18n/index.ts";
+import { getLang, loadAllLanguages, setLangPref, t } from "../src/i18n/index.ts";
 
 const read = (f) => readFileSync(fileURLToPath(new URL(`../${f}`, import.meta.url)), "utf8");
 const prefs = (language) => async (key) => (key === "prefs" ? JSON.stringify({ theme: "dark", language }) : null);
+
+// (a language is a chunk of its own: applySavedLanguage fetches the saved one, a test that sets another one first loads them all)
+await loadAllLanguages();
+setLangPref("en");
 
 // 1. a saved language is the language of the first sentence after the await, for every language of the registry
 for (const code of ["vi", "fr", "ru", "ja", "de", "es", "zh-Hans"]) {

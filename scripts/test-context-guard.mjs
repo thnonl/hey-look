@@ -184,8 +184,8 @@ for (const k of ["mail.ctx.copyEmail", "mail.ctx.selectAll", "mail.ctx.textMenu"
 assert.match(host, /disabled: !menu\.text/, "Copy is greyed, and stays in the menu, when nothing is selected");
 const en = read("src/i18n/ns/mail.ts") + "\n";
 for (const k of ["mail.ctx.copyEmail", "mail.ctx.selectAll", "mail.ctx.textMenu"]) {
-  assert.equal(en.split(`"${k}"`).length - 1, 3, `${k}: English, Vietnamese and French in the namespace`);
-  for (const l of ["de", "es", "ja", "ru", "zh-Hans"]) assert.match(read(`src/i18n/locales/${l}/mail.ts`), new RegExp(`"${k.replace(".", "\\.")}": "[^"]+"`), `${k} in ${l}`);
+  assert.equal(en.split(`"${k}"`).length - 1, 1, `${k}: English in the namespace`);
+  for (const l of ["vi", "fr", "de", "es", "ja", "ru", "zh-Hans"]) assert.match(read(`src/i18n/locales/${l}/mail.ts`), new RegExp(`"${k.replace(".", "\\.")}": "[^"]+"`), `${k} in ${l}`);
 }
 // nothing turned spell checking off where people write
 assert.doesNotMatch(read("src/components/Compose.tsx") + read("src/components/RichEditor.tsx"), /spellcheck\s*[=:]\s*\{?\s*["']?false/i, "the compose body keeps its spell checking, so its native menu is kept");

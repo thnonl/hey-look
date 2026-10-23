@@ -16,11 +16,11 @@ assert.ok(store.includes('fullErrors.set(shown, t("errors.sendRefused", { detail
 assert.ok(read("src-tauri/src/smtp.rs").includes('format!("SMTP send failed: {detail}")'), "the backend text is unchanged");
 // the sentence in every language, with the detail
 const files = ["src/i18n/ns/errors.ts", ...readdirSync(new URL("../src/i18n/locales", import.meta.url)).map((l) => `src/i18n/locales/${l}/errors.ts`)];
-assert.equal(files.length, 6);
+assert.equal(files.length, 8);
 for (const f of files) {
   const t = read(f);
   const m = [...t.matchAll(/"errors\.sendRefused": ("(?:[^"\\]|\\.)*"),/g)];
-  assert.equal(m.length, f.includes("/ns/") ? 3 : 1, `${f}: errors.sendRefused (English, Vietnamese and French live in ns/)`);
+  assert.equal(m.length, 1, `${f}: errors.sendRefused`);
   for (const x of m) {
     const text = JSON.parse(x[1]);
     assert.ok(text.includes("{detail}") && !text.includes("SMTP send failed") && text.length > 40, `${f}: ${text}`);
