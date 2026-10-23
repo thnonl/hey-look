@@ -67,6 +67,9 @@ pub fn show_main(app: &AppHandle) {
         }
         // the UI re-checks for updates when the window comes back (throttled in update.rs)
         let _ = app.emit_to("main", "app-shown", ());
+    } else if crate::startgate::request_window() {
+        // a Windows autostart whose window waits for the desktop (startgate.rs): the wait ends now and the window is shown when it exists
+        crate::startup::stage(Some(app), "the window was asked for before it exists: the start gate lets it be made now");
     }
 }
 
