@@ -1,7 +1,7 @@
 // The translator tooling: the review-sheet export (chunks of about 12 KB), the status report, and --sync finding nothing to add.
 // Run: node --experimental-strip-types scripts/test-i18n-tools.mjs
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -75,7 +75,25 @@ assert.ok(strict.code === 0 || strict.code === 1, "--strict exits 1 while some l
 // scaffold: with nothing missing, --sync changes nothing
 const sync = run("i18n-new-language.mjs", "--sync");
 assert.equal(sync.code, 0, sync.err);
-assert.equal((sync.out.match(/up to date/g) ?? []).length, later.filter((l) => !["vi", "fr"].includes(l.code)).length, `--sync: every later language is complete\n${sync.out}`);
+assert.equal((sync.out.match(/up to date/g) ?? []).length, later.length, `--sync: every other language (vi and fr too, since WP9c) is complete\n${sync.out}`);
 assert.notEqual(run("i18n-new-language.mjs", "xx").code, 0, "a language that is not in the registry is refused");
-assert.notEqual(run("i18n-new-language.mjs", "vi").code, 0, "vi lives in ns/*.ts");
+assert.notEqual(run("i18n-new-language.mjs", "en").code, 0, "English lives in ns/*.ts");
+{
+  // a tree with a new English key: --sync appends it (English text, to be translated) to the folder of every other language, vi and fr included (AC-9.1.6)
+  const tmp = mkdtempSync(join(tmpdir(), "heylook-sync-"));
+  try {
+    cpSync(fileURLToPath(new URL("../src/i18n", import.meta.url)), join(tmp, "src/i18n"), { recursive: true });
+    const common = join(tmp, "src/i18n/ns/common.ts");
+    writeFileSync(common, readFileSync(common, "utf8").replace("  en: {\n", '  en: {\n    "common.syncProbe": "Sync probe",\n'));
+    const r = run("i18n-new-language.mjs", "--sync", `--root=${tmp}`);
+    assert.equal(r.code, 0, r.err);
+    for (const l of later) {
+      const text = readFileSync(join(tmp, "src/i18n/locales", l.code, "common.ts"), "utf8");
+      assert.ok(text.includes('"common.syncProbe": "Sync probe"'), `--sync added the new key to ${l.code}`);
+    }
+    assert.equal(run("i18n-new-language.mjs", "--sync", `--root=${tmp}`).out.match(/up to date/g)?.length, later.length, "a second --sync has nothing more to add");
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
 console.log("i18n tools: all checks passed");

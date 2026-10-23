@@ -20,12 +20,15 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { LANGUAGES } from "../src/i18n/languages.ts";
 
-const root = fileURLToPath(new URL("../", import.meta.url));
+const argv = process.argv.slice(2);
+// --root=<dir>: work on a copy of the tree (scripts/test-i18n-tools.mjs); the default is this repository
+const rootArg = argv.find((a) => a.startsWith("--root="));
+const root = rootArg ? join(rootArg.slice(7), "/") : fileURLToPath(new URL("../", import.meta.url));
 const NS_DIR = join(root, "src/i18n/ns");
 const STUB = "// STUB: English placeholders, to be translated";
-const INLINE = new Set(["en", "vi", "fr"]);
+const INLINE = new Set(["en"]); // (the only language inside src/i18n/ns/*.ts since WP9c)
+const BUILTIN = new Set(["en", "vi", "fr"]); // (their OS texts sit inside src-tauri/src/i18n.rs, not in src-tauri/src/i18n/<code>.rs)
 
-const argv = process.argv.slice(2);
 const sync = argv.includes("--sync");
 const code = argv.find((a) => !a.startsWith("--"));
 
@@ -243,7 +246,7 @@ function create(lang) {
   for (const ns of names) put(join(dir, `${ns}.ts`), localeFile(lang, ns));
   put(join(dir, "index.ts"), indexFile(lang, names));
   put(join(dir, "keep.json"), "[]\n");
-  put(join(root, "src-tauri/src/i18n", `${rustMod(lang.code)}.rs`), rustFile(lang));
+  if (!BUILTIN.has(lang.code)) put(join(root, "src-tauri/src/i18n", `${rustMod(lang.code)}.rs`), rustFile(lang));
   return made;
 }
 
@@ -289,8 +292,8 @@ for (const lang of targets) {
     const id = ident(lang.code);
     console.log(`
 Shared code that names the language (only for a language that is not wired yet; the five shipped ones are):
-  src/i18n/index.ts      import { ${id} } from "./locales/${lang.code}/index.ts";  and  "${lang.code}": ${id}  in DICTS
-  src/i18n/format.ts     import { ... } from "date-fns/locale/<date-fns name>";  and the entry in DF
+  src/i18n/lang-${lang.code}.ts   the language chunk: import { ${id} } from "./locales/${lang.code}/index.ts"; the date-fns locale from "date-fns/locale/<date-fns name>"; export default { dict: ${id}, df }  (copy lang-de.ts)
+  src/i18n/index.ts      a line  "${lang.code}": () => import("./lang-${lang.code}.ts")  in LOADERS
   src-tauri/src/i18n.rs  mod ${rustMod(lang.code)};  a Lang variant, the parse() arm, the lang()/set_lang() numbers and the arms that call ${rustMod(lang.code)}::*
 Then: npx tsc --noEmit  &&  node --experimental-strip-types scripts/test-i18n.mjs  &&  (cd src-tauri && cargo test --lib i18n)`);
   }

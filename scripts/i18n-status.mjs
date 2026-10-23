@@ -15,7 +15,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { en } from "../src/i18n/en.ts";
-import { INLINE, LANGUAGES, formsOf, keepList, loadDicts, mayStayEnglish, root, sameAsEnglish } from "./lib/i18n-dicts.mjs";
+import { BUILTIN, LANGUAGES, formsOf, keepList, loadDicts, mayStayEnglish, root, sameAsEnglish } from "./lib/i18n-dicts.mjs";
 
 const args = process.argv.slice(2);
 const only = args.find((a) => a.startsWith("--lang="))?.slice(7);
@@ -53,9 +53,9 @@ for (const l of targets) {
     a.stub++;
   }
   // a locale file that still carries the STUB header (the translator removes it when the file is done)
-  const stubFiles = INLINE.includes(l.code) ? [] : readdirSync(join(root, "src/i18n/locales", l.code)).filter((f) => f.endsWith(".ts") && f !== "index.ts" && readFileSync(join(root, "src/i18n/locales", l.code, f), "utf8").startsWith("// STUB:"));
+  const stubFiles = l.code === "en" ? [] : readdirSync(join(root, "src/i18n/locales", l.code)).filter((f) => f.endsWith(".ts") && f !== "index.ts" && readFileSync(join(root, "src/i18n/locales", l.code, f), "utf8").startsWith("// STUB:"));
   const rsFile = join(root, "src-tauri/src/i18n", `${l.code.toLowerCase().replace(/-/g, "_")}.rs`);
-  const stubRust = !INLINE.includes(l.code) && existsSync(rsFile) && /STUB: English placeholders/.test(readFileSync(rsFile, "utf8"));
+  const stubRust = !BUILTIN.includes(l.code) && existsSync(rsFile) && /STUB: English placeholders/.test(readFileSync(rsFile, "utf8"));
   if (stub.length || stubFiles.length || stubRust) anyStub = true;
   rows.push({ l, translated, allowed, stub, stubFiles, stubRust, byArea });
 }

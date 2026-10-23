@@ -16,7 +16,9 @@ export const CHIPS_MAX = 5;
  * language can still find theirs.
  */
 function useLanguage(): { current: Lang; short: string; name: string; items: MenuItem[]; choose: (code: Lang) => void } {
-  const pref = useStore((s) => s.prefs.language);
+  const saved = useStore((s) => s.prefs.language);
+  const loading = useStore((s) => s.langLoading); // a language that was just picked and is being fetched: shown as the choice at once, the texts switch when it is there
+  const pref = loading ?? saved;
   const setPrefs = useStore((s) => s.setPrefs);
   const choose = (code: Lang) => code !== pref && setPrefs({ language: code });
   const current = resolveLang(pref);
@@ -45,14 +47,13 @@ export function LanguageMenu() {
 /** Language choice for the first-run screen: a button per language while there are few, else one button that opens the same menu. */
 export function LanguageChoice() {
   const t = useT();
-  const { name, items, choose } = useLanguage();
-  const pref = useStore((s) => s.prefs.language);
+  const { current: pref, name, items, choose } = useLanguage();
   if (LANGS.length > CHIPS_MAX) {
     return (
       <div className="lang-choice">
         <Dropdown className="lang-opt lang-select" title={t("app.top.languageCurrent", { name })} caret={false} items={items}>
           <Globe size={15} aria-hidden />
-          <span className="lang-name" lang={resolveLang(pref)}>{name}</span>
+          <span className="lang-name" lang={pref}>{name}</span>
           <ChevronDown size={12} className="caret" aria-hidden />
         </Dropdown>
       </div>
