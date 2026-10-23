@@ -433,7 +433,13 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
       if (Date.now() - t0 < 10000) timer = window.setTimeout(look, 15);
     };
     look();
-    return () => window.clearTimeout(timer);
+    // The way out of hm-pend when nothing recolours the mail is the CSS animation of the frame (mailCanvas.ts, 1.5 s), and an animation timeline stands still while the
+    // window is hidden or not in front (WK-F7.02): this timer does not.
+    const failsafe = window.setTimeout(() => frameRef.current?.contentDocument?.documentElement?.classList.remove("hm-pend"), 1500);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearTimeout(failsafe);
+    };
   }, [srcDoc, frameRef]);
 
   return (
