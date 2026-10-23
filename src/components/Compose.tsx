@@ -162,6 +162,27 @@ function holdScrolls(saved: [Element, number][], root: HTMLElement, frames: numb
 /** The loader of the lazy wrapper (lazyViews.tsx) waits for the nodes of the kit with the chunk, so the editor never opens on an empty step. */
 export const loadEditorKit = loadKit;
 
+/**
+ * The status in the body of a shell (W13.13). A component of its own: the timer that shows it re-renders this and nothing else (a render of the whole composer takes 50 ms or more, and it
+ * would stand between the timer and the status). It shows 140 ms after the press (counted from the press, not from when the pane was built) if the message is not there yet, and the fill
+ * waits for its 300 ms minimum (`statusShown`, composeShell.ts).
+ */
+function PreparingStatus({ p }: { p: NonNullable<ComposeInit["preparing"]> }) {
+  const t = useT();
+  const on = useDelayedFlag(true, Math.max(0, STATUS_AFTER_MS - (Date.now() - p.at)), STATUS_MIN_MS, statusWasShown(p.id));
+  useEffect(() => {
+    if (on) statusShown(p.id);
+  }, [on, p.id]);
+  if (!on) return null;
+  return (
+    <div className="reader-state" role="status" aria-busy="true">
+      <span className="busy-ring spin" aria-hidden />
+      <span className="busy-dots" aria-hidden>···</span>
+      <p className="muted">{p.fetching ? t("compose.fwd.fetching") : t(p.kind === "forward" ? "compose.preparing.forward" : "compose.preparing.reply")}</p>
+    </div>
+  );
+}
+
 export function Compose({ init }: { init: ComposeInit }) {
   // the table and picture nodes come in a chunk of their own (editor/kit.ts); the editor is made once they are there (fetched with this chunk, lazyViews.tsx: no wait in practice)
   return useKit() ? <ComposeBody init={init} /> : null;
@@ -172,8 +193,6 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   const { accounts, openCompose, showToast, prefs, refresh, confirm, choose, setComposeDirty, setComposeSaver, setComposeProbe, aiConfigured, setDialog, beginSend } = useStore();
   // the shell of a Reply / Forward whose recipients and quote are still being prepared (W13.13): fields and Send are off, the body says what is going on
   const preparing = init.preparing;
-  // (the 100 ms are counted from the press, not from when this pane was built: the status is on screen by 150 ms)
-  const prepStatus = useDelayedFlag(!!preparing, preparing ? Math.max(0, STATUS_AFTER_MS - (Date.now() - preparing.at)) : STATUS_AFTER_MS, STATUS_MIN_MS, !!preparing && statusWasShown(preparing.id));
   const prepRef = useRef<HTMLDivElement>(null);
   const [accountId, setAccountId] = useState(fromAccountFor(accounts, init.accountId, prefs.defaultAccount));
   const accountRef = useRef(accountId); // (the editor's paste handler is made once: it reads the account of the moment from here)
@@ -1969,10 +1988,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   };
 
   // ---- the shell of an answer that is being prepared (W13.13)
-  // the status was drawn: the fill waits for its minimum time (composeShell.ts). The focus stays in the body (Esc and Tab reach Discard); it moves to the editor when the message fills in
-  useEffect(() => {
-    if (preparing && prepStatus) statusShown(preparing.id);
-  }, [preparing, prepStatus]);
+  // The focus stays in the body (Esc and Tab reach Discard); it moves to the editor when the message fills in
   useLayoutEffect(() => {
     if (preparing) prepRef.current?.focus({ preventScroll: true });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -2239,13 +2255,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
         {preparing ? (
           // the shell of an answer (W13.13): the status takes the place of the editor (same box, so nothing moves when the message fills in); it shows when the work takes more than 100 ms
           <div className="cp-prep" ref={prepRef} tabIndex={-1}>
-            {prepStatus && (
-              <div className="reader-state" role="status" aria-busy="true">
-                <span className="busy-ring spin" aria-hidden />
-                <span className="busy-dots" aria-hidden>···</span>
-                <p className="muted">{preparing.fetching ? t("compose.fwd.fetching") : t(preparing.kind === "forward" ? "compose.preparing.forward" : "compose.preparing.reply")}</p>
-              </div>
-            )}
+            <PreparingStatus p={preparing} />
           </div>
         ) : (
           <EditorContent editor={editor} className="editor" style={zoom === 100 ? undefined : ({ zoom: zoom / 100 } as React.CSSProperties)} />
