@@ -1,13 +1,24 @@
 #!/usr/bin/env bash
 # Checks the asset names of a release before it is published.
-# Usage: check-release-assets.sh <version> [--pre] < names.txt   (one asset name per line)
+# Usage: check-release-assets.sh <version> [--pre] [--store-exe] < names.txt   (one asset name per line)
 #   --pre: the list before latest.json exists (it must not be there yet); without it latest.json is required exactly once.
-# Expected: 7 installers, 6 signatures (none for the .dmg) and latest.json = 14 assets.
+#   --store-exe: the repository variable STORE_EXE is on (WP14 option B): HeyLook_<version>_windows_x64_offline.exe must be there exactly once,
+#   without a signature (the updater never uses it, latest.json does not name it). Without the flag that file is a bare executable and an error.
+# Expected: 7 installers, 6 signatures (none for the .dmg) and latest.json = 14 assets (15 with --store-exe).
 # Exit 0 when the set is complete and every name is clean, 1 otherwise (one line per problem).
 set -uo pipefail
 v="${1:?usage: check-release-assets.sh <version> [--pre] < names}"
 pre=0
-[ "${2:-}" = "--pre" ] && pre=1
+store_exe=0
+shift
+for flag in "$@"; do
+  case "$flag" in
+    --pre) pre=1 ;;
+    --store-exe) store_exe=1 ;;
+    *) echo "unknown option: $flag" >&2; exit 2 ;;
+  esac
+done
+offline="HeyLook_${v}_windows_x64_offline.exe"
 vre="${v//./\\.}"
 name_re="^HeyLook_${vre}_(windows|darwin|linux)_[a-z0-9_]+(-setup\.exe|\.msi|\.dmg|\.AppImage|\.deb|\.rpm|\.app\.tar\.gz)(\.sig)?\$"
 
@@ -22,9 +33,10 @@ fi
 while IFS= read -r n; do
   [ -z "$n" ] && continue
   [ "$n" = "latest.json" ] && continue
-  # the only .exe that may be published is the installer
+  # the only .exe that may be published is the installer (and, with --store-exe, the Store's offline installer, exactly named)
   case "$n" in
     *-setup.exe | *-setup.exe.sig) ;;
+    "$offline") if [ "$store_exe" = 1 ]; then continue; fi; problem "the Store offline installer is not expected (STORE_EXE is off): '$n'"; continue ;;
     *.exe | *.exe.sig) problem "a bare executable is not allowed among the assets: '$n'"; continue ;;
   esac
   if ! [[ "$n" =~ $name_re ]]; then
@@ -59,6 +71,10 @@ for ext in -setup.exe .msi .app.tar.gz .AppImage .deb .rpm; do
   c=$(count "$ext.sig")
   [ "$c" = 1 ] || problem "expected exactly one '*$ext.sig', found $c"
 done
+if [ "$store_exe" = 1 ]; then
+  c=$(count "_offline.exe")
+  [ "$c" = 1 ] && has "$offline" || problem "expected exactly one '$offline', found $c"
+fi
 c=$(count ".dmg.sig")
 [ "$c" = 0 ] || problem "a .dmg has no signature, found $c '*.dmg.sig'"
 

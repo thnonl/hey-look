@@ -10,6 +10,10 @@
 // The site is DORMANT unless APT_SITE=on (pages.yml sets it from one fact only: the branch `apt` exists). Off (the default, also when the variable is
 // missing or has any other value): every download page loses the block, docs/apt/ (the key and the sources file) is not copied, so the site never
 // advertises a repository that does not exist yet. On: nothing is removed and docs/apt/ is copied.
+//
+// The Store's offline installer (WP14 option B): with STORE_EXE=on (pages.yml sets it from the repository variable STORE_EXE === 'true') the built
+// robots.txt also says `Disallow: /downloads/` (the installers that .github/scripts/store-exe-assemble.sh puts there are for Partner Center, not for
+// crawlers). Off (the default, also for any other value) the site is exactly what it was; docs/robots.txt itself never changes.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -21,6 +25,7 @@ const DOCS = path.join(ROOT, 'docs');
 const OUT_DIR = path.resolve(ROOT, process.argv[2] || '_site');
 
 const APT_ON = process.env.APT_SITE === 'on';
+const STORE_EXE_ON = process.env.STORE_EXE === 'on';
 const APT_BEGIN = '<!-- hl:apt-begin -->';
 const APT_END = '<!-- hl:apt-end -->';
 
@@ -126,6 +131,14 @@ function build() {
   copyDir(DOCS, OUT_DIR);
   if (APT_ON) console.log('  APT_SITE=on: the APT block and docs/apt/ stay in the site');
   else console.log(`  APT block left out (APT_SITE is not "on"): removed from ${removeAptBlocks(OUT_DIR)} download pages, docs/apt/ not copied`);
+
+  if (STORE_EXE_ON) {
+    const robots = path.join(OUT_DIR, 'robots.txt');
+    const text = fs.readFileSync(robots, 'utf8');
+    if (!/^Disallow: \/apt\/\r?$/m.test(text)) throw new Error('robots.txt has no "Disallow: /apt/" line to put "Disallow: /downloads/" after');
+    fs.writeFileSync(robots, text.replace(/^(Disallow: \/apt\/)(\r?)$/m, '$1$2\nDisallow: /downloads/$2'));
+    console.log('  STORE_EXE=on: robots.txt disallows /downloads/');
+  }
 
   const esbuildAvailable = hasEsbuild();
   let totalSaved = 0;

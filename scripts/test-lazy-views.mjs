@@ -14,11 +14,32 @@
 //   node scripts/test-lazy-views.mjs [--require-browser]
 import { sleep, startHarness } from './cdp-harness.mjs';
 import { PROBE_INSTALL, PROBE_PRESS, PROBE_READ, fill, verdict } from './lib/lazy-open-probe.mjs';
+import { CALIBRATE } from './lib/reply-open-probe.mjs';
 
 const H = await startHarness('test-lazy-views', { vitePort0: 5020 });
 const { evaluate, cdp } = H;
 const failures = [];
 let checks = 0;
+// ---- timing budgets: relative to how fast this page runs, with a hard cap (the approach of test-reply-feedback.mjs)
+// "A second open is immediate" is 120 / 150 ms on the machine the numbers were first taken on; the dev preview (React with its development checks) on a shared CI runner needs 1.5 to 3 times
+// that for the same mount (the CI dry run 40032326500 measured 154 ms for the Calendar, no loading look, no fetch: the second switch did no more than it must). So a budget is BASE x scale, scale =
+// (the time this page needs for a fixed piece of main-thread work, CALIBRATE) / CPU_REF, never below 1 and at most 8, each time the median of 3, and never above HARD_CAP_MS. The cap is below the
+// 450 ms of network latency these scenarios use: a part that was fetched again (the bug) takes 450 ms or more, and its loading look (after 150 ms) is also checked on its own.
+const CPU_REF = 48; // ms of CALIBRATE's `cpu` on the development machine (Windows, 1x); 4x CPU throttling measures 230-280
+const HARD_CAP_MS = 400;
+let scale = 1;
+const budget = (base, cap = HARD_CAP_MS) => Math.min(Math.round(base * scale), cap);
+const SECOND_CAP_MS = 2500; // a second switch that waits for a timer or a round trip takes seconds on any machine
+const median = (a) => [...a].sort((x, y) => x - y)[a.length >> 1];
+const argv = (n) => process.argv.find((a) => a.startsWith(`--${n}=`))?.slice(n.length + 3);
+/** The scale of this page (and, with --throttle=N, CPU throttling to try the budgets on a slow computer). */
+async function calibrate() {
+  if (argv('throttle')) await cdp('Emulation.setCPUThrottlingRate', { rate: Number(argv('throttle')) });
+  const cpus = [];
+  for (let i = 0; i < 3; i++) cpus.push((await evaluate(CALIBRATE)).cpu);
+  scale = Math.min(Math.max(1, median(cpus) / CPU_REF), 8);
+  if (!calibrate.said) { calibrate.said = true; console.log(`test-lazy-views: the reference work takes ${median(cpus)} ms (reference ${CPU_REF}): scale ${scale.toFixed(2)}, hard cap ${HARD_CAP_MS} ms`); }
+}
 let tag = '';
 const ok = (cond, msg) => { checks++; if (!cond) { failures.push(`[${tag}] ${msg}`); console.error(`FAIL [${tag}] ${msg}`); } };
 const scenario = async (name, fn) => { tag = name; try { await fn(); } catch (e) { failures.push(`[${name}] ${String(e.stack || e.message).split('\n').slice(0, 3).join(' | ')}`); console.error(`FAIL [${name}] ${e.message}`); } };
@@ -39,6 +60,7 @@ async function boot(hash, w = 1280, h = 800) {
   const s = await cdp('Page.addScriptToEvaluateOnNewDocument', { source: 'window.requestIdleCallback = () => 0;' });
   await H.openApp(hash, w, h);
   await cdp('Page.removeScriptToEvaluateOnNewDocument', { identifier: s.identifier });
+  await calibrate();
 }
 
 /**
@@ -73,7 +95,7 @@ try {
     await boot('lang=en');
     await slow(450);
     await startProbe('window.__store.getState().setDialog({ type: "settings" })', '.modal', '.modal .settings');
-    await sleep(60);
+    await waitFor("!!document.querySelector('.modal')", budget(120)); // (the frame is there within a frame or two; a slow computer gets longer to draw it)
     const early = await evaluate(`({ frame: !!document.querySelector('.modal'), title: document.querySelector('.modal-head b')?.textContent, look: !!document.querySelector('.lazy-load[role=status]'), handoff: document.documentElement.hasAttribute('data-lazy-handoff') })`);
     ok(early.frame && early.title === 'Settings', `the dialog frame is there at once with its title (${JSON.stringify(early)})`);
     ok(!early.look, 'no loading look at 60 ms');
@@ -84,7 +106,7 @@ try {
     ok(await evaluate(`!!document.querySelector('.modal-back.top, .modal-back')`) && (await evaluate(`document.querySelectorAll('.modal').length`)) === 1, 'one dialog, not two');
     await fast();
     const r = await probeResult();
-    ok(r.frame !== null && r.frame <= 120, `the frame came at ${r.frame} ms`);
+    ok(r.frame !== null && r.frame <= budget(120), `the frame came at ${r.frame} ms`);
     ok(r.look !== null && r.look >= 140 && r.look <= 400, `the loading look came at ${r.look} ms (after 150 ms)`);
     ok(r.done !== null, 'the dialog is there');
     await sleep(150);
@@ -100,11 +122,16 @@ try {
     await sleep(200);
     ok(await evaluate(`!document.documentElement.hasAttribute('data-lazy-handoff')`), 'the hand-off mark is gone when the dialog is closed');
     await slow(450); // (even on a slow network: the part is loaded already)
-    await startProbe('window.__store.getState().setDialog({ type: "settings" })', '.modal', '.modal .settings');
-    const r2 = await probeResult(3000);
-    ok(r2.look === null, 'the second open shows no loading look');
-    ok(r2.done !== null && r2.done <= 120, `the second open is complete at once (${r2.done} ms)`);
-    await closeDialog();
+    // three second opens: no look in any of them, the median is complete within the budget of this machine
+    const runs = [];
+    for (let i = 0; i < 3; i++) {
+      await startProbe('window.__store.getState().setDialog({ type: "settings" })', '.modal', '.modal .settings');
+      runs.push(await probeResult(3000));
+      await closeDialog();
+      await sleep(200);
+    }
+    ok(runs.every((r) => r.look === null), 'the second open shows no loading look');
+    ok(runs.every((r) => r.done !== null) && median(runs.map((r) => r.done)) <= budget(120), `the second open is complete at once (median of ${JSON.stringify(runs.map((r) => r.done))} ms, budget ${budget(120)})`);
     await fast();
   });
 
@@ -116,16 +143,28 @@ try {
     await sleep(500);
     await fast();
     const r = await probeResult();
-    ok(r.frame !== null && r.frame <= 120, `the pane box came at ${r.frame} ms`);
+    ok(r.frame !== null && r.frame <= budget(120), `the pane box came at ${r.frame} ms`);
     ok(r.look !== null && r.look >= 140 && r.look <= 450, `the loading look came at ${r.look} ms`);
     ok(r.done !== null, 'the Calendar is there');
     // Mail <-> Calendar again: no look
-    await evaluate('window.__store.getState().setModule("mail"); 1');
-    await sleep(200);
-    await slow(450);
-    await startProbe('window.__store.getState().setModule("calendar")', '.cal-view', '.cal-view .cal-head');
-    const r2 = await probeResult(3000);
-    ok(r2.look === null && r2.done !== null && r2.done <= 150, `the second switch is immediate (${JSON.stringify(r2)})`);
+    // three second switches (the chunk is loaded; the network is slow on purpose, so a part that is fetched again takes 450 ms or more and shows its loading look):
+    // no look in any of them, and the median is within the budget of this machine (the mount of the Calendar is main-thread work, a development build on a shared runner needs more)
+    const runs = [];
+    const requests = () => evaluate(`performance.getEntriesByType('resource').filter((e) => /\\.(tsx?|jsx?|css)(\\?|$)/.test(e.name)).length`);
+    const before = await requests();
+    for (let i = 0; i < 3; i++) {
+      await evaluate('window.__store.getState().setModule("mail"); 1');
+      await sleep(200);
+      await slow(450);
+      await startProbe('window.__store.getState().setModule("calendar")', '.cal-view', '.cal-view .cal-head');
+      runs.push(await probeResult(8000));
+    }
+    ok(runs.every((r) => r.look === null && r.done !== null), `the second switch shows no loading look (${JSON.stringify(runs)})`);
+    // what "does no more than it must" means: no part is asked for again (a request would also have taken 450 ms on this network)
+    ok((await requests()) === before, `the second switches fetched no module (${before} -> ${await requests()})`);
+    // and the mount itself is quick for this machine; the cap is only there to catch a wait for a timer or a network round trip (they take seconds on any machine)
+    ok(median(runs.map((r) => r.done)) <= budget(150, SECOND_CAP_MS), `the second switch is immediate (median of ${JSON.stringify(runs.map((r) => Math.round(r.done)))} ms, budget ${budget(150, SECOND_CAP_MS)}, scale ${scale.toFixed(2)})`);
+    console.log(`test-lazy-views: calendar second switch ${JSON.stringify(runs.map((r) => Math.round(r.done)))} ms, scale ${scale.toFixed(2)}`);
     await fast();
     // the event dialog (the module is loaded: the dialog is complete at once) and the side menu is the Calendar's
     ok(await waitFor(`!!document.querySelector('.mini-head')`, 5000), 'the side menu of the Calendar is drawn');
@@ -140,12 +179,12 @@ try {
     await boot('lang=en');
     await slow(450);
     await startProbe('window.__store.getState().setDialog({ type: "pgp-generate" })', '.modal', '.modal-body input, .modal-body select');
-    await sleep(60);
+    await waitFor("!!document.querySelector('.modal')", budget(120));
     ok(await evaluate(`!!document.querySelector('.modal')`) && !(await evaluate(`!!document.querySelector('.lazy-load[role=status]')`)), 'Generate key: the frame at once, no look yet');
     await sleep(400);
     await fast();
     const r = await probeResult();
-    ok(r.frame !== null && r.frame <= 120 && r.look !== null && r.look >= 140, `Generate key: frame ${r.frame} ms, look ${r.look} ms`);
+    ok(r.frame !== null && r.frame <= budget(120) && r.look !== null && r.look >= 140, `Generate key: frame ${r.frame} ms, look ${r.look} ms`);
     ok(r.done !== null, 'Generate key: the dialog is there');
     await closeDialog();
     await evaluate('window.__store.getState().setDialog({ type: "pgp-import", paste: true }); 1');
@@ -250,7 +289,7 @@ try {
       ok(await waitFor('window.__lazyOpen.part !== null && window.__lazyOpen.focus !== null', 30000), 'the part appeared');
       await sleep(300);
       const r = await evaluate(`(() => { ${PROBE_READ} })()`);
-      const bad = verdict(r, { partMax: 5000 }); // (the dev preview is not a release build: the 300 ms are for the kits)
+      const bad = verdict(r, { partMax: 5000, frameMax: budget(100) }); // (the dev preview is not a release build: the 300 ms are for the kits)
       ok(bad.length === 0, `probe verdict: ${bad.join('; ')} ${JSON.stringify(r)}`);
       ok(r.chunks.length > 0, 'the chunks fetched by the first open are listed');
     });

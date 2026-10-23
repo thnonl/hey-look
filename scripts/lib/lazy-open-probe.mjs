@@ -82,10 +82,10 @@ return { kind: rec.kind, frameMs: rec.frame, lookMs: rec.look, partMs: rec.part,
 export const fill = (body, kind) => body.replaceAll('__KIND__', JSON.stringify(kind));
 
 /** The pass rule of one run: the numbers of AC-9.2.2 / 9.2.4 / 9.2.5 (the frame at once, the look only after 150 ms, the part within 300 ms of a warm disk). */
-export function verdict(r, { partMax = 300 } = {}) {
+export function verdict(r, { partMax = 300, frameMax = 100 } = {}) {
   const bad = [];
   if (r.frameMs === null) bad.push('no frame');
-  else if (r.frameMs > 100) bad.push(`frame at ${r.frameMs} ms (> 100)`);
+  else if (r.frameMs > frameMax) bad.push(`frame at ${r.frameMs} ms (> ${frameMax})`);
   if (r.lookMs !== null && r.lookMs < 140) bad.push(`loading look at ${r.lookMs} ms (< 140)`);
   if (r.partMs === null) bad.push('the part never appeared');
   else if (r.partMs > partMax) bad.push(`part at ${r.partMs} ms (> ${partMax})`);
