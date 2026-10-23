@@ -7,7 +7,7 @@ use crate::ical::{self, Attendee, IcsEvent, Person};
 use crate::{lock, now, Db};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::Emitter;
 use tauri_plugin_dialog::DialogExt;
@@ -160,6 +160,9 @@ pub struct CalendarInfo {
     pub writable: bool,
     /// "Google Calendar" / "Outlook": the service that holds a synced calendar
     pub service: Option<String>,
+    /// A mailbox's "Invitations" calendar whose events are shown as part of its main synced calendar (W7.11): that calendar's id. The page
+    /// leaves such an entry out of its lists and draws the events in the target's colour; `None` for every other calendar.
+    pub folded_into: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug, Default)]
@@ -421,16 +424,22 @@ const LIST_MAX_INSTANCES: usize = 20_000;
 struct SyncedTwins {
     uids: HashSet<(String, String)>,
     occurrences: HashSet<(String, String, i64)>,
+    /// Outlook only: single events by title and start. Outlook gives a meeting from another service an ID of its own, so the UID of the
+    /// invitation may not match (original_uid decodes the usual case); a single invitation with the same title at the same minute is the same meeting.
+    singles: HashSet<(String, String, i64)>,
 }
 
 impl SyncedTwins {
     fn of(rows: &[CalEvent], hidden: &HashSet<String>) -> SyncedTwins {
-        let mut t = SyncedTwins { uids: HashSet::new(), occurrences: HashSet::new() };
+        let mut t = SyncedTwins { uids: HashSet::new(), occurrences: HashSet::new(), singles: HashSet::new() };
         // (a synced calendar the user hid does not count: the event would vanish from the views altogether)
         for e in rows.iter().filter(|e| e.remote_id.is_some() && !hidden.contains(&e.calendar_id) && e.status != "cancelled") {
             let Some(acc) = e.account_id.clone() else { continue };
             if matches!(e.remote_kind.as_deref(), Some("occurrence" | "exception")) {
                 t.occurrences.insert((acc.clone(), e.summary.clone(), e.start));
+            }
+            if e.calendar_id.starts_with("ms:") && e.rrule.is_none() && e.rdates.is_empty() && matches!(e.remote_kind.as_deref(), Some("single")) {
+                t.singles.insert((acc.clone(), e.summary.clone(), e.start));
             }
             t.uids.insert((acc, e.uid.clone()));
         }
@@ -438,7 +447,12 @@ impl SyncedTwins {
     }
 
     fn hides(&self, e: &CalEvent) -> bool {
-        e.calendar_id.starts_with("invites:") && e.account_id.clone().is_some_and(|a| self.uids.contains(&(a, e.uid.clone())))
+        if !e.calendar_id.starts_with("invites:") {
+            return false;
+        }
+        let Some(a) = e.account_id.clone() else { return false };
+        self.uids.contains(&(a.clone(), e.uid.clone()))
+            || (e.rrule.is_none() && e.rdates.is_empty() && e.recurrence_id.is_empty() && self.singles.contains(&(a, e.summary.clone(), e.start)))
     }
 
     fn hides_instance(&self, e: &CalEvent) -> bool {
@@ -446,10 +460,25 @@ impl SyncedTwins {
     }
 }
 
+/// The invitations calendars that are folded into their mailbox's main synced calendar (W7.11): `invites:<account>` -> the id of the primary
+/// calendar of the mailbox's calendar source, when the mailbox has a source (any status) and that calendar has Sync on. Otherwise the entry stays.
+pub(crate) fn fold_targets(c: &Connection) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    for a in db::list_accounts(c).unwrap_or_default() {
+        let Some(src) = crate::calsync::store::source_of_account(c, &a.id) else { continue };
+        let primary = crate::calsync::store::calendars_of(c, &src.id).unwrap_or_default().into_iter().find(|x| x.primary && x.sync_on);
+        if let Some(p) = primary {
+            out.insert(format!("invites:{}", a.id), p.id);
+        }
+    }
+    out
+}
+
 /// Events touching `[from, to)` with repeating events expanded, from visible calendars, ordered by start.
 /// All-day events are matched with one day of slack on both sides (they are dates, not instants).
 pub fn list_range(c: &Connection, from: i64, to: i64) -> R<Vec<CalEvent>> {
     let hidden = hidden_calendars(c);
+    let folds = fold_targets(c);
     let mine = account_emails(c);
     let mut st = c
         .prepare(&format!(
@@ -464,7 +493,9 @@ pub fn list_range(c: &Connection, from: i64, to: i64) -> R<Vec<CalEvent>> {
     let touches = |e: &CalEvent| e.all_day || (e.start < to && e.end.max(e.start + 1) > from);
     let synced = SyncedTwins::of(&rows, &hidden);
     for mut e in rows {
-        if hidden.contains(&e.calendar_id) || synced.hides(&e) {
+        // a folded invitation is shown or hidden with the calendar it is folded into; the entry's own flag is left as the person had it
+        let shown_as = folds.get(&e.calendar_id).unwrap_or(&e.calendar_id);
+        if hidden.contains(shown_as) || synced.hides(&e) {
             continue;
         }
         mark_you(&mut e, &mine);
@@ -1318,11 +1349,13 @@ pub fn calendar_list_calendars(state: tauri::State<crate::AppState>) -> R<Vec<Ca
 /// My events, each mailbox's invitations, then the synced calendars of the mailboxes that sync.
 pub fn list_calendars(c: &Connection) -> R<Vec<CalendarInfo>> {
     let hidden = hidden_calendars(c);
-    let mut out = vec![CalendarInfo { id: LOCAL.into(), name: "My events".into(), color: "#8764b8".into(), account_id: None, visible: !hidden.contains(LOCAL), remote: false, writable: true, service: None }];
+    let mut out = vec![CalendarInfo { id: LOCAL.into(), name: "My events".into(), color: "#8764b8".into(), account_id: None, visible: !hidden.contains(LOCAL), remote: false, writable: true, service: None, folded_into: None }];
     let accounts = db::list_accounts(c)?;
+    let folds = fold_targets(c);
     for a in &accounts {
         let id = format!("invites:{}", a.id);
-        out.push(CalendarInfo { visible: !hidden.contains(&id), id, name: format!("Invitations · {}", a.email), color: a.color.clone().unwrap_or_default(), account_id: Some(a.id.clone()), remote: false, writable: false, service: None });
+        let folded_into = folds.get(&id).cloned();
+        out.push(CalendarInfo { visible: !hidden.contains(folded_into.as_ref().unwrap_or(&id)), id, name: format!("Invitations · {}", a.email), color: a.color.clone().unwrap_or_default(), account_id: Some(a.id.clone()), remote: false, writable: false, service: None, folded_into });
     }
     // the calendars of the mailboxes that sync, in account order, with the provider's colours
     for a in &accounts {
@@ -1338,6 +1371,7 @@ pub fn list_calendars(c: &Connection) -> R<Vec<CalendarInfo>> {
                 remote: true,
                 writable: !cal.read_only,
                 service: Some(src.kind.service().to_string()),
+                folded_into: None,
             });
         }
     }
@@ -2522,6 +2556,86 @@ END:VCALENDAR
             db::set_setting(&c, "cal_hidden", &format!("[\"{}\"]", cal.id)).unwrap();
             let got = shown(&c);
             assert!(got.iter().any(|(id, _)| id == "inv1") && !got.iter().any(|(id, _)| *id == remote.id));
+        }
+
+        /// A mailbox with a synced main calendar (`primary`) and another one (`work`); the main one is marked primary like Google's and Outlook's.
+        fn folded_setup(c: &Connection) -> (store::Source, store::CalRow, store::CalRow) {
+            let s = store::create_source(c, ACC, crate::calsync::Kind::Google, 1000).unwrap();
+            store::reconcile_calendars(c, &s, &[RemoteCalendar { primary: true, ..rc("primary", "Me") }, rc("work", "Work")]).unwrap();
+            let get = |id: &str| store::get_calendar(c, &crate::calsync::calendar_id(ACC, crate::calsync::Kind::Google, id)).unwrap();
+            (s, get("primary"), get("work"))
+        }
+
+        fn invite(c: &Connection, id: &str, uid: &str, summary: &str, start: i64) {
+            let mut e = invite_copy(&store::upsert_remote(c, &store::get_calendar(c, &crate::calsync::calendar_id(ACC, crate::calsync::Kind::Google, "primary")).unwrap(), ACC, &RemoteEvent::single("seed", summary, start, start + 3600)).unwrap(), id, ACC);
+            e.uid = uid.into();
+            e.summary = summary.into();
+            save_row(c, &e).unwrap();
+            c.execute("DELETE FROM events WHERE remote_id='seed'", []).unwrap();
+        }
+
+        #[test]
+        fn invitations_fold_into_the_primary_calendar() {
+            let c = conn();
+            let (s, primary, work) = folded_setup(&c);
+            let inv_cal = format!("invites:{ACC}");
+            invite(&c, "inv1", "only-by-mail@x", "Mail only", T);
+            let entry = |c: &Connection| list_calendars(c).unwrap().into_iter().find(|x| x.id == inv_cal).unwrap();
+            // synced and the primary calendar has Sync on: folded into it, the entry follows its visibility
+            assert_eq!(entry(&c).folded_into.as_deref(), Some(primary.id.as_str()));
+            assert!(entry(&c).visible);
+            assert!(shown(&c).iter().any(|(id, cal)| id == "inv1" && *cal == inv_cal), "an invitation without a twin is shown");
+            db::set_setting(&c, "cal_hidden", &format!("[\"{}\"]", primary.id)).unwrap();
+            assert!(!entry(&c).visible && entry(&c).folded_into.is_some(), "hidden with the primary calendar");
+            assert!(!shown(&c).iter().any(|(id, _)| id == "inv1"), "its events go with the primary calendar's checkbox");
+            db::set_setting(&c, "cal_hidden", "[]").unwrap();
+            assert!(shown(&c).iter().any(|(id, _)| id == "inv1"));
+            // the entry's own flag is left alone while folded and used again when it comes back
+            db::set_setting(&c, "cal_hidden", &format!("[\"{inv_cal}\"]")).unwrap();
+            assert!(shown(&c).iter().any(|(id, _)| id == "inv1"), "folded: the hidden flag of the entry does not count");
+            store::set_calendar_sync(&c, &primary.id, false).unwrap();
+            assert_eq!(entry(&c).folded_into, None, "the primary calendar's Sync is off: the entry is back");
+            assert!(!entry(&c).visible && !shown(&c).iter().any(|(id, _)| id == "inv1"), "with the visibility it had before");
+            store::set_calendar_sync(&c, &primary.id, true).unwrap();
+            assert!(entry(&c).folded_into.is_some());
+            // another calendar of the mailbox does not take the invitations
+            assert_ne!(entry(&c).folded_into.as_deref(), Some(work.id.as_str()));
+            db::set_setting(&c, "cal_hidden", "[]").unwrap();
+            // sync turned off: the source is gone and the entry is back with everything in it
+            store::disconnect(&c, &s.id).unwrap();
+            assert_eq!(entry(&c).folded_into, None);
+            assert!(entry(&c).visible && shown(&c).iter().any(|(id, _)| id == "inv1"));
+            // a mailbox without a source never had one
+            let list = list_calendars(&c).unwrap();
+            assert!(list.iter().filter(|x| x.id.starts_with("invites:")).all(|x| x.folded_into.is_none()));
+        }
+
+        #[test]
+        fn a_microsoft_invitation_matches_its_twin_by_title_and_start() {
+            let c = conn();
+            let s = store::create_source(&c, ACC, crate::calsync::Kind::Microsoft, 1000).unwrap();
+            store::reconcile_calendars(&c, &s, &[RemoteCalendar { primary: true, ..rc("AAMk", "Calendar") }]).unwrap();
+            let cal = store::get_calendar(&c, &crate::calsync::calendar_id(ACC, crate::calsync::Kind::Microsoft, "AAMk")).unwrap();
+            // Outlook's ID for a meeting from another service does not decode to the invitation's UID
+            let mut re = RemoteEvent::single("m1", "Budget review", T, T + 3600);
+            re.uid = "0400000082".into();
+            let remote = store::upsert_remote(&c, &cal, ACC, &re).unwrap();
+            save_row(&c, &{ let mut i = invite_copy(&remote, "same", ACC); i.uid = "from-mail@x".into(); i }).unwrap();
+            save_row(&c, &{ let mut i = invite_copy(&remote, "later", ACC); i.uid = "other@x".into(); i.start = T + 1800; i.end = T + 5400; i }).unwrap();
+            save_row(&c, &{ let mut i = invite_copy(&remote, "renamed", ACC); i.uid = "third@x".into(); i.summary = "Budget".into(); i }).unwrap();
+            save_row(&c, &{ let mut i = invite_copy(&remote, "series", ACC); i.uid = "fourth@x".into(); i.rrule = Some("FREQ=WEEKLY".into()); i }).unwrap();
+            let ids: Vec<String> = shown(&c).into_iter().map(|(id, _)| id).collect();
+            assert!(!ids.contains(&"same".to_string()), "same title, same start: the synced copy wins");
+            assert!(ids.contains(&"later".to_string()) && ids.contains(&"renamed".to_string()), "another start or title stays: {ids:?}");
+            assert!(ids.contains(&"series".to_string()), "a repeating invitation is not matched by title and start");
+            // a cancelled synced event is not a twin; a Google twin is matched by UID only (the fallback is Outlook's)
+            c.execute("UPDATE events SET status='cancelled' WHERE remote_id='m1'", []).unwrap();
+            assert!(shown(&c).iter().any(|(id, _)| id == "same"));
+            let c2 = conn();
+            let (_, gcal) = setup(&c2);
+            let g = store::upsert_remote(&c2, &gcal, ACC, &RemoteEvent::single("g1", "Budget review", T, T + 3600)).unwrap();
+            save_row(&c2, &{ let mut i = invite_copy(&g, "g-same", ACC); i.uid = "from-mail@x".into(); i }).unwrap();
+            assert!(shown(&c2).iter().any(|(id, _)| id == "g-same"), "Google: a different UID is a different meeting");
         }
 
         #[test]

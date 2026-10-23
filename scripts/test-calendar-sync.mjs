@@ -6,8 +6,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  calendarErrorCode, calendarErrorText, calendarName, calendarOffer, calendarStepFailure, calendarSyncKind, defaultCalendar, deleteConfirm, isSyncedCalendarId, lastSyncedText,
-  pausedSources, readOnlyNote, statusLine, syncedColor, truncatedNote, writableCalendars, CALENDAR_SYNC_KINDS,
+  calendarErrorCode, calendarErrorText, calendarName, calendarOffer, calendarStepFailure, calendarSyncKind, defaultCalendar, deleteConfirm, foldTarget, isSyncedCalendarId, lastSyncedText,
+  pausedSources, readOnlyNote, sidebarCalendars, statusLine, syncedColor, truncatedNote, writableCalendars, CALENDAR_SYNC_KINDS,
 } from "../src/calendarSync.ts";
 
 // ---- who gets the switch (AC-1)
@@ -182,5 +182,16 @@ const stale = [];
 const scan = (d) => { for (const f of fs.readdirSync(d, { withFileTypes: true })) { const q = path.join(d, f.name); if (f.isDirectory()) { if (f.name !== "target") scan(q); } else if (/\.(tsx?|rs|mjs)$/.test(f.name) && fs.readFileSync(q, "utf8").includes("Turn the switch")) stale.push(path.relative(root, q).split(path.sep).join("/")); } };
 scan(path.join(root, "src")); scan(path.join(root, "src-tauri", "src"));
 assert.deepEqual(stale.filter((f) => f !== "scripts/test-calendar-sync.mjs"), [], "no text tells the person to turn the switch on");
+
+// ---- the Invitations entry of a synced mailbox is part of its main calendar (W7.11, REQ-7.11.2): not listed, drawn like the calendar it is folded into
+const L = (id, extra = {}) => ({ id, name: id, color: "", accountId: null, visible: true, ...extra });
+const list = [L("local"), L("invites:a1", { accountId: "a1" }), L("invites:a2", { accountId: "a2", foldedInto: "google:a2:primary" }), L("invites:a4", { accountId: "a4", foldedInto: "ms:a4:primary" }), L("google:a2:primary", { remote: true }), L("ms:a4:primary", { remote: true })];
+assert.deepEqual(sidebarCalendars(list).map((c) => c.id), ["local", "invites:a1", "google:a2:primary", "ms:a4:primary"], "the folded entries are left out, the IMAP mailbox keeps its own");
+assert.deepEqual(sidebarCalendars([L("local")]).map((c) => c.id), ["local"]);
+assert.equal(foldTarget(list, "invites:a2")?.id, "google:a2:primary", "a folded entry follows its calendar");
+assert.equal(foldTarget(list, "invites:a1")?.id, "invites:a1", "an unfolded one is itself");
+assert.equal(foldTarget(list, "google:a2:primary")?.id, "google:a2:primary");
+assert.equal(foldTarget(list, "nothing"), undefined);
+assert.equal(foldTarget([L("invites:a9", { foldedInto: "gone" })], "invites:a9")?.id, "invites:a9", "a target that is not listed leaves the entry as it is");
 
 console.log("calendar sync: all checks passed");

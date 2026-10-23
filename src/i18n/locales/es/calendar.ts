@@ -86,6 +86,7 @@ export default defineLocale<typeof ns.en>({
   "calendar.pop.copyOf": "{summary} (copia)",
   "calendar.pop.join": "Unirse",
   "calendar.pop.openEmail": "Abrir el correo de la invitación",
+  "calendar.pop.inviteLocalOnly": "Esta invitación llegó por correo y no está en {service}. Tu respuesta se envía al organizador por correo electrónico.",
   "calendar.pop.duplicate": "Duplicar",
   // ---- toasts
   "calendar.toast.saved": "Se guardó {name}",

@@ -112,6 +112,17 @@ export function readOnlyNote(e: Pick<CalEvent, "readOnly">, label: string, servi
   }
 }
 
+/** The calendars the sidebar lists: the Invitations entry of a mailbox whose main calendar is synced is part of that calendar and not listed (W7.11). */
+export function sidebarCalendars<T extends Pick<CalendarInfo, "foldedInto">>(cals: T[]): T[] {
+  return cals.filter((c) => !c.foldedInto);
+}
+
+/** The calendar whose colour and checkbox the events of calendar `id` follow: the one it is folded into, else itself. */
+export function foldTarget<T extends Pick<CalendarInfo, "id" | "foldedInto">>(cals: T[], id: string): T | undefined {
+  const own = cals.find((c) => c.id === id);
+  return (own?.foldedInto ? cals.find((c) => c.id === own.foldedInto) : undefined) ?? own;
+}
+
 /** The calendars a new event can go to: My events, then the synced calendars the person may write to. */
 export function writableCalendars(cals: CalendarInfo[]): CalendarInfo[] {
   return cals.filter((c) => c.id === "local" || (c.remote && c.writable));

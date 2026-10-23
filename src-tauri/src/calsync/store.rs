@@ -439,6 +439,8 @@ pub fn upsert_remote(c: &Connection, cal: &CalRow, account_id: &str, re: &Remote
     let id = old.as_ref().map(|o| o.id.clone()).unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let e = event_from_remote(cal, account_id, re, id, old.as_ref());
     calendar::save_row(c, &e)?;
+    // (the row is replaced as a whole, so the column is written every time, also to clear it)
+    c.execute("UPDATE events SET ext_uid=?2 WHERE id=?1", params![e.id, re.ext_uid]).map_err(err)?;
     Ok(e)
 }
 

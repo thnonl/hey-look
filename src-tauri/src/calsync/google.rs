@@ -354,6 +354,7 @@ fn parse_event(cal: &RemoteCalendar, v: &Value) -> Option<RemoteEvent> {
         id,
         etag,
         uid,
+        ext_uid: None,
         kind,
         series_id: series,
         recurrence_id: if kind == EventKind::Exception { Some(orig.unwrap_or(start.instant)) } else { None },

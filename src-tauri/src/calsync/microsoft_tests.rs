@@ -544,3 +544,50 @@ fn occurrences_and_exceptions_are_single_read_only_rows_a_series_master_is_not_s
     engine::sync_source(&db, &MFactory::new(&srv), &sid, clock(T0 + 300), &|| {}).unwrap();
     assert_eq!(rows(&db).len(), 2);
 }
+
+/// W7.11: Graph's `iCalUId` of a meeting is the hex Global Object ID. One that an outside service made carries the UID of the invitation
+/// (marker `vCal-Uid` at byte 40); that UID becomes the event's `uid`, the raw value is kept in `ext_uid`.
+#[test]
+fn exchange_goid_with_vcal_uid_is_decoded() {
+    // made by Google: class ID, date, creation time, reserved, size 0x3C, "vCal-Uid" 01 00 00 00, the UID, NUL
+    const FROM_GOOGLE: &str = "040000008200E00074C5B7101A82E00800000000000000000000000000000000000000003C0000007643616C2D5569640100000037663361316332652D306235642D346335382D396134302D31653264336334623561363940676F6F676C652E636F6D00";
+    // made by Outlook itself: the data is random, not a UID
+    const NATIVE: &str = "040000008200E00074C5B7101A82E00800000000A0B1C2D3E4F5061728394A5B6C7D8E9F000000001000000001020304050607080910111213141516";
+    assert_eq!(original_uid(FROM_GOOGLE).as_deref(), Some("7f3a1c2e-0b5d-4c58-9a40-1e2d3c4b5a69@google.com"));
+    assert_eq!(original_uid(&FROM_GOOGLE.to_ascii_lowercase()).as_deref(), Some("7f3a1c2e-0b5d-4c58-9a40-1e2d3c4b5a69@google.com"), "hex in lower case");
+    assert_eq!(original_uid(NATIVE), None, "an Outlook-native ID is kept as it is");
+    // too short, odd length, not hex, a damaged class ID, the marker elsewhere, an empty UID, a plain UID
+    assert_eq!(original_uid(&FROM_GOOGLE[..60]), None);
+    assert_eq!(original_uid(&FROM_GOOGLE[..FROM_GOOGLE.len() - 1]), None);
+    assert_eq!(original_uid(&FROM_GOOGLE.replacen("74C5", "ZZZZ", 1)), None);
+    assert_eq!(original_uid(&FROM_GOOGLE.replacen("040000008200E000", "040000008200E001", 1)), None);
+    assert_eq!(original_uid(&FROM_GOOGLE.replacen("7643616C2D556964", "7643616C2D556965", 1)), None);
+    let empty = format!("{}{}", &FROM_GOOGLE[..104], "0100000000");
+    assert_eq!(original_uid(&empty), None);
+    assert_eq!(original_uid("7f3a1c2e-0b5d@google.com"), None);
+    assert_eq!(original_uid(""), None);
+    // the mapping: uid decoded, raw kept; a native ID and a plain UID stay and keep no extra
+    let mut v = ev_json("g1", "From Google", D, D_END);
+    v["iCalUId"] = json!(FROM_GOOGLE);
+    let e = parse_event(&v).unwrap();
+    assert_eq!((e.uid.as_str(), e.ext_uid.as_deref()), ("7f3a1c2e-0b5d-4c58-9a40-1e2d3c4b5a69@google.com", Some(FROM_GOOGLE)));
+    v["iCalUId"] = json!(NATIVE);
+    let e = parse_event(&v).unwrap();
+    assert_eq!((e.uid.as_str(), e.ext_uid.as_deref()), (NATIVE, None));
+    let e = parse_event(&ev_json("g2", "Plain", D, D_END)).unwrap();
+    assert_eq!((e.uid.as_str(), e.ext_uid), ("uid-g2", None));
+    // stored: the row has the decoded uid and the raw one in ext_uid; a later pull without it clears the column
+    let c = conn();
+    let s = store::create_source(&c, ACC, Kind::Microsoft, 0).unwrap();
+    store::reconcile_calendars(&c, &s, &[RemoteCalendar { id: PRIMARY.into(), name: "Calendar".into(), selected: true, primary: true, ..Default::default() }]).unwrap();
+    let cal = store::get_calendar(&c, &cal_id()).unwrap();
+    let mut v = ev_json("g1", "From Google", D, D_END);
+    v["iCalUId"] = json!(FROM_GOOGLE);
+    let re = parse_event(&v).unwrap();
+    let row = store::upsert_remote(&c, &cal, ACC, &re).unwrap();
+    assert_eq!(row.uid, "7f3a1c2e-0b5d-4c58-9a40-1e2d3c4b5a69@google.com");
+    let raw = |c: &rusqlite::Connection| c.query_row("SELECT ext_uid FROM events WHERE id=?1", [&row.id], |r| r.get::<_, Option<String>>(0)).unwrap();
+    assert_eq!(raw(&c).as_deref(), Some(FROM_GOOGLE));
+    store::upsert_remote(&c, &cal, ACC, &parse_event(&ev_json("g1", "From Google", D, D_END)).unwrap()).unwrap();
+    assert_eq!(raw(&c), None);
+}

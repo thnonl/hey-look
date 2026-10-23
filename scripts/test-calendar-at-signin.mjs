@@ -243,7 +243,9 @@ try {
   }
 
   // ------------------------------------------------------------------ AC-7.9.5: every refusal shows the Settings notice, Retry and Continue
-  for (const [kind, code] of [['google', 'DENIED'], ['google', 'TIMEOUT'], ['google', 'WRONG_ACCOUNT'], ['google', 'PARTIAL'], ['google', 'BLOCKED'], ['google', 'ERROR'], ['microsoft', 'DENIED'], ['microsoft', 'BLOCKED'], ['microsoft', 'TIMEOUT']]) {
+  // (--quick, the CI run: one of each kind of sentence: refused, a mailbox that is not the one, blocked by the organization; the full run has every end for both services)
+  const REFUSALS = flag('quick') ? [['google', 'DENIED'], ['google', 'WRONG_ACCOUNT'], ['microsoft', 'BLOCKED']] : [['google', 'DENIED'], ['google', 'TIMEOUT'], ['google', 'WRONG_ACCOUNT'], ['google', 'PARTIAL'], ['google', 'BLOCKED'], ['google', 'ERROR'], ['microsoft', 'DENIED'], ['microsoft', 'BLOCKED'], ['microsoft', 'TIMEOUT']];
+  for (const [kind, code] of REFUSALS) {
     const tag = `${kind} ${code}`;
     // the sentence Settings > Calendar shows for this end (a page of its own: leaving the Add account tab ends its step)
     const want = await settingsNote(kind === 'google' ? 'a2' : 'a4', code);
@@ -397,7 +399,7 @@ try {
 
   // ------------------------------------------------------------------ AC-7.9.9: the texts in every language, light and dark, two sizes
   const inside = (b, p, tol = 1) => b.l >= p.l - tol && b.r <= p.r + tol && b.t >= p.t - tol && b.b <= p.b + tol;
-  for (const [w, h] of [[960, 560], [1280, 800]]) {
+  for (const [w, h] of flag('quick') ? [[960, 560]] : [[960, 560], [1280, 800]]) {
     // idle card + sidebar offer (a 40 character address must wrap inside the notice)
     const LONG = 'averyveryverylongaddressname@subdomain.example.com';
     await openApp('lang=en&light', w, h);
@@ -447,7 +449,7 @@ try {
     }
   }
   // the sidebar notice
-  for (const [w, h] of [[960, 560], [1280, 800]]) {
+  for (const [w, h] of flag('quick') ? [[960, 560]] : [[960, 560], [1280, 800]]) {
     await calendarOpen('lang=en&light', w, h, `window.__store.setState({ accounts: window.__store.getState().accounts.map((a) => a.id === 'a2' ? { ...a, email: 'averyveryverylongaddressname@subdomain.example.com' } : a) }); 1`);
     await waitFor(`document.querySelector('${OFFER}')`, 'the offer');
     for (const theme of THEMES) for (const lang of LANGS) {

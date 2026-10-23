@@ -239,6 +239,8 @@ const ev = (id: string, summary: string, start: number, end: number, over: Recor
 });
 const you = { email: "nam@example.com", name: "Nam Hoang", role: "required", status: "needs-action", isYou: true };
 const people = (list: [string, string][]) => list.map(([name, status]) => ({ email: `${name.split(" ")[0].toLowerCase()}@contoso.com`, name, role: "required", status, isYou: false }));
+// `#caltwins` adds invitations whose synced copies the service may have put in the synced calendar (W7.11, see calendar.rs SyncedTwins)
+const calTwins = /(^|&)caltwins(&|$)/.test(window.location.hash.slice(1));
 let calEvents: MockEvent[] = [
   ev("e1", "Standup", at(0, 9, 30), at(0, 10), { calendarId: "invites:a1", accountId: "a1", myStatus: "accepted", rrule: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR", recurrenceText: "Every Monday, Tuesday, Wednesday, Thursday and Friday", location: "https://teams.microsoft.com/l/meetup-join/xyz", joinUrl: "https://teams.microsoft.com/l/meetup-join/xyz" }),
   ev("e2", "Design review", at(1, 10, 30), at(1, 11, 30), { calendarId: "invites:a1", accountId: "a1", myStatus: "tentative", location: "Room 2", organizer: { email: "mai@contoso.com", name: "Mai Khanh" }, attendees: people([["Mai Khanh", "accepted"], ["Bao Tran", "accepted"]]).concat([you as never]), sourceMessageId: "m-inv-req" }),
@@ -256,9 +258,33 @@ let calEvents: MockEvent[] = [
   ev("e14", "Dentist", at(7, 8), at(7, 9)),
   ev("e15", "Flight SGN → HAN", at(8, 7, 15), at(8, 9, 30), { location: "Tan Son Nhat", description: "Gate to be announced." }),
   ev("e16", "Kick-off", at(-12, 9), at(-12, 10), { calendarId: "invites:a1", accountId: "a1", myStatus: "accepted" }),
+  // #caltwins (W7.11): invitations that the service may or may not have put in the synced calendar by itself (their synced copies come with the sync state, see syncedEvents)
+  ...(calTwins
+    ? [
+        ev("tw1", "Planning twin", at(5, 9), at(5, 10), { uid: "twin-a2@mock", calendarId: "invites:a2", accountId: "a2", myStatus: "needs-action", sourceMessageId: "m-inv-req", organizer: { email: "mai@contoso.com", name: "Mai Khanh" } }),
+        ev("tw2", "Budget twin", at(5, 11), at(5, 12), { uid: "twin-a4@mock", calendarId: "invites:a4", accountId: "a4", myStatus: "needs-action", sourceMessageId: "m-inv-req", organizer: { email: "mai@contoso.com", name: "Mai Khanh" } }),
+        ev("tw3", "Offsite title twin", at(6, 9), at(6, 10), { uid: "title-twin@mock", calendarId: "invites:a4", accountId: "a4", myStatus: "needs-action", sourceMessageId: "m-inv-req", organizer: { email: "mai@contoso.com", name: "Mai Khanh" } }),
+        ev("tw4", "Only by mail (Outlook)", at(6, 11), at(6, 12), { uid: "mail-only-a4@mock", calendarId: "invites:a4", accountId: "a4", myStatus: "needs-action", sourceMessageId: "m-inv-req", organizer: { email: "mai@contoso.com", name: "Mai Khanh" } }),
+        ev("tw5", "Only by mail (Google)", at(7, 9), at(7, 10), { uid: "mail-only-a2@mock", calendarId: "invites:a2", accountId: "a2", myStatus: "needs-action", sourceMessageId: "m-inv-req", organizer: { email: "mai@contoso.com", name: "Mai Khanh" } }),
+      ]
+    : []),
   ev("e17", "Yesterday's 1:1", at(-1, 14), at(-1, 14, 30), {}),
 ];
 const hiddenCals = new Set<string>();
+// W7.11: a mailbox whose calendar source has a primary calendar with Sync on shows its invitations as part of that calendar (the backend's `fold_targets`)
+const foldedInto = (calendarId: string): string | null => {
+  const m = /^invites:(.+)$/.exec(calendarId);
+  const prim = m ? calSrcs[m[1]]?.calendars.find((c) => c.primary && c.syncOn) : undefined;
+  return prim ? String(prim.id) : null;
+};
+// ... and its twin rule: an invitation that is also in a visible synced calendar of the same mailbox shows once, the synced copy wins (same UID; Outlook: or the same title at the same time)
+const hiddenByTwin = (e: MockEvent): boolean =>
+  String(e.calendarId).startsWith("invites:") &&
+  calEvents.some((f) => {
+    const cal = String(f.calendarId);
+    if (!f.remoteMock || f.accountId !== e.accountId || hiddenCals.has(cal) || f.status === "cancelled") return false;
+    return f.uid === e.uid || (cal.startsWith("ms:") && !e.rrule && f.summary === e.summary && f.start === e.start);
+  });
 /** Moves waiting out their Undo time (token -> thread ids): like the backend, the lists and the unread numbers leave these conversations out until Undo (or a refusal) gives them back. */
 const mockQueued = new Map<string, string[]>();
 const queuedIds = () => new Set([...mockQueued.values()].flat());
@@ -855,6 +881,8 @@ const syncedEvents = (m: MockCalAccount): MockEvent[] => {
       mk("m3", "primary", "Weekly review", at(9, 15), at(9, 16), { readOnly: "repeating" }),
       mk("m4", "family", "Family dinner", at(3, 18, 30), at(3, 20), { location: "Home" }),
       mk("m5", "birthdays", "Linh’s birthday", utcDay(6), utcDay(7), { allDay: true, tzid: null, readOnly: "calendar", reminderMin: null }),
+      // (the backend decodes Outlook's hex ID of a meeting from another service to the invitation's UID: the copy arrives with that uid; the second one only matches by title and start)
+      ...(calTwins ? [mk("m6", "primary", "Budget twin", at(5, 11), at(5, 12), { uid: "twin-a4@mock" }), mk("m7", "primary", "Offsite title twin", at(6, 9), at(6, 10), { uid: "uid-from-another-id" })] : []),
     ];
   }
   return [
@@ -864,6 +892,7 @@ const syncedEvents = (m: MockCalAccount): MockEvent[] => {
     mk("g4", "work", "Design crit", at(2, 14), at(2, 15), { organizer: { email: "mai@contoso.com", name: "Mai Khanh" }, readOnly: "organizer", attendees: people([["Mai Khanh", "accepted"]]).concat([{ ...you, email: "nam@gmail.com" } as never]) }),
     mk("g5", "work", "Sprint review", at(4, 10), at(4, 11), { myStatus: "organizer", organizer: { email: "nam@gmail.com", name: "Nam" } }),
     mk("g6", "holidays", "Reunification Day", utcDay(9), utcDay(10), { allDay: true, tzid: null, readOnly: "calendar", reminderMin: null }),
+    ...(calTwins ? [mk("g7", "primary", "Planning twin", at(5, 9), at(5, 10), { uid: "twin-a2@mock" })] : []),
   ];
 };
 function mockCalState(state: string, accountId = "a2") {
@@ -1751,7 +1780,7 @@ export function installMock() {
       case "calendar_list_calendars":
         return [
           { id: "local", name: "My events", color: "#8764b8", accountId: null, visible: !hiddenCals.has("local"), remote: false, writable: true },
-          ...accounts.map((x) => ({ id: `invites:${x.id}`, name: `Invitations · ${x.email}`, color: x.color ?? "", accountId: x.id, visible: !hiddenCals.has(`invites:${x.id}`), remote: false, writable: false })),
+          ...accounts.map((x) => { const into = foldedInto(`invites:${x.id}`); return { id: `invites:${x.id}`, name: `Invitations · ${x.email}`, color: x.color ?? "", accountId: x.id, visible: !hiddenCals.has(into ?? `invites:${x.id}`), remote: false, writable: false, foldedInto: into }; }),
           ...mockCalendars(),
         ];
       case "calendar_sources": return calAccounts().flatMap((m) => (calSrcs[m.account] ? [calSrcs[m.account] as MockSrc] : []));
@@ -1810,7 +1839,7 @@ export function installMock() {
       case "calendar_list_events": {
         const from = a.from as number, to = a.to as number;
         return calEvents
-          .filter((e) => !hiddenCals.has(e.calendarId))
+          .filter((e) => !hiddenCals.has(foldedInto(e.calendarId) ?? e.calendarId) && !hiddenByTwin(e))
           .flatMap((e) => (e.allDay ? (e.end > from - 86400 && e.start < to + 86400 ? [e] : []) : expandMock(e, from, to)))
           .sort((x, y) => x.start - y.start);
       }

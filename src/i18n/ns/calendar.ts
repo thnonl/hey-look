@@ -87,6 +87,7 @@ export default define({
     "calendar.pop.copyOf": "{summary} (copy)",
     "calendar.pop.join": "Join",
     "calendar.pop.openEmail": "Open invitation email",
+    "calendar.pop.inviteLocalOnly": "This invitation came by mail and isn’t in {service}. Your answer goes to the organizer by email.",
     "calendar.pop.duplicate": "Duplicate",
 
     // ---- toasts
@@ -376,6 +377,7 @@ export default define({
     "calendar.pop.copyOf": "{summary} (bản sao)",
     "calendar.pop.join": "Tham gia",
     "calendar.pop.openEmail": "Mở thư mời",
+    "calendar.pop.inviteLocalOnly": "Thư mời này được gửi qua email và không có trong {service}. Câu trả lời của bạn sẽ được gửi đến người tổ chức qua email.",
     "calendar.pop.duplicate": "Nhân bản",
 
     "calendar.toast.saved": "Đã lưu {name}",
@@ -659,6 +661,7 @@ export default define({
     "calendar.pop.copyOf": "{summary} (copie)",
     "calendar.pop.join": "Rejoindre",
     "calendar.pop.openEmail": "Ouvrir l’e-mail d’invitation",
+    "calendar.pop.inviteLocalOnly": "Cette invitation est arrivée par e-mail et ne figure pas dans {service}. Votre réponse est envoyée à l’organisateur par e-mail.",
     "calendar.pop.duplicate": "Dupliquer",
 
     "calendar.toast.saved": "{name} enregistré",

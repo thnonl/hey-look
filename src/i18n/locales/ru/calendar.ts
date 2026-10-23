@@ -90,6 +90,7 @@ export default defineLocale<typeof ns.en>({
   "calendar.pop.copyOf": "{summary} (копия)",
   "calendar.pop.join": "Присоединиться",
   "calendar.pop.openEmail": "Открыть письмо с приглашением",
+  "calendar.pop.inviteLocalOnly": "Это приглашение пришло по почте и не добавлено в {service}. Ваш ответ уйдёт организатору по электронной почте.",
   "calendar.pop.duplicate": "Дублировать",
   // ---- toasts
   "calendar.toast.saved": "Сохранено: {name}",
