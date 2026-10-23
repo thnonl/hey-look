@@ -46,6 +46,7 @@ mod mail;
 // the main window never leaves the app for a website (the PDF frame has no sandbox on Windows and macOS); the pure decision is compiled and tested everywhere
 #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
 mod navguard;
+mod newmail;
 mod pdfmode;
 mod oauth;
 mod oauth_page;
@@ -857,6 +858,9 @@ struct NewMsg {
 struct SyncResult {
     added: u32,
     new_inbox: Vec<NewMsg>,
+    /// (W13.2) the new mail of this sync per folder (key, thread id): the side menu marks those folders (`mail-arrived`)
+    #[serde(skip)]
+    arrivals: Vec<(String, String)>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -941,7 +945,10 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
     custom.sort();
     roles.extend(custom);
 
-    let mut result = SyncResult { added: 0, new_inbox: vec![] };
+    let mut result = SyncResult { added: 0, new_inbox: vec![], arrivals: vec![] };
+    // (W13.2) the mail of the person's own mailboxes is not new mail; neither is mail that only moved between folders
+    let own = newmail::own_set(db::list_accounts(&lock(db)).unwrap_or_default().iter().map(|a| a.email.as_str()));
+    let mut tally = newmail::Tally::default();
     let mut fresh: std::collections::HashSet<String> = Default::default(); // ids stored by this sync: never pruned
     let mut to_rule: Vec<(String, String, String, String)> = vec![]; // thread, from, to, subject
     for role in roles {
@@ -963,11 +970,26 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
         let c = lock(db);
         c.execute_batch("BEGIN").map_err(err)?;
         for p in &ff.new {
+            // (before the row is written) was this message stored in another folder already, or moved by the app, or removed from another folder by this sync?
+            let moved = p.message_id.as_deref().map_or(false, |mid| {
+                tally.was_removed(mid)
+                    || newmail::was_moved(account_id, mid)
+                    || c.query_row(
+                        "SELECT 1 FROM messages WHERE account_id=?1 AND message_id=?2 AND folder<>?3 LIMIT 1",
+                        params![account_id, mid, role],
+                        |_| Ok(()),
+                    )
+                    .is_ok()
+            });
             let tid = insert_parsed(&c, &acc, &role, p)?;
             result.added += 1;
             fresh.insert(format!("{}:{}:{}", acc.id, role, p.uid));
+            let is_new = newmail::counts_as_new(&role, max_uid == 0, p.seen, &p.from_email, &own, moved);
+            if is_new {
+                tally.arrivals.push((role.clone(), tid.clone()));
+            }
             if role == "inbox" && max_uid > 0 {
-                if !p.seen {
+                if is_new {
                     result.new_inbox.push(NewMsg {
                         thread_id: tid.clone(),
                         account_id: acc.id.clone(),
@@ -995,6 +1017,13 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
             drop(st);
             for uid in known {
                 if !present.contains(&uid) {
+                    if let Ok(Some(mid)) = c.query_row(
+                        "SELECT message_id FROM messages WHERE account_id=?1 AND folder=?2 AND uid=?3",
+                        params![account_id, role, uid],
+                        |r| r.get::<_, Option<String>>(0),
+                    ) {
+                        tally.removed(&mid);
+                    }
                     c.execute(
                         "DELETE FROM messages WHERE account_id=?1 AND folder=?2 AND uid=?3",
                         params![account_id, role, uid],
@@ -1031,7 +1060,17 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
             note_rule_error(why.clone());
         }
         result.new_inbox.retain(|n| !outcome.moved.contains(&n.thread_id));
+        // (W13.2) a message a filter moved out of the Inbox is new in the folder it went to (a folder of the person's), not in the Inbox
+        for (tid, dst) in &outcome.moved_to {
+            if let Some(pos) = tally.arrivals.iter().position(|a| a.0 == "inbox" && &a.1 == tid) {
+                tally.arrivals.remove(pos);
+                if newmail::folder_counts(dst) && dst != "inbox" {
+                    tally.arrivals.push((dst.clone(), tid.clone()));
+                }
+            }
+        }
     }
+    result.arrivals = std::mem::take(&mut tally.arrivals);
     // new mail arrived: keep the account at its cap by dropping its oldest local mail (a failure here never fails the sync)
     if result.added > 0 {
         match prune_oldest(db, account_id, max_download(db), &fresh) {
@@ -1046,6 +1085,8 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
 /// What running the filters over new mail came to: the threads that left the inbox, and one message per failed filter run.
 struct RuleOutcome {
     moved: std::collections::HashSet<String>,
+    /// (thread, destination role or folder key) of every move a filter made
+    moved_to: Vec<(String, String)>,
     errors: Vec<String>,
 }
 
@@ -1053,7 +1094,7 @@ struct RuleOutcome {
 /// where it is (it still counts as new mail for notifications and the badge) and is reported as `Filter “{name}” couldn’t run on new
 /// mail: {error}` (REQ-52); the other filters and messages carry on.
 fn apply_rules(rules: &[Rule], msgs: &[(String, String, String, String)], run: &mut dyn FnMut(&Rule, &str) -> R<()>) -> RuleOutcome {
-    let mut out = RuleOutcome { moved: Default::default(), errors: vec![] };
+    let mut out = RuleOutcome { moved: Default::default(), moved_to: vec![], errors: vec![] };
     for (tid, from, to, subject) in msgs {
         for r in rules {
             if !rule_matches(r, from, to, subject) {
@@ -1064,6 +1105,8 @@ fn apply_rules(rules: &[Rule], msgs: &[(String, String, String, String)], run: &
                     startup::line("filters", &format!("filter “{}” ({}) matched a new message: done", r.name, r.action));
                     if matches!(r.action.as_str(), "archive" | "trash" | "junk" | "move") {
                         out.moved.insert(tid.clone());
+                        let dst = if r.action == "move" { r.arg.clone().unwrap_or_default() } else { r.action.clone() };
+                        out.moved_to.push((tid.clone(), dst));
                     }
                 }
                 Err(e) => out.errors.push(if r.name.trim().is_empty() {
@@ -1136,6 +1179,10 @@ fn run_sync_inner(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<SyncRe
     }
     backfill_start(app, db, account_id);
     shell::notify_new(app, db, &r.new_inbox);
+    if !r.arrivals.is_empty() {
+        // (W13.2) the main window marks the folders that got new mail; the other windows have no side menu
+        let _ = app.emit_to("main", "mail-arrived", serde_json::json!({ "accountId": account_id, "folders": newmail::group(&r.arrivals) }));
+    }
     shell::update_badge(app, db);
     if calendar::take_dirty() {
         let _ = app.emit("calendar-changed", serde_json::json!({}));
@@ -2920,6 +2967,10 @@ fn act_on_session<T: std::io::Read + std::io::Write>(
                 move_to_role(db, acc, s, &mut folders, &src, &uids, dst, create_missing)?;
                 let c = lock(db);
                 for m in &group {
+                    // (W13.2) the copy in the target folder, which a later sync finds, is moved mail, not new mail
+                    if let Ok(Some(mid)) = c.query_row("SELECT message_id FROM messages WHERE id=?1", [&m.id], |r| r.get::<_, Option<String>>(0)) {
+                        newmail::note_moved(&acc.id, &mid);
+                    }
                     c.execute("DELETE FROM messages WHERE id=?1", [&m.id]).map_err(err)?;
                 }
             }
