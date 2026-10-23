@@ -20,6 +20,8 @@ interface PlatformState {
   pdfTest: boolean;
   /** a debug build with HEYLOOK_TEST_COPY_FAIL=1: every copy fails (QA of the error toasts) */
   copyFail: boolean;
+  /** a debug build with HEYLOOK_TEST_OPEN_FAIL=1: opening a link in the browser always fails (QA of the "Couldn't open your browser" toasts) */
+  openFail: boolean;
   /** a debug build with HEYLOOK_TEST_ACCOUNTS_DELAY_MS: the store waits this long before it takes the mailboxes (QA of New mail during the first seconds) */
   accountsDelayMs: number;
   /** who updates this copy: "snap" (Snap Store), "apt" (the Hey Look! APT repository); null when the app updates itself */
@@ -27,7 +29,7 @@ interface PlatformState {
   loaded: boolean;
 }
 
-export const usePlatform = create<PlatformState>(() => ({ os: "windows", tray: true, testData: null, pdfView: "frame", pdfTest: false, copyFail: false, accountsDelayMs: 0, managed: null, loaded: false }));
+export const usePlatform = create<PlatformState>(() => ({ os: "windows", tray: true, testData: null, pdfView: "frame", pdfTest: false, copyFail: false, openFail: false, accountsDelayMs: 0, managed: null, loaded: false }));
 
 /** Read once at start (before the UI shows); an old backend or a plain browser keeps the Windows defaults. */
 export async function loadPlatform(): Promise<void> {
@@ -36,7 +38,7 @@ export async function loadPlatform(): Promise<void> {
     const os: Os = i.os === "macos" || i.os === "linux" ? i.os : "windows";
     // (an old backend does not say: the frame is only known to draw on Windows)
     const pdfView: PdfView = i.pdfView === "frame" || i.pdfView === "object" || i.pdfView === "card" ? i.pdfView : os === "windows" ? "frame" : "card";
-    usePlatform.setState({ os, tray: i.tray, testData: i.testData ?? null, pdfView, pdfTest: i.pdfTest === true, copyFail: i.copyFail === true, accountsDelayMs: typeof i.accountsDelayMs === "number" ? i.accountsDelayMs : 0, managed: i.managed === "snap" || i.managed === "apt" ? i.managed : null, loaded: true });
+    usePlatform.setState({ os, tray: i.tray, testData: i.testData ?? null, pdfView, pdfTest: i.pdfTest === true, copyFail: i.copyFail === true, openFail: i.openFail === true, accountsDelayMs: typeof i.accountsDelayMs === "number" ? i.accountsDelayMs : 0, managed: i.managed === "snap" || i.managed === "apt" ? i.managed : null, loaded: true });
   } catch {
     usePlatform.setState({ loaded: true });
   }

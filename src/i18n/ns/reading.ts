@@ -91,6 +91,8 @@ export default define({
     "reading.msg.unsubscribe": "Unsubscribe",
     "reading.msg.unsubscribed": "Unsubscribed",
     "reading.msg.unsubscribeFailed": "Unsubscribe failed: {error}",
+    "reading.msg.unsubscribeOpened": "The sender’s unsubscribe page is open in your browser. Finish there if it asks you to confirm.",
+    "reading.msg.unsubscribeMailto": "Send this message to finish unsubscribing.",
     "reading.msg.saveAllAtt": "Save all attachments…",
     "reading.msg.newsletter": "This looks like a newsletter. {link}",
     "reading.msg.translation": "Translation",

@@ -142,6 +142,12 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
    would use its last), takes the line-height of the sentence, and keeps the 24 px click box with padding that a margin of the same size gives back to the line */
 .notice .link { display: inline-flex; vertical-align: baseline; line-height: inherit; text-align: start; padding: 4px 0; margin: -4px 0; }
 @supports (height: 1lh) { .notice .link { --hit: max(4px, calc((24px - 1lh) / 2)); padding: var(--hit) 0; margin: calc(-1 * var(--hit)) 0; } }
+/* Unsubscribe is working (D-065): the ring sits after the words without taking room (no line moves), under reduced motion three dots take its place */
+.unsub-link { position: relative; }
+.unsub-link[aria-busy="true"] { cursor: progress; }
+.unsub-link .busy-ring, .unsub-link .busy-dots { position: absolute; left: calc(100% + 3px); top: 50%; }
+.unsub-link .busy-ring { width: 11px; height: 11px; margin-top: -6px; }
+.unsub-link .busy-dots { margin-top: -.5em; text-decoration: none; }
 /* update check: Settings > About card, status row, gear dot */
 .update-card { display: flex; flex-direction: column; }
 .update-card .set-card-head { flex-wrap: wrap; }
@@ -831,6 +837,8 @@ button.ov-tag:hover { background: color-mix(in srgb, var(--accent), transparent 
 .form .also-cal .muted { margin: 2px 0 0 23px; }
 /* the Calendar sidebar offer for mailboxes that existed before: a long address wraps inside the notice */
 .cal-offer { overflow-wrap: anywhere; }
+/* the address is one line whatever its length (D-066): it ends in an ellipsis when the menu is narrower, the title and the text keep the whole address */
+.cal-offer .cal-email { display: inline-block; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
 .set-actions { margin: 6px 0 10px; min-height: 33px; align-items: center; } /* a primary button is 33px, a small one 24px: the row keeps its height in every state */
 .list-row { display: flex; gap: 14px; align-items: center; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-md); margin-bottom: 6px; cursor: pointer; transition: background .12s, border-color .12s; }
 .list-row:hover { background: var(--bg2); border-color: color-mix(in srgb, var(--border), var(--fg) 15%); }

@@ -89,6 +89,8 @@ export default defineLocale<typeof ns.en>({
   "reading.msg.unsubscribe": "登録解除",
   "reading.msg.unsubscribed": "登録を解除しました",
   "reading.msg.unsubscribeFailed": "登録解除に失敗しました：{error}",
+  "reading.msg.unsubscribeOpened": "送信者の登録解除ページをブラウザーで開きました。確認を求められた場合は、そこで操作を完了してください。",
+  "reading.msg.unsubscribeMailto": "このメッセージを送信すると、登録解除が完了します。",
   "reading.msg.saveAllAtt": "すべての添付ファイルを保存…",
   "reading.msg.newsletter": "ニュースレターのようです。{link}",
   "reading.msg.translation": "翻訳",

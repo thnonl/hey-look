@@ -71,6 +71,7 @@
     "allow-calendar-save-ics",
     "allow-calendar-delete-event",
     "allow-unsubscribe",
+    "allow-unsubscribe-opened",
     "allow-open-external",
     "allow-copy-text",
     "allow-read-clipboard-text",

@@ -135,6 +135,7 @@
     "allow-first-run-hint",
     "allow-suggest-contacts",
     "allow-unsubscribe",
+    "allow-unsubscribe-opened",
     "allow-fetch-remote-images",
     "allow-queue-action",
     "allow-cancel-action",

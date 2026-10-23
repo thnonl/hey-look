@@ -793,6 +793,8 @@ export const api = {
   suggestContacts: (prefix: string) => invoke<Contact[]>("suggest_contacts", { prefix }),
   unsubscribe: (messageId: string) =>
     invoke<{ kind: "done" | "open" | "mailto"; target: string }>("unsubscribe", { messageId }),
+  /** How the browser took an Unsubscribe link, for `startup.log` (the host only): `error` is null when it was asked to open the page. */
+  unsubscribeOpened: (target: string, error: string | null) => invoke<void>("unsubscribe_opened", { target, error }),
   fetchRemoteImages: (urls: string[]) => invoke<Record<string, string>>("fetch_remote_images", { urls }),
   /** `jobId` makes the call cancellable: `aiCancel(jobId)` drops the request to the provider (the call then fails with AI_CANCELLED). */
   aiComplete: (system: string, prompt: string, jobId?: string) => invoke<string>("ai_complete", { system, prompt, jobId: jobId ?? null }),
@@ -810,7 +812,7 @@ export const api = {
   setMailAvailable: (available: boolean) => invoke<void>("set_mail_available", { available }),
   /** the "New mail" of the tray / menu bar menu, if the page has not taken it yet (true once per request; see shell.rs) */
   takeTrayCompose: () => invoke<boolean>("take_tray_compose"),
-  shellInfo: () => invoke<{ os: string; tray: boolean; testData?: string | null; managed?: string | null; pdfView?: string; pdfTest?: boolean; copyFail?: boolean; accountsDelayMs?: number }>("shell_info"),
+  shellInfo: () => invoke<{ os: string; tray: boolean; testData?: string | null; managed?: string | null; pdfView?: string; pdfTest?: boolean; copyFail?: boolean; openFail?: boolean; accountsDelayMs?: number }>("shell_info"),
   checkUpdate: (trigger: UpdateTrigger) => invoke<UpdateResult>("check_update", { trigger }),
   /** Download and verify the update; progress arrives on `onEvent`. Resolves when the download has ended (ready, failed or cancelled). */
   updateDownload: (version: string, onEvent: (e: DlEvent) => void) => {

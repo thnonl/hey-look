@@ -292,3 +292,7 @@ ui-b | node scripts/test-calendar-fold.mjs --quick --require-browser
 static | node scripts/check-shards.mjs
 # 1.0.7 CI speed: the job graph of the release workflow, run with the real plan script and GitHub's rules for needs / if: a tag run has every UI shard and publishes only when all passed (a failed shard, Rust test, build or signing stops it), a dry run without ui_tests has only the shard static and ends green, with ui_tests=true it has all shards
 static | node scripts/test-release-gates.mjs
+# 1.0.7 fix18 (D-065, DEC-021): the test server of Unsubscribe (scripts/lib/unsub-server.mjs: trusted certificate, self-signed certificate, closed port, never-answering) does what the QA rows rely on, measured with node's HTTPS client and through its command line (needs the openssl command)
+static | node scripts/test-unsub-server.mjs --require-openssl
+# 1.0.7 fix18 (D-065, DEC-010): Unsubscribe always ends in one visible outcome in the real page with real clicks: the link is busy within 100 ms and cannot be started twice, "Unsubscribed" / the info toast "the sender's unsubscribe page is open" / the mailto compose with its info toast / the error toasts, a browser that cannot be started shows only the failed-open toast, the two info toasts in the app languages are whole at 960 x 560 and 1280 x 800 (--quick: English, German and Japanese and no 15 s wait for the safety end; the full run is `node scripts/test-unsub-outcomes.mjs`)
+ui-e | node scripts/test-unsub-outcomes.mjs --quick --require-browser

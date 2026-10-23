@@ -1555,6 +1555,24 @@ export function installMock() {
       case "open_external":
         if (hashTokens().has("openfail")) throw "mock: no default browser"; // `#openfail` makes opening links fail (update check: copy-link path)
         mockMail.opened.push(String(a.url)); console.info("[mock] open in browser:", a.url); return null;
+      // Unsubscribe (1.0.7 fix18): `#unsub=done|open|mailto|notarget|error` is the answer (default open), `#unsubms=<ms>` how long the backend takes; the calls
+      // are logged in window.__unsubCalls (the message id) and window.__unsubOpened (what the page reported about the browser: [target, error])
+      case "unsubscribe": {
+        const w = window as unknown as { __unsubCalls?: string[] };
+        (w.__unsubCalls ??= []).push(String(a.messageId));
+        const kind = hashTokens().get("unsub") || "open";
+        return later(hashNum("unsubms", 0), () => {
+          if (kind === "error") throw "mock: the backend failed";
+          if (kind === "notarget") throw "UNSUBSCRIBE_NO_TARGET: This message has no unsubscribe link.";
+          if (kind === "mailto") return { kind: "mailto", target: "mailto:unsub-7f3a@lists.example.org?subject=unsubscribe%20T0K3N&body=Please%20remove%20me" };
+          return { kind, target: "https://news.example.org/u/abc123" };
+        });
+      }
+      case "unsubscribe_opened": {
+        const w = window as unknown as { __unsubOpened?: [string, string | null][] };
+        (w.__unsubOpened ??= []).push([String(a.target), (a.error as string | null) ?? null]);
+        return null;
+      }
       case "copy_text": // (Linux asks the backend for the clipboard; `#copyfail` makes it fail)
         if (hashTokens().has("copyfail")) throw "mock: no clipboard";
         console.info("[mock] clipboard:", a.text); return null;
@@ -1566,7 +1584,7 @@ export function installMock() {
       // `#os=macos|linux` (per-OS copy and shortcut labels), `#notray` (Linux without a tray host), `#nonotify` (Send test fails)
       case "shell_info": { // `#pdf=frame|object|card` picks the PDF preview (default: the frame on Windows, the card elsewhere)
         const os = hashTokens().get("os") || "windows";
-        return { os, tray: !hashTokens().has("notray"), testData: null, pdfView: hashTokens().get("pdf") || (os === "windows" ? "frame" : "card"), pdfTest: hashTokens().has("pdftest"), copyFail: hashTokens().has("copyfail"), accountsDelayMs: hashNum("accountsdelay", 0), managed: hashTokens().get("managed") || null }; // `#managed=apt|snap`: this copy is updated by apt / the Snap Store (Settings > About). `#accountsdelay=<ms>`: the store takes the mailboxes that late (New mail before they are read)
+        return { os, tray: !hashTokens().has("notray"), testData: null, pdfView: hashTokens().get("pdf") || (os === "windows" ? "frame" : "card"), pdfTest: hashTokens().has("pdftest"), copyFail: hashTokens().has("copyfail"), openFail: hashTokens().has("openfail"), accountsDelayMs: hashNum("accountsdelay", 0), managed: hashTokens().get("managed") || null }; // `#managed=apt|snap`: this copy is updated by apt / the Snap Store (Settings > About). `#accountsdelay=<ms>`: the store takes the mailboxes that late (New mail before they are read)
       }
       case "test_notification":
         if (hashTokens().has("nonotify")) throw "no notification server is running";

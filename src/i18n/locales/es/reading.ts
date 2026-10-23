@@ -89,6 +89,8 @@ export default defineLocale<typeof ns.en>({
   "reading.msg.unsubscribe": "Cancelar suscripción",
   "reading.msg.unsubscribed": "Suscripción cancelada",
   "reading.msg.unsubscribeFailed": "No se pudo cancelar la suscripción: {error}",
+  "reading.msg.unsubscribeOpened": "La página del remitente para cancelar la suscripción está abierta en tu navegador. Termina allí si te pide confirmar.",
+  "reading.msg.unsubscribeMailto": "Envía este mensaje para terminar de cancelar la suscripción.",
   "reading.msg.saveAllAtt": "Guardar todos los adjuntos…",
   "reading.msg.newsletter": "Parece un boletín informativo. {link}",
   "reading.msg.translation": "Traducción",

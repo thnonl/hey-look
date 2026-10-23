@@ -1232,7 +1232,7 @@ export function CalSidebar() {
         </div>
         {offer && (
           <div className="notice info cal-offer" role="note" style={{ margin: "8px 0 0" }}>
-            {t("calendar.side.offer", { service: serviceName(offer.kind), email: offer.email })}{" "}
+            {tx("calendar.side.offer", { email: <span className="cal-email" title={offer.email}>{offer.email}</span> }, { service: serviceName(offer.kind) })}{" "}
             <button
               className="link"
               onClick={() => {
