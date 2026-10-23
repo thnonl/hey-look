@@ -2515,6 +2515,9 @@ const MESSAGE_COLS_LIGHT: &str = "id,account_id,folder,message_id,subject,from_n
 fn row_message(r: &rusqlite::Row) -> rusqlite::Result<(MessageFull, i64, Option<Vec<u8>>)> {
     let att: String = r.get(14)?;
     let pgp: i64 = r.get(16)?;
+    // no List-Unsubscribe header: a message that shows an unsubscribe link in its body can still be unsubscribed from (the `unsubscribe` command opens that link)
+    let can_unsubscribe = r.get::<_, Option<String>>(15)?.is_some()
+        || mail::unsubscribe_link_in_body(&r.get::<_, Option<String>>(10)?.unwrap_or_default(), &r.get::<_, Option<String>>(11)?.unwrap_or_default()).is_some();
     Ok((
         MessageFull {
             id: r.get(0)?,
@@ -2532,7 +2535,7 @@ fn row_message(r: &rusqlite::Row) -> rusqlite::Result<(MessageFull, i64, Option<
             seen: r.get::<_, i64>(12)? != 0,
             flagged: r.get::<_, i64>(13)? != 0,
             attachments: serde_json::from_str(&att).unwrap_or_default(),
-            can_unsubscribe: r.get::<_, Option<String>>(15)?.is_some(),
+            can_unsubscribe,
             security: None,
             confidential: pgp & pgpmail::FLAG_CONFIDENTIAL as i64 != 0,
             ics: r.get(18)?,
@@ -5458,6 +5461,14 @@ async fn unsubscribe(state: tauri::State<'_, AppState>, message_id: String) -> R
     }
     if let Some(u) = targets.iter().find(|t| t.starts_with("http://")) {
         return Ok(UnsubResult { kind: "open".into(), target: u.clone() });
+    }
+    // the header is missing or has nothing usable: the link the message itself shows (opened in the browser, never posted to)
+    let (html, text): (String, String) = lock(&state.db)
+        .query_row("SELECT COALESCE(body_html,''), COALESCE(body_text,'') FROM messages WHERE id=?1", [&message_id], |r| Ok((r.get(0)?, r.get(1)?)))
+        .map_err(err)?;
+    if let Some(u) = mail::unsubscribe_link_in_body(&html, &text) {
+        let kind = if u.to_ascii_lowercase().starts_with("mailto:") { "mailto" } else { "open" };
+        return Ok(UnsubResult { kind: kind.into(), target: u });
     }
     Err("UNSUBSCRIBE_NO_TARGET: This message has no unsubscribe link.".into())
 }

@@ -464,6 +464,93 @@ pub fn create_folder<T: Read + Write>(s: &mut imap::Session<T>, name: &str) -> R
     Ok(())
 }
 
+
+/// The unsubscribe link a message shows in its body, for the messages whose `List-Unsubscribe` header is missing or has no usable target.
+/// HTML: the `<a href>` whose address or visible text says unsubscribe (eight languages of the app plus the usual English forms), the
+/// address first; plain text: a URL that says it, or one written right after such a word (`Unsubscribe ( https://... )`, `Unsubscribe: https://...`).
+/// Only `http(s)` and `mailto:` are returned; links that only manage preferences are not taken.
+pub fn unsubscribe_link_in_body(html: &str, text: &str) -> Option<String> {
+    const WORDS: &[&str] = &[
+        "unsubscribe", "opt out", "opt-out", "optout", "remove me", "stop receiving", "hủy đăng ký", "huỷ đăng ký", "hủy nhận", "ngừng nhận",
+        "désabonner", "désabonnement", "désinscri", "abmelden", "austragen", "abbestellen", "cancelar suscripci", "darse de baja", "darme de baja",
+        "cancelar la suscripci", "配信停止", "配信解除", "メール配信を停止", "退订", "取消订阅", "取消訂閱", "退訂", "отписаться", "отписка", "отказаться от рассылки",
+    ];
+    fn says_unsubscribe(s: &str) -> bool {
+        let l = s.to_lowercase();
+        WORDS.iter().any(|w| l.contains(w))
+    }
+    fn usable(u: &str) -> Option<String> {
+        let u = u.trim().replace("&amp;", "&");
+        let l = u.to_ascii_lowercase();
+        (l.starts_with("https://") || l.starts_with("http://") || l.starts_with("mailto:")).then_some(u)
+    }
+    // HTML: every <a ...>...</a>
+    let low = html.to_lowercase();
+    let mut best_text: Option<String> = None;
+    let mut from = 0;
+    while let Some(i) = low[from..].find("<a ").map(|k| k + from) {
+        let Some(gt) = low[i..].find('>').map(|k| k + i) else { break };
+        let tag = &html[i..gt];
+        let end = low[gt..].find("</a>").map(|k| k + gt).unwrap_or(low.len());
+        let inner = &html[gt + 1..end.max(gt + 1)];
+        from = end.max(gt + 1);
+        let tl = tag.to_lowercase();
+        let Some(h) = tl.find("href=") else { continue };
+        let rest = &tag[h + 5..];
+        let (q, body) = match rest.chars().next() {
+            Some(c @ ('"' | '\'')) => (Some(c), &rest[1..]),
+            _ => (None, rest),
+        };
+        let href = match q {
+            Some(c) => body.split(c).next().unwrap_or(""),
+            None => body.split(|c: char| c.is_whitespace() || c == '>').next().unwrap_or(""),
+        };
+        let Some(url) = usable(href) else { continue };
+        let visible: String = {
+            let mut o = String::new();
+            let mut in_tag = false;
+            for ch in inner.chars() {
+                match ch {
+                    '<' => in_tag = true,
+                    '>' => in_tag = false,
+                    c if !in_tag => o.push(c),
+                    _ => {}
+                }
+            }
+            o
+        };
+        if says_unsubscribe(&url) {
+            return Some(url);
+        }
+        if best_text.is_none() && says_unsubscribe(&visible) {
+            best_text = Some(url);
+        }
+    }
+    if best_text.is_some() {
+        return best_text;
+    }
+    // plain text: a URL that says it, or one right after the word
+    let tl = text.to_lowercase();
+    let mut after_word: Option<String> = None;
+    for (pos, _) in text.match_indices("http") {
+        let tail = &text[pos..];
+        if !(tail.starts_with("http://") || tail.starts_with("https://")) {
+            continue;
+        }
+        let end = tail.find(|c: char| c.is_whitespace() || c == ')' || c == '>' || c == '"' || c == '<').unwrap_or(tail.len());
+        let url = tail[..end].trim_end_matches(&['.', ',', ';'][..]);
+        let Some(url) = usable(url) else { continue };
+        if says_unsubscribe(&url) {
+            return Some(url);
+        }
+        let before = &tl[..pos.min(tl.len())];
+        let near: String = before.chars().rev().take(40).collect::<Vec<_>>().into_iter().rev().collect();
+        if after_word.is_none() && says_unsubscribe(&near) {
+            after_word = Some(url);
+        }
+    }
+    after_word
+}
 #[cfg(test)]
 mod connect_tests {
     use super::*;
@@ -1744,5 +1831,28 @@ mod list_unsubscribe_tests {
         assert!(h.starts_with("<https://u1.ct.sendgrid.net/lu/unsubscribe?oc=xyz>"), "{h}");
         assert!(h.contains("<mailto:unsubscribe@em1.news.example?subject=1>"), "{h}");
         assert!(p.list_unsub_post);
+    }
+}
+
+#[cfg(test)]
+mod unsubscribe_body_tests {
+    use super::unsubscribe_link_in_body as find;
+
+    #[test]
+    fn the_html_link_with_unsubscribe_in_its_address_or_text_is_found_and_preferences_are_not() {
+        let html = r#"<p><a href="http://n.example/asm/?user=1&amp;data=a">Manage email preferences </a>| <a target="_blank" href="http://n.example/asm/unsubscribe/?user=1&amp;data=b">Unsubscribe</a></p>"#;
+        assert_eq!(find(html, "").as_deref(), Some("http://n.example/asm/unsubscribe/?user=1&data=b"));
+        let by_text = r#"<a href='https://x.example/r/9'><span>Hủy đăng ký</span></a><a href="https://x.example/home">Home</a>"#;
+        assert_eq!(find(by_text, "").as_deref(), Some("https://x.example/r/9"));
+        assert_eq!(find(r#"<a href="https://x.example/prefs">Manage email preferences</a>"#, ""), None);
+    }
+
+    #[test]
+    fn plain_text_urls_after_the_word_or_with_it_in_the_address_are_found() {
+        let text = "Manage email preferences ( http://n.example/asm/?u=1 ) | Unsubscribe ( http://n.example/asm/u/?data=Zz-_9 )\r\n";
+        assert_eq!(find("", text).as_deref(), Some("http://n.example/asm/u/?data=Zz-_9"));
+        assert_eq!(find("", "see https://a.example/unsubscribe?id=3.").as_deref(), Some("https://a.example/unsubscribe?id=3"));
+        assert_eq!(find("", "Unsubscribe: mailto-less text only"), None);
+        assert_eq!(find(r#"<a href="javascript:alert(1)">Unsubscribe</a>"#, ""), None);
     }
 }
