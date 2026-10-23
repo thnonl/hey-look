@@ -1723,8 +1723,8 @@ export function installMock() {
       // `window.__mockDelays.replyHeaders` (ms): the answer takes that long (a server round trip: connect, login, select, fetch; `replyHeadersFail`: it ends with an error then);
       // every call is counted on `window.__replyHeaderCalls` (1.0.7 W13.13)
       case "reply_headers": {
-        const w = window as unknown as { __mockDelays?: MockDelays; __replyHeaderCalls?: string[] };
-        (w.__replyHeaderCalls ??= []).push(String(a.messageId));
+        const w = window as unknown as { __mockDelays?: MockDelays; __replyHeaderCalls?: { messageId: string; at: number }[] };
+        (w.__replyHeaderCalls ??= []).push({ messageId: String(a.messageId), at: performance.now() });
         const out = a.messageId === "m-rt"
           ? { messageId: "<m-rt@acme.example>", references: ["<root@acme.example>", "<m-rt@acme.example>"], replyTo: ['"Acme Support" <support@acme.example>'], from: '"Acme No Reply" <no-reply@acme.example>', to: ["nam@example.com", '"Doe, John" <john@acme.example>', "JOHN@acme.example", "y@acme.example"], cc: ['"Cc, Person" <cc@acme.example>', "nam@gmail.com"] }
           : { messageId: `<${String(a.messageId)}@x>`, references: [`<${String(a.messageId)}@x>`], replyTo: [] };
@@ -1734,11 +1734,11 @@ export function installMock() {
       }
       case "attachment_data": {
         // `window.__mockDelays.quote` (ms per call) and `.quoteFirst` (ms more for the first call of a message: the download of the raw message); `attachmentCalls` counts them
-        const dw = window as unknown as { __mockDelays?: MockDelays; __attachmentCalls?: { messageId: string; index: number }[] };
+        const dw = window as unknown as { __mockDelays?: MockDelays; __attachmentCalls?: { messageId: string; index: number; at: number }[] };
         if (!a.internal && dw.__mockDelays && (dw.__mockDelays.quote || dw.__mockDelays.quoteFirst)) {
           const calls = (dw.__attachmentCalls ??= []);
           const first = !calls.some((c) => c.messageId === a.messageId);
-          calls.push({ messageId: String(a.messageId), index: Number(a.index) });
+          calls.push({ messageId: String(a.messageId), index: Number(a.index), at: performance.now() });
           return later((dw.__mockDelays.quote ?? 0) + (first ? dw.__mockDelays.quoteFirst ?? 0 : 0), () => handle("attachment_data", { ...a, internal: true }));
         }
         const att = ([m4, ...messages, ...mockLayerMsgs] as { id: string; attachments: { index: number; name: string; mime: string }[] }[]).find((x) => x.id === a.messageId)?.attachments.find((z) => z.index === a.index);

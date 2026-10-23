@@ -280,7 +280,7 @@ const read = (p) => fs.readFileSync(new URL(`../${p}`, import.meta.url), "utf8")
   assert.ok(!/startCompose\(\{[\s\S]{0,200}isReply/.test(actions), "Reply no longer starts the compose with the finished message");
   const compose = read("src/components/Compose.tsx");
   assert.ok(/compose\.preparing\.forward/.test(compose) && /compose\.preparing\.reply/.test(compose) && /compose\.fwd\.fetching/.test(compose));
-  assert.ok(/role="status" aria-busy="true"/.test(compose.slice(compose.indexOf("cp-prep"))), "the status is a status");
+  assert.ok(/function PreparingStatus[\s\S]*role="status" aria-busy="true"/.test(compose) && compose.includes("<PreparingStatus p={preparing} />"), "the status is a status, in a component of its own (its timer must not re-render the whole composer)");
   const view = read("src/popout/ComposeView.tsx");
   assert.ok(view.includes("FILL_ID") && view.includes('notifyMain("fill-ready")'), "the compose window asks for its message");
   assert.ok(read("src/popout/composeHub.ts").includes("fills.listening("), "the main window answers");

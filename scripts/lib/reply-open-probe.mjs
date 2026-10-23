@@ -90,3 +90,15 @@ if (process.argv[1] && process.argv[1].endsWith('reply-open-probe.mjs')) {
   console.log(JSON.stringify({ ...res, pass }, null, 2));
   process.exit(pass ? 0 : 1);
 }
+
+/**
+ * How fast this page runs, measured in the page itself (the timing tests scale their budgets by it, so a slow shared runner is not a failure): the median of 7 round trips of
+ * a frame callback + a task (`frame`), and of 5 runs of a fixed piece of main-thread work, 6000 elements parsed, attached and laid out (`cpu`). Returns { frame, cpu } in ms.
+ */
+export const CALIBRATE = `(async () => {
+  const med = (a) => a.sort((x, y) => x - y)[a.length >> 1];
+  const frames = [], cpus = [];
+  for (let i = 0; i < 7; i++) { const t = performance.now(); await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0))); frames.push(performance.now() - t); }
+  for (let i = 0; i < 5; i++) { const t = performance.now(); const d = document.createElement('div'); d.innerHTML = '<p>x <b>y</b> <i>z</i></p>'.repeat(6000); document.body.appendChild(d); d.offsetHeight; d.remove(); cpus.push(performance.now() - t); }
+  return { frame: Math.round(med(frames) * 10) / 10, cpu: Math.round(med(cpus) * 10) / 10 };
+})()`;
