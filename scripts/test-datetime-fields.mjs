@@ -193,7 +193,7 @@ const cal = src("src/components/Calendar.tsx") + src("src/components/MeetingStri
 assert.equal(count(cal, /<DateField\b/g), 4, "event dialog (start, end) and meeting strip (start, end)");
 assert.equal(count(cal, /<TimeField\b/g), 4);
 assert.equal(count(src("src/components/SchedulePicker.tsx"), /<(DateField|TimeField)\b/g), 2, "Send later");
-assert.equal(count(src("src/components/SearchBox.tsx"), /<DateField\b/g), 1, "the search date filters (after: / before:)");
+assert.equal(count(src("src/components/SearchAdvanced.tsx"), /<DateField\b/g), 1, "the search date filters (after: / before:), in Advanced search (W13.4 moved them out of SearchBox.tsx)");
 // the start and the end of the dialog have their own accessible names
 for (const k of ["startDate", "startTime", "endDate", "endTime"]) assert.ok(cal.includes(`label={t("calendar.dialog.${k}")}`), k);
 
