@@ -7,10 +7,12 @@
 //   - the keyboard: Tab walks answer buttons, Join, Open email, Edit, Duplicate, Save .ics, Delete; Space activates; Esc closes with the focus back on the event
 //   - fit: at 946 x 480, 946 x 552 and 1266 x 712, light and dark, en / fr / de / ru: the popover and every button inside the window, labels whole, the second row
 //     at most two lines with Delete last at its right end, the footer visible, an event near the bottom edge gets the popover above it, a tall popover scrolls its details
-//     (946 x 230) and keeps title and footer
+//     (946 x 200) and keeps title and footer
 //   - narrow (a 320 px wide window): icon-only buttons whose title and aria-label are their labels
 //
-//   node --experimental-strip-types scripts/test-event-popover-actions.mjs [--require-browser | --url=http://127.0.0.1:1420/] [--quick] [--shots=dir]
+//   node --experimental-strip-types scripts/test-event-popover-actions.mjs [--require-browser | --url=http://127.0.0.1:1420/] [--quick] [--shots=dir] [--font=Arial] [--spacing=0.04]
+//   --font / --spacing  font stress: every element gets that family (and extra letter spacing, em). A CI machine (Linux, DejaVu Sans) and macOS / Linux WebKit have other metrics than this
+//                       Windows PC (Segoe UI): a 12 px button is 22 px high with Arial or DejaVu (line-height 1.15) and 24 px with Segoe, so the 24 px rule must hold by construction (min-height)
 //   --quick  the fit matrix for en and de at the two lower sizes in light and dark; the full run (no flag) is 4 languages x 3 sizes x 2 themes
 import { flag, arg, sleep, startHarness, inputs } from './cdp-harness.mjs';
 import { loadDict } from './lib/i18n-dicts.mjs';
@@ -24,6 +26,7 @@ const L = (lang, key) => dicts[lang][key];
 const H = await startHarness('test-event-popover-actions', { vitePort0: 5178 });
 const { evaluate, cdp } = H;
 const { clickAt, shot } = inputs(H, arg('shots'), 'popover');
+const FONT = arg('font'), SPACING = arg('spacing');
 const failures = [];
 let checks = 0;
 const ok = (cond, msg) => { checks++; if (!cond) { failures.push(msg); console.error(`FAIL ${msg}`); } };
@@ -37,6 +40,7 @@ const waitFor = async (expr, what, ms = 6000) => {
 const openApp = async (hash, w, h) => {
   await H.openApp(hash, w, h);
   await waitFor(`window.__store.getState().loaded === true`, 'the store to finish loading', 20000);
+  if (FONT || SPACING) await evaluate(`(() => { const s = document.createElement('style'); s.textContent = ${JSON.stringify('*,*::before,*::after{' + (FONT ? 'font-family:' + FONT + ',sans-serif!important;' : '') + (SPACING ? 'letter-spacing:' + SPACING + 'em!important;' : '') + '}')}; document.head.appendChild(s); return 1; })()`);
   await sleep(300 + 250 * hash.split('&').filter(Boolean).length + 250);
 };
 const key = async (k, code, vk, modifiers = 0, text) => {
@@ -64,12 +68,24 @@ const find = (sel, text) => evaluate(`(() => {
   const r = e.getBoundingClientRect();
   return [r.left + Math.min(r.width / 2, 40), r.top + r.height / 2];
 })()`);
+/** The popover is placed after its first paint (it starts at 0,0 for a frame or two on a loaded machine): wait until its box and the buttons in it stop moving before a click aims at one. */
+async function popoverSettled() {
+  let last = '';
+  for (let i = 0, same = 0; i < 60 && same < 3; i++) {
+    const now = await evaluate(`(() => { const p = document.querySelector('.ev-pop'); if (!p) return ''; const r = p.getBoundingClientRect(); const b = p.querySelector('.ev-foot button'); const q = b ? b.getBoundingClientRect() : null; return [r.left, r.top, r.width, r.height, q && q.left, q && q.top].join(','); })()`);
+    same = now && now === last ? same + 1 : 0;
+    last = now;
+    await sleep(40);
+  }
+}
 async function openPopover(sel, text, tag) {
   const c = await find(sel, text);
   ok(!!c, `${tag}: "${text}" is on screen`);
   if (!c) return false;
   await clickAt(c[0], c[1]);
-  return waitFor(`document.querySelector('.ev-pop')`, `${tag}: the popover`);
+  if (!(await waitFor(`document.querySelector('.ev-pop')`, `${tag}: the popover`))) return false;
+  await popoverSettled();
+  return true;
 }
 /** The footer of the open popover: buttons by row, with what is needed to judge them. */
 const footer = () => evaluate(`(() => {
@@ -241,7 +257,7 @@ try {
       if (!pt) { ok(false, `${tag}: "${c.text}" is not in the agenda`); continue; }
       await clickAt(pt[0], pt[1]);
       if (!(await waitFor(`document.querySelector('.ev-pop')`, `${tag}: the popover`))) continue;
-      await sleep(80);
+      await popoverSettled();
       const f = await footer();
       const inWin = (r) => r.l >= -0.5 && r.t >= -0.5 && r.r <= f.vw + 0.5 && r.b <= f.vh + 0.5;
       ok(inWin(f.box), `${tag}: the popover is inside the window (${Math.round(f.box.l)},${Math.round(f.box.t)} - ${Math.round(f.box.r)},${Math.round(f.box.b)} of ${f.vw}x${f.vh})`);
@@ -297,13 +313,13 @@ try {
   const pt = await find('.ag-row', 'Planning offsite');
   await clickAt(pt[0], pt[1]);
   await waitFor(`document.querySelector('.ev-pop')`, 'the popover of the long event');
-  await H.cdp('Emulation.setDeviceMetricsOverride', { width: 946, height: 230, deviceScaleFactor: 1, mobile: false });
+  await H.cdp('Emulation.setDeviceMetricsOverride', { width: 946, height: 200, deviceScaleFactor: 1, mobile: false });
   await sleep(300);
   const tiny = await footer();
-  ok(tiny.box.t >= -0.5 && tiny.box.b <= tiny.vh + 0.5, `946 x 230: the popover is inside the window (${Math.round(tiny.box.t)}-${Math.round(tiny.box.b)} of ${tiny.vh})`);
-  ok(tiny.details.scroll > tiny.details.client + 1, `946 x 230: the details scroll (${tiny.details.scroll} > ${tiny.details.client})`);
-  ok(tiny.foot.b <= tiny.box.b + 0.5 && tiny.rows.flat().every((b) => b.rect.b <= tiny.box.b + 0.5), '946 x 230: the footer and its buttons stay visible');
-  ok(tiny.title.t >= tiny.box.t - 0.5, '946 x 230: the title stays');
+  ok(tiny.box.t >= -0.5 && tiny.box.b <= tiny.vh + 0.5, `946 x 200: the popover is inside the window (${Math.round(tiny.box.t)}-${Math.round(tiny.box.b)} of ${tiny.vh})`);
+  ok(tiny.details.scroll > tiny.details.client + 1, `946 x 200: the details scroll (${tiny.details.scroll} > ${tiny.details.client})`);
+  ok(tiny.foot.b <= tiny.box.b + 0.5 && tiny.rows.flat().every((b) => b.rect.b <= tiny.box.b + 0.5), '946 x 200: the footer and its buttons stay visible');
+  ok(tiny.title.t >= tiny.box.t - 0.5, '946 x 200: the title stays');
   await shot('tiny');
   await closeAll();
 

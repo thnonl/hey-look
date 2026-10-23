@@ -126,7 +126,7 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .btn:active:not(:disabled) { transform: translateY(1px); }
 .btn.primary { background: var(--accent); color: var(--accent-fg); border-color: transparent; font-weight: 600; box-shadow: var(--shadow-sm); }
 .btn.primary:hover:not(:disabled) { background: var(--accent-hover); }
-.btn.small { padding: 3px 10px; font-size: .86em; }
+.btn.small { padding: 3px 10px; font-size: .86em; min-height: 24px; } /* (24 px target by construction: with Segoe UI the line is 16 px and the padding gave exactly 24, with Arial or DejaVu it was 22) */
 .btn.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger), transparent 55%); }
 .btn.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger), transparent 90%); }
 .btn.danger-fill { background: var(--danger); color: #fff; border-color: transparent; }
