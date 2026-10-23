@@ -88,7 +88,7 @@ const PAGE_PROBE = `return await new Promise((resolve) => {
   const t0 = performance.now();
   const tick = () => { frames++; if (performance.now() - t0 < 500) requestAnimationFrame(tick); else {
     const r = document.documentElement.getBoundingClientRect();
-    resolve({ visibility: document.visibilityState, frames500ms: frames, hasFocus: document.hasFocus(), root: [Math.round(r.width), Math.round(r.height)], bodyBg: getComputedStyle(document.body).backgroundColor, ready: !!document.querySelector('#root > *') });
+    resolve({ visibility: document.visibilityState, frames500ms: frames, hasFocus: document.hasFocus(), root: [Math.round(r.width), Math.round(r.height)], bodyBg: getComputedStyle(document.body).backgroundColor, ready: !!document.querySelector('#root > *:not(.boot-splash)'), splash: !!document.querySelector('.boot-splash'), htmlBg: getComputedStyle(document.documentElement).backgroundColor });
   } };
   requestAnimationFrame(tick);
   setTimeout(() => resolve({ visibility: document.visibilityState, frames500ms: frames, note: 'no animation frame callback within 2 s' }), 2000);
@@ -108,7 +108,9 @@ export async function probe(where, { window = "main", snapshot = "" } = {}) {
     out.snapshot = { unavailable: e.message.slice(0, 200) };
   }
   const s = out.snapshot;
-  out.verdict = s.topShare === undefined ? "page only" : s.topShare >= 0.95 || s.colours <= 3 ? "BLANK (the web content is one colour)" : "painted (the web content has structure)";
+  // 1.0.7 (fix12): until the app has mounted, index.html shows its start screen (the app's own ground and a small logo): one colour on more than 95 % of the points is what it
+  // looks like and not a blank window. A page that has NOT mounted after the window was shown for a while is a different finding (the ready wait of startup.rs reloads it).
+  out.verdict = out.page?.splash ? "START SCREEN (index.html's logo on the theme colour: the app has not mounted yet; one colour is expected)" : s.topShare === undefined ? "page only" : s.topShare >= 0.95 || s.colours <= 3 ? "BLANK (the web content is one colour)" : "painted (the web content has structure)";
   return out;
 }
 
