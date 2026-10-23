@@ -91,6 +91,8 @@ export interface ComposeInit {
    * the signature found in its stored text.
    */
   sigId?: string;
+  /** how far the header, the body and the tail of the inline pane were scrolled when Send closed it: Undo opens the pane again at the same places (D-053) */
+  scrolls?: { head: number; editor: number; tail: number };
   /** send as confidential (an answer to confidential mail starts that way) */
   confidential?: boolean;
   /** a message restored after the app ended unexpectedly: it keeps the id of its snapshot, so the next snapshot replaces it (recovery.ts) */

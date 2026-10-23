@@ -89,6 +89,9 @@
 - On a Mac, the Edit menu item "Paste and Match Style" reads like the system's own item in Spanish ("Pegar con el mismo estilo") and Russian (no line break after "и")
 - The website is shorter: the home, features, help and download pages keep what you need to decide and to get started, in all 8 languages
 - The README is short and points to the website for features, help and policies
+- Undo after Send in the message pane next to the list brings the message back scrolled to where you were (it used to jump to the top; a message in its own window already kept its place).
+- With "Reduce motion" on, the Focused / Other tab text could change size on every frame in a narrow list with a long language (the number then was not in proportion to the name); the size now settles.
+- The website's "Make it yours" demo window is tall enough for its folder list in wide fonts and larger text sizes.
 
 ## 1.0.6 — 2026-10-18
 

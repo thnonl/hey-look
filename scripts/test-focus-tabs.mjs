@@ -371,6 +371,9 @@ try {
           seenFilter.below += p.filterBelow ? 1 : 0;
           assert.deepEqual(verdict(p), [], 'the pass criteria of the QA probe (scripts/lib/tab-number-probe.mjs)');
           assert.equal(p.headOk, true, 'the header does not scroll sideways and the Filter is inside the list');
+          // D-054: the shrink settles: --tab-scale and the font size of the label do not change from frame to frame (a flip-flop between two steps made the number 0.84 or 0.88 of the label)
+          const steady = await evaluate(`new Promise((res) => { const out = []; let n = 0; const tick = () => { out.push(document.querySelector('.ml-title').style.getPropertyValue('--tab-scale') + '/' + getComputedStyle(document.querySelector('.pivots button')).fontSize); if (++n < 12) requestAnimationFrame(tick); else res([...new Set(out)]); }; tick(); })`);
+          assert.equal(steady.length, 1, `the tab text size changes from frame to frame: ${JSON.stringify(steady)}`);
           for (const t of p.tabs) {
             assert.equal(t.clipped, false, `${t.name} is not clipped`);
             assert.equal(t.labelLines, 1, `${t.name} label on one line`);

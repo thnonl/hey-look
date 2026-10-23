@@ -191,8 +191,11 @@ try {
     const at = src.indexOf('const wasLocked = useRef(false);');
     const eff = src.slice(at, src.indexOf('}, [locked]);', at));
     assert.ok(/useLayoutEffect\(\(\) => \{\s*if \(locked\)/.test(eff), 'the unlock effect is not a layout effect');
-    assert.ok(eff.indexOf('.offsetHeight') > 0 && eff.indexOf('.offsetHeight') < eff.indexOf('put();'), 'the layout is not flushed before the position is put back');
-    assert.ok(eff.includes('document.addEventListener("scroll", put, true)'), 'a later move is not undone at once');
+    // (the hold itself is the function holdScrolls, shared with the inline pane that Undo makes again, D-053)
+    assert.ok(eff.includes('holdScrolls(scrollsWas.current'), 'the unlock does not hold the scroll positions');
+    const hold = src.slice(src.indexOf('function holdScrolls('), src.indexOf('export function Compose('));
+    assert.ok(hold.indexOf('.offsetHeight') > 0 && hold.indexOf('.offsetHeight') < hold.indexOf('put();'), 'the layout is not flushed before the position is put back');
+    assert.ok(hold.includes('document.addEventListener("scroll", put, true)'), 'a later move is not undone at once');
   });
   await check('a person scrolling after Undo is not fought: the wheel moves the editor', async () => {
     await evaluate(`document.querySelector('.cp-editor').dispatchEvent(new WheelEvent('wheel', { deltaY: 40, bubbles: true })); document.querySelector('.cp-editor').scrollTop = 20; 1`);
