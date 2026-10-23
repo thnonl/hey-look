@@ -83,7 +83,6 @@ export default defineLocale<typeof ns.en>({
   "calendar.pop.copyOf": "{summary}（コピー）",
   "calendar.pop.join": "参加",
   "calendar.pop.openEmail": "招待メールを開く",
-  "calendar.pop.more": "その他の操作",
   "calendar.pop.duplicate": "複製",
   // ---- toasts
   "calendar.toast.saved": "{name}を保存しました",

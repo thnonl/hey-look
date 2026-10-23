@@ -480,6 +480,7 @@ export default defineLocale<typeof ns.en>({
   "settings.keys.saveAll": "Сохранить все вложения",
   "settings.keys.mailCalendar": "Почта / Календарь",
   "settings.keys.calendarKeys": "Календарь: новое событие, сегодня, назад / вперёд, Месяц / Неделя / Расписание",
+  "settings.keys.editEvent": "Календарь: изменить событие (или дважды щёлкнуть по нему)",
   "settings.keys.selectAll": "Выбрать все",
   "settings.keys.commandBar": "Палитра команд",
   "settings.keys.commandBarAnywhere": "Палитра команд (и при написании)",

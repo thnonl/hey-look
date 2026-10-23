@@ -1892,7 +1892,7 @@ function ShortcutsTab() {
     ["s", "settings.action.snooze"], ["p", "settings.action.pin"], ["*", "settings.action.flag"], ["u", "settings.keys.markUnread"], ["r", "settings.action.reply"], ["a", "settings.composing.replyAll"], ["f", "settings.keys.forward"],
     ["Ctrl+Enter", "settings.keys.send"], ["Ctrl+Shift+Enter", "settings.keys.sendLater"], ["Ctrl+Shift+P", "settings.keys.insertPicture"], ["Ctrl+Shift+E", "settings.keys.encrypt"], ["Ctrl+Shift+G", "settings.keys.sign"], ["Ctrl+Shift+C / Ctrl+Shift+B", "settings.keys.addCcBcc"],
     ["Space / Enter", "settings.keys.preview"], ["Ctrl+S", "settings.keys.saveAs"], ["Ctrl+Shift+S", "settings.keys.saveAll"],
-    ["Ctrl+1 / Ctrl+2", "settings.keys.mailCalendar"], ["Ctrl+B", "settings.keys.sideMenu"], ["c · t · ← / → · m / w / a", "settings.keys.calendarKeys"],
+    ["Ctrl+1 / Ctrl+2", "settings.keys.mailCalendar"], ["Ctrl+B", "settings.keys.sideMenu"], ["c · t · ← / → · m / w / a", "settings.keys.calendarKeys"], ["Ctrl+Enter", "settings.keys.editEvent"],
     ["Ctrl+] / Ctrl+[", "settings.keys.fontSize"], ["Ctrl+= / Ctrl+Shift+=", "settings.keys.subSuper"], [os === "macos" ? "Ctrl+\\" : "Ctrl+Space / Ctrl+\\", "compose.fmt.clear"], ["Alt+F10", "settings.keys.focusToolbar"],
     ["Ctrl+Shift+L / 8", "compose.fmt.bulleted"], ["Ctrl+Shift+7", "compose.fmt.numbered"], ["Ctrl+L / E / R / Shift+J", "settings.keys.align"], ["Ctrl+T / Ctrl+Shift+T", "settings.keys.indent"],
     ["Ctrl+Shift+S", "settings.keys.stylesMenu"], ["Ctrl+Shift+N / Ctrl+Alt+1-3", "settings.keys.styleKeys"], [os === "macos" ? "Ctrl+F / Ctrl+Shift+H" : "Ctrl+F / Ctrl+H", "compose.fmt.find"], ["Shift+F3", "compose.fmt.case"],

@@ -901,6 +901,11 @@ export function installMock() {
       void emit("signin-state", { accountId: id, state: kind, error: kind ? reauthError(id) : undefined });
     },
   };
+  // dev check of the calendar views: `__mockAddEvent("id", "Title", startSec, endSec, { calendarId, allDay, readOnly, ... })` adds an event (to My events unless told otherwise)
+  (window as unknown as { __mockAddEvent: unknown }).__mockAddEvent = (id: string, summary: string, start: number, end: number, over: Record<string, unknown> = {}) => {
+    calEvents = [...calEvents.filter((e) => e.id !== id), ev(id, summary, start, end, over)];
+    void emit("calendar-changed", {});
+  };
   (window as unknown as { __mockCalSync: unknown }).__mockCalSync = {
     state: (st: string, account = "a2") => { mockCalState(st, account); void emit("calendar-changed", {}); },
     get: (account = "a2") => calSrcs[account] ?? null,
@@ -1131,6 +1136,7 @@ export function installMock() {
   mockWindows(which === "reader" || which === "compose" ? `${which}-1` : "main");
   mockIPC(function handle(cmd, args): unknown {
     const a = (args ?? {}) as Record<string, unknown>;
+    if (cmd.startsWith("calendar_")) (((window as unknown as { __mockCalls?: unknown[] }).__mockCalls) ??= []).push({ cmd, args: a }); // (dev check: which calendar commands the page called)
     // a conversation's read / flag state is kept (as the server does), so the Unread and Flagged filters behave like the real list
     if (cmd === "get_thread" && !a.raw) {
       const msgs = handle(cmd, { ...a, raw: true });

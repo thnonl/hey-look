@@ -84,7 +84,6 @@ export default define({
     "calendar.pop.copyOf": "{summary} (copy)",
     "calendar.pop.join": "Join",
     "calendar.pop.openEmail": "Open invitation email",
-    "calendar.pop.more": "More actions",
     "calendar.pop.duplicate": "Duplicate",
 
     // ---- toasts
@@ -371,7 +370,6 @@ export default define({
     "calendar.pop.copyOf": "{summary} (bản sao)",
     "calendar.pop.join": "Tham gia",
     "calendar.pop.openEmail": "Mở thư mời",
-    "calendar.pop.more": "Thao tác khác",
     "calendar.pop.duplicate": "Nhân bản",
 
     "calendar.toast.saved": "Đã lưu {name}",
@@ -652,7 +650,6 @@ export default define({
     "calendar.pop.copyOf": "{summary} (copie)",
     "calendar.pop.join": "Rejoindre",
     "calendar.pop.openEmail": "Ouvrir l’e-mail d’invitation",
-    "calendar.pop.more": "Autres actions",
     "calendar.pop.duplicate": "Dupliquer",
 
     "calendar.toast.saved": "{name} enregistré",

@@ -480,6 +480,7 @@ export default defineLocale<typeof ns.en>({
   "settings.keys.saveAll": "Alle Anhänge speichern",
   "settings.keys.mailCalendar": "E-Mail / Kalender",
   "settings.keys.calendarKeys": "Kalender: neuer Termin, heute, zurück / weiter, Monat / Woche / Agenda",
+  "settings.keys.editEvent": "Kalender: Termin bearbeiten (oder doppelklicken)",
   "settings.keys.selectAll": "Alle auswählen",
   "settings.keys.commandBar": "Befehlsleiste",
   "settings.keys.commandBarAnywhere": "Befehlsleiste (auch beim Schreiben)",

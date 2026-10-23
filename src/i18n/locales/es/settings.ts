@@ -480,6 +480,7 @@ export default defineLocale<typeof ns.en>({
   "settings.keys.saveAll": "Guardar todos los adjuntos",
   "settings.keys.mailCalendar": "Correo / Calendario",
   "settings.keys.calendarKeys": "Calendario: nuevo evento, hoy, anterior / siguiente, Mes / Semana / Agenda",
+  "settings.keys.editEvent": "Calendario: editar el evento (o hacer doble clic en él)",
   "settings.keys.selectAll": "Seleccionar todo",
   "settings.keys.commandBar": "Barra de comandos",
   "settings.keys.commandBarAnywhere": "Barra de comandos (también al escribir)",
