@@ -1,8 +1,8 @@
-# Linux stores: Snap Store, AppImageHub and the APT repository
+# Stores and package repositories: Snap Store, AppImageHub, the APT repository and the Microsoft Store
 
 The release workflow builds the AppImage, `.deb` and `.rpm` and attaches them to the GitHub Release (see
-[CONTRIBUTING.md](CONTRIBUTING.md#releasing)). This page is about the two Linux catalogues beside that, what is automated and
-what is done by hand.
+[CONTRIBUTING.md](CONTRIBUTING.md#releasing)). This page is about the Linux catalogues beside that, what is automated and
+what is done by hand; the last chapter, [Microsoft Store](#microsoft-store-windows), is about Windows.
 
 | Where | Package | Built by | Published by |
 |---|---|---|---|
@@ -169,3 +169,113 @@ and it reads each new release on its own once the app is listed. One-time:
 Once the snap is in `stable`, `docs/download.html` (and the seven translations, see CONTRIBUTING.md > Website languages) should
 offer `snap install hey-look` and the Snap Store badge beside the AppImage, `.deb` and `.rpm` links, and `docs/help.html` the
 `snap connect` line until the auto-connection is granted.
+
+## Microsoft Store (Windows)
+
+Hey Look! goes to the Microsoft Store as an **MSIX package** (option A of the plan; the Store signs it itself, hosts it and updates it, so it needs no
+certificate and no hosting of ours). An EXE installer for the Store (option B) is built too, but switched off (last section of this chapter).
+The release workflow makes and checks the package on every Windows build; **what is submitted and when is the owner's decision**: nothing here
+publishes, and nothing reads a store credential, unless a repository variable (below) says so.
+
+**State of the package (WP14 part 1).** The package, its checks and the logos are built by the workflow. The app itself does not know yet that it runs inside a package
+(WP14 part 2: data in the package's own folder, the keyring service `heylook.store`, the updater off, Windows' startup task, the Store texts in Settings > About). Until that
+is in, a tag run names its artifact **`msix-store-NOT-READY`** and `store-submit` refuses to run: do not upload that package to Partner Center. Part 2 sets
+`appPackagedMode` to `true` in `src-tauri/msix/readiness.json` in the commit that lands it, and from then on the artifact is called `msix-store`.
+
+| File | What it is |
+|---|---|
+| `src-tauri/msix/AppxManifest.xml.in` | the manifest: identity from the variables below, version from `tauri.conf.json` (`1.0.7` becomes `1.0.7.0`), x64, Windows 10 1809 or later, the restricted capability `runFullTrust` and nothing else, the startup task `HeyLookStartup` (off), the 8 languages, `UpdateWhileInUse=defer` |
+| `src-tauri/msix/readiness.json` | `appPackagedMode`: does the app have its packaged mode (see above) |
+| `scripts/msix-build.mjs` | builds the package from the release exe with the Windows SDK (`makeappx`, `makepri`), and a copy signed with a throw-away certificate |
+| `scripts/msix-assets.mjs` | draws the package logos and the Store listing images from `docs/assets/favicon.svg` (headless Chrome or Edge); the PNGs are not committed |
+| `scripts/msix-verify.mjs` | unpacks a package and checks it against the manifest rules, the images and the exe |
+| `.github/scripts/msix-check.ps1` | installs the test-signed copy on the disposable runner, starts it, checks it, removes it |
+
+**Name and identity.** The Store shows **Hey Look! Mail Client**, the only name that was reserved for the product ("Hey Look!" was not available), and the
+manifest carries exactly that name (`DisplayName`, Partner Center refuses any other). Inside the app, on the website and in the tray the app stays "Hey Look!".
+The three identity values come from Partner Center > Product management > Product identity; they are public, not secrets, and go into repository variables
+(Settings > Secrets and variables > Actions > Variables). The current product has:
+
+| Variable | Partner Center field | Value |
+|---|---|---|
+| `MSIX_IDENTITY_NAME` | `Package/Identity/Name` | `40278Noamo.651773BC9C4C7` |
+| `MSIX_PUBLISHER` | `Package/Identity/Publisher` | `CN=FE739770-637C-437D-B2B9-DAA2E2EA56F1` |
+| `MSIX_PUBLISHER_DISPLAY_NAME` | `Package/Properties/PublisherDisplayName` | `Noamo` |
+
+```
+gh variable set MSIX_IDENTITY_NAME --body 40278Noamo.651773BC9C4C7
+gh variable set MSIX_PUBLISHER --body CN=FE739770-637C-437D-B2B9-DAA2E2EA56F1
+gh variable set MSIX_PUBLISHER_DISPLAY_NAME --body Noamo
+```
+
+Compare them with the Product identity page once more before the first submission: Partner Center refuses a package whose values differ in a single character. The
+Store shows the publisher name `Noamo` (the display name of the Partner Center account); if you prefer another one, change it in the account settings first and set the variable
+to the new value. A tag run fails in the job `msix` (not in `publish`: the GitHub release is never held back) when one of the three is missing; a dry run without them uses a
+placeholder identity (`CN=HeyLook-Dev`) and never produces `msix-store`.
+
+**What a run produces** (Actions > the run > Artifacts; the summary of the job `msix` lists version, identity, sizes and the sha256 of `hey-look.exe`, which is the file of the Windows build, byte for byte).
+
+| Artifact | When | Contents |
+|---|---|---|
+| `msix-store` / `msix-store-NOT-READY` | tag runs, 14 days | `HeyLook_<V>_x64.msix`, **unsigned**: what you upload to Partner Center. Never attached to the GitHub release (users cannot install an unsigned MSIX) |
+| `msix-store-logos` | every run, 14 days on a tag, else 1 | box art 2160 x 2160 and 1080 x 1080, poster 1440 x 2160 and 720 x 1080, app tile 300 x 300 (Partner Center > Store listing) |
+| `msix-test` | every run, 1 day | `HeyLook_<V>_x64_test.msix` signed with a throw-away certificate whose subject is the Publisher (its key is deleted at once) and `HeyLook-test.cer`, its public half; for `msix-check` and, if you enable Windows Sandbox, for a look inside the Sandbox |
+| `msix-wack-report` | when the runner has the Windows App Certification Kit | the report; its FAIL lines are in the summary of `msix-check` (information, not a gate: the Store runs its own checks) |
+
+The job `msix-check` (every Windows run) trusts the throw-away certificate in the machine store of the runner (a virtual machine that is thrown away), installs the
+test-signed copy, starts it the way the Start menu does, waits 30 seconds, checks that `hey-look.exe` runs from `WindowsApps` and is still alive, that `%APPDATA%\thnonl.heylook`
+does not exist (and, once the app has its packaged mode, that the database is in `%LOCALAPPDATA%\Packages\<PFN>\LocalState`), removes the package and checks that its folder is gone.
+**Never install the test-signed package on a PC you keep:** trusting the certificate is a security setting. Not run yet: the first dry run
+(`gh workflow run release.yml --ref <branch> -f platforms=windows`) shows whether the activation and the removal work on the runner image (the script is written from Microsoft's documentation).
+
+**Owner steps.**
+1. Partner Center > Apps and games: the product is of the type "MSIX or PWA app" with the reserved name `Hey Look! Mail Client` (a reservation not used within 3 months is released).
+2. Set the three variables above. Optional now, needed for the automation: a known user group (Partner Center > Customers) with the personal Microsoft accounts of the testers.
+3. After the tag run (and after WP14 part 2): download `msix-store` from the run. Partner Center > new submission: Pricing and availability (all markets, **private audience** first, free), Properties
+   (Productivity; privacy policy `https://heylook.namthai.site/privacy.html`; generative AI: yes), Age ratings, Packages (upload the `.msix`; Partner Center takes an unsigned
+   package; if it refuses one, upload the `msix-test` copy instead, the Store replaces the signature, and tell the coder), the Store listings of the 8 languages (texts and screenshots prepared by the BA/QA; the
+   images of `msix-store-logos`), Submission options (the notes for certification and the justification below) > Submit.
+4. After certification install from the private link with the Microsoft account of the audience and run the smoke list (sign in, read, send, an attachment, autostart, uninstall).
+5. A second submission switches the audience to **Public** (it cannot go back to private).
+6. Every release: upload the new `msix-store` (or approve `store-submit`), paste "What's new" in the 8 languages.
+
+Justification for the restricted capability `runFullTrust` (Submission options):
+```
+runFullTrust: Hey Look! is a desktop email client built with Tauri (Rust + Microsoft Edge WebView2). It is a classic Win32 desktop app packaged with MSIX (Desktop Bridge) and needs full trust to run its own process: it connects to the user's mail servers over IMAP/SMTP with TLS, keeps its mail cache in a local SQLite database in the package's LocalState folder, stores passwords and OAuth tokens in Windows Credential Manager, receives the OAuth sign-in redirect on a 127.0.0.1 loopback port, shows its window through WebView2, shows a notification-area (tray) icon and Windows notifications, and opens links and attachments with the user's default apps. It installs no drivers or services and does not elevate.
+```
+
+**Good to know.** The Store version keeps its own data, apart from a copy installed from GitHub (no migration; the help page says "use one of them on a computer"); saved passwords stay in Windows
+Credential Manager after an uninstall (Windows does not remove them). The package declares no `mailto:` handler, protocol or file type. A Store update of a running tray app is applied when the
+app quits, or by Windows 11 24H2 and later without closing it (`UpdateWhileInUse`); the first update after the first release is a smoke row. The Microsoft Edge WebView2 Runtime comes with Windows 11 and
+most Windows 10 PCs; where it is missing the app's own start-fail dialog says so.
+
+**Try it on your computer without installing anything.** `node scripts/msix-build.mjs --exe <a hey-look.exe> --out <new folder> --test-sign --store-logos` (Windows SDK, OpenSSL and Chrome or Edge needed) builds and
+signs a package, `node scripts/msix-verify.mjs <folder>\HeyLook_<V>_x64.msix --from <folder>\msix-build.json --exe <a hey-look.exe>` checks it; `node scripts/test-msix-build.mjs` does both with a stand-in program.
+
+### Submitting by workflow (off)
+
+The job `store-submit` sends the package to Partner Center by itself. It runs only on a tag run with the repository variable `STORE_SUBMIT` = `true`, only after `publish`,
+`msix` and `msix-check` succeeded, and only for a package whose app has its packaged mode. It needs the Environment **`store`** (Settings > Environments > New environment; add yourself as *required
+reviewer*, so every submission waits for your approval), whose secrets are `AZURE_AD_TENANT_ID`, `AZURE_AD_APPLICATION_CLIENT_ID`, `AZURE_AD_APPLICATION_SECRET` and `SELLER_ID` (an Entra ID
+application with the Manager role in Partner Center, Microsoft's "Store Developer CLI" setup: Partner Center > Account settings > Tenants and users), and the variable `STORE_PRODUCT_ID`
+(the Store ID of the product, 12 characters). Microsoft allows the CLI only for updates: **the first submission is made by hand** (steps above). Type the secrets yourself
+(`gh secret set --env store ...`); never paste them anywhere else. Without `STORE_SUBMIT` the job does not exist in the run, nothing waits for approval and no secret is read.
+The steps (`microsoft/microsoft-store-apppublisher`, `msstore reconfigure`, `msstore publish ... --inputFile ... --appId`) are written from Microsoft's documentation and have **never run**.
+
+### Option B: the EXE installer for the Store (off)
+
+Only if a trigger happens (Partner Center cannot keep the MSIX product, certification refuses the MSIX twice for something we cannot fix, the private audience finds a blocker, or you decide so). The repository variable
+`STORE_EXE` = `true` turns on, exactly with that value:
+
+- the job `store-exe` builds a second NSIS installer with the WebView2 Runtime inside (about 135 MB, `src-tauri/tauri.store-exe.conf.json`), named `HeyLook_<V>_windows_x64_offline.exe`, and attaches it to the draft release (a tag run) or keeps it as the artifact `store-exe-dryrun`; `publish` then expects exactly that asset;
+  the file is not named `*-setup.exe`, so `latest.json` and the updater never use it (the installed app still updates itself with the normal installer);
+- `pages.yml` adds the installers of the newest 3 published releases to the website under `/downloads/<V>/` after checking every one against the sha256 digest and size GitHub states for the asset, and `robots.txt` blocks `/downloads/`;
+  the address Partner Center is given never changes for a published version and answers 200 without a redirect;
+- the job `store-url` (after `publish`) checks the Authenticode signature, starts `pages.yml` on `main` and, when it is deployed, checks the address from outside (200, no `Location`, size, sha256). **`pages.yml` on `main` must already be the one with
+  this step: merge the release branch first**, or use "Re-run failed jobs" after the merge;
+- with `STORE_SUBMIT` = `true` too, the job `store-submit-exe` puts the new address into the submission of the EXE product (variable `STORE_EXE_PRODUCT_ID`, a separate Partner Center product; the first submission by hand) with `msstore submission get / update / publish / poll`.
+
+**Not built: the signature (W14.3).** Microsoft takes an EXE installer only if the installer and every program file in it are signed by the publisher with a certificate of the Trusted Root Program
+(a self-signed one is refused). Today there is no such certificate: `store-exe` says "not signed" and `store-url` refuses an unsigned file. The route is the SignPath Foundation (free for open source, publisher shown as
+"SignPath Foundation") or a certificate bought for about 150-300 USD a year; both are your accounts and your money, so they are only set up on a trigger. Hosting through your Caddy server means every Store
+install downloads about 135 MB from your home connection.

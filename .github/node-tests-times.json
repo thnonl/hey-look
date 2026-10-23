@@ -203,6 +203,8 @@
   "node --experimental-strip-types scripts/test-answer-shell.mjs": 0,
   "node scripts/test-reply-feedback.mjs --require-browser": 80,
   "node scripts/check-shards.mjs": 0,
-  "node scripts/test-release-gates.mjs": 0
+  "node scripts/test-release-gates.mjs": 0,
+  "node scripts/test-msix-build.mjs": 1,
+  "node scripts/test-store-exe.mjs": 25
  }
 }

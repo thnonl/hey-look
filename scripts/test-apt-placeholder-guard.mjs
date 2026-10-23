@@ -9,7 +9,7 @@
 //   - the run of test-site-apt.mjs ends the same with "0", "true", "yes" and an empty value as without the variable (none of them downgrades the check)
 // DEC-022 (the site is dormant until the branch `apt` exists) adds the same kind of lock for the second variable, APT_SITE:
 //   - in pages.yml every non-comment line that names APT_SITE is exactly `APT_SITE: ${{ steps.aptbranch.outputs.present == 'true' && 'on' || 'off' }}`
-//     (at least three: the checks, the build, the check of the built site), and pages.yml has no `inputs:`, no `inputs.`, no `vars.`, no `secrets.`
+//     (at least three: the checks, the build, the check of the built site), and pages.yml has no `inputs:`, no `inputs.`, no `secrets.`, and no `vars.` except the one WP14 line `STORE_EXE: ${{ vars.STORE_EXE == 'true' && 'on' || 'off' }}` (the Store's offline installer)
 //   - no other file of .github/ (release.yml, the scripts, node-tests.txt) names APT_SITE outside a comment
 //   - scripts/build-site.mjs turns the block on only with `process.env.APT_SITE === 'on'`; test-site-apt.mjs knows only "on" and "off"
 //   - with APT_SITE=on the throw-away key fails also when APT_ALLOW_PLACEHOLDER_KEY=1 is set (a run, while the key is the throw-away one)
@@ -32,7 +32,12 @@ export function problems({ pages, nodeTests, release, siteApt, siteBuild = "", o
   const SITE_LINE = /^\s+APT_SITE: \$\{\{ steps\.aptbranch\.outputs\.present == 'true' && 'on' \|\| 'off' \}\}\s*$/;
   for (const l of siteLines) if (!SITE_LINE.test(l)) out.push(`pages.yml sets APT_SITE as '${l.trim()}': only from the branch check (steps.aptbranch.outputs.present == 'true' && 'on' || 'off')`);
   if (siteLines.length < 3) out.push(`pages.yml names APT_SITE ${siteLines.length} times, expected the checks, the build and the check of the built site (3)`);
-  for (const bad of [/^\s*inputs:/m, /\binputs\./, /\bvars\./, /\bsecrets\./, /github\.event\.inputs/]) if (bad.test(code(pages).join("\n"))) out.push(`pages.yml uses ${bad}: nothing but the branch check may decide whether the site carries the APT repository`);
+  // WP14 option B (DEC-005): the one repository variable pages.yml may read is STORE_EXE, only in the exact form below, only to switch the Store's offline
+  // installer on (nothing to do with the APT repository); every other `vars.` stays forbidden
+  const STORE_LINE = /^\s+STORE_EXE: \$\{\{ vars\.STORE_EXE == 'true' && 'on' \|\| 'off' \}\}\s*$/;
+  const varLines = code(pages).filter((l) => /\bvars\./.test(l));
+  for (const l of varLines) if (!STORE_LINE.test(l)) out.push(`pages.yml reads a repository variable as '${l.trim()}': only STORE_EXE: \${{ vars.STORE_EXE == 'true' && 'on' || 'off' }} is allowed`);
+  for (const bad of [/^\s*inputs:/m, /\binputs\./, /\bsecrets\./, /github\.event\.inputs/]) if (bad.test(code(pages).join("\n"))) out.push(`pages.yml uses ${bad}: nothing but the branch check may decide whether the site carries the APT repository`);
   if (code(release).some((l) => l.includes("APT_SITE")) || code(nodeTests).some((l) => l.includes("APT_SITE"))) out.push("release.yml or node-tests.txt names APT_SITE");
   for (const [file, text] of Object.entries(others)) if (code(text).some((l) => l.includes("APT_SITE"))) out.push(`${file} names APT_SITE`);
   if (siteBuild && !/const APT_ON = process\.env\.APT_SITE === 'on';/.test(siteBuild)) out.push("build-site.mjs does not switch the block on with exactly process.env.APT_SITE === 'on'");
@@ -97,6 +102,9 @@ const mutations = [
   ["pages.yml with APT_SITE from an input", { ...real, pages: real.pages.replace("APT_SITE: ${{ steps.aptbranch.outputs.present == 'true' && 'on' || 'off' }}", "APT_SITE: ${{ github.event.inputs.apt || 'off' }}") }],
   ["pages.yml with a workflow_dispatch input", { ...real, pages: real.pages.replace("  workflow_dispatch:\n", "  workflow_dispatch:\n    inputs:\n      apt:\n        default: off\n") }],
   ["pages.yml with APT_SITE from a repository variable", { ...real, pages: real.pages + "\n        APT_SITE: ${{ vars.APT_SITE }}\n" }],
+  // WP14 (DEC-005): the one variable pages.yml may read is STORE_EXE, in its exact form
+  ["pages.yml reading another repository variable", { ...real, pages: real.pages + "\n        WHATEVER: ${{ vars.STORE_SUBMIT }}\n" }],
+  ["pages.yml reading STORE_EXE in another form", { ...real, pages: real.pages.replace("STORE_EXE: ${{ vars.STORE_EXE == 'true' && 'on' || 'off' }}", "STORE_EXE: ${{ vars.STORE_EXE }}") }],
   ["pages.yml without APT_SITE in the build", { ...real, pages: real.pages.replace(/(Build and optimize production site\n)\s+env:\n\s+APT_SITE: [^\n]*\n/, "$1") }],
   ["release.yml that sets APT_SITE", { ...real, release: real.release + "\n      APT_SITE: on\n" }],
   ["a script that sets APT_SITE", { ...real, others: { ...real.others, ".github/scripts/y.sh": "export APT_SITE=on\n" } }],

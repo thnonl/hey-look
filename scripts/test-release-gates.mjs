@@ -39,7 +39,7 @@ for (let i = jobsAt + 1; i < yml.length; i++) {
   const c = /^    if:\s*(.*)$/.exec(l);
   if (c) cur.cond = c[1].trim().replace(/^\$\{\{\s*/, "").replace(/\s*\}\}$/, "");
 }
-for (const n of ["plan", "create-release", "node-tests", "rust-tests", "build", "sign-windows", "publish", "apt-repo", "apt-repo-dryrun"]) assert.ok(jobs[n], `job ${n} not found`);
+for (const n of ["plan", "create-release", "node-tests", "rust-tests", "build", "sign-windows", "store-exe", "publish", "apt-repo", "apt-repo-dryrun", "msix", "msix-check", "store-url", "store-submit", "store-submit-exe"]) assert.ok(jobs[n], `job ${n} not found`);
 
 const planScript = (() => {
   const at = yml.findIndex((l, i) => i > jobs.plan.start && /^ {8}run: \|\s*$/.test(l));
@@ -54,7 +54,7 @@ const planFile = path.join(dir, "plan.sh");
 writeFileSync(planFile, planScript);
 
 // --- one run of the plan job ---
-const runPlan = ({ event, platforms = "", testVersion = "", uiTests = "", signDry = "false", signpathVars = false }) => {
+const runPlan = ({ event, platforms = "", testVersion = "", uiTests = "", signDry = "false", signpathVars = false, storeExe = "", storeSubmit = "" }) => {
   const out = path.join(dir, "out.txt");
   writeFileSync(out, "");
   const r = spawnSync(bash, [posix(planFile)], {
@@ -70,6 +70,8 @@ const runPlan = ({ event, platforms = "", testVersion = "", uiTests = "", signDr
       SP_PROJECT: signpathVars ? "p" : "",
       SP_POLICY: signpathVars ? "s" : "",
       REQUIRE_WIN: "",
+      STORE_EXE: storeExe,
+      STORE_SUBMIT: storeSubmit,
       GITHUB_OUTPUT: posix(out),
     },
   });
@@ -104,10 +106,11 @@ const evalCond = (cond, ctx) => {
 };
 
 // `fail` = names of jobs (or "node-tests:ui-c" legs) that fail when they run. Returns {result per job, legs of node-tests}.
-const simulate = ({ event, plan, fail = [], testVersion = "" }) => {
+// `outputs` = the outputs a job reports when it runs, e.g. { msix: { ready: "true" } }
+const simulate = ({ event, plan, fail = [], testVersion = "", outputs = {} }) => {
   const result = { plan: { result: "success", outputs: plan } };
   const legs = [];
-  const order = ["plan", "create-release", "node-tests", "rust-tests", "build", "sign-windows", "publish", "apt-repo", "apt-repo-dryrun"];
+  const order = ["plan", "create-release", "node-tests", "rust-tests", "build", "sign-windows", "store-exe", "publish", "apt-repo", "apt-repo-dryrun", "msix", "msix-check", "store-url", "store-submit", "store-submit-exe"];
   for (const name of order.slice(1)) {
     const job = jobs[name];
     const needs = {};
@@ -127,7 +130,7 @@ const simulate = ({ event, plan, fail = [], testVersion = "" }) => {
       });
       result[name] = { result: r.includes("failure") ? "failure" : "success", outputs: {} };
     } else {
-      result[name] = { result: fail.includes(name) ? "failure" : "success", outputs: {} };
+      result[name] = { result: fail.includes(name) ? "failure" : "success", outputs: outputs[name] ?? {} };
     }
   }
   return { result: Object.fromEntries(Object.entries(result).map(([k, v]) => [k, v.result])), legs };
@@ -206,9 +209,15 @@ for (const uiTests of ["", "false"]) {
       "rust-tests": "success",
       build: "success",
       "sign-windows": "skipped",
+      "store-exe": "skipped",
       publish: "skipped",
       "apt-repo": "skipped",
       "apt-repo-dryrun": "success",
+      msix: "success",
+      "msix-check": "success",
+      "store-url": "skipped",
+      "store-submit": "skipped",
+      "store-submit-exe": "skipped",
     });
   });
 }
@@ -289,6 +298,115 @@ check("(e) secrets: only the tag job and only in its signing step; no Environmen
   const sign = tag.slice(tag.indexOf("- name: Sign\n"), tag.indexOf("- name: Remove the key"));
   assert.equal(sign.split("\n").filter((l) => /secrets\.APT_SIGNING_/.test(l)).length, 2, "both secrets sit in the Sign step");
   assert.ok(!/^\s*set -\w*x/m.test(tag + dry), "no set -x near a key");
+});
+
+// (f) WP14, the Microsoft Store. The MSIX package (option A) is built beside everything else and never holds the GitHub release back; everything that
+// publishes (store-submit, option B: store-exe, store-url, store-submit-exe) exists only with its repository variable, exactly `true` (DEC-005).
+const STORE_JOBS = ["store-exe", "store-url", "store-submit", "store-submit-exe"];
+check("(f) tag, no Store variables: the package is built and checked, nothing that publishes runs, the release is published", () => {
+  const r = run({ event: "push" });
+  assert.equal(r.result.msix, "success");
+  assert.equal(r.result["msix-check"], "success");
+  assert.equal(r.result.publish, "success");
+  for (const j of STORE_JOBS) assert.equal(r.result[j], "skipped", j);
+});
+check("(f) a failing package or install check never stops the GitHub release", () => {
+  for (const job of ["msix", "msix-check"]) {
+    const r = run({ event: "push", fail: [job] });
+    assert.equal(r.result[job], "failure");
+    assert.equal(r.result.publish, "success", `publish after ${job} failed`);
+    assert.equal(r.result["apt-repo"], "success");
+  }
+  assert.equal(run({ event: "push", fail: ["msix"] }).result["msix-check"], "skipped");
+});
+check("(f) the package is made when Windows is built and it is not a test build", () => {
+  assert.equal(run({ event: "workflow_dispatch", platforms: "windows" }).result.msix, "success");
+  assert.equal(run({ event: "workflow_dispatch", platforms: "windows" }).result["msix-check"], "success");
+  assert.equal(run({ event: "workflow_dispatch", platforms: "linux" }).result.msix, "skipped");
+  assert.equal(run({ event: "workflow_dispatch", platforms: "macos" }).result.msix, "skipped");
+  assert.equal(run({ event: "workflow_dispatch", platforms: "windows", testVersion: "0.9.0" }).result.msix, "skipped");
+  assert.equal(run({ event: "workflow_dispatch", platforms: "windows,linux" }).result.msix, "success");
+  assert.equal(run({ event: "workflow_dispatch", platforms: "all", fail: ["build"] }).result.msix, "skipped", "a failed build leaves nothing to pack");
+});
+check("(f) the variables switch on exactly the value true (plan job)", () => {
+  for (const value of ["", "false", "TRUE", "True", "1", "yes", "true ", " true", "on"]) {
+    const p = runPlan({ event: "push", storeExe: value, storeSubmit: value });
+    assert.equal(p.store_exe, "false", `STORE_EXE='${value}'`);
+    assert.equal(p.store_submit, "false", `STORE_SUBMIT='${value}'`);
+    const r = run({ event: "push", storeExe: value, storeSubmit: value });
+    for (const j of STORE_JOBS) assert.equal(r.result[j], "skipped", `${j} with '${value}'`);
+  }
+  const on = runPlan({ event: "push", storeExe: "true", storeSubmit: "true" });
+  assert.equal(on.store_exe, "true");
+  assert.equal(on.store_submit, "true");
+  assert.equal(on.msix, "true");
+});
+check("(f) STORE_SUBMIT: tag runs only, never in a dry run", () => {
+  assert.equal(runPlan({ event: "workflow_dispatch", platforms: "all", storeSubmit: "true" }).store_submit, "false");
+  const r = run({ event: "workflow_dispatch", platforms: "all", storeSubmit: "true", storeExe: "true", outputs: { msix: { ready: "true" } } });
+  assert.equal(r.result["store-submit"], "skipped");
+  assert.equal(r.result["store-submit-exe"], "skipped");
+  assert.equal(r.result["store-url"], "skipped");
+});
+check("(f) store-submit: published release, a package that passed the install check, an app with its packaged mode", () => {
+  const base = { event: "push", storeSubmit: "true", outputs: { msix: { ready: "true" } } };
+  assert.equal(run(base).result["store-submit"], "success");
+  assert.equal(run({ ...base, outputs: { msix: { ready: "false" } } }).result["store-submit"], "skipped", "app without packaged mode");
+  assert.equal(run({ ...base, outputs: {} }).result["store-submit"], "skipped");
+  for (const job of ["msix", "msix-check", "publish"]) assert.equal(run({ ...base, fail: [job] }).result["store-submit"], "skipped", `${job} failed`);
+  assert.equal(run({ ...base, fail: ["node-tests:ui-b"] }).result["store-submit"], "skipped");
+  // STORE_SUBMIT alone does not build option B
+  assert.equal(run(base).result["store-exe"], "skipped");
+  assert.equal(run(base).result["store-submit-exe"], "skipped");
+});
+check("(f) option B: the offline installer is made before publish and the address is checked after it", () => {
+  const base = { event: "push", storeExe: "true" };
+  const r = run(base);
+  assert.equal(r.result["store-exe"], "success");
+  assert.equal(r.result.publish, "success");
+  assert.equal(r.result["store-url"], "success");
+  assert.equal(r.result["store-submit-exe"], "skipped", "needs STORE_SUBMIT too");
+  assert.equal(run({ ...base, storeSubmit: "true" }).result["store-submit-exe"], "success");
+  // the installer must be on the draft before the asset list is checked: a failed build stops the release, and the address is never checked
+  const bad = run({ ...base, fail: ["store-exe"] });
+  assert.equal(bad.result.publish, "skipped");
+  assert.equal(bad.result["store-url"], "skipped");
+  assert.equal(bad.result["apt-repo"], "skipped");
+  // a failed address check leaves the release published
+  const late = run({ ...base, storeSubmit: "true", fail: ["store-url"] });
+  assert.equal(late.result.publish, "success");
+  assert.equal(late.result["store-submit-exe"], "skipped");
+  assert.equal(run({ ...base, fail: ["publish"] }).result["store-url"], "skipped");
+});
+check("(f) option B in a dry run: the installer is built and kept, nothing is published or checked", () => {
+  const r = run({ event: "workflow_dispatch", platforms: "windows", storeExe: "true" });
+  assert.equal(r.result["store-exe"], "success");
+  assert.equal(r.result.publish, "skipped");
+  assert.equal(r.result["store-url"], "skipped");
+  assert.equal(run({ event: "workflow_dispatch", platforms: "linux", storeExe: "true" }).result["store-exe"], "skipped");
+  assert.equal(run({ event: "workflow_dispatch", platforms: "windows", testVersion: "0.9.0", storeExe: "true" }).result["store-exe"], "skipped");
+});
+check("(f) the jobs that publish name their Environment, the others have none and read no secret", () => {
+  const text = readFileSync(path.join(root, ".github/workflows/release.yml"), "utf8");
+  const block = (name) => {
+    const head = `\n  ${name}:\n`;
+    const at = text.indexOf(head);
+    assert.ok(at >= 0, `${name} not found`);
+    const next = text.slice(at + head.length).search(/\n  [a-z][\w-]*:\n/);
+    return text.slice(at, next < 0 ? undefined : at + head.length + next);
+  };
+  for (const name of ["msix", "msix-check", "store-url"]) {
+    const b = block(name);
+    assert.ok(!/^    environment:/m.test(b), `${name} has an Environment`);
+    assert.ok(!/secrets\.(?!GITHUB_TOKEN)/.test(b), `${name} reads a secret`);
+  }
+  for (const name of ["store-submit", "store-submit-exe"]) assert.match(block(name), /^    environment: store$/m, `${name} has no Environment store`);
+  assert.match(block("store-exe"), /^    environment: \$\{\{ github\.event_name == 'push' && 'release' \|\| '' \}\}$/m, "store-exe reads the embedded client ids like the build job");
+  // the Entra secrets sit only in the two steps that configure the CLI, one reference each per job
+  for (const name of ["store-submit", "store-submit-exe"]) {
+    const b = block(name);
+    for (const s of ["AZURE_AD_TENANT_ID", "AZURE_AD_APPLICATION_CLIENT_ID", "AZURE_AD_APPLICATION_SECRET", "SELLER_ID"]) assert.equal(b.split(`secrets.${s}`).length - 1, 1, `${name}: secrets.${s} once`);
+  }
 });
 
 rmSync(dir, { recursive: true, force: true });

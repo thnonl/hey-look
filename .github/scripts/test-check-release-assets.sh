@@ -50,6 +50,25 @@ expect "a bare HeyLook_..._windows_x64.exe" 1 "$full
 HeyLook_1.0.0_windows_x64.exe"
 expect "a bare executable in a --pre list" 1 "$base
 hey-look.exe" --pre
+# WP14 option B: the Store's offline installer exists only with the flag STORE_EXE, exactly named, once, without a signature
+off='HeyLook_1.0.0_windows_x64_offline.exe'
+expect "the offline installer with --store-exe" 0 "$full
+$off" --store-exe
+expect "the offline installer with --store-exe --pre" 0 "$base
+$off" "--pre --store-exe"
+expect "--store-exe but no offline installer" 1 "$full" --store-exe
+expect "the offline installer without the flag" 1 "$full
+$off"
+expect "two offline installers" 1 "$full
+$off
+$off" --store-exe
+expect "a signature of the offline installer" 1 "$full
+$off
+$off.sig" --store-exe
+expect "an offline installer of another version" 1 "$full
+HeyLook_1.0.1_windows_x64_offline.exe" --store-exe
+expect "an offline installer with a setup name" 1 "$full
+HeyLook_1.0.0_windows_x64_offline-setup.exe" --store-exe
 expect "CRLF input" 0 "$(printf '%s\n' "$full" | sed 's/$/\r/')"
 
 [ "$fails" = 0 ] && echo "all cases passed"
