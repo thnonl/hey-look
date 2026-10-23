@@ -735,6 +735,12 @@ details ol { padding-left: 1.2em; } details li { margin-bottom: .5em; }
   .mk-view .app { height: min(44vh, 330px); min-height: 250px; }
   .mk-note { display: none; }
 }
+/* Where the demo is wide enough to show its folder column (the window is over 760px, a few px under 830px of screen) the window is as tall as that column needs: 8 folder rows and the mailbox
+   line (a second line in a wide font or a long language), which grow with the text size (--fs), plus 119px of padding, gaps and row padding, and 46px of title bar and border. Measured: 294px
+   of column at 14px text and 340px at 18px under Verdana in German; the formula gives 347 and 399px. The 250px of the phone layout, where the column is hidden, cut it. */
+@media (min-width: 820px) and (max-width: 1020px) {
+  .mk-view .app { min-height: calc(var(--fs, 14px) * 13 + 165px); }
+}
 /* without motion only the first word of the tag is rendered, so the tag fits it */
 .sw-w:not(.on):not(.out) { display: none; }
 .motion .sw-w:not(.on):not(.out) { display: flex; }
