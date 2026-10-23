@@ -289,10 +289,13 @@ try {
 
   // ---------------------------------------------------------------- W13.11 stored preferences
   await check('W13.11 stored old preferences start with the switch on and the marker saved; off with the marker stays off', async () => {
-    // the dev preview keeps its settings in localStorage with #persist; the first load stores the old preferences, the second one reads them
-    await H.openApp('lang=en&smallmailbox&persist', 1280, 800);
-    await evaluate(`localStorage.setItem('hl-mock-settings', JSON.stringify({ prefs: JSON.stringify({ language: 'en', countOtherMail: false, listW: 420 }) })); 1`);
-    await H.openApp('lang=en&smallmailbox&persist', 1280, 800);
+    // the dev preview keeps its settings in localStorage with #persist. The old preferences are put there by a script that runs before the page's own (a late write of the page that was
+    // open before could overwrite them when they are set from that page: the start of the app is slower since the editor is fetched at idle, WP9d)
+    const openWith = async (stored) => {
+      const s = await H.cdp('Page.addScriptToEvaluateOnNewDocument', { source: `localStorage.setItem('hl-mock-settings', ${JSON.stringify(JSON.stringify(stored))});` });
+      try { await H.openApp('lang=en&smallmailbox&persist', 1280, 800); } finally { await H.cdp('Page.removeScriptToEvaluateOnNewDocument', { identifier: s.identifier }); }
+    };
+    await openWith({ prefs: JSON.stringify({ language: 'en', countOtherMail: false, listW: 420 }) });
     assert.equal(await evaluate(S('prefs.countOtherMail')), true, 'a stored false without the marker is switched on');
     assert.equal(await evaluate(S('prefs.prefsRev')), 1);
     assert.equal(await evaluate(S('prefs.listW')), 420, 'other keys are kept');
@@ -303,8 +306,7 @@ try {
     await H.openApp('lang=en&smallmailbox&persist', 1280, 800);
     assert.equal(await evaluate(S('prefs.countOtherMail')), false, 'the next start keeps the choice');
     // a damaged value gives the defaults
-    await evaluate(`localStorage.setItem('hl-mock-settings', JSON.stringify({ prefs: 'not json' })); 1`);
-    await H.openApp('lang=en&smallmailbox&persist', 1280, 800);
+    await openWith({ prefs: 'not json' });
     assert.equal(await evaluate(S('prefs.countOtherMail')), true);
     await evaluate(`localStorage.removeItem('hl-mock-settings'); 1`);
   });
