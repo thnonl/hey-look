@@ -471,6 +471,8 @@ export default defineLocale<typeof ns.en>({
   "compose.autosave.saved": "Черновик сохранён в {time}",
   "compose.draft.bccUnread": "Не удалось прочитать получателей скрытой копии этого черновика, поэтому они не показаны. Проверьте получателей перед отправкой.",
   "compose.draft.opening": "Открытие черновика…",
+  "compose.preparing.reply": "Подготовка ответа…",
+  "compose.preparing.forward": "Подготовка пересылки…",
   "compose.toast.movedToDrafts": "Перемещено в «Черновики»",
   "compose.toast.moveFailed": "Не удалось переместить в «Черновики»: {error}",
   "compose.toast.scheduleCancelled": "Запланированная отправка отменена",

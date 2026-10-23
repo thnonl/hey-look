@@ -5,6 +5,6 @@ import { CW_PREFIX } from "./composeRequests";
 
 let seq = 0;
 
-export function notifyMain(kind: "toast" | "draft-saved" | "scheduled" | "dialog" | "sync" | "refresh", payload?: unknown): void {
+export function notifyMain(kind: "toast" | "draft-saved" | "scheduled" | "dialog" | "sync" | "refresh" | "fill-ready", payload?: unknown): void {
   void api.popoutRequest(`cw${++seq}`, `${CW_PREFIX}${kind}`, payload ?? null).catch(() => undefined);
 }

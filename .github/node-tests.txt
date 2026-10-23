@@ -37,6 +37,8 @@ static | node --experimental-strip-types scripts/test-autosave.mjs
 static | node --experimental-strip-types scripts/test-recovery.mjs
 static | node --experimental-strip-types scripts/test-recovery-toast.mjs
 static | node --experimental-strip-types scripts/test-compose-selection.mjs
+# Reply / Reply all / Forward open at once (W13.13, D-064): the slow steps start together before the shell is open, the repeat press, Discard while it prepares, a failing step and the safety end, the hand-over to a compose window, the status minimum, the source guards of the wiring
+static | node --experimental-strip-types scripts/test-answer-shell.mjs
 static | node --experimental-strip-types scripts/test-compose-content.mjs
 static | node --experimental-strip-types scripts/test-read-intent.mjs
 static | node --experimental-strip-types scripts/test-flag-pin-intent.mjs
@@ -280,3 +282,5 @@ ui-b | node scripts/test-calendar-fold.mjs --quick --require-browser
 static | node scripts/check-shards.mjs
 # 1.0.7 CI speed: the job graph of the release workflow, run with the real plan script and GitHub's rules for needs / if: a tag run has every UI shard and publishes only when all passed (a failed shard, Rust test, build or signing stops it), a dry run without ui_tests has only the shard static and ends green, with ui_tests=true it has all shards
 static | node scripts/test-release-gates.mjs
+# Reply / Reply all / Forward of a 2 MB mail with a slow server: the compose shell (fields and Send off, "Preparing reply…") within one frame, the message after the longest step, the To field does not move, Discard / Esc while it prepares leave no draft, a failing server, Forward with attachments, a window of its own (hand-over, second press), the texts in 8 languages at 960 x 560 and 1280 x 800, reduced motion (the timing alone: `node scripts/measure-reply-open.mjs`)
+ui-c | node scripts/test-reply-feedback.mjs --require-browser

@@ -20,7 +20,9 @@ export type ComposeReq =
   | { kind: "scheduled"; outboxId: string; sendAt: number }
   | { kind: "dialog"; dialog: ComposeDialogReq }
   | { kind: "sync" }
-  | { kind: "refresh" };
+  | { kind: "refresh" }
+  /** the window of a Reply / Forward that was opened as a shell listens for its finished message (composeFill.ts, W13.13) */
+  | { kind: "fill-ready" };
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
@@ -61,6 +63,8 @@ export function parseComposeRequest(kind: string, payload: unknown): ComposeReq 
       return { kind: "sync" };
     case "refresh":
       return { kind: "refresh" };
+    case "fill-ready":
+      return { kind: "fill-ready" };
     default:
       return { error: `unknown compose request: ${kind.slice(0, 40)}` };
   }

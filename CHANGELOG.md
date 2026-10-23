@@ -35,6 +35,7 @@
 
 ### Fixed
 
+- Reply, Reply all and Forward of a long message open at once: the new message appears in the same moment with the subject and "Preparing reply…" (or "Preparing forward…" / "Getting the attachments…"), the recipients, the pictures and the quote are filled in together when they are ready, and Discard or Esc while it prepares leaves nothing behind (no draft). Before, a long mail showed nothing for several seconds because the whole message was downloaded from the server just to read its Reply-To and References, one step after the other. Those headers are now saved with each message when it is synced, a message from before this version reads only its header block from the server once, and the pictures of the quote and the attachments of a forward are fetched four at a time
 - Unsubscribe works for newsletters that write the `List-Unsubscribe` header in encoded pieces (SendGrid and similar): the button no longer says that the message has no unsubscribe link, also for messages that were saved before
 - A message without a `List-Unsubscribe` header can still be unsubscribed from when it shows an unsubscribe link in its text: the notice offers Unsubscribe and the link opens in the browser (nothing is posted for you)
 - Unsubscribing by e-mail uses the address, the subject and the text of the unsubscribe link (the subject often holds the sender's code for you; before it was always "unsubscribe"); a web link is tried before an e-mail one

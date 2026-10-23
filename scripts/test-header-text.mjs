@@ -27,9 +27,9 @@ assert.equal(cleanHeaderText('Re: O04\r\nBcc: bcc@x.test'), 'Re: O04 Bcc: bcc@x.
 
 // the answer is made with it: subject, To and Cc of a reply, the subject of a forward, and again when Compose opens (a draft, a link)
 const actions = read('../src/actions.ts');
-assert.match(actions, /const subject = cleanHeaderText\(m\.subject\);[\s\S]*subject: \/\^re:\/i\.test\(subject\) \? subject : `Re: \$\{subject\}`/, 'a reply uses the cleaned subject');
-assert.match(actions, /const subject = cleanHeaderText\(m\.subject\);[\s\S]*subject: \/\^fwd\?:\/i\.test\(subject\) \? subject : `Fwd: \$\{subject\}`/, 'a forward uses the cleaned subject');
-assert.match(actions, /const to = targets\.to\.map\(cleanHeaderText\);\s*const cc = targets\.cc\.map\(cleanHeaderText\);/, 'a reply cleans its recipients');
+assert.match(actions, /const subject = cleanHeaderText\(m\.subject\);\s*const reSubject = \/\^re:\/i\.test\(subject\) \? subject : `Re: \$\{subject\}`;[\s\S]*subject: reSubject,/, 'a reply uses the cleaned subject');
+assert.match(actions, /const subject = cleanHeaderText\(m\.subject\);\s*const fwdSubject = \/\^fwd\?:\/i\.test\(subject\) \? subject : `Fwd: \$\{subject\}`;[\s\S]*subject: fwdSubject,/, 'a forward uses the cleaned subject');
+assert.match(actions, /to: targets\.to\.map\(cleanHeaderText\),\s*cc: targets\.cc\.map\(cleanHeaderText\),/, 'a reply cleans its recipients');
 const compose = read('../src/components/Compose.tsx');
 assert.match(compose, /useState\(cleanHeaderText\(init\.subject \?\? ""\)\)/, 'Compose cleans the subject it opens with');
 assert.match(compose, /\(init\.to \?\? \[\]\)\.map\(cleanHeaderText\)/);
