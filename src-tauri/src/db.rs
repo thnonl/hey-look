@@ -109,6 +109,8 @@ pub fn migrate(conn: &Connection) -> R<()> {
     add_column(conn, "ALTER TABLE calendars ADD COLUMN full_at INTEGER")?;
     // extra dates of a series (iCalendar RDATE, a JSON array of UTC seconds), 1.0.7 W7.2
     add_column(conn, "ALTER TABLE events ADD COLUMN rdates TEXT NOT NULL DEFAULT '[]'")?;
+    // the provider's own UID of a synced event whose `uid` was worked out from it (Graph: the Global Object ID of a meeting from another service)
+    add_column(conn, "ALTER TABLE events ADD COLUMN ext_uid TEXT")?;
     conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_events_remote ON events(calendar_id, remote_id);").map_err(err)?;
     // the message being written, kept until it is sent, discarded or saved (crash recovery, see recover.rs)
     crate::recover::create_tables(conn)?;

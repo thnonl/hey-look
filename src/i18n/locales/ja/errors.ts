@@ -19,6 +19,7 @@ export default defineLocale<typeof ns.en>({
   "errors.toast.accountFallback": "アカウント",
   "errors.toast.withAccount": "{account}：{error}",
   "errors.toast.accountAdded": "アカウント{email}を追加しました",
+  "errors.toast.accountAddedCal": "アカウント{email}をカレンダー同期付きで追加しました",
   "errors.toast.loadedOlder": { other: "古いメッセージを{n}件読み込みました" },
   "errors.toast.noOlder": "このフォルダーにこれより古いメッセージはありません",
   "errors.limit": "ダウンロード数の上限に達しました（1メールボックスあたり{n}件）。設定 > メールボックス > 閲覧と同期で変更できます。",

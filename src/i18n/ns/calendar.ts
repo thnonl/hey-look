@@ -68,6 +68,9 @@ export default define({
     "calendar.side.paused": "Calendar sync paused for {email}.",
     "calendar.side.pausedGeneric": "Calendar sync paused for this mailbox.",
     "calendar.side.fix": "Fix in Settings",
+    "calendar.side.offer": "Also show the {service} calendars of {email} here?",
+    "calendar.side.offerOn": "Turn on…",
+    "calendar.side.offerLater": "Not now",
 
     // ---- event popover
     "calendar.pop.aria": "Event: {summary}",
@@ -84,6 +87,7 @@ export default define({
     "calendar.pop.copyOf": "{summary} (copy)",
     "calendar.pop.join": "Join",
     "calendar.pop.openEmail": "Open invitation email",
+    "calendar.pop.inviteLocalOnly": "This invitation came by mail and isn’t in {service}. Your answer goes to the organizer by email.",
     "calendar.pop.duplicate": "Duplicate",
 
     // ---- toasts
@@ -276,11 +280,11 @@ export default define({
     "calendar.err.saveFailed": "Couldn’t save to {service}: {reason}.",
     "calendar.err.turnOnFailed": "Couldn’t turn on calendar sync: {reason}",
     "calendar.err.signInSaveFailed": "Couldn’t save the calendar sign-in: {reason}",
-    "calendar.err.denied": "Calendar access wasn’t allowed. Turn the switch on to try again.",
-    "calendar.err.timeout": "Calendar sign-in timed out. Turn the switch on to try again.",
+    "calendar.err.denied": "Calendar access wasn’t allowed. You can try again when you’re ready.",
+    "calendar.err.timeout": "Calendar sign-in timed out. You can try again when you’re ready.",
     "calendar.err.cancelled": "Calendar sign-in was cancelled.",
     "calendar.err.wrongAccount": "You allowed access for {signedIn}. Sign in as {mailbox} to sync this mailbox’s calendar.",
-    "calendar.err.partial": "Hey Look! needs every calendar permission it asked for. Turn the switch on again and keep all boxes ticked.",
+    "calendar.err.partial": "Hey Look! needs every calendar permission it asked for. Try again and keep all boxes ticked.",
     // ---- 1.0.7 WP7a: consent confirm, build without a client, failed sender check
     "calendar.consent.title": "Allow calendar access in your browser?",
     "calendar.consent.body": "Hey Look! opens {provider}’s page in your browser. Sign in as {email} there and allow access to your calendars. Your mail sign-in doesn’t change.",
@@ -355,6 +359,9 @@ export default define({
     "calendar.side.paused": "Đã tạm dừng đồng bộ lịch cho {email}.",
     "calendar.side.pausedGeneric": "Đã tạm dừng đồng bộ lịch cho hộp thư này.",
     "calendar.side.fix": "Sửa trong Cài đặt",
+    "calendar.side.offer": "Hiển thị cả các lịch {service} của {email} tại đây?",
+    "calendar.side.offerOn": "Bật…",
+    "calendar.side.offerLater": "Để sau",
 
     "calendar.pop.aria": "Sự kiện: {summary}",
     "calendar.pop.attendees": { one: "{n} người tham dự", other: "{n} người tham dự" },
@@ -370,6 +377,7 @@ export default define({
     "calendar.pop.copyOf": "{summary} (bản sao)",
     "calendar.pop.join": "Tham gia",
     "calendar.pop.openEmail": "Mở thư mời",
+    "calendar.pop.inviteLocalOnly": "Thư mời này được gửi qua email và không có trong {service}. Câu trả lời của bạn sẽ được gửi đến người tổ chức qua email.",
     "calendar.pop.duplicate": "Nhân bản",
 
     "calendar.toast.saved": "Đã lưu {name}",
@@ -556,11 +564,11 @@ export default define({
     "calendar.err.saveFailed": "Không lưu được vào {service}: {reason}.",
     "calendar.err.turnOnFailed": "Không bật được đồng bộ lịch: {reason}",
     "calendar.err.signInSaveFailed": "Không lưu được thông tin đăng nhập lịch: {reason}",
-    "calendar.err.denied": "Quyền truy cập lịch không được cấp. Hãy bật lại công tắc để thử lần nữa.",
-    "calendar.err.timeout": "Đăng nhập lịch đã hết thời gian chờ. Hãy bật lại công tắc để thử lần nữa.",
+    "calendar.err.denied": "Quyền truy cập lịch không được cấp. Bạn có thể thử lại khi sẵn sàng.",
+    "calendar.err.timeout": "Đăng nhập lịch đã hết thời gian chờ. Bạn có thể thử lại khi sẵn sàng.",
     "calendar.err.cancelled": "Đã hủy đăng nhập lịch.",
     "calendar.err.wrongAccount": "Bạn đã cấp quyền cho {signedIn}. Hãy đăng nhập bằng {mailbox} để đồng bộ lịch của hộp thư này.",
-    "calendar.err.partial": "Hey Look! cần đủ mọi quyền truy cập lịch mà ứng dụng đã yêu cầu. Hãy bật lại công tắc và giữ nguyên tất cả các ô được chọn.",
+    "calendar.err.partial": "Hey Look! cần đủ mọi quyền truy cập lịch mà ứng dụng đã yêu cầu. Hãy thử lại và giữ nguyên tất cả các ô được chọn.",
     // ---- 1.0.7 WP7a: consent confirm, build without a client, failed sender check
     "calendar.consent.title": "Cho phép truy cập lịch trong trình duyệt?",
     "calendar.consent.body": "Hey Look! sẽ mở trang của {provider} trong trình duyệt. Hãy đăng nhập bằng {email} ở đó và cho phép truy cập lịch của bạn. Cách đăng nhập thư của bạn không thay đổi.",
@@ -635,6 +643,9 @@ export default define({
     "calendar.side.paused": "Synchronisation du calendrier suspendue pour {email}.",
     "calendar.side.pausedGeneric": "Synchronisation du calendrier suspendue pour cette boîte aux lettres.",
     "calendar.side.fix": "Corriger dans les paramètres",
+    "calendar.side.offer": "Afficher aussi ici les calendriers {service} du compte {email} ?",
+    "calendar.side.offerOn": "Activer…",
+    "calendar.side.offerLater": "Non merci",
 
     "calendar.pop.aria": "Événement : {summary}",
     "calendar.pop.attendees": { one: "{n} participant", other: "{n} participants" },
@@ -650,6 +661,7 @@ export default define({
     "calendar.pop.copyOf": "{summary} (copie)",
     "calendar.pop.join": "Rejoindre",
     "calendar.pop.openEmail": "Ouvrir l’e-mail d’invitation",
+    "calendar.pop.inviteLocalOnly": "Cette invitation est arrivée par e-mail et ne figure pas dans {service}. Votre réponse est envoyée à l’organisateur par e-mail.",
     "calendar.pop.duplicate": "Dupliquer",
 
     "calendar.toast.saved": "{name} enregistré",
@@ -836,11 +848,11 @@ export default define({
     "calendar.err.saveFailed": "Impossible d’enregistrer dans {service} : {reason}.",
     "calendar.err.turnOnFailed": "Impossible d’activer la synchronisation du calendrier : {reason}",
     "calendar.err.signInSaveFailed": "Impossible d’enregistrer la connexion au calendrier : {reason}",
-    "calendar.err.denied": "L’accès au calendrier n’a pas été autorisé. Réactivez l’option pour réessayer.",
-    "calendar.err.timeout": "La connexion au calendrier a expiré. Réactivez l’option pour réessayer.",
+    "calendar.err.denied": "L’accès au calendrier n’a pas été autorisé. Vous pouvez réessayer quand vous le souhaitez.",
+    "calendar.err.timeout": "La connexion au calendrier a expiré. Vous pouvez réessayer quand vous le souhaitez.",
     "calendar.err.cancelled": "La connexion au calendrier a été annulée.",
     "calendar.err.wrongAccount": "Vous avez autorisé l’accès pour {signedIn}. Connectez-vous avec {mailbox} pour synchroniser le calendrier de cette boîte aux lettres.",
-    "calendar.err.partial": "Hey Look! a besoin de toutes les autorisations de calendrier demandées. Réactivez l’option et gardez toutes les cases cochées.",
+    "calendar.err.partial": "Hey Look! a besoin de toutes les autorisations de calendrier demandées. Réessayez et gardez toutes les cases cochées.",
     // ---- 1.0.7 WP7a: consent confirm, build without a client, failed sender check
     "calendar.consent.title": "Autoriser l’accès au calendrier dans votre navigateur ?",
     "calendar.consent.body": "Hey Look! ouvre la page de {provider} dans votre navigateur. Connectez-vous-y avec {email} et autorisez l’accès à vos calendriers. Votre connexion à la messagerie ne change pas.",

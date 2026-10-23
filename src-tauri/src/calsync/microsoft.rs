@@ -394,9 +394,13 @@ fn parse_event(v: &Value) -> Option<RemoteEvent> {
     let join_url = v["onlineMeeting"]["joinUrl"].as_str().or_else(|| v["onlineMeetingUrl"].as_str()).filter(|u| !u.is_empty()).map(String::from);
     let instance = kind != EventKind::Single;
     let orig = v["originalStart"].as_str().and_then(|s| DateTime::parse_from_rfc3339(s).ok()).map(|d| d.timestamp());
+    let raw_uid = v["iCalUId"].as_str().filter(|u| !u.is_empty());
+    // a meeting from a service outside Exchange has the UID of its invitation inside the hex ID: that one is the event's uid (the twin rule matches by it)
+    let original = raw_uid.and_then(original_uid);
     Some(RemoteEvent {
         etag: v["@odata.etag"].as_str().unwrap_or("").to_string(),
-        uid: v["iCalUId"].as_str().filter(|u| !u.is_empty()).unwrap_or(&id).to_string(),
+        ext_uid: original.as_ref().and(raw_uid).map(String::from),
+        uid: original.or_else(|| raw_uid.map(String::from)).unwrap_or_else(|| id.clone()),
         kind,
         series_id: v["seriesMasterId"].as_str().filter(|_| instance).map(String::from),
         recurrence_id: instance.then(|| orig.unwrap_or(start)),
@@ -420,6 +424,34 @@ fn parse_event(v: &Value) -> Option<RemoteEvent> {
         updated,
         id,
     })
+}
+
+/// The first 16 bytes of every Exchange Global Object ID (MS-OXOCAL, PidLidGlobalObjectId).
+const GOID_CLASS: [u8; 16] = [0x04, 0x00, 0x00, 0x00, 0x82, 0x00, 0xE0, 0x00, 0x74, 0xC5, 0xB7, 0x10, 0x1A, 0x82, 0xE0, 0x08];
+
+/// Graph's `iCalUId` of a meeting is the hex Global Object ID. For a meeting that came from a service outside Exchange the ID is built
+/// around the UID of the original invitation (MS-OXOCAL: class ID 16 bytes, date 4, creation time 8, reserved 8, size 4, then the data:
+/// the marker `vCal-Uid`, `01 00 00 00`, the UID and a NUL). That UID is what the invitation mail carries, so it is what the twin rule needs.
+/// `None` for an Outlook-native ID (whose data is random), a UID that is not hex, too short or damaged, and every other kind of value.
+pub(crate) fn original_uid(ical_uid: &str) -> Option<String> {
+    let s = ical_uid.trim();
+    if s.len() < 2 * 52 || s.len() % 2 != 0 || !s.is_ascii() {
+        return None;
+    }
+    let mut b = Vec::with_capacity(s.len() / 2);
+    for i in (0..s.len()).step_by(2) {
+        b.push(u8::from_str_radix(&s[i..i + 2], 16).ok()?);
+    }
+    if b[..16] != GOID_CLASS || &b[40..48] != b"vCal-Uid" {
+        return None;
+    }
+    let mut rest = &b[48..];
+    if rest.starts_with(&[1, 0, 0, 0]) {
+        rest = &rest[4..];
+    }
+    let end = rest.iter().position(|c| *c == 0).unwrap_or(rest.len());
+    let uid = std::str::from_utf8(&rest[..end]).ok()?.trim();
+    (!uid.is_empty() && !uid.chars().any(|c| c.is_control())).then(|| uid.to_string())
 }
 
 fn parse_calendar(v: &Value) -> Option<RemoteCalendar> {

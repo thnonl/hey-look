@@ -193,6 +193,9 @@ pub struct RemoteEvent {
     pub etag: String,
     /// iCalendar UID (Google iCalUID, Graph iCalUId); the provider's id when it has none
     pub uid: String,
+    /// The provider's own UID when `uid` is a different one worked out from it (Graph: the hex Global Object ID of a meeting from a
+    /// service outside Exchange carries the original UID, see `microsoft::original_uid`); kept for the writes that need the provider's.
+    pub ext_uid: Option<String>,
     pub kind: EventKind,
     /// the id of the series master (exceptions, occurrences)
     pub series_id: Option<String>,
@@ -235,6 +238,7 @@ impl RemoteEvent {
             id: id.into(),
             etag: String::new(),
             uid: id.into(),
+            ext_uid: None,
             kind: EventKind::Single,
             series_id: None,
             recurrence_id: None,

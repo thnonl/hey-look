@@ -22,7 +22,7 @@ const cal = part("function CalendarPanel(", "\n/** Per-mailbox PGP defaults.");
 // 1. Add account (Google / Microsoft): the form has no message row; everything the sign-in says is in ONE slot under the card, in one conditional chain
 const form = oauth.slice(oauth.indexOf('<div className="form">'), oauth.indexOf('{/* what the sign-in is doing'));
 assert.doesNotMatch(form, /\{error &&|\{ended &&|\{busy && <SignInWaiting|role="status"|role="alert"/, "no message row inside the card");
-assert.match(oauth, /<div className="signin-slot">\s*\{busy \? <SignInWaiting [^\n]*\n\s*: ended \? <SignInEnded [^\n]*\n\s*: error \? <div className="notice bad" role="alert">\{error\}<\/div>\n\s*: !fromEnv && !cid \? <div className="muted small" role="status">\{t\("settings\.add\.notAvailable"[^\n]*\n\s*: null\}\s*<\/div>/, "waiting, ended, error and the hint for a disabled button take turns in the slot");
+assert.match(oauth, /<div className="signin-slot" ref=\{slot\}>\s*\{cal \? \([\s\S]*?\n\s*\)\s*: busy \? <SignInWaiting [^\n]*\n\s*: ended \? <SignInEnded [^\n]*\n\s*: error \? <div className="notice bad" role="alert">\{error\}<\/div>\n\s*: !fromEnv && !cid \? <div className="muted small" role="status">\{t\("settings\.add\.notAvailable"[^\n]*\n\s*: null\}\s*<\/div>/, "the calendar step, waiting, ended, error and the hint for a disabled button take turns in the slot");
 assert.ok(oauth.indexOf('className="signin-slot"') > oauth.indexOf("</div>\n      {/* what the sign-in is doing"), "the slot is after the card, not in it");
 assert.match(oauth, /if \(!document\.activeElement \|\| document\.activeElement === document\.body\) goBtn\.current\?\.focus\(\);/, "when the sign-in ends the focus goes back to the button that started it");
 assert.match(oauth, /<button ref=\{goBtn\} className="btn primary"/, "the ref is on the sign-in button");
@@ -42,7 +42,7 @@ assert.match(cal, /\{src && \(\s*<div className="row-inline set-actions">/, "the
 assert.match(cal, /disabled=\{connecting\} onClick=\{\(\) => void connect\(\)\}/, "Allow again is off while the consent waits");
 assert.match(cal, /\{src && src\.calendars\.length > 0 && \(/, "the calendar list stays while a consent waits");
 assert.match(cal, /useEffect\(\(\) => \{\s*setErr\(null\);\s*setEnded\(null\);\s*\}, \[src\?\.status\]\);/, "an old message goes when the sync state moves on");
-assert.match(cal, /const starter = document\.activeElement as HTMLElement \| null;[\s\S]*?opener\.current = starter;/, "the element that started the consent is remembered (taken before the question that comes first)");
+assert.match(cal, /const starter = document\.activeElement instanceof HTMLElement && document\.activeElement\.matches\("button, input"\) \? document\.activeElement : null;[\s\S]*?opener\.current = starter;/, "the element that started the consent is remembered (taken before the question that comes first)");
 assert.match(cal, /back\?\.focus\(\)/, "and gets the focus back when the consent ends");
 
 // 4. the CSS: a slot of fixed minimum size (it holds the longest message in every language), no margin under the notice inside it, an action row of one height

@@ -19,6 +19,7 @@ export default defineLocale<typeof ns.en>({
   "errors.toast.accountFallback": "Cuenta",
   "errors.toast.withAccount": "{account}: {error}",
   "errors.toast.accountAdded": "Se añadió la cuenta {email}",
+  "errors.toast.accountAddedCal": "Se añadió la cuenta {email} con sincronización del calendario",
   "errors.toast.loadedOlder": { one: "Se cargó {n} mensaje anterior", other: "Se cargaron {n} mensajes anteriores" },
   "errors.toast.noOlder": "No hay mensajes anteriores en esta carpeta",
   "errors.limit": "Se alcanzó el límite de descarga ({n} correos por buzón). Aumenta el límite en Configuración > Buzones > Lectura y sincronización.",

@@ -12,7 +12,7 @@ import {
 } from "../calendar";
 import { accountColor } from "../prefs";
 import { HOUR_PX_MAX, hourHeight, minuteFromY } from "../weekHours";
-import { calendarName, calendarTitle, defaultCalendar, deleteConfirm, isSyncedCalendarId, pausedSources, readOnlyNote, writableCalendars } from "../calendarSync";
+import { calendarName, calendarOffer, calendarTitle, foldTarget, sidebarCalendars, defaultCalendar, deleteConfirm, isSyncedCalendarId, pausedSources, readOnlyNote, serviceName, writableCalendars } from "../calendarSync";
 import { friendlyError, EventInit, useStore } from "../store";
 import { t, type Key } from "../i18n";
 import { useLang, useT } from "../i18n/react";
@@ -42,9 +42,11 @@ function useAccountColor() {
   const accounts = useStore((s) => s.accounts);
   const accent = useStore((s) => s.prefs.accent);
   const calendars = useStore((s) => s.calendars);
-  // a synced calendar is drawn in its own colour (the id of such a calendar is what `eventColor` asks for)
+  // a synced calendar is drawn in its own colour (the id of such a calendar is what `eventColor` asks for); the invitations of a mailbox whose main calendar is
+  // synced are part of that calendar and take its colour (W7.11), otherwise the mailbox's
   return useCallback((id: string) => {
-    const own = calendars.find((c) => c.remote && c.id === id)?.color;
+    const target = foldTarget(calendars, id);
+    const own = target?.remote ? target.color : "";
     if (own) return own;
     const a = accounts.find((x) => x.id === (calendars.find((c) => c.id === id)?.accountId ?? id));
     return a ? accountColor(a, accent) : undefined;
@@ -926,6 +928,9 @@ function EventPopover({ state, tz, color, onClose, onEdit }: { state: PopState; 
   const synced = isSyncedCalendarId(ev.calendarId);
   const syncedCal = useStore.getState().calendars.find((c) => c.id === ev.calendarId);
   const lockNote = synced ? readOnlyNote(ev, syncedCal?.name ?? "", syncedCal?.service) : null;
+  // an invitation shown as part of the synced calendar that the service did not add there (a twin would have been shown instead of it): say it is only here (W7.11)
+  const foldedCal = invite ? foldTarget(useStore.getState().calendars, ev.calendarId) : undefined;
+  const localOnlyNote = foldedCal && foldedCal.id !== ev.calendarId && foldedCal.service ? t("calendar.pop.inviteLocalOnly", { service: foldedCal.service }) : null;
   const canRsvp = invite && !!ev.sourceMessageId && ev.myStatus !== "organizer" && ev.myStatus !== null && ev.status !== "cancelled";
 
   // below the chip, or above it when there is no room; kept inside the window (the popover is never taller than the window: its details scroll)
@@ -1071,6 +1076,7 @@ function EventPopover({ state, tz, color, onClose, onEdit }: { state: PopState; 
         )}
         {ev.description && <div className="muted small" style={{ whiteSpace: "pre-wrap", maxHeight: 90, overflow: "auto" }}>{ev.description.slice(0, 600)}</div>}
         {lockNote && <div className="muted small">{lockNote}</div>}
+        {localOnlyNote && <div className="muted small">{localOnlyNote}</div>}
         {err && <div className="inline-err" role="alert"><TriangleAlert size={14} aria-hidden /> {err}</div>}
       </div>
       {(answerRow || showMail || showEdit || showCopy || showDelete) && (
@@ -1114,7 +1120,7 @@ function calendarColor(c: { id: string; remote?: boolean; color?: string | null;
 export function CalRail() {
   const t = useT();
   const { prefs, calendars, bumpCal, accounts } = useStore();
-  const cals = calendars.length ? calendars : [{ id: "local", name: t("calendar.myEvents"), color: MY_EVENTS_COLOR, accountId: null, visible: true }];
+  const cals = calendars.length ? sidebarCalendars(calendars) : [{ id: "local", name: t("calendar.myEvents"), color: MY_EVENTS_COLOR, accountId: null, visible: true }];
   return (
     <div className="fp-group fp-calrail" role="group" aria-label={t("calendar.side.calendars")}>
       {cals.map((c) => {
@@ -1139,10 +1145,20 @@ export function CalRail() {
 
 export function CalSidebar() {
   const t = useT();
-  const { prefs, calDate, calEvents, calendars, calSources, setCalDate, setPrefs, setDialog, bumpCal, accounts } = useStore();
+  const { prefs, calDate, calEvents, calendars, calSources, calSourcesReady, calOfferDone, setCalDate, setPrefs, setDialog, bumpCal, accounts } = useStore();
   const tz = useTz();
   const todayD = today(tz);
   const [month, setMonth] = useState<Day>(calDate);
+  // the offer for mailboxes that existed before calendar sync could be asked for at sign-in (W7.9): shown once everything it depends on is read
+  const [kinds, setKinds] = useState<string[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.calendarKindsAvailable().then((k) => live && setKinds(k)).catch(() => live && setKinds([]));
+    void useStore.getState().loadCalOffer();
+    void useStore.getState().loadCalSources();
+    return () => void (live = false);
+  }, []);
+  const offer = calSourcesReady ? calendarOffer(accounts, calSources, kinds, calOfferDone) : null;
   useEffect(() => setMonth({ ...calDate, d: 1 }), [calDate]);
   const grid = useMemo(() => monthGrid(month, prefs.weekStart), [month, prefs.weekStart]);
   const dows = Array.from({ length: 7 }, (_, i) => wdNarrow((prefs.weekStart + i) % 7));
@@ -1157,7 +1173,7 @@ export function CalSidebar() {
   const weekOfSel = weekStartOf(calDate, prefs.weekStart);
   const sel = (d: Day) => prefs.calView === "month" ? sameDay(d, calDate) : prefs.calView === "week" ? daysBetween(weekOfSel, d) >= 0 && daysBetween(weekOfSel, d) < 7 : sameDay(d, calDate);
 
-  const cals = calendars.length ? calendars : [{ id: "local", name: t("calendar.myEvents"), color: MY_EVENTS_COLOR, accountId: null, visible: true }];
+  const cals = calendars.length ? sidebarCalendars(calendars) : [{ id: "local", name: t("calendar.myEvents"), color: MY_EVENTS_COLOR, accountId: null, visible: true }];
   return (
     <>
       <div className="fp-group">
@@ -1214,6 +1230,23 @@ export function CalSidebar() {
             <span>{t("calendar.side.showDeclined")}</span>
           </label>
         </div>
+        {offer && (
+          <div className="notice info cal-offer" role="note" style={{ margin: "8px 0 0" }}>
+            {t("calendar.side.offer", { service: serviceName(offer.kind), email: offer.email })}{" "}
+            <button
+              className="link"
+              onClick={() => {
+                // answered; Settings > that mailbox > Calendar opens and starts the switch's own path, which asks before the browser opens
+                void useStore.getState().answerCalOffer();
+                useStore.setState({ calAutostart: offer.accountId });
+                setDialog({ type: "settings", tab: `mb:${offer.accountId}`, focus: "calendar", nonce: Date.now() });
+              }}
+            >
+              {t("calendar.side.offerOn")}
+            </button>{" "}
+            <button className="link" onClick={() => void useStore.getState().answerCalOffer()}>{t("calendar.side.offerLater")}</button>
+          </div>
+        )}
         {pausedSources(calSources).map((s) => (
           <div key={s.id} className="notice bad" style={{ margin: "8px 0 0" }}>
             {(() => {

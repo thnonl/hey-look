@@ -67,6 +67,9 @@ export default defineLocale<typeof ns.en>({
   "calendar.side.paused": "Синхронизация календаря для {email} приостановлена.",
   "calendar.side.pausedGeneric": "Синхронизация календаря для этого ящика приостановлена.",
   "calendar.side.fix": "Исправить в настройках",
+  "calendar.side.offer": "Показывать здесь и календари {service} для {email}?",
+  "calendar.side.offerOn": "Включить…",
+  "calendar.side.offerLater": "Не сейчас",
   // ---- event popover
   "calendar.pop.aria": "Событие: {summary}",
   "calendar.pop.attendees": { one: "{n} участник", few: "{n} участника", many: "{n} участников", other: "{n} участника" },
@@ -87,6 +90,7 @@ export default defineLocale<typeof ns.en>({
   "calendar.pop.copyOf": "{summary} (копия)",
   "calendar.pop.join": "Присоединиться",
   "calendar.pop.openEmail": "Открыть письмо с приглашением",
+  "calendar.pop.inviteLocalOnly": "Это приглашение пришло по почте и не добавлено в {service}. Ваш ответ уйдёт организатору по электронной почте.",
   "calendar.pop.duplicate": "Дублировать",
   // ---- toasts
   "calendar.toast.saved": "Сохранено: {name}",
@@ -283,11 +287,11 @@ export default defineLocale<typeof ns.en>({
   "calendar.err.saveFailed": "Не удалось сохранить в {service}: {reason}.",
   "calendar.err.turnOnFailed": "Не удалось включить синхронизацию календаря: {reason}",
   "calendar.err.signInSaveFailed": "Не удалось сохранить вход в календарь: {reason}",
-  "calendar.err.denied": "Доступ к календарю не был разрешён. Включите переключатель, чтобы повторить попытку.",
-  "calendar.err.timeout": "Время ожидания входа в календарь истекло. Включите переключатель, чтобы повторить попытку.",
+  "calendar.err.denied": "Доступ к календарю не был разрешён. Вы можете повторить попытку, когда будете готовы.",
+  "calendar.err.timeout": "Время ожидания входа в календарь истекло. Вы можете повторить попытку, когда будете готовы.",
   "calendar.err.cancelled": "Вход в календарь отменён.",
   "calendar.err.wrongAccount": "Вы разрешили доступ для {signedIn}. Чтобы синхронизировать календарь этого ящика, войдите как {mailbox}.",
-  "calendar.err.partial": "Hey Look! нужны все запрошенные разрешения для календаря. Снова включите переключатель и оставьте отмеченными все пункты.",
+  "calendar.err.partial": "Hey Look! нужны все запрошенные разрешения для календаря. Повторите попытку и оставьте отмеченными все пункты.",
   // ---- 1.0.7 WP7a: consent confirm, build without a client, failed sender check
   "calendar.consent.title": "Разрешить доступ к календарю в браузере?",
   "calendar.consent.body": "Hey Look! откроет страницу {provider} в браузере. Войдите там как {email} и разрешите доступ к своим календарям. Вход в почту не изменится.",

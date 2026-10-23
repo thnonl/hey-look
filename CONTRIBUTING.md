@@ -22,7 +22,7 @@ Copy `.env.example` to `.env` (it is git-ignored) and fill in the values. The co
 
 #### Calendar sync (Google Calendar)
 
-Calendar sync uses the same OAuth client and a **separate consent** (a desktop app cannot add scopes to an existing grant), so a user who never turns it on is never asked. To use it:
+Calendar sync uses the same OAuth client and a **separate consent** (a desktop app cannot add scopes to an existing grant). It is asked right after the mail sign-in when "Also sync my calendar" is ticked on Add account (the default), or later from Settings > Mailboxes > (account) > Calendar; a user who unticks or skips it and never turns it on is never asked. To use it:
 
 1. Google Cloud Console, the project of `GOOGLE_CLIENT_ID` → APIs & Services → Library → **Google Calendar API** → **Enable**. Without it every request fails with `403 accessNotConfigured` and Settings shows "Calendar sync isn't available in this version of Hey Look! (Google reported: ...)".
 2. Google Auth Platform → Data Access → Add or remove scopes: `https://www.googleapis.com/auth/calendar.events` and `https://www.googleapis.com/auth/calendar.calendarlist.readonly` (both sensitive, not restricted). Add them before the first verification submission so one review covers mail and calendar.
@@ -54,7 +54,7 @@ Work and school tenants may block IMAP / SMTP AUTH until an admin enables it for
 
 #### Calendar sync (Microsoft Graph)
 
-Calendar sync uses the same Entra app, the same client ID, the same tenant setting and the same redirect (`http://localhost`), and a **separate consent** with its own refresh token (a token request names one resource: the mail token is for Exchange Online, the calendar token for Microsoft Graph), so a user who never turns it on is never asked. Steps in the Entra admin center / Azure portal, for the app of `MICROSOFT_CLIENT_ID`:
+Calendar sync uses the same Entra app, the same client ID, the same tenant setting and the same redirect (`http://localhost`), and a **separate consent** with its own refresh token (a token request names one resource: the mail token is for Exchange Online, the calendar token for Microsoft Graph). It is asked right after the mail sign-in when "Also sync my calendar" is ticked (the default), or later from Settings; a user who unticks or skips it and never turns it on is never asked. Steps in the Entra admin center / Azure portal, for the app of `MICROSOFT_CLIENT_ID`:
 
 1. App registrations → the app → **API permissions** → Add a permission → **Microsoft Graph** → **Delegated permissions** → `Calendars.ReadWrite`. Keep `openid`, `email`, `profile`, `offline_access`. The permission needs no admin consent for the user's own calendars: do **not** grant tenant-wide admin consent unless it is your own test tenant (users consent themselves; a tenant that disabled user consent shows "Need admin approval", and Hey Look! then tells the person that their organization must approve it).
 2. **Authentication**: keep the platform "Mobile and desktop applications" with the redirect URI `http://localhost` (no new URI is needed) and public client flows allowed. Check **Supported account types** = "Accounts in any organizational directory and personal Microsoft accounts" (without personal accounts, outlook.com and hotmail.com mailboxes cannot consent).

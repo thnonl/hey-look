@@ -341,7 +341,8 @@ export function personName(p: { email: string; name?: string | null } | null | u
 
 export function eventColor(e: Pick<CalEvent, "calendarId">, accountColor: (id: string) => string | undefined): string {
   if (e.calendarId === "local") return MY_EVENTS_COLOR;
-  return accountColor(e.calendarId.replace(/^invites:/, "")) || "var(--accent)";
+  // (the callback gets the calendar's id: "invites:<mailbox>" for an invitation, drawn in the colour of the calendar it is folded into, else in the mailbox colour)
+  return accountColor(e.calendarId) || "var(--accent)";
 }
 
 /** Answer text for an event ("Accepted", "Not responded", …). */

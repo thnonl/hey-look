@@ -68,6 +68,9 @@ export default defineLocale<typeof ns.en>({
   "calendar.side.paused": "{email}のカレンダー同期は一時停止中です。",
   "calendar.side.pausedGeneric": "このメールボックスのカレンダー同期は一時停止中です。",
   "calendar.side.fix": "設定で修正",
+  "calendar.side.offer": "{email}の{service}のカレンダーも、ここに表示しますか？",
+  "calendar.side.offerOn": "オンにする…",
+  "calendar.side.offerLater": "今はしない",
   // ---- event popover
   "calendar.pop.aria": "予定：{summary}",
   "calendar.pop.attendees": { other: "出席者{n}人" },
@@ -83,6 +86,7 @@ export default defineLocale<typeof ns.en>({
   "calendar.pop.copyOf": "{summary}（コピー）",
   "calendar.pop.join": "参加",
   "calendar.pop.openEmail": "招待メールを開く",
+  "calendar.pop.inviteLocalOnly": "この招待はメールで届いたもので、{service}にはありません。返信はメールで主催者に送られます。",
   "calendar.pop.duplicate": "複製",
   // ---- toasts
   "calendar.toast.saved": "{name}を保存しました",
@@ -269,11 +273,11 @@ export default defineLocale<typeof ns.en>({
   "calendar.err.saveFailed": "{service}に保存できませんでした：{reason}。",
   "calendar.err.turnOnFailed": "カレンダー同期をオンにできませんでした：{reason}",
   "calendar.err.signInSaveFailed": "カレンダーのサインイン情報を保存できませんでした：{reason}",
-  "calendar.err.denied": "カレンダーへのアクセスが許可されませんでした。スイッチをオンにして、もう一度お試しください。",
-  "calendar.err.timeout": "カレンダーのサインインがタイムアウトしました。スイッチをオンにして、もう一度お試しください。",
+  "calendar.err.denied": "カレンダーへのアクセスが許可されませんでした。準備ができたら、もう一度お試しください。",
+  "calendar.err.timeout": "カレンダーのサインインがタイムアウトしました。準備ができたら、もう一度お試しください。",
   "calendar.err.cancelled": "カレンダーのサインインがキャンセルされました。",
   "calendar.err.wrongAccount": "{signedIn}でアクセスを許可しました。このメールボックスのカレンダーを同期するには、{mailbox}でサインインしてください。",
-  "calendar.err.partial": "Hey Look!は、要求したカレンダーの権限をすべて必要とします。スイッチをもう一度オンにして、すべてのチェックボックスをオンのままにしてください。",
+  "calendar.err.partial": "Hey Look!は、要求したカレンダーの権限をすべて必要とします。もう一度お試しいただき、すべてのチェックボックスをオンのままにしてください。",
   // ---- 1.0.7 WP7a: consent confirm, build without a client, failed sender check
   "calendar.consent.title": "カレンダーへのアクセスをブラウザーで許可しますか？",
   "calendar.consent.body": "Hey Look!が{provider}のページをブラウザーで開きます。そこで{email}としてサインインし、カレンダーへのアクセスを許可してください。メールのサインインは変更されません。",

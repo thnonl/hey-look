@@ -6,8 +6,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  calendarErrorCode, calendarErrorText, calendarName, calendarSyncKind, defaultCalendar, deleteConfirm, isSyncedCalendarId, lastSyncedText,
-  pausedSources, readOnlyNote, statusLine, syncedColor, truncatedNote, writableCalendars, CALENDAR_SYNC_KINDS,
+  calendarErrorCode, calendarErrorText, calendarName, calendarOffer, calendarStepFailure, calendarSyncKind, defaultCalendar, deleteConfirm, foldTarget, isSyncedCalendarId, lastSyncedText,
+  pausedSources, readOnlyNote, sidebarCalendars, statusLine, syncedColor, truncatedNote, writableCalendars, CALENDAR_SYNC_KINDS,
 } from "../src/calendarSync.ts";
 
 // ---- who gets the switch (AC-1)
@@ -102,7 +102,7 @@ assert.equal(syncedColor(undefined, undefined), undefined);
 
 // ---- errors of the backend (shown as they are, not turned into mail-server advice)
 assert.equal(calendarErrorText("CAL_CONFLICT: This event was changed in Google Calendar, so its latest version is shown."), "This event was changed in Google Calendar, so its latest version is shown.");
-assert.equal(calendarErrorText("CAL_TIMEOUT: Calendar sign-in timed out. Turn the switch on to try again."), "Calendar sign-in timed out. Turn the switch on to try again.");
+assert.equal(calendarErrorText("CAL_TIMEOUT: Calendar sign-in timed out. You can try again when you’re ready."), "Calendar sign-in timed out. You can try again when you’re ready.");
 assert.equal(calendarErrorText("CAL_OFFLINE: You’re offline. Changes to Work need a connection."), "You’re offline. Changes to Work need a connection.");
 assert.equal(calendarErrorText("CAL_WRONG_ACCOUNT: You allowed access for x@y.z. Sign in as a@b.c to sync this mailbox’s calendar."), "You allowed access for x@y.z. Sign in as a@b.c to sync this mailbox’s calendar.");
 assert.equal(calendarErrorText("CAL_SEND_FAILED: The event was saved, but the invitations weren't sent"), null, "mail errors keep their own handling");
@@ -131,8 +131,67 @@ const sites = [];
 const walk = (d) => { for (const f of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, f.name); if (f.isDirectory()) walk(p); else if (/\.tsx?$/.test(f.name) && !/devMock|api\.ts$/.test(f.name) && fs.readFileSync(p, "utf8").includes("calendarConnect(")) sites.push(path.relative(root, p).split(path.sep).join("/")); } };
 walk(path.join(root, "src"));
 assert.deepEqual(sites, ["src/components/SettingsDialog.tsx"], "no other start of the calendar consent");
-assert.equal(settings.split("calendarConnect(").length - 1, 1);
+// (and the one other call is the second step of Add account, W7.9: it has no question, the ticked box is the confirmation, D-7.9d)
+assert.equal(settings.split("calendarConnect(").length - 1, 2);
 const starts = settings.split("onChange={(v) => void (v ? connect() : stop())}").length - 1 + settings.split("onClick={() => void connect()}").length - 1;
 assert.equal(starts, 2, "the switch and Allow access again both call connect()");
+
+// ---- the calendar step of Add account (W7.9): only after a mail sign-in that made the account, only with the box ticked, never from "Sign in again"
+const oauth = settings.slice(settings.indexOf("function OAuthBlock("), settings.indexOf("const SOURCE_LABEL"));
+assert.ok(oauth.length > 3000 && oauth.length < 20000, "found OAuthBlock");
+const step = oauth.slice(oauth.indexOf("const calendarStep = async"), oauth.indexOf("const skipCalendar"));
+assert.ok(step.includes("api.calendarConnect(acc.id)") && !step.includes("confirm("), "step 2 calls the backend without a question");
+const signedIn = oauth.indexOf("await api.googleSignIn(");
+assert.ok(signedIn > 0 && oauth.indexOf("void calendarStep(acc)") > signedIn, "the calendar step comes after the mail sign-in");
+assert.match(oauth, /alsoCal && showCal && !\(await api\.calendarSources\(\)[^;]*\.some\(\(x\) => x\.accountId === acc\.id\);/, "ticked box, a build that can connect the service, and no source yet");
+assert.ok(oauth.includes("useState(true)"), "the box is ticked every time the card opens");
+const reauth = fs.readFileSync(path.join(root, "src/components/SignInHelp.tsx"), "utf8");
+assert.ok(!reauth.includes("calendarConnect") && !reauth.includes("calendarStep"), "Sign in again never starts a calendar step");
+assert.ok(oauth.includes("calendarCancelConnect") && oauth.includes("accountAddedDone(acc, false)") && oauth.includes("accountAddedDone(acc, true)"), "Skip / leaving cancel and finish; success finishes with the calendar toast");
+assert.equal(calendarStepFailure("CAL_CANCELLED: Calendar sign-in was cancelled."), "skip");
+for (const code of ["DENIED", "TIMEOUT", "WRONG_ACCOUNT", "PARTIAL", "BLOCKED", "NOT_SET_UP", "ERROR"]) assert.equal(calendarStepFailure(`CAL_${code}: x`), "failed", code);
+assert.equal(calendarStepFailure("something else"), "failed");
+
+// ---- the sidebar offer for mailboxes that existed before (W7.9, REQ-7.9.8): the first mailbox that can sync and does not, until answered once
+const A = (id, email, auth, imapHost) => ({ id, email, auth, imapHost });
+const imap = A("a1", "me@fastmail.test", "password", "imap.fastmail.test");
+const g = A("a2", "nam@gmail.com", "oauth_google", "imap.gmail.com");
+const gp = A("a3", "work@gmail.com", "password", "imap.gmail.com"); // Gmail with an app password counts too (W7.8)
+const ms = A("a4", "nam@outlook.com", "oauth_microsoft", "outlook.office365.com");
+const both = ["google", "microsoft"];
+assert.deepEqual(calendarOffer([imap, g, gp, ms], [], both, null), { accountId: "a2", email: "nam@gmail.com", kind: "google" }, "the first one, in account order");
+assert.deepEqual(calendarOffer([imap, ms, g], [], both, null), { accountId: "a4", email: "nam@outlook.com", kind: "microsoft" }, "account order, not the order of the services");
+assert.deepEqual(calendarOffer([imap, g, gp, ms], [{ accountId: "a2" }], both, null)?.accountId, "a3", "a mailbox that syncs is skipped");
+assert.equal(calendarOffer([imap, g, gp, ms], [{ accountId: "a2" }, { accountId: "a3" }, { accountId: "a4" }], both, null), null, "every eligible mailbox syncs");
+assert.equal(calendarOffer([imap, A("a5", "x@example.test", "password", "mail.example.test")], [], both, null), null, "only IMAP mailboxes without a calendar service");
+assert.equal(calendarOffer([g, ms], [], both, "1"), null, "answered once, for good");
+assert.deepEqual(calendarOffer([g, ms], [], both, ""), calendarOffer([g, ms], [], both, null), "anything but 1 is not an answer");
+assert.equal(calendarOffer([g, ms], [], null, null), null, "the services this build can connect are not read yet");
+assert.equal(calendarOffer([g, ms], [], both, undefined), null, "the setting is not read yet");
+assert.equal(calendarOffer([g, ms], [], [], null), null, "a build without any OAuth client");
+assert.equal(calendarOffer([g, ms], [], ["microsoft"], null)?.accountId, "a4", "a service this build cannot connect is skipped");
+assert.equal(calendarOffer([], [], both, null), null);
+// the backend sentences of a refused / timed out / partial consent no longer tell the person to turn the switch on (it is also seen at Add account)
+assert.equal(calendarErrorText("CAL_DENIED: Calendar access wasn’t allowed. You can try again when you’re ready."), "Calendar access wasn’t allowed. You can try again when you’re ready.");
+assert.equal(calendarErrorText("CAL_PARTIAL: Hey Look! needs every calendar permission it asked for. Try again and keep all boxes ticked."), "Hey Look! needs every calendar permission it asked for. Try again and keep all boxes ticked.");
+const dictEn = fs.readFileSync(path.join(root, "src/i18n/ns/calendar.ts"), "utf8");
+assert.ok(dictEn.includes('"calendar.err.denied": "Calendar access wasn’t allowed. You can try again when you’re ready."'));
+assert.ok(dictEn.includes('"calendar.err.partial": "Hey Look! needs every calendar permission it asked for. Try again and keep all boxes ticked."'));
+// no text of the app, the backend or the tests says "Turn the switch on" any more (AC-7.9.14)
+const stale = [];
+const scan = (d) => { for (const f of fs.readdirSync(d, { withFileTypes: true })) { const q = path.join(d, f.name); if (f.isDirectory()) { if (f.name !== "target") scan(q); } else if (/\.(tsx?|rs|mjs)$/.test(f.name) && fs.readFileSync(q, "utf8").includes("Turn the switch")) stale.push(path.relative(root, q).split(path.sep).join("/")); } };
+scan(path.join(root, "src")); scan(path.join(root, "src-tauri", "src"));
+assert.deepEqual(stale.filter((f) => f !== "scripts/test-calendar-sync.mjs"), [], "no text tells the person to turn the switch on");
+
+// ---- the Invitations entry of a synced mailbox is part of its main calendar (W7.11, REQ-7.11.2): not listed, drawn like the calendar it is folded into
+const L = (id, extra = {}) => ({ id, name: id, color: "", accountId: null, visible: true, ...extra });
+const list = [L("local"), L("invites:a1", { accountId: "a1" }), L("invites:a2", { accountId: "a2", foldedInto: "google:a2:primary" }), L("invites:a4", { accountId: "a4", foldedInto: "ms:a4:primary" }), L("google:a2:primary", { remote: true }), L("ms:a4:primary", { remote: true })];
+assert.deepEqual(sidebarCalendars(list).map((c) => c.id), ["local", "invites:a1", "google:a2:primary", "ms:a4:primary"], "the folded entries are left out, the IMAP mailbox keeps its own");
+assert.deepEqual(sidebarCalendars([L("local")]).map((c) => c.id), ["local"]);
+assert.equal(foldTarget(list, "invites:a2")?.id, "google:a2:primary", "a folded entry follows its calendar");
+assert.equal(foldTarget(list, "invites:a1")?.id, "invites:a1", "an unfolded one is itself");
+assert.equal(foldTarget(list, "google:a2:primary")?.id, "google:a2:primary");
+assert.equal(foldTarget(list, "nothing"), undefined);
+assert.equal(foldTarget([L("invites:a9", { foldedInto: "gone" })], "invites:a9")?.id, "invites:a9", "a target that is not listed leaves the entry as it is");
 
 console.log("calendar sync: all checks passed");

@@ -239,6 +239,8 @@ const ev = (id: string, summary: string, start: number, end: number, over: Recor
 });
 const you = { email: "nam@example.com", name: "Nam Hoang", role: "required", status: "needs-action", isYou: true };
 const people = (list: [string, string][]) => list.map(([name, status]) => ({ email: `${name.split(" ")[0].toLowerCase()}@contoso.com`, name, role: "required", status, isYou: false }));
+// `#caltwins` adds invitations whose synced copies the service may have put in the synced calendar (W7.11, see calendar.rs SyncedTwins)
+const calTwins = /(^|&)caltwins(&|$)/.test(window.location.hash.slice(1));
 let calEvents: MockEvent[] = [
   ev("e1", "Standup", at(0, 9, 30), at(0, 10), { calendarId: "invites:a1", accountId: "a1", myStatus: "accepted", rrule: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR", recurrenceText: "Every Monday, Tuesday, Wednesday, Thursday and Friday", location: "https://teams.microsoft.com/l/meetup-join/xyz", joinUrl: "https://teams.microsoft.com/l/meetup-join/xyz" }),
   ev("e2", "Design review", at(1, 10, 30), at(1, 11, 30), { calendarId: "invites:a1", accountId: "a1", myStatus: "tentative", location: "Room 2", organizer: { email: "mai@contoso.com", name: "Mai Khanh" }, attendees: people([["Mai Khanh", "accepted"], ["Bao Tran", "accepted"]]).concat([you as never]), sourceMessageId: "m-inv-req" }),
@@ -256,9 +258,33 @@ let calEvents: MockEvent[] = [
   ev("e14", "Dentist", at(7, 8), at(7, 9)),
   ev("e15", "Flight SGN → HAN", at(8, 7, 15), at(8, 9, 30), { location: "Tan Son Nhat", description: "Gate to be announced." }),
   ev("e16", "Kick-off", at(-12, 9), at(-12, 10), { calendarId: "invites:a1", accountId: "a1", myStatus: "accepted" }),
+  // #caltwins (W7.11): invitations that the service may or may not have put in the synced calendar by itself (their synced copies come with the sync state, see syncedEvents)
+  ...(calTwins
+    ? [
+        ev("tw1", "Planning twin", at(5, 9), at(5, 10), { uid: "twin-a2@mock", calendarId: "invites:a2", accountId: "a2", myStatus: "needs-action", sourceMessageId: "m-inv-req", organizer: { email: "mai@contoso.com", name: "Mai Khanh" } }),
+        ev("tw2", "Budget twin", at(5, 11), at(5, 12), { uid: "twin-a4@mock", calendarId: "invites:a4", accountId: "a4", myStatus: "needs-action", sourceMessageId: "m-inv-req", organizer: { email: "mai@contoso.com", name: "Mai Khanh" } }),
+        ev("tw3", "Offsite title twin", at(6, 9), at(6, 10), { uid: "title-twin@mock", calendarId: "invites:a4", accountId: "a4", myStatus: "needs-action", sourceMessageId: "m-inv-req", organizer: { email: "mai@contoso.com", name: "Mai Khanh" } }),
+        ev("tw4", "Only by mail (Outlook)", at(6, 11), at(6, 12), { uid: "mail-only-a4@mock", calendarId: "invites:a4", accountId: "a4", myStatus: "needs-action", sourceMessageId: "m-inv-req", organizer: { email: "mai@contoso.com", name: "Mai Khanh" } }),
+        ev("tw5", "Only by mail (Google)", at(7, 9), at(7, 10), { uid: "mail-only-a2@mock", calendarId: "invites:a2", accountId: "a2", myStatus: "needs-action", sourceMessageId: "m-inv-req", organizer: { email: "mai@contoso.com", name: "Mai Khanh" } }),
+      ]
+    : []),
   ev("e17", "Yesterday's 1:1", at(-1, 14), at(-1, 14, 30), {}),
 ];
 const hiddenCals = new Set<string>();
+// W7.11: a mailbox whose calendar source has a primary calendar with Sync on shows its invitations as part of that calendar (the backend's `fold_targets`)
+const foldedInto = (calendarId: string): string | null => {
+  const m = /^invites:(.+)$/.exec(calendarId);
+  const prim = m ? calSrcs[m[1]]?.calendars.find((c) => c.primary && c.syncOn) : undefined;
+  return prim ? String(prim.id) : null;
+};
+// ... and its twin rule: an invitation that is also in a visible synced calendar of the same mailbox shows once, the synced copy wins (same UID; Outlook: or the same title at the same time)
+const hiddenByTwin = (e: MockEvent): boolean =>
+  String(e.calendarId).startsWith("invites:") &&
+  calEvents.some((f) => {
+    const cal = String(f.calendarId);
+    if (!f.remoteMock || f.accountId !== e.accountId || hiddenCals.has(cal) || f.status === "cancelled") return false;
+    return f.uid === e.uid || (cal.startsWith("ms:") && !e.rrule && f.summary === e.summary && f.start === e.start);
+  });
 /** Moves waiting out their Undo time (token -> thread ids): like the backend, the lists and the unread numbers leave these conversations out until Undo (or a refusal) gives them back. */
 const mockQueued = new Map<string, string[]>();
 const queuedIds = () => new Set([...mockQueued.values()].flat());
@@ -774,7 +800,9 @@ const localMail = (id: string) => (serverMail[id] ?? []).slice(0, mockMail.local
 // `#calfail=denied|wrong|partial|timeout|blocked` makes the next consent fail; `#calslow` keeps the consent open until Cancel.
 // Titles with [conflict] / [offline] / [gone] in a synced calendar fail like the service would.
 // `#calkinds=none|google|microsoft` sets what `calendar_kinds_available` answers (a build without the OAuth client of a service); `window.__mockCalConnects` lists the
-// `calendar_connect` calls (the confirm before the browser opens must keep the list empty until Open browser).
+// `calendar_connect` calls (the confirm before the browser opens must keep the list empty until Open browser); `window.__mockCalCancels` counts the `calendar_cancel_connect` calls.
+// `__mockCalSync.connectResult = "ok" | "DENIED" | "TIMEOUT" | "WRONG_ACCOUNT" | "PARTIAL" | "BLOCKED" | "ERROR" | "NOT_SET_UP" | "hang"` decides how the next consents end (Add account > Google /
+// Microsoft with "Also sync my calendar" and Settings > Calendar alike), `__mockCalSync.connectDelay` how long they wait first.
 // `#unverified` adds four mails whose sender check failed (an update, a cancellation and an answer with a held change, and a new invitation: threads t30 to t33, subjects ending "(sender check failed)", the newest four rows of the first mailbox's Inbox; the hash is read when the page loads, so change it with a reload, not in the address bar alone); `#rdate` adds
 // a series of My events that only has extra dates (RDATE).
 type MockSrc = { id: string; accountId: string; kind: string; status: string; lastSync: number | null; lastError: string | null; retryAt: number | null; firstSync: boolean; calendars: Record<string, unknown>[] };
@@ -783,8 +811,21 @@ const MOCK_CAL_ACCOUNTS: MockCalAccount[] = [
   { account: "a2", kind: "google", prefix: "google", email: "nam@gmail.com", service: "Google Calendar" },
   { account: "a4", kind: "microsoft", prefix: "ms", email: "nam@outlook.com", service: "Outlook" },
 ];
-const mockCalAccount = (id: string) => MOCK_CAL_ACCOUNTS.find((m) => m.account === id) ?? MOCK_CAL_ACCOUNTS[0];
-const mockCalOfId = (calendarId: string) => MOCK_CAL_ACCOUNTS.find((m) => calendarId.startsWith(`${m.prefix}:${m.account}:`));
+// a mailbox added in the preview (Add account > Google / Microsoft) joins the list when its calendar is connected, so the step after the sign-in has a mailbox to sync
+const extraCalAccounts: MockCalAccount[] = [];
+const calAccounts = () => [...MOCK_CAL_ACCOUNTS, ...extraCalAccounts];
+const mockCalAccount = (id: string) => {
+  const known = calAccounts().find((m) => m.account === id);
+  if (known) return known;
+  const acc = accounts.find((x) => x.id === id);
+  if (acc && (acc.auth === "oauth_google" || acc.auth === "oauth_microsoft")) {
+    const g = acc.auth === "oauth_google";
+    extraCalAccounts.push({ account: acc.id, kind: g ? "google" : "microsoft", prefix: g ? "google" : "ms", email: acc.email, service: g ? "Google Calendar" : "Outlook" });
+    return extraCalAccounts[extraCalAccounts.length - 1];
+  }
+  return MOCK_CAL_ACCOUNTS[0];
+};
+const mockCalOfId = (calendarId: string) => calAccounts().find((m) => calendarId.startsWith(`${m.prefix}:${m.account}:`));
 const mockCalsOf = (m: MockCalAccount) =>
   m.kind === "google"
     ? [
@@ -840,6 +881,8 @@ const syncedEvents = (m: MockCalAccount): MockEvent[] => {
       mk("m3", "primary", "Weekly review", at(9, 15), at(9, 16), { readOnly: "repeating" }),
       mk("m4", "family", "Family dinner", at(3, 18, 30), at(3, 20), { location: "Home" }),
       mk("m5", "birthdays", "Linh’s birthday", utcDay(6), utcDay(7), { allDay: true, tzid: null, readOnly: "calendar", reminderMin: null }),
+      // (the backend decodes Outlook's hex ID of a meeting from another service to the invitation's UID: the copy arrives with that uid; the second one only matches by title and start)
+      ...(calTwins ? [mk("m6", "primary", "Budget twin", at(5, 11), at(5, 12), { uid: "twin-a4@mock" }), mk("m7", "primary", "Offsite title twin", at(6, 9), at(6, 10), { uid: "uid-from-another-id" })] : []),
     ];
   }
   return [
@@ -849,6 +892,7 @@ const syncedEvents = (m: MockCalAccount): MockEvent[] => {
     mk("g4", "work", "Design crit", at(2, 14), at(2, 15), { organizer: { email: "mai@contoso.com", name: "Mai Khanh" }, readOnly: "organizer", attendees: people([["Mai Khanh", "accepted"]]).concat([{ ...you, email: "nam@gmail.com" } as never]) }),
     mk("g5", "work", "Sprint review", at(4, 10), at(4, 11), { myStatus: "organizer", organizer: { email: "nam@gmail.com", name: "Nam" } }),
     mk("g6", "holidays", "Reunification Day", utcDay(9), utcDay(10), { allDay: true, tzid: null, readOnly: "calendar", reminderMin: null }),
+    ...(calTwins ? [mk("g7", "primary", "Planning twin", at(5, 9), at(5, 10), { uid: "twin-a2@mock" })] : []),
   ];
 };
 function mockCalState(state: string, accountId = "a2") {
@@ -877,7 +921,7 @@ function mockCalState(state: string, accountId = "a2") {
   calSrcs[m.account] = { ...base, status: "ok", ...(by[state] ?? by.ok), calendars: state === "truncated" ? cals.map((c, i) => (i === 1 ? { ...c, truncated: true, eventCount: 25000 } : c)) : cals } as MockSrc;
 }
 const mockCalendars = () =>
-  MOCK_CAL_ACCOUNTS.flatMap((m) =>
+  calAccounts().flatMap((m) =>
     (calSrcs[m.account]?.calendars ?? [])
       .filter((c) => c.syncOn)
       .map((c) => ({ id: c.id, name: `${c.name} · ${m.email}`, color: c.color, accountId: m.account, visible: !hiddenCals.has(String(c.id)), remote: true, writable: !c.readOnly, service: m.service })),
@@ -909,6 +953,11 @@ export function installMock() {
   (window as unknown as { __mockCalSync: unknown }).__mockCalSync = {
     state: (st: string, account = "a2") => { mockCalState(st, account); void emit("calendar-changed", {}); },
     get: (account = "a2") => calSrcs[account] ?? null,
+    // how the next `calendar_connect` ends: "ok" (the default), a code of the backend ("DENIED", "TIMEOUT", "WRONG_ACCOUNT", "PARTIAL", "BLOCKED", "ERROR", "NOT_SET_UP"; with or
+    // without "CAL_") or "hang" (waits for calendar_cancel_connect). It stays set until it is changed. Without it the hash decides (#calfail=, #calslow).
+    connectResult: "" as string,
+    // how long an explicit `connectResult` waits before it ends, in ms (400 by default; a test that looks at the waiting card raises it)
+    connectDelay: 0 as number,
   };
   if (accounts.length && !hashHas("smallmailbox")) {
     // a second Gmail mailbox (password login on imap.gmail.com) next to the Google one: the search footer then names the address
@@ -1731,10 +1780,10 @@ export function installMock() {
       case "calendar_list_calendars":
         return [
           { id: "local", name: "My events", color: "#8764b8", accountId: null, visible: !hiddenCals.has("local"), remote: false, writable: true },
-          ...accounts.map((x) => ({ id: `invites:${x.id}`, name: `Invitations · ${x.email}`, color: x.color ?? "", accountId: x.id, visible: !hiddenCals.has(`invites:${x.id}`), remote: false, writable: false })),
+          ...accounts.map((x) => { const into = foldedInto(`invites:${x.id}`); return { id: `invites:${x.id}`, name: `Invitations · ${x.email}`, color: x.color ?? "", accountId: x.id, visible: !hiddenCals.has(into ?? `invites:${x.id}`), remote: false, writable: false, foldedInto: into }; }),
           ...mockCalendars(),
         ];
-      case "calendar_sources": return MOCK_CAL_ACCOUNTS.flatMap((m) => (calSrcs[m.account] ? [calSrcs[m.account] as MockSrc] : []));
+      case "calendar_sources": return calAccounts().flatMap((m) => (calSrcs[m.account] ? [calSrcs[m.account] as MockSrc] : []));
       case "calendar_kinds_available": {
         const k = /(^|&)calkinds=([a-z]+)/.exec(window.location.hash.slice(1))?.[2];
         return k === "none" ? [] : k === "google" || k === "microsoft" ? [k] : ["google", "microsoft"];
@@ -1742,26 +1791,30 @@ export function installMock() {
       case "calendar_connect": {
         (((window as unknown as { __mockCalConnects?: string[] }).__mockCalConnects) ??= []).push(String(a.accountId));
         const target = mockCalAccount(String(a.accountId));
-        const fail = /(^|&)calfail=([a-z]+)/.exec(window.location.hash.slice(1))?.[2];
-        const slow = hashHas("calslow");
+        const set = String(((window as unknown as { __mockCalSync?: { connectResult?: string } }).__mockCalSync?.connectResult) ?? "").replace(/^CAL_/i, "").toLowerCase();
+        const fail = set && set !== "ok" && set !== "hang" ? (set === "wrong_account" ? "wrong" : set.replace("_", "")) : set ? undefined : /(^|&)calfail=([a-z]+)/.exec(window.location.hash.slice(1))?.[2];
+        const slow = set === "hang" || (!set && hashHas("calslow"));
+        const wait = Number((window as unknown as { __mockCalSync?: { connectDelay?: number } }).__mockCalSync?.connectDelay) || (set ? 400 : 1500);
         return new Promise((resolve, reject) => {
           calConnectCancel = () => reject("CAL_CANCELLED: Calendar sign-in was cancelled.");
           setTimeout(() => {
             if (slow) return; // waits for Cancel
             const errs: Record<string, string> = {
-              denied: "CAL_DENIED: Calendar access wasn’t allowed. Turn the switch on to try again.",
+              denied: "CAL_DENIED: Calendar access wasn’t allowed. You can try again when you’re ready.",
               wrong: `CAL_WRONG_ACCOUNT: You allowed access for other@${target.email.split("@")[1]}. Sign in as ${target.email} to sync this mailbox’s calendar.`,
-              partial: "CAL_PARTIAL: Hey Look! needs every calendar permission it asked for. Turn the switch on again and keep all boxes ticked.",
-              timeout: "CAL_TIMEOUT: Calendar sign-in timed out. Turn the switch on to try again.",
+              partial: "CAL_PARTIAL: Hey Look! needs every calendar permission it asked for. Try again and keep all boxes ticked.",
+              timeout: "CAL_TIMEOUT: Calendar sign-in timed out. You can try again when you’re ready.",
               blocked: `CAL_BLOCKED: ${target.email}’s organization may need to approve Hey Look! for calendar access. Ask your IT admin.`,
+              error: "CAL_ERROR: Couldn’t turn on calendar sync: connection reset",
+              notsetup: `CAL_NOT_SET_UP: This build of Hey Look! can’t sync calendars with ${target.kind === "google" ? "Google" : "Microsoft"}.`,
             };
             if (fail && errs[fail]) return reject(errs[fail]);
             mockCalState("ok", target.account);
             resolve(calSrcs[target.account]);
-          }, 1500);
+          }, wait);
         });
       }
-      case "calendar_cancel_connect": calConnectCancel?.(); calConnectCancel = null; return null;
+      case "calendar_cancel_connect": (window as unknown as { __mockCalCancels?: number }).__mockCalCancels = ((window as unknown as { __mockCalCancels?: number }).__mockCalCancels ?? 0) + 1; calConnectCancel?.(); calConnectCancel = null; return null;
       case "calendar_disconnect": mockCalState("off", String(a.accountId)); return null;
       case "calendar_set_sync": {
         const owner = mockCalOfId(String(a.calendarId));
@@ -1774,7 +1827,7 @@ export function installMock() {
         return null;
       }
       case "calendar_sync_now": {
-        for (const m of MOCK_CAL_ACCOUNTS) {
+        for (const m of calAccounts()) {
           const cur = calSrcs[m.account];
           if (!cur || a.onlyIfStale || (a.accountId && a.accountId !== m.account)) continue;
           calSrcs[m.account] = { ...cur, status: "syncing", firstSync: false };
@@ -1786,7 +1839,7 @@ export function installMock() {
       case "calendar_list_events": {
         const from = a.from as number, to = a.to as number;
         return calEvents
-          .filter((e) => !hiddenCals.has(e.calendarId))
+          .filter((e) => !hiddenCals.has(foldedInto(e.calendarId) ?? e.calendarId) && !hiddenByTwin(e))
           .flatMap((e) => (e.allDay ? (e.end > from - 86400 && e.start < to + 86400 ? [e] : []) : expandMock(e, from, to)))
           .sort((x, y) => x.start - y.start);
       }

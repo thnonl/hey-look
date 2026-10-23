@@ -283,7 +283,7 @@ impl Pending {
                     if let Some(e) = query_param(&line, "error") {
                         let detail = query_param(&line, "error_description").unwrap_or_default();
                         let (title, next) = if e == "access_denied" && self.purpose == Purpose::Calendar {
-                            ("Sign-in was cancelled", "Hey Look! needs your permission to show and change events in your calendars. Return to Hey Look! and turn the switch on again when you are ready.")
+                            ("Sign-in was cancelled", "Hey Look! needs your permission to show and change events in your calendars. Return to Hey Look! to try again when you are ready, or to continue without calendar sync.")
                         } else if e == "access_denied" {
                             ("Sign-in was cancelled", "Hey Look! needs your permission to read and send mail for this account. Return to Hey Look! and choose Sign in again when you are ready.")
                         } else {
@@ -751,5 +751,22 @@ Host: 127.0.0.1
         // the narrowest calendar scopes: not the full `calendar` scope
         let g = Provider::Google.scope_for(Purpose::Calendar);
         assert_eq!(g.split_whitespace().collect::<Vec<_>>(), ["https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/calendar.calendarlist.readonly", "openid", "email"]);
+    }
+
+    /// AC-7.9.12: the sign-in with "Also sync my calendar" (two grants, the calendar consent right after the mail consent) asks for exactly the
+    /// scopes Google's verification was filed with and the Microsoft permissions the app is registered for. Changing any of the four strings is
+    /// a decision for the owner (a new verification), not a side effect of a feature.
+    #[test]
+    fn the_requested_scopes_are_exactly_the_verified_set() {
+        assert_eq!(Provider::Google.scope_for(Purpose::Mail), "https://mail.google.com/ openid email profile");
+        assert_eq!(
+            Provider::Google.scope_for(Purpose::Calendar),
+            "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.calendarlist.readonly openid email"
+        );
+        assert_eq!(
+            Provider::Microsoft.scope_for(Purpose::Mail),
+            "https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send offline_access openid email profile"
+        );
+        assert_eq!(Provider::Microsoft.scope_for(Purpose::Calendar), "https://graph.microsoft.com/Calendars.ReadWrite offline_access openid email profile");
     }
 }

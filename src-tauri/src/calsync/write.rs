@@ -534,6 +534,31 @@ mod tests {
         assert!(!mirror_rsvp(&e.db, &e.factory, ACC, "inv-uid@google.com", "", "maybe"));
     }
 
+    /// W7.11: an invitation that is not in the synced calendar (the service did not add it) is answered by mail only. Nothing is created, imported or
+    /// copied at the provider for it: the sync layer has no way to, and the answer finds no twin to mirror to.
+    #[test]
+    fn no_provider_write_happens_when_an_invitation_without_twin_is_answered() {
+        let e = env();
+        // an invitation row of the mailbox (made by mail), with no synced event of that UID
+        let remote_id = event_id(&e, "a");
+        let remote = calendar::get_event(&lock(&e.db), &remote_id).unwrap();
+        let mut inv = remote.clone();
+        inv.id = "inv-local".into();
+        inv.uid = "only-by-mail@organizer.example".into();
+        inv.calendar_id = format!("invites:{ACC}");
+        inv.remote_id = None;
+        inv.etag = None;
+        inv.series_id = None;
+        inv.remote_kind = None;
+        inv.read_only = None;
+        calendar::save_row(&lock(&e.db), &inv).unwrap();
+        let before = (e.fake.writes().len(), row_count(&e));
+        assert!(!mirror_rsvp(&e.db, &e.factory, ACC, "only-by-mail@organizer.example", "", "accepted"), "no twin, nothing to mirror to");
+        assert!(!mirror_rsvp(&e.db, &e.factory, ACC, "only-by-mail@organizer.example", "", "declined"));
+        assert_eq!((e.fake.writes().len(), row_count(&e)), before, "no create, import, respond or copy at the provider");
+        assert!(e.fake.writes().iter().all(|w| !w.starts_with("create") && !w.starts_with("import")), "{:?}", e.fake.writes());
+    }
+
     #[test]
     fn error_texts_name_the_service_and_the_calendar() {
         let t = |e: SyncErr| error_text(&e, Kind::Microsoft, "Work", "me@x.y");

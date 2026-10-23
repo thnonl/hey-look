@@ -825,6 +825,12 @@ button.ov-tag:hover { background: color-mix(in srgb, var(--accent), transparent 
 .signin-slot { min-height: 9em; overflow-wrap: anywhere; }
 .set-status { min-height: 7.5em; overflow-wrap: anywhere; }
 .signin-slot > .notice, .set-status > .notice { margin-bottom: 0; }
+/* Add account > Google / Microsoft: "Also sync my calendar" is a native checkbox (accent-color falls back to the system blue where a WebKit lacks it) with its hint under the label */
+.form .also-cal label { display: flex; align-items: flex-start; gap: 8px; font-size: .92em; color: var(--fg); cursor: pointer; }
+.form .also-cal input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; margin: 2px 0 0; flex: none; }
+.form .also-cal .muted { margin: 2px 0 0 23px; }
+/* the Calendar sidebar offer for mailboxes that existed before: a long address wraps inside the notice */
+.cal-offer { overflow-wrap: anywhere; }
 .set-actions { margin: 6px 0 10px; min-height: 33px; align-items: center; } /* a primary button is 33px, a small one 24px: the row keeps its height in every state */
 .list-row { display: flex; gap: 14px; align-items: center; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-md); margin-bottom: 6px; cursor: pointer; transition: background .12s, border-color .12s; }
 .list-row:hover { background: var(--bg2); border-color: color-mix(in srgb, var(--border), var(--fg) 15%); }

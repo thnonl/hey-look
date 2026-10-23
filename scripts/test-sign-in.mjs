@@ -14,9 +14,9 @@ assert.equal(GOOGLE_REVIEW_HELP_URL, "https://heylook.namthai.site/help.html#goo
 const mail = (code, label, rest = "") => `${code}|label=${label}${rest}: whatever`;
 assert.equal(endReason(mail("OAUTH_TIMEOUT", "Google")), "timeout");
 assert.equal(endReason(mail("OAUTH_CANCELLED", "Microsoft")), "cancelled");
-assert.equal(endReason("CAL_TIMEOUT: Calendar sign-in timed out. Turn the switch on to try again."), "timeout");
+assert.equal(endReason("CAL_TIMEOUT: Calendar sign-in timed out. You can try again when you’re ready."), "timeout");
 assert.equal(endReason("CAL_CANCELLED: Calendar sign-in was cancelled."), "cancelled");
-assert.equal(endReason("CAL_DENIED: Calendar access wasn’t allowed. Turn the switch on to try again."), "denied");
+assert.equal(endReason("CAL_DENIED: Calendar access wasn’t allowed. You can try again when you’re ready."), "denied");
 assert.equal(endReason("CAL_BLOCKED: me@x.test’s organization may need to approve Hey Look! for calendar access. Ask your IT admin."), "blocked");
 // the provider sent the person back with an error
 assert.equal(endReason(mail("OAUTH_REFUSED", "Google", "|reason=access_denied")), "denied");

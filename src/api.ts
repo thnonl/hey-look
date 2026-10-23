@@ -224,6 +224,8 @@ export interface CalendarInfo {
   writable?: boolean;
   /** "Google Calendar" / "Outlook" for a synced calendar */
   service?: string | null;
+  /** a mailbox's Invitations entry that is shown as part of its main synced calendar: that calendar's id (the lists leave the entry out, its events follow the calendar) */
+  foldedInto?: string | null;
 }
 /** One calendar of a synced mailbox, as Settings lists it. */
 export interface CalendarSyncInfo { id: string; name: string; color: string; readOnly: boolean; primary: boolean; syncOn: boolean; eventCount: number; truncated: boolean }

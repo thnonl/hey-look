@@ -8,7 +8,7 @@ import { Account, api, CalSource, Discovered, PgpKey, PROVIDERS, Rule, Signature
 import { singleLabelHostsOf } from "../addresses";
 import { backendText } from "../backendErrors";
 import { parseReplyTo } from "../replyTo";
-import { calendarErrorCode, calendarSyncKind, providerName, serviceName, statusLine, truncatedNote } from "../calendarSync";
+import { calendarErrorCode, calendarStepFailure, calendarSyncKind, providerName, serviceName, statusLine, truncatedNote } from "../calendarSync";
 import { ACCENT_PRESETS, ACCOUNT_PALETTE, accountColor, DEFAULT_PREFS, eff, folderLabel, isOverridden, MAX_DOWNLOAD_PRESETS, NOTIFY_ACTIONS, NOTIFY_SOUNDS, Overridable, Prefs, staleAccountPrefs, validHex } from "../prefs";
 import { aiSettingsSaved } from "../aiGuide";
 import { normalizeSidebar } from "../sidebarState";
@@ -423,8 +423,19 @@ function OAuthBlock({ kind, onAppPassword }: { kind: OAuthKind; onAppPassword: (
   const [tenant, setTenant] = useState("");
   const [error, setError] = useState("");
   const [ended, setEnded] = useState<SignInEnd | null>(null);
+  // "Also sync my calendar" (W7.9): ticked every time the card opens; offered only when this build can connect the service
+  const [alsoCal, setAlsoCal] = useState(true);
+  const [kinds, setKinds] = useState<string[] | null>(null);
+  // step 2, the calendar consent right after the mail sign-in: "wait" while the browser page is open, "failed" with the notice and Retry / Continue
+  const [cal, setCal] = useState<{ acc: Account; phase: "wait" | "failed"; end: SignInEnd | null; err: string } | null>(null);
+  const step = useRef<Account | null>(null); // the mailbox whose calendar step is open; cleared when it ends, so a late answer of a consent that was skipped is ignored
   const goBtn = useRef<HTMLButtonElement>(null);
+  const slot = useRef<HTMLDivElement>(null);
   const wasBusy = useRef(false);
+  // the calendar step says what it waits for, or why it ended, in the slot under the card: in a low window that is below the fold, so it is brought into view
+  useEffect(() => {
+    if (cal) slot.current?.scrollIntoView?.({ block: "nearest" });
+  }, [cal?.phase]); // eslint-disable-line react-hooks/exhaustive-deps
   // the sign-in ended without an account: the Cancel button that had the focus is gone, so the focus goes back to the button that started it
   useEffect(() => {
     if (busy) wasBusy.current = true;
@@ -436,6 +447,20 @@ function OAuthBlock({ kind, onAppPassword }: { kind: OAuthKind; onAppPassword: (
   // a sign-in is waiting for the browser: leaving this screen (closing Settings, switching the tab) ends the wait and frees the port
   const waiting = useRef(false);
   useEffect(() => () => { if (waiting.current) void api.oauthCancel().catch(() => undefined); }, []);
+  // the same for the calendar step (closing Settings, another tab): it ends as Skip does, and the Inbox of the new mailbox opens
+  useEffect(() => () => {
+    const acc = step.current;
+    if (!acc) return;
+    step.current = null;
+    void api.calendarCancelConnect().catch(() => undefined);
+    void useStore.getState().answerCalOffer();
+    void useStore.getState().accountAddedDone(acc, false);
+  }, []);
+  useEffect(() => {
+    let live = true;
+    api.calendarKindsAvailable().then((k) => live && setKinds(k)).catch(() => live && setKinds([]));
+    return () => void (live = false);
+  }, []);
   useEffect(() => {
     const envCheck = kind === "google" ? api.googleEnvConfigured() : api.microsoftEnvConfigured();
     void envCheck.then(setFromEnv).catch(() => undefined);
@@ -446,6 +471,39 @@ function OAuthBlock({ kind, onAppPassword }: { kind: OAuthKind; onAppPassword: (
       void api.microsoftTenant().then(setTenant).catch(() => undefined);
     }
   }, [kind, cfg]);
+  const showCal = kinds !== null && kinds.includes(kind);
+  /** The end of step 2 without the calendar: the account is already added; the dialog closes and its Inbox opens. */
+  const endWithout = (acc: Account) => {
+    if (step.current !== acc) return;
+    step.current = null;
+    setCal(null);
+    void useStore.getState().answerCalOffer();
+    void useStore.getState().accountAddedDone(acc, false);
+  };
+  const calendarStep = async (acc: Account) => {
+    step.current = acc;
+    setCal({ acc, phase: "wait", end: null, err: "" });
+    try {
+      await api.calendarConnect(acc.id);
+      if (step.current !== acc) return;
+      step.current = null;
+      setCal(null);
+      const st = useStore.getState();
+      void st.answerCalOffer();
+      void st.loadCalSources().then(() => st.bumpCal());
+      void st.accountAddedDone(acc, true);
+    } catch (e) {
+      if (step.current !== acc) return; // (Skip, or Settings was left: the answer of a consent that was ended has no voice)
+      if (calendarStepFailure(e) === "skip") return endWithout(acc);
+      // the same notice as Settings > Calendar shows for this end; the account stays added in every case and its mail token is never touched
+      const end = signInEnd(kind, "calendar", e);
+      setCal({ acc, phase: "failed", end, err: end ? "" : friendlyError(e) });
+    }
+  };
+  const skipCalendar = () => {
+    if (cal?.phase === "wait") void api.calendarCancelConnect().catch(() => undefined);
+    if (cal) endWithout(cal.acc);
+  };
   const go = async () => {
     setBusy(true);
     setError("");
@@ -456,8 +514,16 @@ function OAuthBlock({ kind, onAppPassword }: { kind: OAuthKind; onAppPassword: (
         ? await api.googleSignIn(cid, sec, name)
         : await api.microsoftSignIn(cid, "", tenant, name);
       waiting.current = false;
-      // closes this dialog, opens the new account's Inbox and starts its first sync
-      void useStore.getState().accountAdded(acc);
+      // the mailbox has no calendar source yet and the box is ticked: the calendar consent follows at once (a mailbox that already syncs skips it)
+      const withCal = alsoCal && showCal && !(await api.calendarSources().catch(() => [] as CalSource[])).some((x) => x.accountId === acc.id);
+      if (withCal) {
+        // the mailbox joins the folder pane and its first sync starts now; this dialog stays until the step ends
+        void useStore.getState().accountAdded(acc, true);
+        void calendarStep(acc);
+      } else {
+        // closes this dialog, opens the new account's Inbox and starts its first sync
+        void useStore.getState().accountAdded(acc);
+      }
     } catch (e) {
       waiting.current = false;
       // timed out, cancelled, refused, or the organization has to approve: a calm notice with advice, and no toast
@@ -502,17 +568,38 @@ function OAuthBlock({ kind, onAppPassword }: { kind: OAuthKind; onAppPassword: (
           )}
           <label>{t("settings.add.displayNameOpt")}</label>
           <input aria-label={t("settings.add.displayNameOpt")} placeholder={t("settings.add.yourName")} value={name} onChange={(e) => setName(e.target.value)} />
+          {showCal && (
+            <div className="also-cal">
+              <label>
+                <input type="checkbox" checked={alsoCal} disabled={busy || !!cal} aria-describedby={`also-cal-${kind}`} onChange={(e) => setAlsoCal(e.target.checked)} />
+                <span>{t("settings.add.alsoCalendar")}</span>
+              </label>
+              <div id={`also-cal-${kind}`} className="muted small">{t("settings.add.alsoCalendarHint", { provider: cfg.label })}</div>
+            </div>
+          )}
           <div className="row-inline">
-            <button ref={goBtn} className="btn primary" disabled={busy || (!fromEnv && !cid)} onClick={() => void go()}>
-              {busy ? t("settings.add.waitingFor", { provider: cfg.label }) : t("settings.add.signInWith", { provider: cfg.label })}
+            <button ref={goBtn} className="btn primary" disabled={busy || !!cal || (!fromEnv && !cid)} onClick={() => void go()}>
+              {busy || cal?.phase === "wait" ? t("settings.add.waitingFor", { provider: cfg.label }) : t("settings.add.signInWith", { provider: cfg.label })}
             </button>
             {busy && <button className="btn" autoFocus onClick={() => void api.oauthCancel()}>{t("common.cancel")}</button>}
+            {cal?.phase === "wait" && <button className="btn" autoFocus onClick={skipCalendar}>{t("settings.add.calSkip")}</button>}
+            {cal?.phase === "failed" && (
+              <>
+                <button className="btn primary" autoFocus onClick={() => void calendarStep(cal.acc)}>{t("common.retry")}</button>
+                <button className="btn" onClick={skipCalendar}>{t("settings.add.calContinue")}</button>
+              </>
+            )}
           </div>
         </div>
       </div>
       {/* what the sign-in is doing or how it ended: ONE slot of fixed size under the card, so the button above never moves (it used to be rows above and below it) */}
-      <div className="signin-slot">
-        {busy ? <SignInWaiting provider={kind} lead={t("signin.waiting.mail")} />
+      <div className="signin-slot" ref={slot}>
+        {cal ? (
+          cal.phase === "wait" ? <SignInWaiting provider={kind} lead={t("settings.add.calWaiting", { email: cal.acc.email })} />
+            : cal.end ? <SignInEnded provider={kind} purpose="calendar" end={cal.end} />
+            : <div className="notice bad" role="alert">{cal.err}</div>
+        )
+          : busy ? <SignInWaiting provider={kind} lead={t("signin.waiting.mail")} />
           : ended ? <SignInEnded provider={kind} purpose="mail" end={ended} onAppPassword={kind === "google" ? onAppPassword : undefined} />
           : error ? <div className="notice bad" role="alert">{error}</div>
           : !fromEnv && !cid ? <div className="muted small" role="status">{t("settings.add.notAvailable", { provider: cfg.label })}</div>
@@ -1275,12 +1362,20 @@ function CalendarPanel({ account }: { account: Account }) {
   const cancelBtn = useRef<HTMLButtonElement>(null);
   const opener = useRef<HTMLElement | null>(null); // what started the consent (the switch or "Allow again"): it gets the focus back when the consent ends
   const switchBox = useRef<HTMLSpanElement>(null);
+  const connectRef = useRef<(() => Promise<void>) | null>(null);
+  const autostart = useStore((s) => s.calAutostart === account.id);
   useEffect(() => void loadCalSources(), [loadCalSources]);
   useEffect(() => {
     let live = true;
     api.calendarKindsAvailable().then((k) => live && setKinds(k)).catch(() => {});
     return () => void (live = false);
   }, []);
+  // the sidebar offer's "Turn on...": the switch's own connect path starts as soon as the section is shown (it asks the W7.7 question first)
+  useEffect(() => {
+    if (!autostart || kinds === null) return;
+    useStore.setState({ calAutostart: null });
+    if (!src && kind && kinds.includes(kind)) void connectRef.current?.();
+  }, [autostart, kinds, src, kind]);
   // "Last synced 3 min ago" stays current
   useEffect(() => {
     const timer = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 20_000);
@@ -1308,7 +1403,8 @@ function CalendarPanel({ account }: { account: Account }) {
   const connect = async () => {
     setErr(null);
     setEnded(null);
-    const starter = document.activeElement as HTMLElement | null;
+    // (what started it is the switch or Allow access again; when the sidebar offer starts it nothing in the section has the focus: then the switch gets it back)
+    const starter = document.activeElement instanceof HTMLElement && document.activeElement.matches("button, input") ? document.activeElement : null;
     // one question before the browser opens (every time: from the switch and from "Allow access again"); Cancel / Esc change nothing
     const go = await confirm({
       title: t("calendar.consent.title"),
@@ -1326,6 +1422,7 @@ function CalendarPanel({ account }: { account: Account }) {
     try {
       await api.calendarConnect(account.id);
       showToast(t("settings.calendar.syncOn", { email: account.email }), undefined, "success");
+      void useStore.getState().answerCalOffer(); // a calendar is connected: the sidebar offer is over for every mailbox
     } catch (e) {
       // timed out / cancelled / refused: the calendar's own sentence and the advice for the service; cancelled with nothing to add says nothing
       const end = kind ? signInEnd(kind, "calendar", e) : null;
@@ -1337,6 +1434,7 @@ function CalendarPanel({ account }: { account: Account }) {
       bumpCal();
     }
   };
+  connectRef.current = connect;
   const stop = async () => {
     const ok = await confirm({
       title: t("settings.calendar.stopTitle", { email: account.email }),
