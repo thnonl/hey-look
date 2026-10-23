@@ -89,6 +89,8 @@ export default defineLocale<typeof ns.en>({
   "reading.msg.unsubscribe": "取消订阅",
   "reading.msg.unsubscribed": "已取消订阅",
   "reading.msg.unsubscribeFailed": "取消订阅失败：{error}",
+  "reading.msg.unsubscribeOpened": "已在浏览器中打开发件人的取消订阅页面。如需确认，请在该页面完成操作。",
+  "reading.msg.unsubscribeMailto": "发送此邮件以完成取消订阅。",
   "reading.msg.saveAllAtt": "保存所有附件…",
   "reading.msg.newsletter": "这看起来是一封订阅邮件。{link}",
   "reading.msg.translation": "翻译",
