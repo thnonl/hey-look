@@ -116,6 +116,16 @@ pub fn reset_syncing(c: &Connection) -> R<()> {
     Ok(())
 }
 
+/// "Not set up" is what the build or the service said at the last round (no OAuth client in this build, the Calendar API off in the project, an
+/// unregistered client). It waits for the user in the normal run, but a new start may have changed the cause (a build with a client, the API
+/// switched on), and the card offers neither Sync now nor Allow access again for it (D-061): so a start gives the source one new round. It
+/// ends in "not set up" again with the current text when nothing changed.
+pub fn retry_not_set_up(c: &Connection) -> R<()> {
+    c.execute("UPDATE cal_sources SET status='ok', last_error=NULL, retry_at=NULL, fail_count=0, last_sync=0 WHERE status='notsetup' AND last_sync IS NOT NULL", []).map_err(err)?;
+    c.execute("UPDATE cal_sources SET status='syncing', last_error=NULL, retry_at=NULL, fail_count=0 WHERE status='notsetup' AND last_sync IS NULL", []).map_err(err)?;
+    Ok(())
+}
+
 // ------------------------------------------------------------------ calendars
 
 #[derive(Clone, Debug, PartialEq)]
@@ -989,6 +999,28 @@ pub(crate) mod tests {
         assert_eq!((s2.status.as_str(), s2.last_error, s2.fail_count, s2.connected_at), ("syncing", None, 0, 1000));
         assert_eq!(get_calendar(&c, &cal.id).unwrap().sync_state.as_deref(), Some("tok"), "no re-download, no duplicates");
         assert_eq!(count(&c, "SELECT COUNT(*) FROM events WHERE remote_id='a'"), 1);
+    }
+
+    #[test]
+    fn a_start_gives_a_not_set_up_source_a_new_round() {
+        // D-061: a run of a build without the Google client left "not set up" behind; the next start (with a client) must not keep showing it
+        let c = conn();
+        let (s, _) = setup(&c);
+        mark_synced(&c, &s.id, 5000).unwrap();
+        set_status(&c, &s.id, "notsetup", Some("no Google OAuth client configured"), None, 0).unwrap();
+        assert!(!crate::calsync::engine::is_due(&list_sources(&c).unwrap()[0], 99_999, true), "waits for the user while the app runs");
+        retry_not_set_up(&c).unwrap();
+        let after = list_sources(&c).unwrap();
+        assert_eq!((after[0].status.as_str(), after[0].last_error.clone()), ("ok", None));
+        assert!(crate::calsync::engine::is_due(&after[0], 99_999, false), "due again at once");
+        // a source that never synced goes back to the first-sync state; the other states are not touched
+        c.execute("UPDATE cal_sources SET last_sync=NULL", []).unwrap();
+        set_status(&c, &s.id, "notsetup", Some("x"), None, 0).unwrap();
+        retry_not_set_up(&c).unwrap();
+        assert_eq!(list_sources(&c).unwrap()[0].status, "syncing");
+        set_status(&c, &s.id, "auth", None, None, 0).unwrap();
+        retry_not_set_up(&c).unwrap();
+        assert_eq!(list_sources(&c).unwrap()[0].status, "auth", "access that ended still waits for Allow access again");
     }
 
     #[test]
