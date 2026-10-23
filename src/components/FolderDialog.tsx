@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { accountLabel } from "../accountLabel";
 import { api } from "../api";
 import { parseCoded } from "../backendErrors";
@@ -72,8 +72,7 @@ export function FolderDialog({ accountId, parentKey }: { accountId: string; pare
     return t("mail.folder.errFailed", { error: c ? c.text : friendlyError(e) });
   };
 
-  const submit = async (e?: FormEvent) => {
-    e?.preventDefault();
+  const submit = async () => {
     if (busy) return;
     setTouched(true);
     if (check.problem) {
@@ -106,7 +105,8 @@ export function FolderDialog({ accountId, parentKey }: { accountId: string; pare
 
   return (
     <Modal title={t(parentKey ? "mail.folder.dlgTitleSub" : "mail.folder.dlgTitle")} onClose={() => setDialog(null)} width={440}>
-      <form className="form fd-form" onSubmit={(e) => void submit(e)} noValidate>
+      {/* (not a form element: the policy has form-action none, so Enter is handled on the field and Create is a plain button) */}
+      <div className="form fd-form">
         <div className="fd-loc">
           <div className="fd-lbl" id="fd-loc-lbl">{t("mail.folder.location")}</div>
           <div className="fd-where ellipsis" aria-labelledby="fd-loc-lbl" title={where}>{where}</div>
@@ -138,12 +138,12 @@ export function FolderDialog({ accountId, parentKey }: { accountId: string; pare
         </div>
         <div className="row-inline fd-actions">
           <button type="button" className="btn" onClick={() => setDialog(null)}>{t("common.cancel")}</button>
-          <button type="submit" className="btn primary" disabled={!name.trim()} aria-busy={busy || undefined}>
+          <button type="button" className="btn primary" disabled={!name.trim()} aria-busy={busy || undefined} onClick={() => void submit()}>
             {busy && <span className="spin" aria-hidden />}
             <span>{t("mail.folder.create")}</span>
           </button>
         </div>
-      </form>
+      </div>
     </Modal>
   );
 }
