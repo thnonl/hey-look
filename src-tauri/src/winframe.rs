@@ -179,7 +179,7 @@ pub async fn frame_system_menu(app: tauri::AppHandle, x: f64, y: f64, dpr: f64) 
 }
 
 /// Called once from `setup`: removes the OS frame on Windows.
-pub fn setup(app: &tauri::App) {
+pub fn setup(app: &tauri::AppHandle) {
     imp::setup(app);
 }
 
@@ -189,7 +189,7 @@ pub fn setup(app: &tauri::App) {
 mod imp {
     use super::{FrameInfo, Rect};
 
-    pub fn setup(_app: &tauri::App) {}
+    pub fn setup(_app: &tauri::AppHandle) {}
     pub fn info() -> FrameInfo {
         FrameInfo { custom: false, snap_layouts: false }
     }
@@ -237,8 +237,8 @@ mod imp {
         FrameInfo { custom: CUSTOM.load(Ordering::Relaxed), snap_layouts: snap_layouts_supported(build) }
     }
 
-    pub fn setup(app: &tauri::App) {
-        let _ = APP.set(app.handle().clone());
+    pub fn setup(app: &tauri::AppHandle) {
+        let _ = APP.set(app.clone());
         let Some(win) = app.get_webview_window("main") else { return };
         // the window starts hidden (visible: false), so no flash of the native frame
         if win.set_decorations(false).is_err() {

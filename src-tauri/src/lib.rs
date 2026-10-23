@@ -73,6 +73,8 @@ mod wintheme;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod startfail;
 mod startup;
+// Windows autostart: the window is made after the desktop is ready (see the top of the file)
+mod startgate;
 mod loadfail;
 mod webview_health;
 mod winproc;
@@ -5565,8 +5567,14 @@ pub fn run() {
     }
     // a start that fails ends in a message the person can read, not in a silent exit (see startfail.rs)
     startfail::install_panic_hook();
+    // a Windows autostart (--minimized) makes its window only when the desktop is ready (startgate.rs); the WebView2 runtime is one of the
+    // things it waits for, so a runtime that answers a minute after login is no reason for an error message at login
+    let gated = startgate::defer(context.config_mut());
+    if gated {
+        startup::line("gate", "this is a --minimized start: the main window is made after the start gate (startgate.rs)");
+    }
     #[cfg(windows)]
-    if startfail::webview_runtime_missing() {
+    if startfail::webview_runtime_missing() && (!gated || startfail::seam().is_some()) {
         startfail::fail_start("the Microsoft WebView2 Runtime was not found on this computer");
     }
     // a restart or an installer relaunch starts this process while the previous run's web view processes are still going away: a web
@@ -5658,7 +5666,7 @@ pub fn run() {
             let sync_app = app.handle().clone();
             std::thread::spawn(move || calsync::cmds::calsync_worker(sync_app));
 
-            winframe::setup(app);
+            winframe::setup(app.handle());
             // the native frame of the main window follows the theme setting from the start (a pop-out gets it when it is created)
             wintheme::apply_all(app.handle(), "start");
             #[cfg(target_os = "macos")]
@@ -5687,7 +5695,13 @@ pub fn run() {
             // started by "launch at login" => stay in the tray (only when there is a tray to come back from). The window is shown
             // when its page has reported itself (not here: see startup.rs), and the page is reloaded if it never does.
             let show_at_start = !std::env::args().any(|a| a == "--minimized") || !shell::tray_ready();
-            startup::start(app.handle(), show_at_start);
+            if startgate::is_deferred() {
+                // Windows autostart: the window does not exist yet. A thread waits for the desktop (the tray, the sync and the outbox run meanwhile),
+                // makes the window, does the steps above that need one (frame, theme) and starts the load watch
+                startgate::start(app.handle(), show_at_start);
+            } else {
+                startup::start(app.handle(), show_at_start);
+            }
             // debug builds only; does nothing unless the environment asks for the bridge
             #[cfg(debug_assertions)]
             testbridge::start(app.handle());
