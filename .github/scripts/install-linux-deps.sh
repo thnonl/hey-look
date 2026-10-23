@@ -15,10 +15,12 @@
 #      tries the next mirror when one fails). Partial downloads are kept between attempts (apt resumes them).
 #   4. The debs are root-owned after apt: they are handed to the user and `lock` / `partial` are removed, so the cache step saves *.deb only.
 # The package list is the only one; the cache key of the workflow includes the hash of this file.
+# The tray library is the Ayatana one (libayatana-appindicator3-dev), never libappindicator3-dev: the Tauri bundler writes the dependency of the
+# .deb from the dev package it finds, and libappindicator3-1 does not exist on Debian 12 (WP15, DEC-003). Do not install both.
 # Test: .github/scripts/test-install-linux-deps.sh (fake apt-get, no root).
 set -uo pipefail
 
-PACKAGES=(libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev libdbus-1-dev pkg-config)
+PACKAGES=(libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libssl-dev libdbus-1-dev pkg-config)
 etc="${APT_ETC:-/etc/apt}"
 archives="${APT_ARCHIVES:-$HOME/apt-archives}"
 limit="${APT_ATTEMPT_LIMIT:-180}"

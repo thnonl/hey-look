@@ -92,9 +92,10 @@ check "all attempts fail: exit 1 and an ::error::" "rc=$rc $out" bash -c '[ "$1"
 check "all attempts fail: the sources are restored" "$(cat "$work/etc/sources.list")" grep -q 'mirror+file' "$work/etc/sources.list"
 
 # 6. the package list is the one the workflow had
-want="libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev libdbus-1-dev pkg-config"
+want="libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libssl-dev libdbus-1-dev pkg-config"
 got=$(bash -c 'source <(sed -n "/^PACKAGES=/p" "$1"); echo "${PACKAGES[*]}"' _ "$script")
 check "the package list is the one of the workflow before" "$got" [ "$got" = "$want" ]
+check "the tray library is the Ayatana one, the old libappindicator3-dev is not installed (WP15: the .deb must not depend on libappindicator3-1)" "$got" bash -c 'case " $1 " in *" libayatana-appindicator3-dev "*) ;; *) exit 1 ;; esac; case " $1 " in *" libappindicator3-dev "*) exit 1 ;; esac' _ "$got"
 run "0"
 check "the packages are passed to apt-get" "$calls" has "$calls" "$want"
 
