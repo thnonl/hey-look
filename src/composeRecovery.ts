@@ -4,7 +4,7 @@
 // Continue writing. Nothing is opened, sent or discarded unasked.
 
 import { api } from "./api";
-import { openDraftThread } from "./components/Compose";
+import { openDraftThread } from "./draftOpen";
 import { t } from "./i18n";
 import { openKept as openKeptMessage, settleRecovery, type Kept } from "./recovery";
 import { createRecoveryToast, RECOVERY_TOAST_KEY } from "./recoveryToast";

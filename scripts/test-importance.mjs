@@ -47,7 +47,7 @@ assert.match(compose, /importance: draftImportance\(importance\),/, "buildDraft 
 assert.match(compose, /importance: d\.importance,\n/, "reopen (undo / failed send) restores it");
 assert.match(compose, /<ImportanceButtons value=\{importance\} onChange=\{\(v\) => \(setImportance\(v\), touch\(\)\)\} \/>/, "the toolbar buttons mark the message changed");
 assert.match(compose, /<ImportanceMark level=\{importance\}[^>]*label \/>/, "the chosen level is shown next to the subject");
-assert.match(read("src/components/Compose.tsx"), /importance: m\.importance,/, "a draft opened from the Drafts folder restores it");
+assert.match(read("src/draftOpen.ts"), /importance: m\.importance,/, "a draft opened from the Drafts folder restores it");
 assert.match(read("src/components/ScheduledList.tsx"), /importance: d\.importance,/, "a scheduled message opened for editing restores it");
 assert.match(read("src/components/ReadingPane.tsx"), /<ImportanceMark level=\{m\.importance\} size=\{13\} label \/>/, "the reading pane names the level");
 assert.match(read("src/components/MessageList.tsx"), /<ImportanceMark level=\{t\.importance\} \/>/, "the list row shows the mark");

@@ -1,7 +1,7 @@
 import { AlertTriangle, CalendarClock, CalendarX, Pencil, RotateCw, Send, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { api, errorCode, OutboxItem } from "../api";
-import { focusInlineEditor, picturesToEditor } from "./Compose";
+import { focusInlineEditor, picturesToEditor } from "../draftOpen";
 import { outboxKey } from "../popout/entry";
 import { focusDraftWindow, startCompose, wantsWindow } from "../popout/composeOpen";
 import { shiftNow } from "../popout/modifier";

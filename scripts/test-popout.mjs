@@ -731,7 +731,7 @@ assert.equal(draftKey("t9"), "draft:t9");
   for (const a of ["openCompose:", "sync:", "refresh:", "setDialog:", "showToast:"]) assert.ok(view.includes(a), a);
   assert.ok(view.indexOf("setReady(true)") > view.indexOf("openCompose:"), "Compose is drawn after the actions are replaced");
   // Compose.tsx: the seam is the only difference, and the main window (no seam) behaves as before
-  assert.equal(compose.match(/composeSeam\(\)/g).length, 15, "the places where Compose asks the seam (two of them: a message scheduled in a window is announced by the main window, which owns the outbox; two for the draft the pane shows, W2.11; one tells a window that the scheduled message it holds paused is handled, W2.10; three for the lock of a send, W13.1)");
+  assert.equal(compose.match(/composeSeam\(\)/g).length, 13, "the places where Compose asks the seam (two of them: a message scheduled in a window is announced by the main window, which owns the outbox; the two for the draft the pane shows (W2.11) are in draftOpen.ts since WP9d; one tells a window that the scheduled message it holds paused is handled, W2.10; three for the lock of a send, W13.1)");
   assert.ok(compose.includes("composeSeam()?.scheduled(") && view.includes("scheduled: (outboxId, sendAt) => notifyMain(\"scheduled\""), "Scheduled for ... with Undo and View comes from the main window");
   assert.ok(compose.includes("openCompose(null, { sending: wait })") && compose.includes("openCompose(null, { sending: 0 })"), "a send hands the message over, it does not end it");
   assert.ok(compose.includes('else showToast(() => t("compose.toast.sending"), undoSend, "info", undefined, wait * 1000)'), "the main window has the Undo toast, as long as the message is held (W13.1)");
@@ -760,7 +760,7 @@ assert.equal(draftKey("t9"), "draft:t9");
     // a pane that is moved to a window gives it the key of the draft (the one a save of the pane made, else the one it was opened from): the draft is open in one editor only
   // from the moment the window exists (1.0.7 WP2a retest BUG-2); and Save draft builds from the pane as it is NOW (retest BUG-1, the signature that arrives after the first draw)
   assert.ok(compose.includes("const key = init.outboxId ? outboxKey(init.outboxId) : savedTid.current ? draftKey(savedTid.current) : init.draftKey ?? null;") && compose.includes('openPopout("compose", key, moved)'), "Pop out passes the draft's key");
-  assert.ok(compose.includes("draftKey: key, // (a Pop out of this pane gives the window this key"), "openDraftThread hands the key to the message");
+  assert.ok(read("src/draftOpen.ts").includes("draftKey: key, // (a Pop out of this pane gives the window this key"), "openDraftThread hands the key to the message");
   assert.ok(compose.includes("const d = buildDraftRef.current();") && compose.includes("buildDraftRef.current = buildDraft;"), "Save draft builds from the current pane");
 { const lib = read("src-tauri/src/lib.rs"); assert.ok(lib.includes("async fn discard_draft_changes(app: tauri::AppHandle,") && lib.includes("sync_drafts_after_restore(&app, &db, &acc.id)") && lib.includes("let _ = app.emit(\"mail-synced\", ());"), "after the opened version is put back the backend reads Drafts again and every window re-reads"); }
   assert.ok(compose.includes("poppingRef.current = true") && compose.includes("sending: sendingRef.current || poppingRef.current"), "moving a message to a window must not make the pane autosave it (the window takes the focus)");
@@ -780,18 +780,19 @@ assert.equal(draftKey("t9"), "draft:t9");
   // a draft: one editor, a double click or Shift+Enter opens a window
   const list = read("src/components/MessageList.tsx");
   assert.ok(list.includes('rowWindowTarget(folder, it.t.folder) === "draft" ? () => void openDraftInWindow('), "double click / Shift+Enter on a draft");
-  assert.ok(compose.includes("if (await focusDraftWindow(key)) return true;") && compose.includes("if (mine !== latestDraftOpen) return false;"));
+  const draftOpen = read("src/draftOpen.ts"); // (openDraftThread and its helpers moved out of Compose.tsx, WP9d)
+  assert.ok(draftOpen.includes("if (await focusDraftWindow(key)) return true;") && draftOpen.includes("if (mine !== latestDraftOpen) return false;"));
   // W2.11: ONE check for every entry point, in openDraftThread, before anything is read: the draft the pane shows gets the focus and nothing else opens
   {
-    const open = compose.slice(compose.indexOf("export async function openDraftThread("), compose.indexOf("/** The positions of the pictures of the body"));
+    const open = draftOpen.slice(draftOpen.indexOf("export async function openDraftThread("), draftOpen.indexOf("/** Counts the openings"));
     const at = (needle) => { const i = open.indexOf(needle); assert.ok(i >= 0, needle); return i; };
     assert.ok(at("if (inlineHasDraft(threadId)) return focusInlineEditor();") < at("if (await focusDraftWindow(key))") && at("focusDraftWindow(key)") < at("api.getThread("), "the pane is asked first, before a window and before the draft is read");
     assert.ok(compose.includes("noteInlineDraft(tid);"), "a save makes its new conversation the pane's too (an autosave replaces the draft)");
-    assert.ok(compose.includes("return !composeSeam() && !!st.compose && !!inlineDraft && inlineDraft.composeKey === st.composeKey && inlineDraft.tids.has(threadId);"), "a window has no pane");
+    assert.ok(draftOpen.includes("return !composeSeam() && !!st.compose && !!inlineDraft && inlineDraft.composeKey === st.composeKey && inlineDraft.tids.has(threadId);"), "a window has no pane");
     assert.ok(list.includes("if (!inlineHasDraft(t.threadId) && !wantsWindow({ shift }) && !(await useStore.getState().leaveCompose())) return;"), "a click on the row of the draft in the pane does not leave the pane first");
     // every other way to a draft ends in openDraftThread (the toast's Edit, the crash restore, the hub's Edit; Shift+Enter and the menu go through openDraftInWindow)
     assert.ok(read("src/composeRecovery.ts").includes("openDraftThread(threadId, true, o)") && read("src/popout/composeHub.ts").includes("openDraftThread(p.threadId, true)") && compose.includes("void openDraftThread(tid, true)"));
-    assert.ok(compose.includes("return openDraftThread(threadId, false, { window: true });"), "openDraftInWindow asks the same check");
+    assert.ok(draftOpen.includes("return openDraftThread(threadId, false, { window: true });"), "openDraftInWindow asks the same check");
     for (const f of ["src/components/CommandBar.tsx", "src/components/ListContextMenu.tsx", "src/components/Ribbon.tsx", "src/App.tsx"]) assert.ok(!read(f).includes("api.getThread(") || !read(f).includes("startCompose"), `${f} opens a draft by itself`);
   }
   // W2.10: Edit in the Scheduled list is a way of starting a message like the others, and a second Edit focuses the editor that has it

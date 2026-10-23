@@ -7,7 +7,7 @@ import { api } from "../api";
 import { calTz, today } from "../calendar";
 import { useT } from "../i18n/react";
 import { friendlyError, useStore, scopeOf } from "../store";
-import { newEvent } from "./Calendar";
+import { newEvent } from "../newEvent";
 import { accountsOf, canMoveToJunk } from "../junk";
 import { moveChoices } from "../rowMenu";
 import { folderLabel } from "../prefs";

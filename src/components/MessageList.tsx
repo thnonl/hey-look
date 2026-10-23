@@ -11,7 +11,7 @@ import { gmailSearchUrl, webmailQuery, webmailTargets, WebmailTarget } from "../
 import { accountColor, folderLabel, Prefs } from "../prefs";
 import { canPageBack, exhaustedKey, friendlyError, useStore } from "../store";
 import { dateGroup, fmtDate, snoozePresets, subjectText } from "../util";
-import { inlineHasDraft, openDraftInWindow, openDraftThread } from "./Compose";
+import { inlineHasDraft, openDraftInWindow, openDraftThread } from "../draftOpen";
 import { wantsWindow } from "../popout/composeOpen";
 import { shiftNow } from "../popout/modifier";
 import { openReader } from "../popout/openReader";

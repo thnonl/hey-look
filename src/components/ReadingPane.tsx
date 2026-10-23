@@ -32,7 +32,7 @@ import { aiReady, clearAiProblem, leaveAiContext, openAiSettings, showAiNotSetUp
 import { classifyAiError } from "../aiProblem";
 import { fmtFull, fmtSize, plainToHtml, sanitizeHtml, snoozePresets, subjectText } from "../util";
 import { AttachmentStrip, Lightbox, LbItem } from "./Attachments";
-import { InviteCard } from "./Calendar";
+import { InviteCard } from "./InviteCard";
 import { osNow } from "../platform";
 import { EmptyState } from "./overlays";
 import { useDelayedFlag } from "../delayedFlag";

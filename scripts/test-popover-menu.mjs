@@ -80,6 +80,6 @@ const controlsSrc = readFileSync(new URL("../src/editor/controls.tsx", import.me
 assert.ok(/compose\.fmt\.subscript[^\n]*kind: "check"/.test(controlsSrc) && /compose\.fmt\.superscript[^\n]*kind: "check"/.test(controlsSrc), "Subscript and Superscript are check rows");
 assert.ok(!/compose\.fmt\.alignLeft[^\n]*kind: "check"/.test(controlsSrc) && /ALIGNS\.map\(\(a\) => \(\{[^\n]*checked: c\.st\.align === a\.id/.test(controlsSrc), "alignment stays a radio group");
 // the recipient field is a combobox over its suggestions (W2.20, REQ-2.20.3)
-for (const part of ['role="combobox"', 'aria-autocomplete="list"', "aria-expanded={sugg.length > 0}", "aria-controls={listId}", "aria-activedescendant={hi >= 0", 'role="listbox" aria-label={label}', "id={`${listId}-${i}`} role=\"option\""]) assert.ok(composeSrc.includes(part), `RecipientField: ${part}`);
+for (const part of ['role="combobox"', 'aria-autocomplete="list"', "aria-expanded={sugg.length > 0}", "aria-controls={listId}", "aria-activedescendant={hi >= 0", 'role="listbox" aria-label={label}', "id={`${listId}-${i}`} role=\"option\""]) assert.ok(readFileSync(new URL("../src/components/RecipientField.tsx", import.meta.url), "utf8").includes(part), `RecipientField: ${part}`);
 
 console.log("popover menu rules: ok");

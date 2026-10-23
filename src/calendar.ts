@@ -429,3 +429,13 @@ export function repeatKind(rule: string | null, start: Day): string {
   for (const k of ["daily", "weekdays", "weekly", "monthly", "yearly"]) if (repeatRule(k, start) === rule) return k;
   return "custom";
 }
+
+/** Start of the next full hour (epoch seconds) in the calendar zone. */
+export function nextHour(tz: string): number {
+  const p = partsOf(Date.now() + 3600_000, tz);
+  return Math.floor(Date.UTC(p.y, p.m - 1, p.d, p.h, 0) / 1000) - offsetSeconds(tz, Date.now() + 3600_000);
+}
+function offsetSeconds(tz: string, ms: number): number {
+  const p = partsOf(ms, tz);
+  return Math.round((Date.UTC(p.y, p.m - 1, p.d, p.h, p.mi, p.s) - Math.floor(ms / 1000) * 1000) / 1000);
+}

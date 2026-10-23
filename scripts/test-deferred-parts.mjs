@@ -47,7 +47,7 @@ const tok = (n) => n.toString(16).padStart(32, '0');
 
 // the wiring
 {
-  const c = read('src/components/Compose.tsx');
+  const c = read('src/draftOpen.ts'); // (openDraftThread moved out of Compose.tsx, WP9d)
   ok(/const \[first, rc\] = await Promise\.all\(\[api\.draftEditorParts\(m\.id\), api\.draftRecipients\(m\.id\)/.test(c) && /fillDeferred\(first, api\.draftData\)\.catch\(\(\) => api\.draftEditorParts\(m\.id, true\)\)/.test(c), 'Compose reads the parts, fills the left-out data, and asks for the whole parts when a piece is gone');
   const lib = read('src-tauri/src/lib.rs');
   ok(/async fn draft_data\(token: String\) -> R<String>/.test(lib) && /^\s+draft_data,$/m.test(lib), 'the command and its handler');
