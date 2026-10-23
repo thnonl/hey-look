@@ -134,14 +134,15 @@ function zoneList(): string[] {
 
 function GeneralTab() {
   const t = useT();
-  const { prefs, setPrefs, accounts } = useStore();
+  const { prefs, setPrefs, accounts, langLoading } = useStore();
   const set = <K extends keyof Prefs>(k: K, v: Prefs[K]) => setPrefs({ [k]: v } as Partial<Prefs>);
   return (
     <div>
       <h3>{t("settings.general.title")}</h3>
       <div className="muted small">{t("settings.general.intro")}</div>
       <Row label={t("settings.general.language")} hint={t("settings.general.languageHint")}>
-        <select value={prefs.language} onChange={(e) => set("language", e.target.value as Prefs["language"])}>
+        {/* the language just picked shows at once; the texts switch when its chunk is there (store.setPrefs) */}
+        <select value={langLoading ?? prefs.language} aria-busy={langLoading !== null} onChange={(e) => set("language", e.target.value as Prefs["language"])}>
           {LANGS.map((l) => <option key={l.code} value={l.code} lang={l.code}>{l.nativeName}</option>)}
           {/* i18n-ok: dev builds only, not shown to users */}
           {pseudoAllowed() && <option value="en-XA">Pseudo-locale (dev)</option>}

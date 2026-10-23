@@ -1,6 +1,5 @@
 // Shared by scripts/test-i18n.mjs, i18n-status.mjs and i18n-export-tsv.mjs: the registry and every dictionary, by language code.
-// English, Vietnamese and French live in src/i18n/{en,vi,fr}.ts (gathering the ns/*.ts files); every other language of the registry in
-// src/i18n/locales/<code>/index.ts. Run the scripts with `node --experimental-strip-types`.
+// English lives in src/i18n/en.ts (gathering the ns/*.ts files); every other language of the registry in src/i18n/locales/<code>/index.ts. Run the scripts with `node --experimental-strip-types`.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,8 +7,14 @@ import { LANGUAGES } from "../../src/i18n/languages.ts";
 
 export const root = fileURLToPath(new URL("../../", import.meta.url));
 export { LANGUAGES };
-/** The languages that sit next to English inside src/i18n/ns/*.ts. */
-export const INLINE = ["en", "vi", "fr"];
+/** The languages inside src/i18n/ns/*.ts (English only since WP9c; Vietnamese and French have their own folders like the rest). */
+export const INLINE = ["en"];
+
+/**
+ * The three languages that existed before the registry: their plural messages are not held to the registry's `plural` list (Vietnamese and
+ * French write one text where CLDR has two forms) and their Rust texts sit inside src-tauri/src/i18n.rs, not in src-tauri/src/i18n/<code>.rs.
+ */
+export const BUILTIN = ["en", "vi", "fr"];
 
 /** "zh-Hans" -> "zhHans": the name a locales/<code>/index.ts exports. */
 export const ident = (code) => code.replace(/-(\w)/g, (_, x) => x.toUpperCase());
@@ -72,15 +77,13 @@ export function mayStayEnglish(english) {
 }
 
 /**
- * Keys a language marks as "same as English on purpose": src/i18n/locales/<code>/keep.json (a JSON array of keys) for the languages with
- * their own folder, src/i18n/ns/keep.json (`{ "vi": [...], "fr": [...] }`) for the ones that live in ns/ next to English.
+ * Keys a language marks as "same as English on purpose": src/i18n/locales/<code>/keep.json (a JSON array of keys).
  */
 export function keepList(code) {
-  const f = INLINE.includes(code) ? join(root, "src/i18n/ns/keep.json") : join(root, "src/i18n/locales", code, "keep.json");
+  const f = join(root, "src/i18n/locales", code, "keep.json");
   if (!existsSync(f)) return new Set();
   try {
-    const j = JSON.parse(readFileSync(f, "utf8"));
-    return new Set(INLINE.includes(code) ? j[code] ?? [] : j);
+    return new Set(JSON.parse(readFileSync(f, "utf8")));
   } catch {
     return new Set();
   }

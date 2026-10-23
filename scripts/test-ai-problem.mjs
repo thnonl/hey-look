@@ -6,9 +6,11 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { aiProblemButtons, aiProblemText, classifyAiError, NOT_SET_UP } from "../src/aiProblem.ts";
-import { LANGS, setLangPref, t } from "../src/i18n/index.ts";
+import { LANGS, loadAllLanguages, setLangPref, t } from "../src/i18n/index.ts";
 import { isTransientAiError, timeoutError } from "../src/aiCall.ts";
 import { totalTimeoutError } from "../src/translateJobs.ts";
+
+await loadAllLanguages(); // (the languages are chunks of their own: setLangPref needs them loaded)
 
 const root = new URL("../", import.meta.url);
 const read = (p) => readFileSync(new URL(p, root), "utf8").replace(/\r\n/g, "\n");

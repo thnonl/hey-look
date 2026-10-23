@@ -22,7 +22,8 @@ import { addToast, lazyText, refreshed, toastTexts, trimToasts, type Lazy } from
 import { mayOpenMail, selectionAfterCompose } from "./composeSelection";
 import { leaveCompose as leaveComposePane, nothingToKeep, type ComposeProbe, type SavedDraft } from "./leaveCompose";
 export { lazyText, type Lazy };
-import { resolveLang, setLangPref, t } from "./i18n";
+import { getLang, isReady, loadLanguage, resolveLang, setLangPref, t } from "./i18n";
+import type { Lang } from "./i18n";
 import { fmtNumber } from "./i18n/format";
 import { calTz, CalView, Day, rangeFor, systemTz, today } from "./calendar";
 import { accentText, accountColor, buttonAccent, clampMaxDownload, DEFAULT_PREFS, lightened, mergePrefs, Prefs, readableOn, staleAccountPrefs, topBar, validHex } from "./prefs";
@@ -331,6 +332,8 @@ interface State {
   sidebarToggle: number;
   ribbonTab: RibbonTab;
   prefs: Prefs;
+  /** The language the person just picked while its chunk is being fetched (src/i18n/lang-<code>.ts); `prefs.language` and the texts stay as they were until it is there. null when no switch is under way. */
+  langLoading: Lang | null;
   aiConfigured: boolean;
   loaded: boolean;
   /** Mail or Calendar */
@@ -559,8 +562,11 @@ function mirrorSettings(p: Partial<Prefs>): Promise<unknown>[] {
   return pending;
 }
 
+/** The last Language choice made through setPrefs: a choice that is still loading when a newer one comes is dropped. */
+let langSeq = 0;
+
 export function applyPrefs(p: Prefs) {
-  setLangPref(p.language);
+  if (isReady(p.language)) setLangPref(p.language); // (a language that is not loaded yet is switched to by setPrefs / PopoutRoot once its chunk is there)
   const root = document.documentElement;
   if (p.theme === "system") root.removeAttribute("data-theme");
   else root.setAttribute("data-theme", p.theme);
@@ -711,6 +717,7 @@ export const useStore = create<State>((set, get) => ({
   sidebarToggle: 0,
   ribbonTab: "home",
   prefs: { ...DEFAULT_PREFS },
+  langLoading: null,
   aiConfigured: false,
   loaded: false,
   module: "mail",
@@ -732,6 +739,17 @@ export const useStore = create<State>((set, get) => ({
   init: async () => {
     const [rawAccounts, rawPrefs] = await Promise.all([api.listAccounts(), api.getSetting("prefs"), loadPlatform()]);
     let prefs = mergePrefs(rawPrefs);
+    // the saved language is normally there already (main.tsx waited for it before the first render); one more try when that failed, else the setting goes back to the language in use
+    let langError: unknown = null;
+    if (!isReady(prefs.language)) {
+      try {
+        await loadLanguage(resolveLang(prefs.language));
+      } catch (e) {
+        langError = e;
+        prefs = { ...prefs, language: getLang() };
+        void api.setSetting("prefs", JSON.stringify(prefs)).catch(() => undefined);
+      }
+    }
     // settings that point at an account that was removed (default account, overrides, favorites) are dropped
     const stale = staleAccountPrefs(prefs, rawAccounts.map((a) => a.id));
     if (Object.keys(stale).length) {
@@ -744,6 +762,7 @@ export const useStore = create<State>((set, get) => ({
     const wait = usePlatform.getState().accountsDelayMs; // (a debug build can slow the start down on purpose, to try "New mail" before the mailboxes are read)
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     set({ accounts, prefs, loaded: true, module: prefs.lastModule === "calendar" ? "calendar" : "mail", calDate: today(calTz(prefs)) });
+    if (langError) get().showToast(() => t("errors.toast.failed", { error: friendlyError(langError) }), undefined, "error");
     if (prefs.lastModule === "calendar") void get().loadCalendar();
     void get().refreshAi();
     await get().refresh();
@@ -1430,6 +1449,30 @@ export const useStore = create<State>((set, get) => ({
   replaceMessage: (m) => set((s) => ({ messages: s.messages.map((x) => (x.id === m.id ? m : x)) })),
 
   setPrefs: (patch) => {
+    if ("language" in patch) {
+      const seq = ++langSeq;
+      const want = patch.language as Prefs["language"];
+      if (!isReady(want)) {
+        // a language that is not loaded: its chunk is fetched first and the whole window switches in one step; until then everything stays in
+        // the language in use. A newer choice made meanwhile wins. A chunk that cannot be fetched leaves the language (and the setting) as it was.
+        set({ langLoading: resolveLang(want) });
+        void loadLanguage(resolveLang(want)).then(
+          () => {
+            if (seq !== langSeq) return;
+            set({ langLoading: null });
+            get().setPrefs({ language: want });
+          },
+          (e) => {
+            if (seq !== langSeq) return;
+            set({ langLoading: null });
+            get().showToast(() => t("errors.toast.failed", { error: friendlyError(e) }), undefined, "error");
+          },
+        );
+        const { language: _language, ...rest } = patch;
+        if (!Object.keys(rest).length) return;
+        patch = rest;
+      } else if (get().langLoading) set({ langLoading: null });
+    }
     const before = get().prefs;
     const prefs = { ...before, ...patch };
     // a new cap: mailboxes that were stopped by the old one are asked again

@@ -61,7 +61,7 @@ assert.ok(!/saveDraft|composeSaver/.test(discardPart), "Restart and discard writ
 assert.match(discardPart, /st\.setComposeDirty\(false\);\s*$/, "Restart and discard closes Compose without the unsaved-changes question");
 assert.match(unsaved, /\} else \{\s+draftSaved = true;/, "only a saved draft sets the Drafts part of the result toast");
 for (const lang of ["vi", "fr"]) {
-  const dict = (await import(new URL(`../src/i18n/${lang}.ts`, import.meta.url)))[lang];
+  const dict = (await import(new URL(`../src/i18n/locales/${lang}/index.ts`, import.meta.url)))[lang];
   for (const k of ["updates.ask.unsavedTitle", "updates.ask.unsavedBody", "updates.action.keepWriting", "updates.action.restartDiscardMessage"]) assert.ok(dict[k] && dict[k] !== en[k], `${lang} has ${k}`);
   assert.ok(dict["updates.ask.unsavedBody"].includes("{error}"), `${lang} body keeps {error}`);
 }

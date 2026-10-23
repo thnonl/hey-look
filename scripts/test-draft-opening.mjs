@@ -157,8 +157,8 @@ await check('compose.draft.opening is in all 8 languages, with the text the lang
   const want = { en: 'Opening draft…', vi: 'Đang mở thư nháp…', fr: 'Ouverture du brouillon…', 'zh-Hans': '正在打开草稿…', es: 'Abriendo borrador…', ja: '下書きを開いています…', de: 'Entwurf wird geöffnet…', ru: 'Открытие черновика…' };
   const ns = read('src/i18n/ns/compose.ts');
   const found = [...ns.matchAll(/"compose\.draft\.opening": "([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(found, [want.en, want.vi, want.fr], 'en, vi, fr (src/i18n/ns/compose.ts)');
-  for (const l of ['de', 'es', 'ja', 'ru', 'zh-Hans']) assert.ok(read(`src/i18n/locales/${l}/compose.ts`).includes(`"compose.draft.opening": "${want[l]}"`), l);
+  assert.deepEqual(found, [want.en], 'en (src/i18n/ns/compose.ts)');
+  for (const l of ['vi', 'fr', 'de', 'es', 'ja', 'ru', 'zh-Hans']) assert.ok(read(`src/i18n/locales/${l}/compose.ts`).includes(`"compose.draft.opening": "${want[l]}"`), l);
 });
 await check('the compose window shows the status until its Compose is ready', async () => {
   const v = read('src/popout/ComposeView.tsx');

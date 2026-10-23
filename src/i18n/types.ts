@@ -1,5 +1,6 @@
 // Types shared by the dictionaries (src/i18n/ns/*.ts, src/i18n/locales/<code>/*.ts) and the translator (index.ts).
 // Kept free of runtime imports and of enums so `node --experimental-strip-types` can load it.
+import type { Locale } from "date-fns";
 
 /**
  * A plural message: `n` (the `{n}` parameter) picks the form with Intl.PluralRules of the language, falling back to `other`.
@@ -15,6 +16,11 @@ export interface Plural {
   few?: string;
   many?: string;
 }
+/** What a language chunk (lang-<code>.ts) holds: its dictionary and its date-fns locale. */
+export interface LangPack {
+  dict: Record<string, Msg>;
+  df: Locale;
+}
 /** One translated text. `{name}` marks a value that is put in at run time. */
 export type Msg = string | Plural;
 export type Dict = Record<string, Msg>;
@@ -27,15 +33,11 @@ import type { Lang } from "./languages.ts";
 /** What the Settings > General > Language choice stores. */
 export type LangPref = Lang | "en-XA";
 
-/** The languages that sit next to English inside the namespace files in ns/ (the first three). Every later language has its own files in locales/<code>/. */
-export type InlineLang = "vi" | "fr";
-
 /**
- * Declares one dictionary (a feature area) with English, Vietnamese and French side by side. Vietnamese and French must have exactly the
- * keys of `en`: a missing or extra key fails `tsc`. (`NoInfer` keeps the key list coming from `en` alone.)
- * The other languages are declared with `defineLocale` in their own files.
+ * Declares one dictionary (a feature area) in English, in ns/<area>.ts. Every other language has its own file in locales/<code>/<area>.ts,
+ * declared with `defineLocale` below.
  */
-export function define<E extends Dict>(d: { en: E } & { [L in InlineLang]: NoInfer<Record<keyof E, Msg>> }) {
+export function define<E extends Dict>(d: { en: E }) {
   return d;
 }
 

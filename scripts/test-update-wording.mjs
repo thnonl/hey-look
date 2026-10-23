@@ -74,13 +74,13 @@ for (const l of LANGS) {
   }
 }
 
-// the app string: en, vi and fr are in src/i18n/ns/settings.ts (in that order), the others in src/i18n/locales/<code>/settings.ts
+// the app string: en is in src/i18n/ns/settings.ts, the others in src/i18n/locales/<code>/settings.ts
 if (!NOT_YET.includes('app')) {
   const hint = (src) => [...src.matchAll(/"settings\.about\.autoCheckHint":\s*("(?:[^"\\]|\\.)*")/g)].map((m) => JSON.parse(m[1]));
   const ns = hint(fs.readFileSync(path.join(ROOT, 'src/i18n/ns/settings.ts'), 'utf8'));
-  if (ns.length !== 3) fail(`src/i18n/ns/settings.ts: ${ns.length} settings.about.autoCheckHint strings, expected 3 (en, vi, fr)`);
-  else ['en', 'vi', 'fr'].forEach((code, i) => check('settings.about.autoCheckHint', code, plain(ns[i])));
-  for (const l of LANGS.filter((x) => !['en', 'vi', 'fr'].includes(x.code))) {
+  if (ns.length !== 1) fail(`src/i18n/ns/settings.ts: ${ns.length} settings.about.autoCheckHint strings, expected 1 (en)`);
+  else check('settings.about.autoCheckHint', 'en', plain(ns[0]));
+  for (const l of LANGS.filter((x) => x.code !== 'en')) {
     const folder = l.code === 'zh' ? 'zh-Hans' : l.code;
     const f = path.join(ROOT, `src/i18n/locales/${folder}/settings.ts`);
     const got = fs.existsSync(f) ? hint(fs.readFileSync(f, 'utf8')) : [];

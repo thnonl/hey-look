@@ -1,19 +1,12 @@
 // Dates and numbers in the language in use. Every user-visible date / number goes through here (or through Intl with intlLocale()).
 import { format as dfFormat } from "date-fns";
 import { enUS } from "date-fns/locale/en-US";
-import { vi as dfVi } from "date-fns/locale/vi";
-import { fr as dfFr } from "date-fns/locale/fr";
-import { zhCN as dfZh } from "date-fns/locale/zh-CN";
-import { es as dfEs } from "date-fns/locale/es";
-import { ja as dfJa } from "date-fns/locale/ja";
-import { de as dfDe } from "date-fns/locale/de";
-import { ru as dfRu } from "date-fns/locale/ru";
 import type { Locale } from "date-fns";
-import { getLang, intlLocale, LANGUAGES, t } from "./index.ts";
+import { getLang, intlLocale, LANGUAGES, loadedDateLocale, t } from "./index.ts";
 import type { DateFormat, Language, Lang } from "./index.ts";
 
-/** The date-fns locale of each language (a new language in the registry fails `tsc` until it has one here). */
-const DF: Record<Lang, Locale> = { en: enUS, vi: dfVi, fr: dfFr, "zh-Hans": dfZh, es: dfEs, ja: dfJa, de: dfDe, ru: dfRu };
+/** The date-fns locale of a language: en-US is in the first file; every other one comes with the chunk of its language (src/i18n/lang-<code>.ts), which is loaded before the language is switched to. */
+const dfOf = (lang: Lang): Locale => (lang === "en" ? enUS : (loadedDateLocale(lang) ?? enUS));
 
 const FMT = Object.fromEntries(LANGUAGES.map((l) => [l.code, (l as Language).fmt ?? {}])) as Record<Lang, DateFormat>;
 /** How the language in use writes dates and calendar columns (the `fmt` of its registry entry; {} = the English patterns as they are). */
@@ -39,12 +32,12 @@ const WITH_DICT_PERIODS = new Map<Lang, Locale>();
 /** The date-fns locale of the language in use (month and weekday names, am/pm). */
 export function dfLocale(): Locale {
   const lang = getLang();
-  if (!FMT[lang].dayPeriodsFromDict) return DF[lang];
+  if (!FMT[lang].dayPeriodsFromDict) return dfOf(lang);
   let loc = WITH_DICT_PERIODS.get(lang); // am / pm from calendar.time.am / pm, like the calendar's own clock (registry `fmt.dayPeriodsFromDict`)
   if (!loc) {
-    const base = DF[lang].localize!;
+    const base = dfOf(lang).localize!;
     const dayPeriod: typeof base.dayPeriod = (v, o) => (v === "am" ? t("calendar.time.am") : v === "pm" ? t("calendar.time.pm") : base.dayPeriod(v, o));
-    loc = { ...DF[lang], localize: { ...base, dayPeriod } };
+    loc = { ...dfOf(lang), localize: { ...base, dayPeriod } };
     WITH_DICT_PERIODS.set(lang, loc);
   }
   return loc;

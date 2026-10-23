@@ -127,6 +127,21 @@ export async function startHarness(name, { vitePort0 = 5480 } = {}) {
   return { base, cdp, evaluate, shutdown, openApp, vitePort, cdpPort, net, on: (h) => handlers.push(h) };
 }
 
+/**
+ * Expression for `evaluate`: picks the UI language through the store and resolves when the window is in it. A language that was not used before is a
+ * chunk of its own (src/i18n/lang-<code>.ts) that the store fetches first, so the texts change a moment after setPrefs; a test that sets a language
+ * and then reads texts waits with this instead of a fixed sleep. Rejects after 20 s (the chunk could not be loaded).
+ */
+export const languageJs = (lang) => `new Promise((ok, no) => {
+  const L = ${JSON.stringify(lang)}, t0 = Date.now();
+  window.__store.getState().setPrefs({ language: L });
+  const t = setInterval(() => {
+    const s = window.__store.getState();
+    if (s.langLoading === null && s.prefs.language === L) { clearInterval(t); ok(1); }
+    else if (Date.now() - t0 > 20000) { clearInterval(t); no(new Error('the language ' + L + ' was not applied')); }
+  }, 20);
+})`;
+
 /** Mouse, keyboard and screenshots on a CDP session. */
 export function inputs({ cdp, evaluate }, shotDir, tag) {
   const typeText = async (text, gap = 25) => { for (const ch of text) { await cdp('Input.dispatchKeyEvent', { type: 'keyDown', text: ch, key: ch }); await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: ch }); await sleep(gap); } };

@@ -44,10 +44,10 @@ assert.match(en, /"compose\.sec\.theirSignOnly": "Can’t encrypt for \{addr\}: 
 assert.match(en, /"compose\.rcpt\.keySignOnly": "The key for \{addr\} can only sign, not encrypt"/);
 assert.match(en, /"compose\.rcpt\.signOnlyHelp": "This key can check signatures but can’t encrypt\. Ask for a public key that can encrypt, or import it from a file\."/);
 const files = ["src/i18n/ns/compose.ts", ...readdirSync(new URL("../src/i18n/locales", import.meta.url)).map((l) => `src/i18n/locales/${l}/compose.ts`)];
-assert.equal(files.length, 6);
+assert.equal(files.length, 8);
 for (const f of files) {
   const t = read(f);
   const n = (t.match(/"compose\.(sec\.theirSignOnly|rcpt\.keySignOnly|rcpt\.signOnlyHelp)":/g) ?? []).length;
-  assert.equal(n, f.includes("/ns/") ? 9 : 3, `${f}: the three texts (English, Vietnamese and French live in ns/)`);
+  assert.equal(n, 3, `${f}: the three texts`);
 }
 console.log("test-key-status: ok");

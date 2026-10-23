@@ -58,6 +58,8 @@ static | node --experimental-strip-types scripts/test-importance.mjs
 static | node --experimental-strip-types scripts/test-i18n.mjs
 static | node --experimental-strip-types scripts/test-i18n-tools.mjs
 static | node --experimental-strip-types scripts/test-boot-lang.mjs
+# 1.0.7 WP9c: a language is a chunk of its own (src/i18n/lang-<code>.ts): only English is loaded at start, setLangPref of an unloaded language throws, every language loads with strings identical to the dictionaries before the split, a second switch wins, a failing chunk is retried once and leaves the language, the saved language is loaded before the first sentence, no language but English is imported statically
+static | node --experimental-strip-types scripts/test-lang-load.mjs
 static | node --experimental-strip-types scripts/i18n-status.mjs
 static | node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=vi
 static | node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=fr
@@ -139,12 +141,14 @@ ui-d | node scripts/test-preview-layer.mjs --quick --require-browser
 ui-d | node --experimental-strip-types scripts/test-compose-fit.mjs --quick --require-browser
 # an open compose shows the placeholder and the accessible name of the body, and an open signature / template editor its accessible name, in the language in use after a language switch (and back); typed text and undo survive
 ui-c | node scripts/test-placeholder-lang.mjs --require-browser
+# 1.0.7 WP9c: the dev preview starts in the saved language with no English text drawn at any time and only that language's chunk fetched, all 8 languages one after the other without a raw key, nothing shown in two languages while a chunk loads, #langfail=fr gives the "Failed" toast and leaves language and setting, the pseudo-locale works
+ui-c | node scripts/test-lang-switch-ui.mjs --require-browser
 # the side menu: icons or full by window width and by the person's choice, the peek over the panes, Ctrl+B in a narrow window (overlay, label, focus, the saved choice stays), the minimum widths, tooltips (the full run is `node scripts/test-sidebar-collapse.mjs`)
 ui-c | node scripts/test-sidebar-collapse.mjs --quick --require-browser
 # the picture resize handles are clipped with the editor pane, and Discard on a reply with nothing typed closes without asking (real panes in the dev preview)
 ui-b | node scripts/test-picture-handles.mjs --require-browser
 # the picture toolbar and the resize handles never overlap (the handles are measured too), and every popover and menu of the message, ALL its boxes, is inside the window at 946 x 552 and 946 x 480
-ui-b | node scripts/test-picture-toolbar.mjs --require-browser
+ui-d | node scripts/test-picture-toolbar.mjs --require-browser
 ui-c | node scripts/test-popover-fit.mjs --quick --require-browser
 ui-b | node scripts/test-ai-save-toast.mjs --require-browser
 # a meeting survives Save draft and the crash-recovery snapshot in the real pane (the header side is `cargo test --lib meeting_form`)
@@ -279,7 +283,7 @@ ui-b | node --experimental-strip-types scripts/test-calendar-dblclick.mjs --requ
 # 1.0.7 W7.12 (owner request: the event popover actions as buttons, no More menu): which buttons per kind of event (Delete last and red, never an empty footer row), what each does, the Tab order, fit at 946 x 480, 946 x 552 and 1266 x 712 in light and dark (en, fr, de, ru: inside the window, labels whole, two lines at most, Delete last), an event near the bottom edge gets the popover above it, a window that becomes too low scrolls the details and keeps title and footer, icon-only buttons at 320 px
 ui-e | node --experimental-strip-types scripts/test-event-popover-actions.mjs --require-browser
 # 1.0.7 WP7f3 (W7.9, owner request: calendar sync is offered at Google / Microsoft sign-in) in the real page with real clicks and keys: Add account has the box "Also sync my calendar" (ticked, named, described, absent when the build cannot connect the service, unticked = the 1.0.6 flow); ticked + mail sign-in OK = the second step at once (one calendar_connect call, no question, mailbox already in the folder pane, Skip has the focus) and the calendar toast; Skip, Esc, the X and another Settings tab all end it as Skip; every refusal shows the Settings sentence with Retry and Continue, for Google and Microsoft; a mail sign-in without an account never starts it; the Calendar sidebar offer for earlier mailboxes (Not now stays after a reload, Turn on... asks the W7.7 question at once, none for IMAP only, answered, the icon column); the keyboard; 8 languages, light and dark, 960 x 560 and 1280 x 800, a long address wraps inside the notice (--quick: English, German and Japanese; the full run is `node scripts/test-calendar-at-signin.mjs`, about 4 minutes)
-ui-a | node scripts/test-calendar-at-signin.mjs --quick --require-browser
+ui-b | node scripts/test-calendar-at-signin.mjs --quick --require-browser
 # 1.0.7 WP7f2 (W7.11, owner request: no separate "Invitations · address" entry when the calendar is synced) in the real page: the sidebar and the icon column list no Invitations entry for a Google or Outlook mailbox with sync (the IMAP mailbox and a Gmail one without sync keep theirs), an invitation without a twin is drawn in the main calendar's colour and goes with its checkbox, a meeting that is an invitation and a synced event shows once in month, week and agenda, the popover of an invitation that only came by mail says so (the synced copy and an IMAP invitation do not), sync off or the main calendar's Sync off brings the entry back with what it had, on again folds it again, the empty agenda says what it said (--quick: English, German and Japanese; the full run is `node scripts/test-calendar-fold.mjs`; the backend rules: `cargo test --lib`)
 ui-b | node scripts/test-calendar-fold.mjs --quick --require-browser
 # 1.0.7 CI speed: the shard list is sound (every line has a known shard, the names match the plan job of the release workflow, no command twice, every named script exists) and the estimated minutes per shard are printed; scripts/test-*.mjs that no shard runs are only listed

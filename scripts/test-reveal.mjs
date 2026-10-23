@@ -24,7 +24,8 @@ export async function resolve(specifier, context, next) {
 register(fake(hooks));
 
 const { backendText } = await import("../src/backendErrors.ts");
-const { setLangPref, t } = await import("../src/i18n/index.ts");
+const { setLangPref, t, loadAllLanguages } = await import("../src/i18n/index.ts");
+await loadAllLanguages(); // (the languages are chunks of their own: setLangPref needs them loaded)
 setLangPref("en");
 const toasts = [];
 globalThis.__fakeStore = { getState: () => ({ showToast: (text, undo, kind) => toasts.push({ text: typeof text === "function" ? text() : text, kind }) }) };

@@ -7,7 +7,8 @@ process.env.TZ = "Europe/Berlin";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-const { setLangPref, LANGUAGES } = await import("../src/i18n/index.ts");
+const { setLangPref, LANGUAGES, loadAllLanguages } = await import("../src/i18n/index.ts");
+await loadAllLanguages(); // (the languages are chunks of their own: setLangPref needs them loaded)
 const f = await import("../src/dateTimeFields.ts");
 
 const LANGS = LANGUAGES.map((l) => l.code);
