@@ -8,7 +8,7 @@ A fast, private desktop mail client for Windows, macOS and Linux. Free and open 
 
 ## Download
 
-Get the latest version from the [download page](https://heylook.namthai.site/download.html) or from [GitHub Releases](https://github.com/thnonl/hey-look/releases/latest): Windows 10 and 11 (`.exe` or `.msi`), macOS 11 or later, Apple silicon and Intel (`.dmg`), and Linux (`.AppImage`, `.deb` or `.rpm`). Hey Look! updates itself after you agree. APT repository and Microsoft Store: not available in this release (see [PACKAGING.md](PACKAGING.md)).
+Get the latest version from the [download page](https://heylook.namthai.site/download.html) or from [GitHub Releases](https://github.com/thnonl/hey-look/releases/latest): Windows 10 and 11 (`.exe` or `.msi`), macOS 11 or later, Apple silicon and Intel (`.dmg`), and Linux (`.AppImage`, `.deb` or `.rpm`). Hey Look! updates itself after you agree. APT repository, Microsoft Store and Snap Store: not available in this release (see [PACKAGING.md](PACKAGING.md)).
 
 The installers are not code-signed with a publisher certificate and the macOS app is not notarized, so the first start needs one extra step: see [First start on macOS](https://heylook.namthai.site/download.html#install-notes) and the [Help](https://heylook.namthai.site/help.html#g-install) for Windows and Linux.
 
@@ -28,6 +28,7 @@ Your mail stays on your computer and your passwords in your system's credential 
 - macOS: the first time you print, macOS may ask whether Hey Look! may find devices on your local network. This lets the print window find your printers; Hey Look! uses the local network for nothing else.
 - macOS: each pop-out window you close keeps a small empty system window, about 0.2 MB, until Hey Look! quits.
 - Linux: the x86_64 packages (AppImage, .deb, .rpm) are built the same way as the ones that were tested (on a KDE desktop in an ARM virtual machine), but were not installed or tested themselves.
+- Not tested by the project’s QA for this version: real Google and Microsoft sign-in, real CalDAV servers (iCloud, Fastmail, Baikal, Nextcloud, Radicale; simulated servers were used), the blocking of screen capture for Confidential mail with the real tools (Windows Print Screen and Snipping Tool, macOS screenshots), Windows 10, Intel Macs and macOS 11 and 12. The tests ran on Windows 11 (x64), a MacBook with Apple silicon and a KDE desktop in an ARM virtual machine. If something fails for you, please [open an issue](https://github.com/thnonl/hey-look/issues).
 
 ## Documentation and support
 
