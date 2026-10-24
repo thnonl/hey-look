@@ -364,3 +364,5 @@ static | node --experimental-strip-types scripts/test-format-painter.mjs
 ui-b | node scripts/test-painter-mini.mjs --require-browser
 # 1.0.7 W3.3: the mini toolbar rules - the show matrix (mouse / touch / pen / keyboard, empty, picture and cell selections, inside one link, painter on, composing, a menu open, setting off), the box of a selection and its clip, the keys that keep it, the wiring (preference, Settings row, lazy chunk, no live region, link anchor, mustBeLazy)
 static | node --experimental-strip-types scripts/test-mini-toolbar.mjs
+# 1.0.7 D-092 (Mac QA 9e / 10b): on macOS (the dev preview with #os=macos) the top 32 px of the reader, search, Scheduled, event and Settings windows are the ground colour --bg in Light and Dark at 960x560 and 1280x800 (the transparent title bar shows what is under it: the reader's toolbar and Settings' nav were --bg2); Windows keeps the toolbar colour
+ui-c | node scripts/test-mac-strip-ui.mjs --require-browser
