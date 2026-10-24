@@ -318,6 +318,8 @@ ui-d | node scripts/test-new-mail-ui.mjs --require-browser
 ui-d | node scripts/test-user-select-ui.mjs --require-browser
 # 1.0.7 W13.6: "Opening message…" over the body area (up within 150 ms, no flash for a quick open, 300 ms minimum, painted before a heavy mail is cleaned, replaced by a newer selection, dots under reduced motion, the reader window never blank)
 ui-b | node scripts/test-open-loading.mjs --require-browser
+# 1.0.7 fix38: "Opening message…" is one surface over the whole body area of the pane and of the reader window, in the colour the mail will have there (Light / Dark x original / dark x small / heavy x 960 / 1280), no small card, the same box when the mail replaces it; the composer shell on the preview colour
+ui-b | node scripts/test-open-surface.mjs --require-browser
 # 1.0.7 W13.14: the pending states of a big batch (count toast), Send (busy button, Sending toasts), Print, Save all, search / tab / folder loading and the Check mail button, and the texts in 8 languages
 ui-e | node scripts/test-busy-actions.mjs --require-browser
 # 1.0.7 WP9d (W9.2): the parts that load on demand (src/lazyLoad.ts): one import at a time, a success kept, a failure retried once after 500 ms and not remembered, the dev seam, the prefetch swallowing a failure; and the source guards: only lazyViews.tsx starts the editor, Settings, Calendar, PGP dialogs and pop-out views, App.tsx draws the wrappers, the idle / pointer / focus prefetch is installed, the compose shell does not need the editor

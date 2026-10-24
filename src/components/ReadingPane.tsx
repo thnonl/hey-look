@@ -19,7 +19,7 @@ import { LANGS, t, type Key, type Lang } from "../i18n";
 import { useLang, useT } from "../i18n/react";
 import { fmtNumber } from "../i18n/format";
 import { tx } from "../i18n/rich";
-import { DARK_CANVAS, effectiveCanvas, frameBaseCss, frameRootClass, pressCanvas } from "../mailCanvas";
+import { DARK_CANVAS, frameBaseCss, frameRootClass, pressCanvas } from "../mailCanvas";
 import { useAppDark } from "../useAppDark";
 import { MAIL_FRAME_CSS, MAIL_FRAME_SPIN_CSS } from "../mailFrameCss";
 import { reapply as reapplyColorScheme, rewriteMailHtml } from "../colorSchemeMedia";
@@ -46,7 +46,7 @@ import { hlMark } from "../perfMarks";
 import { printFrame, usePrinting } from "../printStatus";
 import { printFrameNative, setPrintSource } from "../printNative";
 import { pendingToast } from "../pendingToast";
-import { announceFrame, isHeavy, RpBody, useOpeningPending } from "../openStatus";
+import { announceFrame, isHeavy, RpBody, useCanvasDark, useOpeningPending } from "../openStatus";
 import { ImportanceMark } from "./Importance";
 import { EncCard, importKeyFromMessage, isKeyAttachment, needsCard, SecBadges } from "./Pgp";
 import { Avatar, Dropdown } from "./ui";
@@ -213,7 +213,7 @@ function useCanvas() {
   const session = useStore((s) => s.mailCanvasSession);
   const setPrefs = useStore((s) => s.setPrefs);
   const setSession = useStore((s) => s.setMailCanvasSession);
-  const dark = effectiveCanvas(themeDark, stored, session) === "dark";
+  const dark = useCanvasDark();
   return {
     dark,
     toggle: () => {

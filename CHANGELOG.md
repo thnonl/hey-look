@@ -71,6 +71,7 @@
 
 ### Fixed
 
+- "Opening message…" while a mail loads now covers the whole message area as one surface in the colour the mail will have there (white, or the dark background), with readable text; before, a small box of the app colour sat in the middle of the area with the mail or the pane showing on both sides.
 - Linux without a tray (for example KDE with the System Tray widget removed): Welcome, the quit question, the Send later picker, Settings > Filters and the Settings tab no longer talk about the tray; "Send test" says at once when no notification service is running. The macOS Welcome screen says "menu bar".
 - Linux: a log out, a shut down or a `kill` (SIGTERM, SIGHUP, SIGINT) closes the push connections and saves the queued actions before Hey Look! ends, like a macOS log out.
 - A newsletter that has a dark design (`prefers-color-scheme: dark`) now follows the message background (Original = its light design, Dark = its dark design, as the button in the reading pane says), not the colour setting of the system or of the app; switching the background changes it at once without reloading the message, and printing is always light.
