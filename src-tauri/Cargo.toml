@@ -59,8 +59,16 @@ icu_normalizer = { version = "2.3", default-features = false, features = ["compi
 semver = "1"
 tokio = { version = "1", features = ["sync", "time", "macros"] }
 
-[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 tauri-plugin-updater = "2.13"
+
+# Windows: the updater without its "zip" feature. That feature only adds the unpacking of a .zip update package (zip 4.x, RUSTSEC-2026-0367/0368/0369, no
+# fix in the 4.x line and the plugin has no release on zip 9 yet) and, on macOS and Linux, the .tar.gz / AppImage unpacking (needed there). Our Windows packages
+# are the NSIS setup .exe and the .msi (.github/scripts/make-latest-json.cjs), never a zip, so the Windows build does not compile the zip crate at all.
+[target.'cfg(windows)'.dependencies.tauri-plugin-updater]
+version = "2.13"
+default-features = false
+features = ["rustls-tls", "system-proxy"]
 
 # macOS / Linux native notifications (Windows has its own toasts with buttons, see shell.rs); used from Rust only
 [target.'cfg(not(windows))'.dependencies]
