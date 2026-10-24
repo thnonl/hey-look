@@ -130,7 +130,7 @@ fn parse_line(l: &str) -> Option<Line> {
     Some(Line { name, params, value: l[i + 1..].to_string() })
 }
 
-fn unescape(s: &str) -> String {
+pub(crate) fn unescape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut it = s.chars();
     while let Some(c) = it.next() {
@@ -147,7 +147,7 @@ fn unescape(s: &str) -> String {
     out
 }
 
-fn escape(s: &str) -> String {
+pub(crate) fn escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 8);
     for c in s.chars() {
         match c {
@@ -1172,7 +1172,7 @@ fn fold(line: &str, out: &mut String) {
     out.push_str("\r\n");
 }
 
-fn fmt_utc(ts: i64) -> String {
+pub(crate) fn fmt_utc(ts: i64) -> String {
     chrono::DateTime::from_timestamp(ts, 0).unwrap_or_default().format("%Y%m%dT%H%M%SZ").to_string()
 }
 
@@ -1192,7 +1192,7 @@ fn fmt_dt(prop: &str, ts: i64, all_day: bool, tz: Option<Tz>) -> String {
 /// The `CN=` parameter (RFC 5545 3.2.2). The value is always written as a quoted-string, which is what allows `,` `;` `:`
 /// and parentheses; a DQUOTE cannot appear inside one, so it becomes an apostrophe, and control characters (a line break
 /// would start a new property) are dropped.
-fn cn(name: &Option<String>) -> String {
+pub(crate) fn cn(name: &Option<String>) -> String {
     let n: String = name.as_deref().unwrap_or("").chars().map(|c| if c == '"' { '\'' } else { c }).filter(|c| !c.is_control()).collect();
     let n = n.trim();
     if n.is_empty() { String::new() } else { format!(";CN=\"{n}\"") }
@@ -1200,7 +1200,7 @@ fn cn(name: &Option<String>) -> String {
 
 /// A calendar address for `mailto:`: no white space or control characters, so it cannot end the property value early or
 /// start a new line.
-fn cal_addr(email: &str) -> String {
+pub(crate) fn cal_addr(email: &str) -> String {
     email.chars().filter(|c| !c.is_control() && !c.is_whitespace()).collect()
 }
 

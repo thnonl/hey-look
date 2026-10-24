@@ -197,6 +197,10 @@ pub struct CalendarInfo {
     pub writable: bool,
     /// "Google Calendar" / "Outlook": the service that holds a synced calendar
     pub service: Option<String>,
+    /// This app sends the invitations of the events added to this calendar (a CalDAV server that does not send them itself, D-7.4j); else the service does
+    pub app_invites: bool,
+    /// An event with guests can be moved out of this calendar here: Google moves it, Outlook has no move and a CalDAV server that sends invitations would send them again (D-7.5a)
+    pub moves_guests: bool,
     /// A mailbox's "Invitations" calendar whose events are shown as part of its main synced calendar (W7.11): that calendar's id. The page
     /// leaves such an entry out of its lists and draws the events in the target's colour; `None` for every other calendar.
     pub folded_into: Option<String>,
@@ -1142,7 +1146,7 @@ pub(crate) fn organized(acc: &Account, guests: &[&CalAttendee], keep: Option<&Ca
         if email.is_empty() || attendees.iter().any(|y| y.email == email) {
             continue;
         }
-        let status = keep.and_then(|ex| ex.attendees.iter().find(|y| y.email == email).map(|y| y.status.clone())).unwrap_or_else(|| "needs-action".into());
+        let status = keep.and_then(|ex| ex.attendees.iter().find(|y| y.email.eq_ignore_ascii_case(&email)).map(|y| y.status.clone())).unwrap_or_else(|| "needs-action".into());
         attendees.push(CalAttendee { email, name: x.name.clone().filter(|n| !n.trim().is_empty()), role: if x.role == "optional" { "optional".into() } else { "required".into() }, status, is_you: false });
     }
     attendees
@@ -1422,19 +1426,20 @@ pub fn calendar_list_calendars(state: tauri::State<crate::AppState>) -> R<Vec<Ca
 /// My events, each mailbox's invitations, then the synced calendars of the mailboxes that sync.
 pub fn list_calendars(c: &Connection) -> R<Vec<CalendarInfo>> {
     let hidden = hidden_calendars(c);
-    let mut out = vec![CalendarInfo { id: LOCAL.into(), name: "My events".into(), color: "#8764b8".into(), account_id: None, visible: !hidden.contains(LOCAL), remote: false, writable: true, service: None, folded_into: None }];
+    let mut out = vec![CalendarInfo { id: LOCAL.into(), name: "My events".into(), color: "#8764b8".into(), account_id: None, visible: !hidden.contains(LOCAL), remote: false, writable: true, service: None, app_invites: false, moves_guests: false, folded_into: None }];
     let accounts = db::list_accounts(c)?;
     let folds = fold_targets(c);
     for a in &accounts {
         let id = format!("invites:{}", a.id);
         let folded_into = folds.get(&id).cloned();
-        out.push(CalendarInfo { visible: !hidden.contains(folded_into.as_ref().unwrap_or(&id)), id, name: format!("Invitations · {}", a.email), color: a.color.clone().unwrap_or_default(), account_id: Some(a.id.clone()), remote: false, writable: false, service: None, folded_into });
+        out.push(CalendarInfo { visible: !hidden.contains(folded_into.as_ref().unwrap_or(&id)), id, name: format!("Invitations · {}", a.email), color: a.color.clone().unwrap_or_default(), account_id: Some(a.id.clone()), remote: false, writable: false, service: None, app_invites: false, moves_guests: false, folded_into });
     }
     // the calendars of the mailboxes that sync, in account order, with the provider's colours
     for a in &accounts {
         let Some(src) = crate::calsync::store::source_of_account(c, &a.id) else { continue };
         for cal in crate::calsync::store::calendars_of(c, &src.id)?.into_iter().filter(|x| x.sync_on) {
-            let color = if cal.color.is_empty() { a.color.clone().unwrap_or_default() } else { cal.color.clone() };
+            let shown = cal.shown_color();
+            let color = if shown.is_empty() { a.color.clone().unwrap_or_default() } else { shown };
             out.push(CalendarInfo {
                 visible: !hidden.contains(&cal.id),
                 name: format!("{} · {}", cal.name, a.email),
@@ -1443,7 +1448,13 @@ pub fn list_calendars(c: &Connection) -> R<Vec<CalendarInfo>> {
                 account_id: Some(a.id.clone()),
                 remote: true,
                 writable: !cal.read_only,
-                service: Some(src.kind.service().to_string()),
+                service: Some(src.service_name()),
+                app_invites: src.kind == crate::calsync::Kind::CalDav && src.dav.as_ref().is_some_and(|d| !d.scheduling),
+                moves_guests: match src.kind {
+                    crate::calsync::Kind::Google => true,
+                    crate::calsync::Kind::Microsoft => false,
+                    crate::calsync::Kind::CalDav => src.dav.as_ref().is_some_and(|d| !d.scheduling),
+                },
                 folded_into: None,
             });
         }
@@ -1517,6 +1528,27 @@ fn scope_of(c: &Connection, inp: &CalEventInput) -> R<Option<crate::calseries::S
 }
 
 /// Send the mails a scoped change made; the change itself is stored already. `v` = "saved" | "deleted" (the words of the failure text).
+/// The mailbox that sends the invitations of the events of a synced calendar itself: a CalDAV calendar of a server that does not send them (D-7.4j). The other services send their own.
+pub(crate) fn app_inviter(c: &Connection, calendar_id: &str) -> Option<Account> {
+    let cal = crate::calsync::store::get_calendar(c, calendar_id)?;
+    let src = crate::calsync::store::get_source(c, &cal.source_id)?;
+    if src.kind != crate::calsync::Kind::CalDav || src.dav.as_ref().is_none_or(|d| d.scheduling) {
+        return None;
+    }
+    db::get_account(c, &src.account_id).ok()
+}
+
+/// The event as its guests get it: this mailbox as the organizer and chair, then the guests with the answers they gave.
+pub(crate) fn invitation_of(acc: &Account, e: &CalEvent) -> CalEvent {
+    let me = acc.email.to_ascii_lowercase();
+    let guests: Vec<&CalAttendee> = e.attendees.iter().filter(|a| a.role != "chair" && a.email.to_ascii_lowercase() != me).collect();
+    let mut m = e.clone();
+    m.attendees = organized(acc, &guests, Some(e));
+    m.organizer = Some(CalPerson { email: me, name: Some(display_name(acc)) });
+    m.my_status = Some("organizer".into());
+    m
+}
+
 fn send_all(db: &Db, mails: &[Mail], v: &str) -> R<()> {
     for m in mails {
         send_mail(db, m).map_err(|e| {
@@ -1536,7 +1568,16 @@ pub async fn calendar_save_event(app: tauri::AppHandle, state: tauri::State<'_, 
     let out = crate::blocking(move || {
         // an event of a synced calendar goes to its provider (which sends the invitations, not this app)
         if remote_calendar_of(&lock(&db), &event).is_some() {
-            return crate::calsync::write::save(&db, &crate::calsync::cmds::AppFactory { db: db.clone() }, &event);
+            let saved = crate::calsync::write::save(&db, &crate::calsync::cmds::AppFactory { db: db.clone() }, &event)?;
+            // (a CalDAV server that does not send invitations: this app does, from the mailbox of the calendar)
+            let inviter = if notify { app_inviter(&lock(&db), &saved.calendar_id) } else { None };
+            if let Some(acc) = inviter {
+                let m = invitation_of(&acc, &saved);
+                if m.attendees.len() > 1 {
+                    send_organizer_mail(&db, &acc, &m, "REQUEST").map_err(|d| crate::i18n::coded("CAL_SEND_FAILED", &[("v", "saved"), ("detail", &d)], &format!("The event was saved, but the invitations weren't sent: {d}")))?;
+                }
+            }
+            return Ok(saved);
         }
         let scope = scope_of(&lock(&db), &event)?;
         if let Some(sc) = scope {
@@ -1573,7 +1614,23 @@ pub async fn calendar_delete_event(app: tauri::AppHandle, state: tauri::State<'_
             (e, acc)
         };
         if crate::calsync::is_remote_calendar_id(&e.calendar_id) {
-            return crate::calsync::write::delete(&db, &crate::calsync::cmds::AppFactory { db: db.clone() }, &id, scope, occurrence_start);
+            crate::calsync::write::delete(&db, &crate::calsync::cmds::AppFactory { db: db.clone() }, &id, scope, occurrence_start)?;
+            // (a CalDAV server that does not send cancellations: this app does, for the whole event or the one occurrence; not for a cut series)
+            let inviter = if notify && scope != Some(crate::calseries::Scope::Following) { app_inviter(&lock(&db), &e.calendar_id) } else { None };
+            if let Some(acc) = inviter {
+                let mut gone = match (scope, occurrence_start) {
+                    (Some(crate::calseries::Scope::Occurrence), Some(slot)) if e.recurrence_id.is_empty() => crate::calseries::instance_of(&e, slot),
+                    _ => e.clone(),
+                };
+                gone.attendees = e.attendees.clone();
+                let mut m = invitation_of(&acc, &gone);
+                if m.attendees.len() > 1 && e.my_status.as_deref() == Some("organizer") {
+                    m.sequence += 1;
+                    m.status = "cancelled".into();
+                    send_organizer_mail(&db, &acc, &m, "CANCEL").map_err(|d| crate::i18n::coded("CAL_SEND_FAILED", &[("v", "deleted"), ("detail", &d)], &format!("The event was deleted, but the cancellation wasn't sent: {d}")))?;
+                }
+            }
+            return Ok(());
         }
         if let Some(sc) = scope {
             let gone = crate::calseries::delete(&lock(&db), &id, sc, occurrence_start, notify)?;

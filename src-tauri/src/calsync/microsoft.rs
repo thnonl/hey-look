@@ -440,6 +440,7 @@ fn parse_any(v: &Value, master_wanted: bool) -> Option<RemoteEvent> {
         my_status,
         reminder_min: (v["isReminderOn"].as_bool() == Some(true)).then(|| v["reminderMinutesBeforeStart"].as_i64()).flatten().filter(|m| *m >= 0),
         can_edit: is_organizer,
+        sequence: 0,
         updated,
         id,
     })
@@ -637,6 +638,24 @@ impl CalProvider for MicrosoftProvider {
         let zoned = changed.when.as_ref().is_some_and(|w| w.tzid.is_some() && !w.all_day) || changed.recurrence.as_ref().is_some_and(|r| r.tzid.is_some() && !r.all_day);
         let v = self.write(Method::PATCH, &self.event_url(remote_id), Some(etag), zoned, build)?;
         parse_any(&v, true).ok_or_else(|| SyncErr::Other("Outlook answered with an event that cannot be shown".into()))
+    }
+
+    /// Graph has no move: the event (or the whole series) is made again in the target and the original is deleted. Only events without guests (the caller checks): a copy would send the invitations again.
+    fn move_event(&self, cal: &RemoteCalendar, remote_id: &str, etag: &str, target: &RemoteCalendar) -> Result<RemoteEvent, SyncErr> {
+        let v = self.call(Method::GET, &self.event_url(remote_id), None, None)?;
+        let mut e = parse_any(&v, true).ok_or_else(|| SyncErr::Other("Outlook answered with an event that cannot be shown".into()))?;
+        e.id = remote_id.to_string();
+        let moved = self.create(target, &e.as_draft())?;
+        // (the copy exists: when the original cannot be deleted the person has it twice, which is said, not hidden)
+        self.delete(cal, remote_id, etag)?;
+        Ok(moved)
+    }
+
+    fn create_calendar(&self, name: &str) -> Result<RemoteCalendar, SyncErr> {
+        let v = self.call(Method::POST, &format!("{}/me/calendars", self.base), Some(&json!({ "name": name })), None)?;
+        let mut c = parse_calendar(&v).ok_or_else(|| SyncErr::Other("Outlook answered with a calendar that cannot be shown".into()))?;
+        c.read_only = false;
+        Ok(c)
     }
 
     fn delete(&self, _cal: &RemoteCalendar, remote_id: &str, etag: &str) -> Result<(), SyncErr> {

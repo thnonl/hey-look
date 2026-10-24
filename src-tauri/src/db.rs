@@ -107,6 +107,8 @@ pub fn migrate(conn: &Connection) -> R<()> {
     // Google: the token of the calendar list (changes only, 1.0.7 W7.6) and when a calendar over the event cap was last downloaded in full
     add_column(conn, "ALTER TABLE cal_sources ADD COLUMN list_state TEXT")?;
     add_column(conn, "ALTER TABLE calendars ADD COLUMN full_at INTEGER")?;
+    // the colour the person chose for a synced calendar (1.0.7 W7.5); NULL = the service's colour. Kept across syncs, never sent to the service
+    add_column(conn, "ALTER TABLE calendars ADD COLUMN color_override TEXT")?;
     // extra dates of a series (iCalendar RDATE, a JSON array of UTC seconds), 1.0.7 W7.2
     add_column(conn, "ALTER TABLE events ADD COLUMN rdates TEXT NOT NULL DEFAULT '[]'")?;
     // the provider's own UID of a synced event whose `uid` was worked out from it (Graph: the Global Object ID of a meeting from another service)

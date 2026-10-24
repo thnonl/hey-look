@@ -48,6 +48,16 @@ pub struct Source {
     pub dav: Option<super::caldav::DavSource>,
 }
 
+impl Source {
+    /// How the person knows the service: Google Calendar, Outlook, or the CalDAV server by its name (iCloud, Fastmail, Nextcloud) or its host.
+    pub fn service_name(&self) -> String {
+        match &self.dav {
+            Some(d) if self.kind == Kind::CalDav => d.label(),
+            _ => self.kind.service().to_string(),
+        }
+    }
+}
+
 const SOURCE_COLS: &str = "id,account_id,kind,status,last_sync,last_error,retry_at,fail_count,connected_at,list_state,dav_url,dav_user,dav_preset,dav_homes,dav_addresses,dav_sched,dav_trust";
 
 fn row_source(r: &rusqlite::Row) -> rusqlite::Result<Source> {
@@ -176,9 +186,16 @@ pub struct CalRow {
     pub window_from: Option<i64>,
     /// when the calendar was last downloaded in full (a calendar over the event cap is downloaded in full at most once a day)
     pub full_at: Option<i64>,
+    /// the colour the person chose in Settings (`#rrggbb`); `None` = the service's colour
+    pub color_override: Option<String>,
 }
 
 impl CalRow {
+    /// The colour to draw: the person's choice, else the service's (empty = the mailbox's own colour).
+    pub fn shown_color(&self) -> String {
+        self.color_override.clone().unwrap_or_else(|| self.color.clone())
+    }
+
     pub fn remote(&self) -> RemoteCalendar {
         RemoteCalendar {
             id: self.remote_id.clone(),
@@ -193,7 +210,7 @@ impl CalRow {
     }
 }
 
-const CAL_COLS: &str = "id,source_id,remote_id,name,color,read_only,is_primary,sync_on,sync_state,time_zone,default_reminder_min,event_count,truncated,window_from,full_at";
+const CAL_COLS: &str = "id,source_id,remote_id,name,color,read_only,is_primary,sync_on,sync_state,time_zone,default_reminder_min,event_count,truncated,window_from,full_at,color_override";
 
 fn row_cal(r: &rusqlite::Row) -> rusqlite::Result<CalRow> {
     Ok(CalRow {
@@ -212,6 +229,7 @@ fn row_cal(r: &rusqlite::Row) -> rusqlite::Result<CalRow> {
         truncated: r.get::<_, i64>(12)? != 0,
         window_from: r.get(13)?,
         full_at: r.get(14)?,
+        color_override: r.get(15)?,
     })
 }
 
@@ -219,6 +237,20 @@ pub fn calendars_of(c: &Connection, source_id: &str) -> R<Vec<CalRow>> {
     let mut st = c.prepare(&format!("SELECT {CAL_COLS} FROM calendars WHERE source_id=?1 ORDER BY is_primary DESC, name COLLATE NOCASE, id")).map_err(err)?;
     let rows = st.query_map([source_id], row_cal).map_err(err)?.collect::<Result<Vec<_>, _>>().map_err(err)?;
     Ok(rows)
+}
+
+/// The colour of a synced calendar as the person wants it: `#rrggbb`, or `None` for the service's own. Not sent to the service (D-7.5b).
+pub fn set_color_override(c: &Connection, calendar_id: &str, color: Option<&str>) -> R<()> {
+    let value = match color.map(str::trim).filter(|v| !v.is_empty()) {
+        None => None,
+        Some(v) if v.len() == 7 && v.starts_with('#') && v[1..].chars().all(|ch| ch.is_ascii_hexdigit()) => Some(v.to_ascii_lowercase()),
+        Some(_) => return Err("CAL_ERROR: That is not a colour.".into()),
+    };
+    let n = c.execute("UPDATE calendars SET color_override=?2 WHERE id=?1", params![calendar_id, value]).map_err(err)?;
+    if n == 0 {
+        return Err("CAL_GONE: This calendar is no longer synced.".into());
+    }
+    Ok(())
 }
 
 pub fn get_calendar(c: &Connection, id: &str) -> Option<CalRow> {
@@ -444,7 +476,7 @@ pub fn event_from_remote(cal: &CalRow, account_id: &str, re: &RemoteEvent, id: S
         responded_at: old.and_then(|o| o.responded_at),
         reminder_min: re.reminder_min,
         source_message_id: None,
-        sequence: 0,
+        sequence: re.sequence,
         confidential: false,
         instance_start: None,
         read_only: read_only_for(cal, re),
@@ -568,8 +600,22 @@ pub fn apply_pull(c: &Connection, cal: &CalRow, account_id: &str, pull: &Pull, f
         tx.execute("DELETE FROM cal_resources WHERE calendar_id=?1", [&cal.id]).map_err(err)?;
     }
     // CalDAV: a resource that was downloaded again replaces every row it had (its master and its overrides), so an override that is gone from it is gone here too
+    // (the rows that are in the new text stay where they are, so an open dialog or a selection keeps its event; only the ones the text no longer has go)
+    let present: HashSet<&str> = pull.upserts.iter().map(|e| e.id.as_str()).collect();
     for href in &pull.replace {
-        changed |= tx.execute("DELETE FROM events WHERE calendar_id=?1 AND (remote_id=?2 OR series_id=?2)", params![cal.id, href]).map_err(err)? > 0;
+        let mut st = tx.prepare("SELECT id,remote_id FROM events WHERE calendar_id=?1 AND (remote_id=?2 OR series_id=?2)").map_err(err)?;
+        let gone: Vec<String> = st
+            .query_map(params![cal.id, href], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+            .map_err(err)?
+            .filter_map(|r| r.ok())
+            .filter(|(_, rid)| !present.contains(rid.as_str()))
+            .map(|(id, _)| id)
+            .collect();
+        drop(st);
+        for id in gone {
+            tx.execute("DELETE FROM events WHERE id=?1", [id]).map_err(err)?;
+            changed = true;
+        }
         tx.execute("DELETE FROM cal_tombstones WHERE calendar_id=?1 AND series_id=?2", params![cal.id, href]).map_err(err)?;
     }
     for href in &pull.removed {
@@ -652,7 +698,10 @@ pub fn apply_pull(c: &Connection, cal: &CalRow, account_id: &str, pull: &Pull, f
 pub struct CalendarSyncInfo {
     pub id: String,
     pub name: String,
+    /// the colour to draw (the person’s choice, else the service’s)
     pub color: String,
+    /// the colour is the person’s choice (Settings > Calendar), not the service’s
+    pub custom_color: bool,
     pub read_only: bool,
     pub primary: bool,
     pub sync_on: bool,
@@ -700,7 +749,7 @@ pub fn sources_info(c: &Connection) -> R<Vec<SourceInfo>> {
     for s in list_sources(c)? {
         let calendars = calendars_of(c, &s.id)?
             .into_iter()
-            .map(|r| CalendarSyncInfo { id: r.id, name: r.name, color: r.color, read_only: r.read_only, primary: r.primary, sync_on: r.sync_on, event_count: r.event_count, truncated: r.truncated })
+            .map(|r| CalendarSyncInfo { custom_color: r.color_override.is_some(), color: r.shown_color(), id: r.id, name: r.name, read_only: r.read_only, primary: r.primary, sync_on: r.sync_on, event_count: r.event_count, truncated: r.truncated })
             .collect();
         out.push(SourceInfo {
             first_sync: s.status == super::SYNCING && s.last_sync.is_none(),

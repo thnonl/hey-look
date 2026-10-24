@@ -17,6 +17,7 @@ mod flagguard;
 mod folders;
 mod headerfold;
 mod ical;
+mod ical_raw;
 mod i18n;
 mod identity;
 mod authres;
@@ -6154,6 +6155,9 @@ pub fn run() {
             calsync::cmds::calendar_sources,
             calsync::cmds::calendar_kinds_available,
             calsync::cmds::calendar_connect,
+            calsync::cmds::calendar_move_event,
+            calsync::cmds::calendar_create_calendar,
+            calsync::cmds::calendar_set_color,
             calsync::cmds::calendar_connect_caldav,
             calsync::cmds::calendar_dav_password,
             calsync::cmds::calendar_cancel_connect,
@@ -6938,7 +6942,7 @@ mod capability_tests {
             // quit and the main page's start-up
             "quit_now", "quit_cancelled", "sends_flushed", "quit_page_alive", "quit_dialog", "frontend_ready", "page_state", "page_pong", "show_window", "set_mail_available", "take_tray_compose",
             // calendar connections, sync triggers, mail actions that belong to the main page's intent layer
-            "calendar_connect", "calendar_connect_caldav", "calendar_dav_password", "calendar_disconnect", "calendar_sources", "calendar_set_sync", "calendar_sync_now", "sync_account", "refresh_badge", "thread_action",
+            "calendar_connect", "calendar_connect_caldav", "calendar_dav_password", "calendar_move_event", "calendar_create_calendar", "calendar_set_color", "calendar_disconnect", "calendar_sources", "calendar_set_sync", "calendar_sync_now", "sync_account", "refresh_badge", "thread_action",
             "queue_action", "cancel_action", "sender_action", "load_older", "idle_states", "frame_info", "frame_caption_rect", "frame_system_menu", "test_notification", "notify_permission", "notify_caps", "open_notification_settings", "play_notify_sound", "create_mail_folder",
             // the caption colours are the main page's to hand over (W4.3): a window never sets its own
             "window_caption_colors",
@@ -6979,7 +6983,7 @@ mod capability_tests {
         // (kind, capability file, window pattern, what the view needs on top of the basics, what it must not get on top of `never`)
         let kinds: [(&str, &str, &[&str], &[&str]); 4] = [
             ("event", "event-*", &["calendar_get_event", "calendar_save_event", "calendar_delete_event", "calendar_list_calendars", "suggest_contacts", "list_accounts"], &[
-                "add_account", "update_account", "remove_account", "set_secret", "set_setting", "pgp_export_secret", "pgp_generate_key", "check_update", "update_download", "list_threads", "get_thread", "outbox_send_now", "popout_open", "calendar_connect", "calendar_connect_caldav", "calendar_dav_password", "calendar_respond",
+                "add_account", "update_account", "remove_account", "set_secret", "set_setting", "pgp_export_secret", "pgp_generate_key", "check_update", "update_download", "list_threads", "get_thread", "outbox_send_now", "popout_open", "calendar_connect", "calendar_connect_caldav", "calendar_dav_password", "calendar_move_event", "calendar_create_calendar", "calendar_set_color", "calendar_respond",
             ]),
             ("search", "search-*", &["list_threads", "thread_meta", "locate_thread", "popout_open", "list_accounts", "list_folders"], &[
                 "add_account", "update_account", "remove_account", "set_secret", "set_setting", "pgp_export_secret", "pgp_generate_key", "check_update", "update_download", "get_thread", "get_raw", "calendar_save_event", "outbox_send_now", "cancel_outbox",
@@ -6987,7 +6991,7 @@ mod capability_tests {
             ("scheduled", "scheduled-*", &["list_outbox", "outbox_open_for_edit", "outbox_release", "outbox_retry", "outbox_send_now", "cancel_outbox", "outbox_to_draft", "pgp_unlock", "popout_open", "list_accounts"], &[
                 "add_account", "update_account", "remove_account", "set_secret", "set_setting", "pgp_export_secret", "pgp_generate_key", "check_update", "update_download", "list_threads", "get_thread", "calendar_save_event", "send_message",
             ]),
-            ("settings", "settings-*", &["add_account", "update_account", "remove_account", "set_secret", "set_setting", "save_signature", "save_template", "save_rule", "pgp_generate_key", "pgp_export_secret", "check_update", "update_download", "update_defer", "calendar_connect", "calendar_connect_caldav", "calendar_dav_password", "get_autostart", "set_autostart"], &[
+            ("settings", "settings-*", &["add_account", "update_account", "remove_account", "set_secret", "set_setting", "save_signature", "save_template", "save_rule", "pgp_generate_key", "pgp_export_secret", "check_update", "update_download", "update_defer", "calendar_connect", "calendar_connect_caldav", "calendar_dav_password", "calendar_move_event", "calendar_create_calendar", "calendar_set_color", "get_autostart", "set_autostart"], &[
                 "list_threads", "get_thread", "get_raw", "calendar_save_event", "calendar_delete_event", "outbox_send_now", "cancel_outbox", "popout_open", "attachment_data",
             ]),
         ];

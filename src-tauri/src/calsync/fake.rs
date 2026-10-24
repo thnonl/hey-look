@@ -300,6 +300,7 @@ impl CalProvider for FakeProvider {
         re.uid = format!("{id}@fake");
         if let Some(r) = &ev.rrule {
             re.rrule = Some(r.clone());
+            re.exdates = ev.exdates.clone();
             re.kind = EventKind::Master;
         }
         self.g().writes.push(format!("create:{}:{}:{}", cal.id, ev.summary, ev.rrule.clone().unwrap_or_default()));
@@ -360,6 +361,37 @@ impl CalProvider for FakeProvider {
             self.delete_event(&cal.id, &k);
         }
         Ok(())
+    }
+
+    fn move_event(&self, cal: &RemoteCalendar, remote_id: &str, etag: &str, target: &RemoteCalendar) -> Result<RemoteEvent, SyncErr> {
+        self.check_write()?;
+        let cur = self.event(&cal.id, remote_id).ok_or(SyncErr::NotFound)?;
+        if !etag.is_empty() && cur.etag != etag {
+            return Err(SyncErr::Conflict);
+        }
+        let kids: Vec<RemoteEvent> = self.g().events.get(&cal.id).map(|l| l.iter().filter(|e| e.series_id.as_deref() == Some(remote_id)).cloned().collect()).unwrap_or_default();
+        self.g().writes.push(format!("move:{}:{remote_id}:{}", cal.id, target.id));
+        self.delete_event(&cal.id, remote_id);
+        for k in &kids {
+            self.delete_event(&cal.id, &k.id);
+        }
+        let mut moved = cur;
+        moved.etag.clear();
+        self.add_event(&target.id, moved);
+        for mut k in kids {
+            k.etag.clear();
+            self.add_event(&target.id, k);
+        }
+        Ok(self.event(&target.id, remote_id).unwrap())
+    }
+
+    fn create_calendar(&self, name: &str) -> Result<RemoteCalendar, SyncErr> {
+        self.check_write()?;
+        let n = self.g().calendars.len() + 1;
+        let rc = RemoteCalendar { id: format!("cal-{n}"), name: name.to_string(), color: "#112233".into(), selected: true, ..Default::default() };
+        self.g().writes.push(format!("create_calendar:{name}"));
+        self.add_calendar(rc.clone());
+        Ok(rc)
     }
 
     fn get_series(&self, cal: &RemoteCalendar, series_id: &str) -> Result<RemoteEvent, SyncErr> {

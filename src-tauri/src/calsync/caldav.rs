@@ -220,6 +220,11 @@ impl DavHttp {
 
     /// One request, redirects followed by hand. The same method and body go to the new address (a `.well-known` redirect is a redirect of the PROPFIND).
     pub fn request(&self, method: &str, url: &Url, depth: Option<&str>, body: Option<&str>, extra: &[(&str, &str)]) -> Result<Reply, DavErr> {
+        self.request_as(method, url, depth, body.map(|b| ("application/xml; charset=utf-8", b)), extra)
+    }
+
+    /// The same with the content type of the body named (an iCalendar text for a PUT).
+    pub fn request_as(&self, method: &str, url: &Url, depth: Option<&str>, body: Option<(&str, &str)>, extra: &[(&str, &str)]) -> Result<Reply, DavErr> {
         let mut at = url.clone();
         for _ in 0..=MAX_REDIRECTS {
             if !scheme_allowed(&at) {
@@ -230,8 +235,8 @@ impl DavHttp {
             if let Some(d) = depth {
                 req = req.header("Depth", d);
             }
-            if let Some(b) = body {
-                req = req.header(CONTENT_TYPE, HeaderValue::from_static("application/xml; charset=utf-8")).body(b.to_string());
+            if let Some((ctype, b)) = body {
+                req = req.header(CONTENT_TYPE, HeaderValue::from_str(ctype).unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream"))).body(b.to_string());
             }
             for (k, v) in extra {
                 req = req.header(*k, *v);
@@ -729,6 +734,9 @@ impl CalDavProvider {
     }
 }
 
+#[path = "caldav_write.rs"]
+mod write;
+
 // ------------------------------------------------------------------ mapping
 
 /// The rows one resource gives.
@@ -797,6 +805,7 @@ fn map_one(href: &str, etag: &str, ev: &IcsEvent, me: &[String], override_slot: 
         reminder_min: ev.reminder_min,
         // the person's own event, or one without an organizer; somebody else's meeting is only theirs to read (D-7.4g)
         can_edit: ev.organizer.is_none() || organizer_self,
+        sequence: ev.sequence,
         updated: None,
     }
 }
@@ -854,21 +863,40 @@ impl CalProvider for CalDavProvider {
         true
     }
 
-    // Writes come with the second half of W7.4 (7d): until then a CalDAV calendar is read-only here.
-    fn create(&self, _cal: &RemoteCalendar, _ev: &EventDraft) -> Result<RemoteEvent, SyncErr> {
-        Err(SyncErr::NotSetUp("writing to a CalDAV calendar is not part of this version".into()))
+    fn create(&self, cal: &RemoteCalendar, ev: &EventDraft) -> Result<RemoteEvent, SyncErr> {
+        self.write_create(cal, ev)
     }
 
-    fn update(&self, _cal: &RemoteCalendar, _remote_id: &str, _etag: &str, _changed: &EventPatch) -> Result<RemoteEvent, SyncErr> {
-        Err(SyncErr::NotSetUp("writing to a CalDAV calendar is not part of this version".into()))
+    fn update(&self, cal: &RemoteCalendar, remote_id: &str, etag: &str, changed: &EventPatch) -> Result<RemoteEvent, SyncErr> {
+        self.write_update(cal, remote_id, etag, changed)
     }
 
-    fn delete(&self, _cal: &RemoteCalendar, _remote_id: &str, _etag: &str) -> Result<(), SyncErr> {
-        Err(SyncErr::NotSetUp("writing to a CalDAV calendar is not part of this version".into()))
+    fn delete(&self, cal: &RemoteCalendar, remote_id: &str, etag: &str) -> Result<(), SyncErr> {
+        self.write_delete(cal, remote_id, etag)
     }
 
-    fn respond(&self, _cal: &RemoteCalendar, _remote_id: &str, _etag: &str, _status: Rsvp, _me: &str, _attendees: &[CalAttendee]) -> Result<(), SyncErr> {
-        Err(SyncErr::NotSetUp("answering through a CalDAV calendar is not part of this version".into()))
+    fn respond(&self, cal: &RemoteCalendar, remote_id: &str, etag: &str, status: Rsvp, me: &str, attendees: &[CalAttendee]) -> Result<(), SyncErr> {
+        self.write_respond(cal, remote_id, etag, status, me, attendees)
+    }
+
+    fn update_occurrence(&self, cal: &RemoteCalendar, series_id: &str, original_start: i64, all_day: bool, changed: &EventPatch) -> Result<RemoteEvent, SyncErr> {
+        self.write_update_occurrence(cal, series_id, original_start, all_day, changed)
+    }
+
+    fn delete_occurrence(&self, cal: &RemoteCalendar, series_id: &str, original_start: i64, all_day: bool) -> Result<String, SyncErr> {
+        self.write_delete_occurrence(cal, series_id, original_start, all_day)
+    }
+
+    fn get_series(&self, cal: &RemoteCalendar, series_id: &str) -> Result<RemoteEvent, SyncErr> {
+        self.write_get_series(cal, series_id)
+    }
+
+    fn move_event(&self, cal: &RemoteCalendar, remote_id: &str, etag: &str, target: &RemoteCalendar) -> Result<RemoteEvent, SyncErr> {
+        self.write_move(cal, remote_id, etag, target)
+    }
+
+    fn create_calendar(&self, name: &str) -> Result<RemoteCalendar, SyncErr> {
+        self.write_create_calendar(name)
     }
 }
 

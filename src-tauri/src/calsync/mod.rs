@@ -49,7 +49,7 @@ pub enum Kind {
 
 /// The kinds a build offers. A kind that is not listed has no switch in Settings and refuses `calendar_connect`. Keep in sync with
 /// `CALENDAR_SYNC_KINDS` in src/calendarSync.ts (a test compares them). Leaving a kind out switches it off (the cut line).
-pub const ENABLED_KINDS: [Kind; 2] = [Kind::Google, Kind::Microsoft];
+pub const ENABLED_KINDS: [Kind; 3] = [Kind::Google, Kind::Microsoft, Kind::CalDav];
 
 impl Kind {
     /// Value stored in `cal_sources.kind`.
@@ -93,20 +93,9 @@ impl Kind {
         self == Kind::Microsoft
     }
 
-    /// Is this kind switched on in this build? CalDAV stays out of `ENABLED_KINDS` until it can write (W7.4 part 2); a debug build shows it with `HEYLOOK_TEST_CALDAV=1` (release
-    /// builds never read the variable).
+    /// Is this kind switched on in this build?
     pub fn enabled(self) -> bool {
-        ENABLED_KINDS.contains(&self) || self.debug_enabled()
-    }
-
-    #[cfg(debug_assertions)]
-    fn debug_enabled(self) -> bool {
-        self == Kind::CalDav && debug_switch(std::env::var("HEYLOOK_TEST_CALDAV").ok().as_deref())
-    }
-
-    #[cfg(not(debug_assertions))]
-    fn debug_enabled(self) -> bool {
-        false
+        ENABLED_KINDS.contains(&self)
     }
 
     /// The kind an account can sync, `None` for a mailbox with no calendar service (iCloud, plain IMAP). Gmail by app password counts
@@ -127,12 +116,6 @@ impl Kind {
             Kind::CalDav => None,
         }
     }
-}
-
-/// The value of `HEYLOOK_TEST_CALDAV` that shows CalDAV in a debug build.
-#[cfg(any(debug_assertions, test))]
-pub fn debug_switch(value: Option<&str>) -> bool {
-    value.is_some_and(|v| v.trim() == "1")
 }
 
 pub fn source_id(account_id: &str, kind: Kind) -> String {
@@ -256,11 +239,30 @@ pub struct RemoteEvent {
     pub reminder_min: Option<i64>,
     /// the user may change this event (Google: organizer is the user or guests may modify; Graph: `isOrganizer`)
     pub can_edit: bool,
+    /// SEQUENCE of the event (CalDAV: the invitations this app sends carry the next one); 0 where the provider keeps no such number
+    pub sequence: i64,
     /// when the provider last changed it (UTC seconds), for telling a stale page from a newer deletion
     pub updated: Option<i64>,
 }
 
 impl RemoteEvent {
+    /// The event as a draft for another calendar of the same or another service (a move that makes a copy and deletes the original). Guests are not carried.
+    pub fn as_draft(&self) -> EventDraft {
+        EventDraft {
+            summary: self.summary.clone(),
+            start: self.start,
+            end: self.end,
+            all_day: self.all_day,
+            tzid: self.tzid.clone().or_else(|| (!self.all_day && self.rrule.is_some()).then(|| "UTC".to_string())),
+            location: self.location.clone(),
+            description: self.description.clone(),
+            attendees: vec![],
+            reminder_min: self.reminder_min,
+            rrule: self.rrule.clone(),
+            exdates: self.exdates.clone(),
+        }
+    }
+
     /// A plain single event (tests build their events from it).
     #[cfg(test)]
     pub fn single(id: &str, summary: &str, start: i64, end: i64) -> RemoteEvent {
@@ -290,6 +292,7 @@ impl RemoteEvent {
             my_status: None,
             reminder_min: None,
             can_edit: true,
+            sequence: 0,
             updated: None,
         }
     }
@@ -310,6 +313,8 @@ pub struct EventDraft {
     pub reminder_min: Option<i64>,
     /// RRULE (without the prefix) of a repeating event to create
     pub rrule: Option<String>,
+    /// slots of the rule that are deleted from the start (a series that begins partway through an older one: CalDAV and Google write them with the rule)
+    pub exdates: Vec<i64>,
 }
 
 /// The fields of an event that changed; `None` = leave as it is. The attendee list, when it changed, is the whole new list
@@ -425,6 +430,10 @@ pub enum SyncErr {
     NotSetUp(String),
     /// 412: the event changed on the server since the etag
     Conflict,
+    /// 403: the server says the calendar (or the event) cannot be changed by this user
+    ReadOnly,
+    /// the grant lacks a permission that making a calendar needs (Google): allow access again; the source itself keeps working
+    NeedsScope,
     /// 410: the sync token is no longer valid, download everything again
     Gone,
     /// 404: the event (or the calendar) does not exist (any more)
@@ -443,6 +452,8 @@ impl std::fmt::Display for SyncErr {
             SyncErr::Blocked(t) => write!(f, "blocked: {t}"),
             SyncErr::NotSetUp(t) => write!(f, "not set up: {t}"),
             SyncErr::Conflict => write!(f, "the event changed on the server"),
+            SyncErr::ReadOnly => write!(f, "read only"),
+            SyncErr::NeedsScope => write!(f, "more permission is needed"),
             SyncErr::Gone => write!(f, "the sync token expired"),
             SyncErr::NotFound => write!(f, "not found"),
             SyncErr::RateLimited(Some(d)) => write!(f, "busy, retry in {} s", d.as_secs()),
@@ -518,6 +529,14 @@ pub trait CalProvider: Send {
     fn delete_occurrence(&self, _cal: &RemoteCalendar, _series_id: &str, _original_start: i64, _all_day: bool) -> Result<String, SyncErr> {
         Err(SyncErr::NotSetUp("deleting one occurrence is not part of this service".into()))
     }
+    /// Move an event (a whole series moves as one) to another calendar of the same account. Returns the event as it is in the target. Services without a move make a copy and delete the original.
+    fn move_event(&self, _cal: &RemoteCalendar, _remote_id: &str, _etag: &str, _target: &RemoteCalendar) -> Result<RemoteEvent, SyncErr> {
+        Err(SyncErr::NotSetUp("moving an event is not part of this service".into()))
+    }
+    /// Make a calendar with this name in the account. Returns it as the service lists it.
+    fn create_calendar(&self, _name: &str) -> Result<RemoteCalendar, SyncErr> {
+        Err(SyncErr::NotSetUp("making a calendar is not part of this service".into()))
+    }
     /// The series master as the service has it now (its own EXDATEs and RDATEs, the repeat rule, the version tag).
     fn get_series(&self, _cal: &RemoteCalendar, _series_id: &str) -> Result<RemoteEvent, SyncErr> {
         Err(SyncErr::NotSetUp("series are not part of this service".into()))
@@ -582,6 +601,15 @@ mod tests {
         let found: Vec<&str> = line.split('"').skip(1).step_by(2).collect();
         let ours: Vec<&str> = ENABLED_KINDS.iter().map(|k| k.as_str()).collect();
         assert_eq!(found, ours);
+    }
+
+    #[test]
+    fn the_google_calendar_creation_switch_matches_the_frontend() {
+        let ts = include_str!("../../../src/calendarSync.ts");
+        let line = ts.lines().find(|l| l.starts_with("export const GOOGLE_CREATE_CALENDARS")).expect("GOOGLE_CREATE_CALENDARS in calendarSync.ts");
+        assert_eq!(line.contains("= true"), crate::oauth::GOOGLE_CREATE_CALENDARS, "{line}");
+        // the scope is only asked for when the switch is on
+        assert_eq!(crate::oauth::Provider::Google.scope_for(crate::oauth::Purpose::Calendar).contains("calendar.app.created"), crate::oauth::GOOGLE_CREATE_CALENDARS);
     }
 
     #[test]

@@ -420,6 +420,7 @@ fn parse_event(cal: &RemoteCalendar, v: &Value) -> Option<RemoteEvent> {
         my_status,
         reminder_min: reminder(v, cal),
         can_edit,
+        sequence: 0,
         updated,
     })
 }
@@ -570,7 +571,11 @@ impl CalProvider for GoogleProvider {
             body["attendees"] = attendees_json(&ev.attendees, false);
         }
         if let Some(rule) = ev.rrule.as_deref().map(crate::recur::bare).filter(|r| !r.is_empty()) {
-            body["recurrence"] = json!([format!("RRULE:{rule}")]);
+            body["recurrence"] = if ev.exdates.is_empty() {
+                json!([format!("RRULE:{rule}")])
+            } else {
+                recurrence_json(&Recurrence { rrule: Some(rule.to_string()), exdates: ev.exdates.clone(), rdates: vec![], start: ev.start, all_day: ev.all_day, tzid: ev.tzid.clone().or_else(|| (!ev.all_day).then(|| "UTC".to_string())) })
+            };
             // a repeating event has to name the zone its rule is worked out in
             if !ev.all_day && ev.tzid.is_none() {
                 body["start"]["timeZone"] = json!("UTC");
@@ -614,6 +619,30 @@ impl CalProvider for GoogleProvider {
         }
         let v = self.call(Method::PATCH, &Self::event_path(cal, remote_id), &[("sendUpdates", "all".into())], Some(&body), Some(etag))?;
         parse_event(cal, &v).ok_or_else(|| SyncErr::Other("Google Calendar answered with an event that cannot be shown".into()))
+    }
+
+    fn move_event(&self, cal: &RemoteCalendar, remote_id: &str, _etag: &str, target: &RemoteCalendar) -> Result<RemoteEvent, SyncErr> {
+        // (events.move takes a single event or a whole series; the exceptions of a series come along; the user is the organizer)
+        let v = self.call(Method::POST, &format!("{}/move", Self::event_path(cal, remote_id)), &[("destination", target.id.clone())], None, None)?;
+        parse_event(target, &v).ok_or_else(|| SyncErr::Other("Google Calendar answered with an event that cannot be shown".into()))
+    }
+
+    fn create_calendar(&self, name: &str) -> Result<RemoteCalendar, SyncErr> {
+        if !crate::oauth::GOOGLE_CREATE_CALENDARS {
+            return Err(SyncErr::NeedsScope);
+        }
+        // (a 403 here is the missing scope of an older grant, not the end of access: the source keeps working)
+        match self.call(Method::POST, "/calendars", &[], Some(&json!({ "summary": name, "timeZone": "UTC" })), None) {
+            Ok(v) => {
+                let mut c = parse_calendar(&v).ok_or_else(|| SyncErr::Other("Google Calendar answered with a calendar that cannot be shown".into()))?;
+                // (a calendar the app made is the person's own to change)
+                c.read_only = false;
+                c.selected = true;
+                Ok(c)
+            }
+            Err(SyncErr::Auth) => Err(SyncErr::NeedsScope),
+            Err(e) => Err(e),
+        }
     }
 
     fn delete(&self, cal: &RemoteCalendar, remote_id: &str, etag: &str) -> Result<(), SyncErr> {
@@ -1148,6 +1177,7 @@ mod tests {
             attendees: vec![CalAttendee { email: "g@x.test".into(), name: Some("Guest".into()), role: "optional".into(), status: "needs-action".into(), is_you: false }],
             reminder_min: Some(15),
             rrule: None,
+            exdates: vec![],
         };
         let got = provider(&srv).create(&team, &draft).unwrap();
         assert_eq!((got.id.as_str(), got.etag.as_str()), ("newid", "\"created\""));
@@ -1211,6 +1241,25 @@ mod tests {
         let r = &srv.requests()[0];
         assert_eq!((r.method.as_str(), r.headers["if-match"].as_str(), r.query("sendUpdates").as_deref()), ("DELETE", "\"e\"", Some("all")));
         assert_eq!(provider(&srv).delete(&cal(), "old", "\"e\""), Err(SyncErr::NotFound), "410: deleted already");
+    }
+
+    /// W7.5: the service moves the event itself (single events and whole series), and making a calendar is off until the extra scope is confirmed (D-7.5c).
+    #[test]
+    fn google_moves_with_events_move_and_makes_no_calendar_without_the_scope() {
+        let srv = FakeServer::start(|r| match (r.method.as_str(), r.path()) {
+            ("POST", "/calendars/primary/events/ev1/move") => Resp::json(200, ev_json("ev1", "Lunch", "2026-10-20T09:00:00Z", "2026-10-20T10:00:00Z")),
+            (m, p) => panic!("unexpected {m} {p}"),
+        });
+        let team = RemoteCalendar { id: "team@group.calendar.google.com".into(), name: "Team".into(), selected: true, ..Default::default() };
+        let got = provider(&srv).move_event(&cal(), "ev1", "\"e\"", &team).unwrap();
+        assert_eq!((got.id.as_str(), got.summary.as_str()), ("ev1", "Lunch"));
+        let r = &srv.requests()[0];
+        assert_eq!((r.method.as_str(), r.query("destination").as_deref()), ("POST", Some("team@group.calendar.google.com")));
+        assert_eq!(srv.count(), 1);
+        // no request is made for a new calendar while the scope is not part of the consent
+        assert!(!crate::oauth::GOOGLE_CREATE_CALENDARS);
+        assert_eq!(provider(&srv).create_calendar("Hobbies"), Err(SyncErr::NeedsScope));
+        assert_eq!(srv.count(), 1);
     }
 
     /// W7.1: one occurrence of a series is found by its original start and changed or deleted with the etag of that instance.

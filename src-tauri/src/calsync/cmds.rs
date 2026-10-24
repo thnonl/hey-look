@@ -348,6 +348,58 @@ pub fn calendar_disconnect(app: tauri::AppHandle, state: tauri::State<AppState>,
     Ok(())
 }
 
+/// Move an event (a whole series as one) to another calendar (REQ-7.5.1).
+#[tauri::command]
+pub async fn calendar_move_event(app: tauri::AppHandle, state: tauri::State<'_, AppState>, event_id: String, target_calendar_id: String) -> R<crate::calendar::CalEvent> {
+    let db = state.db.clone();
+    let out = blocking(move || super::write::move_event(&db, &AppFactory { db: db.clone() }, &event_id, &target_calendar_id)).await;
+    changed(&app);
+    out
+}
+
+/// Make a new calendar in the service of a mailbox (REQ-7.5.3), with an optional colour of Hey Look!'s own; the calendar is listed and its (empty) events pulled at once.
+#[tauri::command]
+pub async fn calendar_create_calendar(app: tauri::AppHandle, state: tauri::State<'_, AppState>, account_id: String, name: String, color: Option<String>) -> R<SourceInfo> {
+    let db = state.db.clone();
+    let out = blocking(move || {
+        let name = name.trim().chars().take(100).collect::<String>();
+        if name.is_empty() {
+            return Err("CAL_GONE: This calendar is no longer synced.".to_string());
+        }
+        let (src, email) = {
+            let c = lock(&db);
+            let src = store::source_of_account(&c, &account_id).ok_or("CAL_GONE: This calendar is no longer synced.")?;
+            (src, db::get_account(&c, &account_id).map(|a| a.email).unwrap_or_default())
+        };
+        let factory = AppFactory { db: db.clone() };
+        let provider = factory.provider(&src).map_err(|e| super::write::error_text(&e, &src.service_name(), &name, &email))?;
+        let rc = provider.create_calendar(&name).map_err(|e| super::write::error_text(&e, &src.service_name(), &name, &email))?;
+        let cal_id = super::calendar_id(&src.account_id, src.kind, &rc.id);
+        {
+            let c = lock(&db);
+            store::apply_calendar_delta(&c, &src, &[rc], &[])?;
+            if color.is_some() {
+                store::set_color_override(&c, &cal_id, color.as_deref())?;
+            }
+        }
+        let _ = engine::refresh_calendar(&db, &factory, &cal_id, Clock::real());
+        super::request_sync(&src.account_id);
+        let c = lock(&db);
+        store::sources_info(&c)?.into_iter().find(|s| s.id == src.id).ok_or_else(|| "calendar source missing".to_string())
+    })
+    .await;
+    changed(&app);
+    out
+}
+
+/// The colour of a synced calendar in Hey Look! (REQ-7.5.2): `#rrggbb`, or none for the service's own. Never sent to the service.
+#[tauri::command]
+pub fn calendar_set_color(app: tauri::AppHandle, state: tauri::State<AppState>, calendar_id: String, color: Option<String>) -> R<()> {
+    store::set_color_override(&lock(&state.db), &calendar_id, color.as_deref())?;
+    changed(&app);
+    Ok(())
+}
+
 /// The `Sync` switch of one calendar.
 #[tauri::command]
 pub fn calendar_set_sync(app: tauri::AppHandle, state: tauri::State<AppState>, calendar_id: String, on: bool) -> R<()> {
@@ -490,9 +542,9 @@ mod tests {
     fn a_missing_client_is_said_in_one_sentence_and_kinds_follow_the_clients() {
         assert_eq!(not_set_up_text(Provider::Google), "CAL_NOT_SET_UP: This build of Hey Look! can’t sync calendars with Google.");
         assert_eq!(not_set_up_text(Provider::Microsoft), "CAL_NOT_SET_UP: This build of Hey Look! can’t sync calendars with Microsoft.");
-        assert_eq!(kinds_available(|_| true), vec!["google", "microsoft"]);
-        assert_eq!(kinds_available(|p| p == Provider::Microsoft), vec!["microsoft"]);
-        assert!(kinds_available(|_| false).is_empty());
+        assert_eq!(kinds_available(|_| true), vec!["google", "microsoft", "caldav"]);
+        assert_eq!(kinds_available(|p| p == Provider::Microsoft), vec!["microsoft", "caldav"]);
+        assert_eq!(kinds_available(|_| false), vec!["caldav"], "CalDAV needs no OAuth client");
     }
 
     #[test]

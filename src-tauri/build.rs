@@ -18,7 +18,7 @@ const APP_COMMANDS: &[&str] = &[
     "pgp_unlock", "pgp_lock_all", "pgp_recipient_status", "smtp_size_limit", "pgp_decrypt_message", "outbox_send_now", "outbox_hold",
     "outbox_hold_send", "quit_now", "calendar_list_calendars", "calendar_set_visible", "calendar_list_events", "calendar_get_event",
     "calendar_save_event", "calendar_delete_event", "calendar_respond", "calendar_add_from_message", "calendar_save_ics", "calendar_import_ics",
-    "calendar_open_message", "calendar_sources", "calendar_kinds_available", "calendar_connect", "calendar_connect_caldav", "calendar_dav_password", "calendar_cancel_connect", "calendar_disconnect", "calendar_set_sync",
+    "calendar_open_message", "calendar_sources", "calendar_kinds_available", "calendar_connect", "calendar_move_event", "calendar_create_calendar", "calendar_set_color", "calendar_connect_caldav", "calendar_dav_password", "calendar_cancel_connect", "calendar_disconnect", "calendar_set_sync",
     "calendar_sync_now", "list_templates", "save_template", "delete_template", "list_signatures", "save_signature", "delete_signature",
     "get_setting", "set_setting", "first_run_hint", "suggest_contacts", "unsubscribe", "unsubscribe_opened", "fetch_remote_images", "queue_action", "cancel_action",
     "load_older", "attachment_data", "set_secret", "has_secret", "ai_complete", "ai_cancel", "ai_list_models", "shell_info", "check_update",

@@ -54,6 +54,7 @@ fn create_sends_the_event_in_its_zone_with_guests_and_a_reminder_and_lets_outloo
         attendees: vec![CalAttendee { name: Some("Guest".into()), ..guest("g@x.test", "optional") }, guest("h@x.test", "required")],
         reminder_min: Some(30),
         rrule: None,
+        exdates: vec![],
     };
     let got = prov(&srv).create(&work(), &draft).unwrap();
     assert_eq!((got.id.as_str(), got.etag.as_str()), ("newid", "W/\"created\""));
@@ -470,4 +471,40 @@ fn the_release_build_talks_to_graph_only() {
     assert_eq!(API, "https://graph.microsoft.com/v1.0");
     assert!(http::base_url("HEYLOOK_GRAPH_NOT_SET", API).starts_with("https://graph.microsoft.com/"));
     assert!(!prov(&FakeServer::start(|_| Resp::empty(200))).own_link("http://127.0.0.1:1/x"));
+}
+
+/// W7.5: Graph has no move: the event is made again in the target and the original is deleted; a new calendar is a POST.
+#[test]
+fn outlook_moves_by_copying_then_deleting_and_makes_a_calendar() {
+    let log: Arc<Mutex<Vec<String>>> = Arc::default();
+    let l2 = log.clone();
+    let srv = FakeServer::start(move |r| {
+        l2.lock().unwrap().push(format!("{} {}", r.method, r.path()));
+        match (r.method.as_str(), r.path()) {
+            ("GET", "/me/events/AAMkEV%3D") => {
+                let mut v = ev_json("AAMkEV=", "Lunch", "2026-10-20T13:00:00.0000000", "2026-10-20T14:00:00.0000000");
+                v["location"] = json!({ "displayName": "Home" });
+                Resp::json(200, v)
+            }
+            ("POST", "/me/calendars/FAMILY/events") => {
+                let b = r.json();
+                assert_eq!((b["subject"].as_str(), b["location"]["displayName"].as_str()), (Some("Lunch"), Some("Home")));
+                let mut v = ev_json("newid", "Lunch", "2026-10-20T13:00:00.0000000", "2026-10-20T14:00:00.0000000");
+                v["@odata.etag"] = json!("W/\"created\"");
+                Resp::json(201, v)
+            }
+            ("DELETE", "/me/events/AAMkEV%3D") => Resp::empty(204),
+            ("POST", "/me/calendars") => {
+                assert_eq!(r.json()["name"], "Hobbies");
+                Resp::json(201, json!({ "id": "NEWCAL", "name": "Hobbies", "hexColor": "", "canEdit": true, "isDefaultCalendar": false }))
+            }
+            (m, p) => panic!("unexpected {m} {p}"),
+        }
+    });
+    let family = RemoteCalendar { id: "FAMILY".into(), name: "Family".into(), selected: true, ..Default::default() };
+    let moved = prov(&srv).move_event(&work(), "AAMkEV=", "W/\"etag\"", &family).unwrap();
+    assert_eq!((moved.id.as_str(), moved.summary.as_str()), ("newid", "Lunch"));
+    assert_eq!(*log.lock().unwrap(), vec!["GET /me/events/AAMkEV%3D", "POST /me/calendars/FAMILY/events", "DELETE /me/events/AAMkEV%3D"], "read, make again, delete the original: in that order");
+    let made = prov(&srv).create_calendar("Hobbies").unwrap();
+    assert_eq!((made.id.as_str(), made.name.as_str(), made.read_only), ("NEWCAL", "Hobbies", false));
 }

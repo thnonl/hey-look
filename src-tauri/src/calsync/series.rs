@@ -410,6 +410,8 @@ fn save_following(db: &Db, factory: &dyn ProviderFactory, provider: &dyn super::
         attendees: guests(inp, None, &me),
         reminder_min: inp.reminder_min,
         rrule: new_rule,
+        // the occurrences that were deleted from here on stay deleted in the new part (a new rule starts over, D-7.1b c)
+        exdates: if rule_changed { vec![] } else { cut.exdates.iter().copied().filter(|e| *e >= slot).map(|e| recur::shift_slot(e, slot, inp.start, cut.all_day, cut.tzid.as_deref())).collect() },
     };
     let new_re = match provider.create(&remote, &draft) {
         Ok(n) => n,

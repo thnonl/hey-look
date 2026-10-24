@@ -32,6 +32,10 @@ pub enum Provider {
     Microsoft,
 }
 
+/// Making calendars in Google Calendar needs one more scope (`calendar.app.created`, W7.5, D-7.5c) that has to be added to the OAuth consent screen and to the verification first (owner step O-03). Until the owner confirms it
+/// the scope is not asked for and the button is not offered; Outlook and CalDAV are not affected. Existing Google grants lack the scope either way: they are asked again (`CAL_NEEDS_ACCESS`).
+pub const GOOGLE_CREATE_CALENDARS: bool = false;
+
 impl Provider {
     /// Value stored in `Account.auth`.
     pub fn auth(self) -> &'static str {
@@ -82,6 +86,9 @@ impl Provider {
             // One Outlook resource token covers both IMAP and SMTP AUTH.
             (Provider::Microsoft, Purpose::Mail) => {
                 "https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send offline_access openid email profile"
+            }
+            (Provider::Google, Purpose::Calendar) if GOOGLE_CREATE_CALENDARS => {
+                "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.calendarlist.readonly https://www.googleapis.com/auth/calendar.app.created openid email"
             }
             (Provider::Google, Purpose::Calendar) => {
                 "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.calendarlist.readonly openid email"

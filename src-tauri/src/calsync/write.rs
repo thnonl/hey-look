@@ -10,9 +10,10 @@ use crate::db::R;
 use crate::{lock, Db};
 
 /// The error text the UI shows, with the code the front end tells them apart by.
-pub fn error_text(e: &SyncErr, kind: Kind, calendar: &str, email: &str) -> String {
-    let service = kind.service();
+pub fn error_text(e: &SyncErr, service: &str, calendar: &str, email: &str) -> String {
     match e {
+        SyncErr::ReadOnly => format!("CAL_READ_ONLY: {calendar} is read only."),
+        SyncErr::NeedsScope => format!("CAL_NEEDS_ACCESS: To create calendars in {service}, allow access again."),
         SyncErr::Offline => format!("CAL_OFFLINE: You’re offline. Changes to {calendar} need a connection."),
         SyncErr::Conflict => format!("CAL_CONFLICT: This event was changed in {service}, so its latest version is shown."),
         SyncErr::NotFound => format!("CAL_GONE: This event was deleted in {service}."),
@@ -57,7 +58,7 @@ fn note_failure(db: &Db, t: &Target, e: &SyncErr) {
 
 pub(super) fn fail(db: &Db, t: &Target, e: SyncErr) -> String {
     note_failure(db, t, &e);
-    error_text(&e, t.src.kind, &t.cal.name, &t.email)
+    error_text(&e, &t.src.service_name(), &t.cal.name, &t.email)
 }
 
 pub(super) fn norm(s: &str) -> String {
@@ -180,6 +181,7 @@ pub fn save(db: &Db, factory: &dyn ProviderFactory, inp: &CalEventInput) -> R<Ca
                 attendees: guests(inp, None, &me),
                 reminder_min: inp.reminder_min,
                 rrule: inp.rrule.as_deref().map(crate::recur::bare).filter(|r| !r.is_empty()).map(String::from),
+                exdates: vec![],
             };
             provider.create(&remote, &draft).map_err(|e| fail(db, &t, e))?
         }
@@ -244,6 +246,97 @@ pub fn delete(db: &Db, factory: &dyn ProviderFactory, id: &str, scope: Option<Sc
     }
 }
 
+/// The sentence when an event with guests cannot be moved here (Outlook has no move, a CalDAV server that sends invitations would send them again).
+fn move_guests_text(service: &str) -> String {
+    format!("CAL_MOVE_GUESTS: An event with guests can’t be moved to another calendar here. You can move it in {service}.")
+}
+
+fn has_guests(e: &CalEvent, me: &str) -> bool {
+    e.attendees.iter().any(|a| a.role != "chair" && norm(&a.email) != me)
+}
+
+/// Move an event (a whole series moves as one) to another synced calendar (REQ-7.5.1, D-7.5a): within one mailbox by the service's own move or by a copy and a delete, or from My events into
+/// a synced calendar (an event without guests, made there and deleted here). The target and the original change together or not at all. A changed occurrence of a series moves with its series.
+pub fn move_event(db: &Db, factory: &dyn ProviderFactory, id: &str, target_id: &str) -> R<CalEvent> {
+    let mut e = calendar::get_event(&lock(db), id)?;
+    if matches!(e.remote_kind.as_deref(), Some("exception" | "occurrence")) {
+        let sid = e.series_id.clone().ok_or("CAL_GONE: This event is not part of a synced calendar.")?;
+        e = store::find_remote(&lock(db), &e.calendar_id, &sid).ok_or("CAL_GONE: This event is not part of a synced calendar.")?;
+    }
+    if e.calendar_id == target_id {
+        return Ok(e);
+    }
+    let t2 = target(db, target_id)?;
+    if t2.cal.read_only {
+        return Err(read_only_text("calendar", &t2.cal.name, t2.src.kind));
+    }
+    let now = chrono::Utc::now().timestamp();
+    let service = t2.src.service_name();
+    let me = norm(&t2.email);
+    if e.calendar_id == calendar::LOCAL {
+        // My events -> a synced calendar
+        if has_guests(&e, &me) {
+            return Err(move_guests_text(&service));
+        }
+        let changed: i64 = lock(db).query_row("SELECT COUNT(*) FROM events WHERE calendar_id=?1 AND uid=?2 AND recurrence_id<>''", rusqlite::params![calendar::LOCAL, e.uid], |r| r.get(0)).unwrap_or(0);
+        if changed > 0 {
+            return Err(format!("CAL_ERROR: Couldn’t save to {service}: some of its occurrences were changed one by one."));
+        }
+        let provider = factory.provider(&t2.src).map_err(|x| fail(db, &t2, x))?;
+        let draft = EventDraft {
+            summary: e.summary.clone(),
+            start: e.start,
+            end: e.end,
+            all_day: e.all_day,
+            tzid: if e.all_day { None } else { e.tzid.clone().or_else(|| e.rrule.as_ref().map(|_| "UTC".to_string())) },
+            location: e.location.clone(),
+            description: e.description.clone(),
+            attendees: vec![],
+            reminder_min: e.reminder_min,
+            rrule: e.rrule.clone(),
+            exdates: if e.rrule.is_some() { e.exdates.clone() } else { vec![] },
+        };
+        let re = provider.create(&t2.cal.remote(), &draft).map_err(|x| fail(db, &t2, x))?;
+        let saved = {
+            let c = lock(db);
+            c.execute("DELETE FROM events WHERE calendar_id=?1 AND uid=?2", rusqlite::params![calendar::LOCAL, e.uid]).map_err(|x| x.to_string())?;
+            store::upsert_remote(&c, &t2.cal, &t2.src.account_id, &re)?
+        };
+        super::request_sync(&t2.src.account_id);
+        return Ok(saved);
+    }
+    // a synced calendar -> another of the same mailbox
+    let t1 = target(db, &e.calendar_id)?;
+    if t1.src.id != t2.src.id {
+        return Err(format!("CAL_ERROR: Couldn’t save to {service}: the calendars belong to different mailboxes."));
+    }
+    if t1.cal.read_only {
+        return Err(read_only_text("calendar", &t1.cal.name, t1.src.kind));
+    }
+    if let Some(reason) = e.read_only.as_deref() {
+        return Err(read_only_text(reason, &t1.cal.name, t1.src.kind));
+    }
+    let schedules = t1.src.dav.as_ref().is_some_and(|d| d.scheduling);
+    if has_guests(&e, &me) && (t1.src.kind == Kind::Microsoft || (t1.src.kind == Kind::CalDav && schedules)) {
+        return Err(move_guests_text(&service));
+    }
+    let remote_id = e.remote_id.clone().ok_or("CAL_GONE: This event is not part of a synced calendar.")?;
+    let provider = factory.provider(&t1.src).map_err(|x| fail(db, &t1, x))?;
+    let re = match provider.move_event(&t1.cal.remote(), &remote_id, e.etag.as_deref().unwrap_or(""), &t2.cal.remote()) {
+        Ok(re) => re,
+        Err(x) => return Err(after_failed_write(db, factory, &t1, id, &remote_id, x)),
+    };
+    let saved = {
+        let c = lock(db);
+        store::remove_remote(&c, &t1.cal.id, &remote_id, now)?;
+        store::upsert_remote(&c, &t2.cal, &t2.src.account_id, &re)?
+    };
+    // the rows of a series (its changed occurrences) come with the next download of the target
+    let _ = engine::refresh_calendar(db, factory, &t2.cal.id, Clock::real());
+    super::request_sync(&t2.src.account_id);
+    Ok(saved)
+}
+
 /// An invitation was answered in Hey Look!: when the event is also in a synced calendar of that mailbox, set the answer there too,
 /// silently (the organizer already gets the reply mail from the app). Best effort: a failure changes nothing.
 pub fn mirror_rsvp(db: &Db, factory: &dyn ProviderFactory, account_id: &str, uid: &str, recurrence_id: &str, partstat: &str) -> bool {
@@ -279,7 +372,7 @@ pub fn mirror_rsvp(db: &Db, factory: &dyn ProviderFactory, account_id: &str, uid
             true
         }
         Err(err) => {
-            eprintln!("calendar sync: could not mirror the answer to {}: {err}", src.kind.service());
+            eprintln!("calendar sync: could not mirror the answer to {}: {err}", src.service_name());
             false
         }
     }
@@ -564,9 +657,144 @@ mod tests {
         assert!(e.fake.writes().iter().all(|w| !w.starts_with("create") && !w.starts_with("import")), "{:?}", e.fake.writes());
     }
 
+    fn two_calendars(kind: Kind) -> Env {
+        let c = conn();
+        let s = store::create_source(&c, ACC, kind, 0).unwrap();
+        let db: Db = Arc::new(Mutex::new(c));
+        let fake = FakeProvider::new();
+        fake.set_calendars(vec![rc("primary", "Me"), rc("work", "Work"), RemoteCalendar { read_only: true, ..rc("holidays", "Holidays") }]);
+        fake.add_event("primary", RemoteEvent::single("a", "Lunch", T0, T0 + 3600));
+        let mut guests = RemoteEvent::single("g", "Dinner", T0 + 7200, T0 + 10_800);
+        guests.attendees = vec![CalAttendee { email: "guest@x.y".into(), name: None, role: "required".into(), status: "needs-action".into(), is_you: false }];
+        fake.add_event("primary", guests);
+        let factory = FakeFactory::new(fake.clone());
+        engine::sync_source(&db, &factory, &s.id, Clock { now: T0, jitter: 0.5 }, &|| {}).unwrap();
+        Env { db, fake, factory, cal: calendar_id(ACC, kind, "primary") }
+    }
+
+    #[test]
+    fn an_event_moves_to_another_calendar_of_the_mailbox_and_a_series_moves_whole() {
+        let e = two_calendars(Kind::Google);
+        let work = calendar_id(ACC, Kind::Google, "work");
+        let moved = move_event(&e.db, &e.factory, &event_id(&e, "a"), &work).unwrap();
+        assert_eq!((moved.calendar_id.as_str(), moved.summary.as_str()), (work.as_str(), "Lunch"));
+        assert!(e.fake.writes().last().unwrap().starts_with("move:primary:a:work"), "{:?}", e.fake.writes());
+        assert_eq!((e.fake.count("primary"), e.fake.count("work")), (1, 1));
+        let rows = |cal: &str| -> i64 { lock(&e.db).query_row("SELECT COUNT(*) FROM events WHERE calendar_id=?1 AND remote_id IS NOT NULL", [cal], |r| r.get(0)).unwrap() };
+        assert_eq!((rows(&e.cal), rows(&work)), (1, 1), "a row in the target and none left in the source");
+        // a sync of both calendars brings nothing back
+        for (i, c) in [e.cal.clone(), work.clone()].iter().enumerate() {
+            engine::refresh_calendar(&e.db, &e.factory, c, Clock { now: T0 + 60 + i as i64, jitter: 0.5 }).unwrap();
+        }
+        assert_eq!((rows(&e.cal), rows(&work)), (1, 1));
+        // moving to the calendar it is in changes nothing; a read-only target is refused before any request
+        let n = e.fake.writes().len();
+        assert_eq!(move_event(&e.db, &e.factory, &event_id(&e, "a"), &work).unwrap().calendar_id, work);
+        let hol = calendar_id(ACC, Kind::Google, "holidays");
+        assert!(move_event(&e.db, &e.factory, &event_id(&e, "g"), &hol).unwrap_err().starts_with("CAL_READ_ONLY:"));
+        assert_eq!(e.fake.writes().len(), n);
+        // a series with a changed occurrence goes whole, the occurrence along
+        let start = T0 + 86_400;
+        e.fake.add_event("primary", series("s", "Weekly", start, "FREQ=WEEKLY;COUNT=4"));
+        let mut exc = RemoteEvent::single("s_x", "Weekly (moved)", start + 7 * 86_400 + 3600, start + 7 * 86_400 + 7200);
+        exc.kind = EventKind::Exception;
+        exc.series_id = Some("s".into());
+        exc.recurrence_id = Some(start + 7 * 86_400);
+        e.fake.add_event("primary", exc);
+        engine::refresh_calendar(&e.db, &e.factory, &e.cal, Clock { now: T0 + 200, jitter: 0.5 }).unwrap();
+        move_event(&e.db, &e.factory, &event_id(&e, "s_x"), &work).unwrap();
+        assert!(e.fake.writes().last().unwrap().starts_with("move:primary:s:work"), "an exception moves its series: {:?}", e.fake.writes());
+        assert_eq!((e.fake.count("primary"), e.fake.count("work")), (1, 3), "the master and the exception are in the target");
+    }
+
+    #[test]
+    fn guests_decide_where_a_move_is_possible() {
+        // Google moves an event with guests (the organizer stays), Outlook has no move and would send the invitations again
+        let g = two_calendars(Kind::Google);
+        assert!(move_event(&g.db, &g.factory, &event_id(&g, "g"), &calendar_id(ACC, Kind::Google, "work")).is_ok());
+        let m = two_calendars(Kind::Microsoft);
+        let work = calendar_id(ACC, Kind::Microsoft, "work");
+        let err = move_event(&m.db, &m.factory, &event_id(&m, "g"), &work).unwrap_err();
+        assert_eq!(err, "CAL_MOVE_GUESTS: An event with guests can’t be moved to another calendar here. You can move it in Outlook.");
+        assert!(!m.fake.writes().iter().any(|w| w.starts_with("move")), "nothing was sent");
+        assert!(move_event(&m.db, &m.factory, &event_id(&m, "a"), &work).is_ok(), "without guests it moves");
+    }
+
+    #[test]
+    fn an_event_of_my_events_moves_into_a_synced_calendar_without_guests() {
+        let e = two_calendars(Kind::Google);
+        let work = calendar_id(ACC, Kind::Google, "work");
+        let local = |title: &str, guests: bool| {
+            let inp = CalEventInput {
+                id: None,
+                account_id: if guests { Some(ACC.into()) } else { None },
+                summary: title.into(),
+                start: T0 + 86_400,
+                end: T0 + 86_400 + 3600,
+                all_day: false,
+                tzid: None,
+                location: Some("Home".into()),
+                description: None,
+                attendees: if guests { vec![CalAttendee { email: "guest@x.y".into(), name: None, role: "required".into(), status: "needs-action".into(), is_you: false }] } else { vec![] },
+                rrule: Some("FREQ=DAILY;COUNT=3".into()),
+                reminder_min: Some(10),
+                calendar_id: None,
+                scope: None,
+                occurrence_start: None,
+            };
+            calendar::save_local(&lock(&e.db), &inp).unwrap().0
+        };
+        let plain = local("Walk", false);
+        let moved = move_event(&e.db, &e.factory, &plain.id, &work).unwrap();
+        assert_eq!((moved.calendar_id.as_str(), moved.summary.as_str(), moved.rrule.as_deref(), moved.location.as_deref(), moved.reminder_min), (work.as_str(), "Walk", Some("FREQ=DAILY;COUNT=3"), Some("Home"), Some(10)));
+        assert_eq!(lock(&e.db).query_row::<i64, _, _>("SELECT COUNT(*) FROM events WHERE calendar_id='local'", [], |r| r.get(0)).unwrap(), 0, "gone from My events");
+        assert!(e.fake.writes().iter().any(|w| w.starts_with("create:work:Walk")));
+        let with = local("Party", true);
+        assert!(move_event(&e.db, &e.factory, &with.id, &work).unwrap_err().starts_with("CAL_MOVE_GUESTS:"));
+        assert_eq!(lock(&e.db).query_row::<i64, _, _>("SELECT COUNT(*) FROM events WHERE calendar_id='local'", [], |r| r.get(0)).unwrap(), 1, "the event with guests stays");
+    }
+
+    #[test]
+    fn a_colour_of_the_persons_own_survives_the_sync_and_can_be_cleared() {
+        let e = two_calendars(Kind::Google);
+        let (id, src) = {
+            let c = lock(&e.db);
+            (calendar_id(ACC, Kind::Google, "work"), store::source_of_account(&c, ACC).unwrap())
+        };
+        store::set_color_override(&lock(&e.db), &id, Some(" #00AA00 ")).unwrap();
+        let shown = |db: &Db| store::get_calendar(&lock(db), &id).unwrap().shown_color();
+        assert_eq!(shown(&e.db), "#00aa00");
+        // the service changes its colour: the person's stays, the service's is kept for the choice "Color from ..."
+        store::reconcile_calendars(&lock(&e.db), &src, &[RemoteCalendar { color: "#ff0000".into(), ..rc("work", "Work") }, rc("primary", "Me")]).unwrap();
+        let row = store::get_calendar(&lock(&e.db), &id).unwrap();
+        assert_eq!((row.color.as_str(), row.shown_color().as_str()), ("#ff0000", "#00aa00"));
+        let info = store::sources_info(&lock(&e.db)).unwrap().remove(0).calendars.into_iter().find(|c| c.id == id).unwrap();
+        assert_eq!((info.color.as_str(), info.custom_color), ("#00aa00", true));
+        assert!(crate::calendar::list_calendars(&lock(&e.db)).unwrap().iter().any(|c| c.id == id && c.color == "#00aa00"));
+        store::set_color_override(&lock(&e.db), &id, None).unwrap();
+        assert_eq!(shown(&e.db), "#ff0000");
+        assert!(store::set_color_override(&lock(&e.db), &id, Some("green")).unwrap_err().starts_with("CAL_ERROR"));
+        assert!(store::set_color_override(&lock(&e.db), "google:x:nope", Some("#112233")).unwrap_err().starts_with("CAL_GONE"));
+    }
+
+    #[test]
+    fn a_new_calendar_is_made_at_the_service_then_listed() {
+        let e = two_calendars(Kind::Google);
+        let src = store::source_of_account(&lock(&e.db), ACC).unwrap();
+        let p = e.factory.provider(&src).unwrap();
+        let made = p.create_calendar("Hobbies").unwrap();
+        assert!(e.fake.writes().iter().any(|w| w == "create_calendar:Hobbies"));
+        store::apply_calendar_delta(&lock(&e.db), &src, &[made.clone()], &[]).unwrap();
+        let cals = store::calendars_of(&lock(&e.db), &src.id).unwrap();
+        assert!(cals.iter().any(|c| c.name == "Hobbies" && c.sync_on && !c.read_only), "{cals:?}");
+        // a grant without the scope is told apart from the end of access
+        assert_eq!(error_text(&SyncErr::NeedsScope, "Google Calendar", "x", "me@x.y"), "CAL_NEEDS_ACCESS: To create calendars in Google Calendar, allow access again.");
+        assert!(!crate::oauth::GOOGLE_CREATE_CALENDARS, "owner step O-03 first: the scope is not asked for yet");
+    }
+
     #[test]
     fn error_texts_name_the_service_and_the_calendar() {
-        let t = |e: SyncErr| error_text(&e, Kind::Microsoft, "Work", "me@x.y");
+        let t = |e: SyncErr| error_text(&e, "Outlook", "Work", "me@x.y");
         assert_eq!(t(SyncErr::Offline), "CAL_OFFLINE: You’re offline. Changes to Work need a connection.");
         assert_eq!(t(SyncErr::Conflict), "CAL_CONFLICT: This event was changed in Outlook, so its latest version is shown.");
         assert_eq!(t(SyncErr::NotFound), "CAL_GONE: This event was deleted in Outlook.");
