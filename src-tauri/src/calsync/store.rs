@@ -426,7 +426,11 @@ pub fn event_from_remote(cal: &CalRow, account_id: &str, re: &RemoteEvent, id: S
         has_rdates: !re.rdates.is_empty(),
         rdates: re.rdates.clone(),
         prev: None,
+        series: false,
+        occurrence_start: None,
+        changed_occurrence: false,
     }
+    .derive()
 }
 
 fn find_remote(c: &Connection, cal_id: &str, remote_id: &str) -> Option<CalEvent> {

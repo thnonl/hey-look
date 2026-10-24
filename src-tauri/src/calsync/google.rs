@@ -1179,6 +1179,8 @@ mod tests {
         let input = calendar::CalEventInput {
             id: Some(id.clone()), account_id: None, summary: "Edited here".into(), start: utc(2026, 10, 20, 9, 0), end: utc(2026, 10, 20, 10, 0), all_day: false, tzid: None,
             location: None, description: None, attendees: vec![], rrule: None, reminder_min: None, calendar_id: Some(cal_id),
+            scope: None,
+            occurrence_start: None,
         };
         let err = write::save(&db, &factory, &input).unwrap_err();
         assert!(err.starts_with("CAL_CONFLICT: This event was changed in Google Calendar, so its latest version is shown."), "{err}");

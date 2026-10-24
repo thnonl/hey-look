@@ -114,6 +114,35 @@ pub struct CalEvent {
     pub has_rdates: bool,
     #[serde(skip)]
     pub prev: Option<String>,
+    /// The event belongs to a series: a rule or extra dates, a changed occurrence, or a provider's occurrence of one (W7.1). Worked out by `derive`.
+    pub series: bool,
+    /// The slot of an occurrence: the original start of an expanded instance, of a changed occurrence or of a provider's occurrence.
+    pub occurrence_start: Option<i64>,
+    /// A row that replaces one occurrence of its series (not Outlook's plain occurrences).
+    pub changed_occurrence: bool,
+}
+
+impl CalEvent {
+    /// Fill the fields that follow from the others (`series`, `occurrence_start`, `changed_occurrence`); called after a row is read or an instance made.
+    pub fn derive(mut self) -> CalEvent {
+        let slot = self.recurrence_id.parse::<i64>().ok();
+        self.series = self.rrule.is_some() || !self.rdates.is_empty() || !self.recurrence_id.is_empty() || self.series_id.is_some();
+        self.occurrence_start = self.instance_start.or(slot);
+        self.changed_occurrence = !self.recurrence_id.is_empty() && self.remote_kind.as_deref() != Some("occurrence");
+        self
+    }
+}
+
+/// What `calendar_get_event` gives the form: the event, and two facts about its series that only the form needs.
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct CalEventDetail {
+    #[serde(flatten)]
+    pub event: CalEvent,
+    /// Changed occurrences the part of the series being edited has (the whole series; from the chosen slot on for "this and following"): the reset question asks when it is above 0
+    pub changed_count: i64,
+    /// The repeat rule of the series cannot be changed in Hey Look! (an Outlook pattern the app does not map); the form disables Repeat
+    pub pattern_unsupported: bool,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -144,6 +173,12 @@ pub struct CalEventInput {
     /// the calendar a new event goes to (`None` / "local" = My events; a synced calendar's id otherwise); fixed when editing
     #[serde(default)]
     pub calendar_id: Option<String>,
+    /// Which part of a series is saved: "occurrence" | "following" | "series"; absent = the event as a whole (a single event, or a series as in 1.0.6)
+    #[serde(default)]
+    pub scope: Option<String>,
+    /// The slot of the occurrence the scope starts at (`CalEvent::occurrence_start`)
+    #[serde(default)]
+    pub occurrence_start: Option<i64>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -299,7 +334,11 @@ pub(crate) fn row_event(r: &Row) -> rusqlite::Result<CalEvent> {
         series_id: r.get(27)?,
         remote_kind: r.get(28)?,
         read_only: crate::calsync::store::read_only_reason(r.get::<_, i64>(29)?),
-    })
+        series: false,
+        occurrence_start: None,
+        changed_occurrence: false,
+    }
+    .derive())
 }
 
 pub(crate) fn save_row(c: &Connection, e: &CalEvent) -> R<()> {
@@ -599,7 +638,11 @@ fn event_from_ics(ev: &IcsEvent, calendar: &str, account: Option<&Account>, mess
         has_rdates: !ev.rdates.is_empty(),
         rdates: ev.rdates.clone(),
         prev: None,
+        series: false,
+        occurrence_start: None,
+        changed_occurrence: false,
     }
+    .derive()
 }
 
 /// An address as compared between a message sender and an organizer or attendee: trimmed, lower case, no `mailto:`.
@@ -989,7 +1032,7 @@ fn fmt_when(ev: &IcsEvent) -> String {
     format!("{} {}–{}{}", s.format("%a, %-d %b %Y"), s.format("%H:%M"), e.format("%H:%M"), tz)
 }
 
-fn to_ics_event(e: &CalEvent) -> IcsEvent {
+pub(crate) fn to_ics_event(e: &CalEvent) -> IcsEvent {
     IcsEvent {
         uid: e.uid.clone(),
         sequence: e.sequence,
@@ -1028,7 +1071,7 @@ fn iso_part(method: &str, ev: &IcsEvent) -> crate::smtp::CalendarPart {
     crate::smtp::CalendarPart { method: method.into(), ics: ical::to_ics(Some(method), std::slice::from_ref(ev)) }
 }
 
-fn display_name(a: &Account) -> String {
+pub(crate) fn display_name(a: &Account) -> String {
     if a.display_name.trim().is_empty() { a.email.clone() } else { a.display_name.clone() }
 }
 
@@ -1051,21 +1094,52 @@ fn mailto_list(addrs: &[CalAttendee], skip: &str) -> Vec<String> {
         .collect()
 }
 
+/// One message an organizer sends: the event (or, for a series, the series and its changed occurrences) of one REQUEST or CANCEL.
+#[derive(Clone, Debug)]
+pub struct Mail {
+    pub account: Account,
+    pub events: Vec<CalEvent>,
+    pub method: &'static str,
+}
+
 /// Send the REQUEST (invitation / update) or CANCEL of an event you organize.
 fn send_organizer_mail(db: &Db, acc: &Account, e: &CalEvent, method: &str) -> R<()> {
-    let ev = to_ics_event(e);
-    let to = mailto_list(&e.attendees, &acc.email);
+    send_mail(db, &Mail { account: acc.clone(), events: vec![e.clone()], method: if method == "CANCEL" { "CANCEL" } else { "REQUEST" } })
+}
+
+/// Send one organizer message. The guests, the subject and the text come from its first event; every event goes into the calendar part (a series
+/// with the occurrences changed one by one travels as one message). Nothing is sent when there is nobody to send to.
+pub(crate) fn send_mail(db: &Db, m: &Mail) -> R<()> {
+    let Some(first) = m.events.first() else { return Ok(()) };
+    let evs: Vec<IcsEvent> = m.events.iter().map(to_ics_event).collect();
+    let to = mailto_list(&first.attendees, &m.account.email);
     if to.is_empty() {
         return Ok(());
     }
-    let (subject, verb) = match method {
-        "CANCEL" => (format!("Canceled: {}", e.summary), "has canceled"),
-        _ if e.sequence > 0 => (format!("Updated invitation: {}", e.summary), "has updated the invitation"),
-        _ => (format!("Invitation: {}", e.summary), "invites you to"),
+    let (subject, verb) = match m.method {
+        "CANCEL" => (format!("Canceled: {}", first.summary), "has canceled"),
+        _ if first.sequence > 0 => (format!("Updated invitation: {}", first.summary), "has updated the invitation"),
+        _ => (format!("Invitation: {}", first.summary), "invites you to"),
     };
-    let text = body_text(&display_name(acc), verb, &ev);
-    let msg = crate::smtp::build_calendar_mail(acc, &to, &[], &subject, &text, &iso_part(method, &ev))?;
-    send_message(db, acc, msg)
+    let text = body_text(&display_name(&m.account), verb, &evs[0]);
+    let part = crate::smtp::CalendarPart { method: m.method.into(), ics: ical::to_ics(Some(m.method), &evs) };
+    let msg = crate::smtp::build_calendar_mail(&m.account, &to, &[], &subject, &text, &part)?;
+    send_message(db, &m.account, msg)
+}
+
+/// The attendees of an event you organize: you as the chair, then the guests without duplicates. A guest who already answered keeps the answer
+/// when `keep` (the stored event) is given.
+pub(crate) fn organized(acc: &Account, guests: &[&CalAttendee], keep: Option<&CalEvent>) -> Vec<CalAttendee> {
+    let mut attendees = vec![CalAttendee { email: acc.email.to_ascii_lowercase(), name: Some(display_name(acc)), role: "chair".into(), status: "accepted".into(), is_you: true }];
+    for x in guests {
+        let email = x.email.trim().to_ascii_lowercase();
+        if email.is_empty() || attendees.iter().any(|y| y.email == email) {
+            continue;
+        }
+        let status = keep.and_then(|ex| ex.attendees.iter().find(|y| y.email == email).map(|y| y.status.clone())).unwrap_or_else(|| "needs-action".into());
+        attendees.push(CalAttendee { email, name: x.name.clone().filter(|n| !n.trim().is_empty()), role: if x.role == "optional" { "optional".into() } else { "required".into() }, status, is_you: false });
+    }
+    attendees
 }
 
 /// Create or change a local event. Returns the saved event and the account to notify (when the event has attendees).
@@ -1091,23 +1165,10 @@ pub fn save_local(c: &Connection, inp: &CalEventInput) -> R<(CalEvent, Option<Ac
         return Err("CAL_NO_ACCOUNT: Choose the account to send the invitation from.".into());
     }
     let same_time = existing.as_ref().map(|x| x.start == inp.start && x.end == inp.end && x.rrule == inp.rrule).unwrap_or(false);
-    let mut attendees: Vec<CalAttendee> = vec![];
-    if let (Some(a), false) = (&acc, attendees_in.is_empty()) {
-        attendees.push(CalAttendee { email: a.email.to_ascii_lowercase(), name: Some(display_name(a)), role: "chair".into(), status: "accepted".into(), is_you: true });
-        for x in attendees_in {
-            let email = x.email.trim().to_ascii_lowercase();
-            if email.is_empty() || attendees.iter().any(|y| y.email == email) {
-                continue;
-            }
-            // answers are kept while the time stays the same
-            let status = existing
-                .as_ref()
-                .filter(|_| same_time)
-                .and_then(|ex| ex.attendees.iter().find(|y| y.email == email).map(|y| y.status.clone()))
-                .unwrap_or_else(|| "needs-action".into());
-            attendees.push(CalAttendee { email, name: x.name.clone().filter(|n| !n.trim().is_empty()), role: if x.role == "optional" { "optional".into() } else { "required".into() }, status, is_you: false });
-        }
-    }
+    let attendees: Vec<CalAttendee> = match (&acc, attendees_in.is_empty()) {
+        (Some(a), false) => organized(a, &attendees_in, existing.as_ref().filter(|_| same_time)),
+        _ => vec![],
+    };
     let has_att = attendees.len() > 1;
     let sequence = existing.as_ref().map(|x| x.sequence + if has_att { 1 } else { 0 }).unwrap_or(0);
     let uid = existing.as_ref().map(|x| x.uid.clone()).unwrap_or_else(|| format!("{}@heylook", uuid::Uuid::new_v4()));
@@ -1147,6 +1208,9 @@ pub fn save_local(c: &Connection, inp: &CalEventInput) -> R<(CalEvent, Option<Ac
         rdates: existing.as_ref().map(|x| x.rdates.clone()).unwrap_or_default(),
         has_rdates: existing.as_ref().map(|x| !x.rdates.is_empty()).unwrap_or(false),
         prev: None,
+        series: false,
+        occurrence_start: None,
+        changed_occurrence: false,
     };
     e.join_url = ical::join_url(&to_ics_event(&e));
     e.recurrence_text = e.rrule.as_deref().and_then(|r| ical::describe_rrule(r, e.start));
@@ -1188,6 +1252,8 @@ pub fn prepare_meeting(c: &Connection, d: &mut crate::smtp::Draft) -> R<()> {
             rrule: m.rrule.clone(),
             reminder_min: default_reminder(c),
             calendar_id: None,
+            scope: None,
+            occurrence_start: None,
         },
     )?;
     d.calendar = Some(iso_part("REQUEST", &to_ics_event(&e)));
@@ -1696,6 +1762,8 @@ ATTENDEE;CN=Bao Tran;PARTSTAT=ACCEPTED:mailto:bao@contoso.com\r\n{extra}END:VEVE
             rrule: None,
             reminder_min: None,
             calendar_id: None,
+            scope: None,
+            occurrence_start: None,
         };
         let (e, _) = save_local(&c, &input).unwrap();
         let req = ical::to_ics(Some("REQUEST"), &[to_ics_event(&e)]);
@@ -1846,6 +1914,8 @@ END:VCALENDAR
             rrule: None,
             reminder_min: Some(10),
             calendar_id: None,
+            scope: None,
+            occurrence_start: None,
         };
         let (e, acc) = save_local(&c, &input).unwrap();
         assert!(acc.is_some(), "attendees: an invitation has to be sent");
@@ -1899,15 +1969,15 @@ END:VCALENDAR
         let (c, _) = setup();
         let (e, acc) = save_local(
             &c,
-            &CalEventInput { id: None, account_id: None, summary: "  ".into(), start: ts(2026, 10, 20, 9, 0), end: ts(2026, 10, 20, 9, 30), all_day: false, tzid: Some("Nowhere".into()), location: Some(" ".into()), description: None, attendees: vec![], rrule: None, reminder_min: None, calendar_id: None },
+            &CalEventInput { id: None, account_id: None, summary: "  ".into(), start: ts(2026, 10, 20, 9, 0), end: ts(2026, 10, 20, 9, 30), all_day: false, tzid: Some("Nowhere".into()), location: Some(" ".into()), description: None, attendees: vec![], rrule: None, reminder_min: None, calendar_id: None, scope: None, occurrence_start: None  },
         )
         .unwrap();
         assert!(acc.is_none());
         assert_eq!(e.summary, "(No title)");
         assert!(e.tzid.is_none() && e.location.is_none() && e.my_status.is_none());
-        assert!(save_local(&c, &CalEventInput { id: None, account_id: None, summary: "x".into(), start: 10, end: 5, all_day: false, tzid: None, location: None, description: None, attendees: vec![], rrule: None, reminder_min: None, calendar_id: None }).is_err());
+        assert!(save_local(&c, &CalEventInput { id: None, account_id: None, summary: "x".into(), start: 10, end: 5, all_day: false, tzid: None, location: None, description: None, attendees: vec![], rrule: None, reminder_min: None, calendar_id: None, scope: None, occurrence_start: None  }).is_err());
         // attendees need an account to send from
-        let r = save_local(&c, &CalEventInput { id: None, account_id: None, summary: "x".into(), start: 1, end: 2, all_day: false, tzid: None, location: None, description: None, attendees: vec![CalAttendee { email: "a@b.c".into(), name: None, role: "required".into(), status: "needs-action".into(), is_you: false }], rrule: None, reminder_min: None, calendar_id: None });
+        let r = save_local(&c, &CalEventInput { id: None, account_id: None, summary: "x".into(), start: 1, end: 2, all_day: false, tzid: None, location: None, description: None, attendees: vec![CalAttendee { email: "a@b.c".into(), name: None, role: "required".into(), status: "needs-action".into(), is_you: false }], rrule: None, reminder_min: None, calendar_id: None, scope: None, occurrence_start: None  });
         assert!(r.unwrap_err().starts_with("CAL_NO_ACCOUNT"));
     }
 
@@ -1917,7 +1987,7 @@ END:VCALENDAR
         let mk = |summary: &str, start: i64, end: i64, all_day: bool, rrule: Option<&str>| {
             save_local(
                 &c,
-                &CalEventInput { id: None, account_id: None, summary: summary.into(), start, end, all_day, tzid: None, location: None, description: None, attendees: vec![], rrule: rrule.map(|s| s.to_string()), reminder_min: None, calendar_id: None },
+                &CalEventInput { id: None, account_id: None, summary: summary.into(), start, end, all_day, tzid: None, location: None, description: None, attendees: vec![], rrule: rrule.map(|s| s.to_string()), reminder_min: None, calendar_id: None, scope: None, occurrence_start: None  },
             )
             .unwrap()
             .0
@@ -2131,6 +2201,8 @@ END:VCALENDAR
             rrule: None,
             reminder_min: None,
             calendar_id: None,
+            scope: None,
+            occurrence_start: None,
         };
         save_local(c, &input).unwrap().0
     }
@@ -2314,6 +2386,8 @@ END:VCALENDAR
                 rrule: None,
                 reminder_min: None,
                 calendar_id: None,
+                scope: None,
+                occurrence_start: None,
             },
         )
         .unwrap();
@@ -2357,6 +2431,8 @@ END:VCALENDAR
                 rrule: None,
                 reminder_min: None,
                 calendar_id: None,
+                scope: None,
+                occurrence_start: None,
             },
         )
         .unwrap();
@@ -2705,6 +2781,8 @@ END:VCALENDAR
                 rrule: None,
                 reminder_min: None,
                 calendar_id: calendar.map(String::from),
+                scope: None,
+                occurrence_start: None,
             };
             assert_eq!(remote_calendar_of(&c, &mk(None, Some(&cal.id))), Some(cal.id.clone()));
             assert_eq!(remote_calendar_of(&c, &mk(None, Some("local"))), None);
@@ -2849,6 +2927,8 @@ RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=2\r\nRDATE;TZID=Europe/Berlin:20261029T100000\r
             rrule: row.rrule.clone(),
             reminder_min: None,
             calendar_id: None,
+            scope: None,
+            occurrence_start: None,
         };
         save_local(&c, &input).unwrap();
         assert_eq!(get_event(&c, &id).unwrap().rdates, row.rdates);
@@ -2982,6 +3062,8 @@ ATTENDEE;CN=Nam Hoang;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:nam@example.com\r\n
             rrule: None,
             reminder_min: None,
             calendar_id: None,
+            scope: None,
+            occurrence_start: None,
         };
         let (e, _) = save_local(&c, &input).unwrap();
         let reply = format!(

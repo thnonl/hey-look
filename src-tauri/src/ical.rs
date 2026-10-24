@@ -283,6 +283,24 @@ fn local_in(tz: Tz, n: NaiveDateTime) -> i64 {
     }
 }
 
+/// The wall clock of an instant in a zone (UTC without one).
+pub fn wall_in(tz: Option<Tz>, ts: i64) -> NaiveDateTime {
+    let u = chrono::DateTime::from_timestamp(ts, 0).unwrap_or_default().naive_utc();
+    match tz {
+        Some(z) => z.from_utc_datetime(&u).naive_local(),
+        None => u,
+    }
+}
+
+/// The instant of a wall clock time in a zone (UTC without one). A time in a daylight saving gap moves forward, an ambiguous one takes the first
+/// of its two instants (RFC 5545 3.3.5).
+pub fn instant_of(tz: Option<Tz>, n: NaiveDateTime) -> i64 {
+    match tz {
+        Some(z) => local_in(z, n),
+        None => n.and_utc().timestamp(),
+    }
+}
+
 fn zone_to_utc(z: &Zone, n: NaiveDateTime) -> i64 {
     match z {
         Zone::Utc => n.and_utc().timestamp(),
@@ -1171,8 +1189,9 @@ pub fn to_ics(method: Option<&str>, events: &[IcsEvent]) -> String {
         l("BEGIN:VEVENT".into());
         l(format!("UID:{}", ev.uid));
         l(format!("DTSTAMP:{}", fmt_utc(if ev.dtstamp > 0 { ev.dtstamp } else { Utc::now().timestamp() })));
-        // a repeating event keeps its wall-clock time across daylight saving: write it in its own zone
-        let tz = ev.tzid.as_deref().and_then(iana_for).filter(|_| (ev.rrule.is_some() || !ev.rdates.is_empty()) && !ev.all_day);
+        // a repeating event, and one occurrence of it (RECURRENCE-ID), keep their wall-clock time across daylight saving: written in the zone of the series (RFC 5545 asks the
+        // RECURRENCE-ID to be of the same form as the DTSTART of the series)
+        let tz = ev.tzid.as_deref().and_then(iana_for).filter(|_| (ev.rrule.is_some() || !ev.rdates.is_empty() || ev.recurrence_id.is_some()) && !ev.all_day);
         l(fmt_dt("DTSTART", ev.start, ev.all_day, tz));
         l(fmt_dt("DTEND", ev.end, ev.all_day, tz));
         if let Some(r) = ev.recurrence_id {

@@ -316,6 +316,8 @@ mod tests {
             rrule: None,
             reminder_min: None,
             calendar_id: Some(e.cal.clone()),
+            scope: None,
+            occurrence_start: None,
         }
     }
 

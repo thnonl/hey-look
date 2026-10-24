@@ -188,6 +188,8 @@ fn synced_event_input(db: &crate::Db, remote: &str, summary: &str) -> (calendar:
         rrule: None,
         reminder_min: e.reminder_min,
         calendar_id: Some(cal),
+        scope: None,
+        occurrence_start: None,
     };
     (input, id)
 }
@@ -267,6 +269,8 @@ fn saving_in_a_synced_outlook_calendar_creates_the_event_and_a_repeat_is_refused
         rrule: None,
         reminder_min: Some(15),
         calendar_id: Some(cal_id()),
+        scope: None,
+        occurrence_start: None,
     };
     let saved = write::save(&db, &factory, &input).unwrap();
     assert_eq!((saved.summary.as_str(), saved.remote_id.as_deref(), saved.etag.as_deref()), ("New", Some("new"), Some("W/\"etag-new\"")));
