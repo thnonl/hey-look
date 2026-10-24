@@ -512,20 +512,74 @@ pub fn create_folder<T: Read + Write>(s: &mut imap::Session<T>, name: &str) -> R
 }
 
 
+/// Words that say "unsubscribe" in the eight languages of the app plus the usual English forms. Compared `fold`ed (see `snippet::fold_for_match`: NFC, lower case,
+/// no accents, "đ" = "d", "ё" = "е"), so "Hủy đăng ký", "HUY DANG KY" and a decomposed "Hủy" are one phrase and no unaccented spelling has to be listed.
+/// A phrase must not be a sub-phrase of an order, account or travel wording ("hủy nhận hàng" = cancel receiving the goods, "ngừng nhận đơn", "cancelar el pedido",
+/// "annuler la commande", "отменить заказ", "キャンセル" are NOT unsubscribe words). Links that only manage preferences ("Manage email preferences",
+/// "Gérer mes abonnements", "Управление подпиской", "邮件订阅设置") are deliberately not here.
+const UNSUB_WORDS: &[&str] = &[
+    // English
+    "unsubscribe", "opt out", "opt-out", "optout", "remove me", "stop receiving",
+    // Vietnamese: the longer forms only ("hủy nhận" alone is "hủy nhận hàng", "ngừng nhận" alone is "ngừng nhận đơn")
+    "hủy đăng ký", "huỷ đăng ký", "hủy đăng kí", "huỷ đăng kí", "bỏ đăng ký", "bỏ đăng kí", "hủy nhận tin", "hủy nhận email", "hủy nhận thư",
+    "ngừng nhận tin", "ngừng nhận email", "ngừng nhận thư", "hủy theo dõi", "từ chối nhận tin", "từ chối nhận email", "từ chối nhận thư",
+    // French ("désabonn" = désabonner, désabonnez-vous, désabonnement, désabonne)
+    "désabonn", "désinscri", "ne plus recevoir", "annuler l'abonnement", "annuler mon abonnement", "annuler votre abonnement", "se retirer de la liste",
+    // German ("abmelden" / "abmeldung" are in UNSUB_WORDS_NEED_CONTEXT: they are also the log-out links)
+    "austragen", "abbestellen", "abo kündigen", "abo kuendigen", "abo beenden", "keine weiteren e-mails", "keine weiteren emails",
+    // Spanish
+    "cancelar suscripci", "cancelar la suscripci", "cancelar tu suscripci", "cancelar mi suscripci", "cancela tu suscripci", "anular suscripci", "anular la suscripci",
+    "darse de baja", "darme de baja", "darte de baja", "dar de baja", "date de baja", "desuscrib", "no recibir más",
+    // Japanese (no "退会": that is leaving a membership)
+    "配信停止", "配信解除", "メール配信を停止", "配信を停止", "配信中止", "受信停止", "購読解除", "登録解除", "メルマガ解除",
+    // Chinese (退订 is also found in 退订房: low risk, documented in the tests)
+    "退订", "取消订阅", "取消訂閱", "退訂", "不再接收", "停止接收", "取消接收", "取消关注", "取消關注",
+    // Russian
+    "отписаться", "отписка", "отписк", "отпишитесь", "отказаться от рассылки", "отказаться от подписки", "отменить подписку", "отмена подписки",
+    "больше не получать", "прекратить рассылку",
+];
+/// German words that unsubscribe AND log out ("Von allen Geräten abmelden", "Sitzung abmelden"): they count only with an unsubscribe context (`de_context`).
+const UNSUB_WORDS_NEED_CONTEXT: &[&str] = &["abmelden", "abmeldung", "nicht mehr erhalten"];
+
+/// The words folded once (the lists above are written the way people write them).
+fn unsub_words() -> &'static (Vec<String>, Vec<String>) {
+    static W: std::sync::OnceLock<(Vec<String>, Vec<String>)> = std::sync::OnceLock::new();
+    W.get_or_init(|| {
+        let fold = |l: &[&str]| l.iter().map(|w| crate::snippet::fold_for_match(w)).collect();
+        (fold(UNSUB_WORDS), fold(UNSUB_WORDS_NEED_CONTEXT))
+    })
+}
+
+/// Does the text (or, with `as_address`, the address) of a link say unsubscribe? `href` is the address of the link the text belongs to. The words that also mean
+/// "log out" need a context: the address has newsletter / unsub / optout / abbestell / mailing / abonnement in it, or (text only) the text names a newsletter, a
+/// subscription ("abo", "abonnement"), e-mails or a mailing. ("abmeld" in the address is no context: it is the log-out word itself.)
+fn says_unsubscribe(s: &str, href: Option<&str>, as_address: bool) -> bool {
+    let (words, need_context) = unsub_words();
+    let f = crate::snippet::fold_for_match(s);
+    if words.iter().any(|w| f.contains(w.as_str())) {
+        return true;
+    }
+    if !need_context.iter().any(|w| f.contains(w.as_str())) {
+        return false;
+    }
+    fn address_context(f: &str) -> bool {
+        ["unsub", "optout", "opt-out", "austrag", "abbestell", "newsletter", "mailing", "abonnement"].iter().any(|c| f.contains(c))
+    }
+    fn text_context(f: &str) -> bool {
+        ["newsletter", "abonnement", "e-mail", "email", "mailing"].iter().any(|c| f.contains(c))
+            || f.split(|c: char| !c.is_alphanumeric()).any(|t| t == "abo" || t == "abos")
+    }
+    if as_address {
+        return address_context(&f);
+    }
+    text_context(&f) || href.is_some_and(|h| address_context(&crate::snippet::fold_for_match(h)))
+}
+
 /// The unsubscribe link a message shows in its body, for the messages whose `List-Unsubscribe` header is missing or has no usable target.
-/// HTML: the `<a href>` whose address or visible text says unsubscribe (eight languages of the app plus the usual English forms), the
+/// HTML: the `<a href>` whose address or visible text says unsubscribe (eight languages of the app plus the usual English forms, see `UNSUB_WORDS`), the
 /// address first; plain text: a URL that says it, or one written right after such a word (`Unsubscribe ( https://... )`, `Unsubscribe: https://...`).
 /// Only `http(s)` and `mailto:` are returned; links that only manage preferences are not taken.
 pub fn unsubscribe_link_in_body(html: &str, text: &str) -> Option<String> {
-    const WORDS: &[&str] = &[
-        "unsubscribe", "opt out", "opt-out", "optout", "remove me", "stop receiving", "hủy đăng ký", "huỷ đăng ký", "hủy nhận", "ngừng nhận",
-        "désabonner", "désabonnement", "désinscri", "abmelden", "austragen", "abbestellen", "cancelar suscripci", "darse de baja", "darme de baja",
-        "cancelar la suscripci", "配信停止", "配信解除", "メール配信を停止", "退订", "取消订阅", "取消訂閱", "退訂", "отписаться", "отписка", "отказаться от рассылки",
-    ];
-    fn says_unsubscribe(s: &str) -> bool {
-        let l = s.to_lowercase();
-        WORDS.iter().any(|w| l.contains(w))
-    }
     fn usable(u: &str) -> Option<String> {
         let u = u.trim().replace("&amp;", "&");
         let l = u.to_ascii_lowercase();
@@ -566,10 +620,10 @@ pub fn unsubscribe_link_in_body(html: &str, text: &str) -> Option<String> {
             }
             o
         };
-        if says_unsubscribe(&url) {
+        if says_unsubscribe(&url, None, true) {
             return Some(url);
         }
-        if best_text.is_none() && says_unsubscribe(&visible) {
+        if best_text.is_none() && says_unsubscribe(&visible, Some(&url), false) {
             best_text = Some(url);
         }
     }
@@ -577,7 +631,6 @@ pub fn unsubscribe_link_in_body(html: &str, text: &str) -> Option<String> {
         return best_text;
     }
     // plain text: a URL that says it, or one right after the word
-    let tl = text.to_lowercase();
     let mut after_word: Option<String> = None;
     for (pos, _) in text.match_indices("http") {
         let tail = &text[pos..];
@@ -587,12 +640,16 @@ pub fn unsubscribe_link_in_body(html: &str, text: &str) -> Option<String> {
         let end = tail.find(|c: char| c.is_whitespace() || c == ')' || c == '>' || c == '"' || c == '<').unwrap_or(tail.len());
         let url = tail[..end].trim_end_matches(&['.', ',', ';'][..]);
         let Some(url) = usable(url) else { continue };
-        if says_unsubscribe(&url) {
+        if says_unsubscribe(&url, None, true) {
             return Some(url);
         }
-        let before = &tl[..pos.min(tl.len())];
-        let near: String = before.chars().rev().take(40).collect::<Vec<_>>().into_iter().rev().collect();
-        if after_word.is_none() && says_unsubscribe(&near) {
+        // the 40 characters before the address (taken from the original text: lower-casing can change the byte length)
+        let near: String = {
+            let tail: Vec<char> = text[..pos].chars().rev().take(100).collect();
+            let f: Vec<char> = crate::snippet::fold_for_match(&tail.into_iter().rev().collect::<String>()).chars().collect();
+            f[f.len().saturating_sub(40)..].iter().collect()
+        };
+        if after_word.is_none() && says_unsubscribe(&near, Some(&url), false) {
             after_word = Some(url);
         }
     }
@@ -2474,5 +2531,107 @@ mod unsubscribe_body_tests {
         assert_eq!(find("", "see https://a.example/unsubscribe?id=3.").as_deref(), Some("https://a.example/unsubscribe?id=3"));
         assert_eq!(find("", "Unsubscribe: mailto-less text only"), None);
         assert_eq!(find(r#"<a href="javascript:alert(1)">Unsubscribe</a>"#, ""), None);
+    }
+
+    // fix56 (review of the phrase lists, 8 languages)
+    const HREF: &str = "https://t.example/r/9a8b7c";
+
+    fn nfd(s: &str) -> String {
+        icu_normalizer::DecomposingNormalizer::new_nfd().normalize(s).into_owned()
+    }
+    fn offered(text: &str) -> bool {
+        find(&format!("<p><a href=\"{HREF}\"><span>{text}</span></a></p>"), "").is_some()
+    }
+    fn offered_with(text: &str, href: &str) -> bool {
+        find(&format!("<a href=\"{href}\">{text}</a>"), "").is_some()
+    }
+
+    #[test]
+    fn every_language_offers_unsubscribe_for_its_common_wordings_also_unaccented_and_decomposed() {
+        let yes: &[(&str, &[&str])] = &[
+            ("en", &["Unsubscribe", "Opt out", "Stop receiving these emails", "remove me"]),
+            ("vi", &["Hủy đăng ký", "Huỷ đăng kí", "Bỏ đăng ký", "Hủy nhận tin", "Hủy nhận email", "Ngừng nhận email", "Ngừng nhận tin", "Ngừng nhận thư", "Hủy theo dõi",
+                "Từ chối nhận email", "Huy dang ky", "huy nhan tin", "bo dang ky", "HỦY ĐĂNG KÝ"]),
+            ("zh", &["退订", "取消订阅", "取消訂閱", "退订此邮件", "不再接收此类邮件", "停止接收", "取消接收", "取消关注"]),
+            ("ja", &["配信停止", "メール配信を停止する", "配信を停止", "配信中止", "受信停止", "購読解除", "登録解除はこちら", "メルマガ解除", "メール配信解除"]),
+            ("fr", &["Se désabonner", "Désabonnez-vous", "Me désinscrire", "Ne plus recevoir ces e-mails", "Annuler l’abonnement", "Annuler l'abonnement", "Annuler mon abonnement",
+                "Se retirer de la liste", "desabonnez-vous", "DESINSCRIPTION", "se desinscrire"]),
+            ("es", &["Cancelar suscripción", "Cancela tu suscripción", "Cancelar tu suscripción", "Anular la suscripción", "Darse de baja", "Darte de baja", "Date de baja",
+                "Desuscribirse", "No recibir más correos", "cancelar suscripcion", "CANCELAR SUSCRIPCIÓN"]),
+            ("de", &["Abbestellen", "Newsletter abmelden", "Vom Newsletter abmelden", "Abo kündigen", "Abo kuendigen", "Abo beenden", "Keine weiteren E-Mails", "Aus dem Verteiler austragen",
+                "E-Mails nicht mehr erhalten", "Vom Abo abmelden", "Abmeldung vom Newsletter", "abo kundigen"]),
+            ("ru", &["Отписаться", "Отпишитесь", "Отписка", "Отказаться от рассылки", "Отказаться от подписки", "Отменить подписку", "Отмена подписки", "Больше не получать письма",
+                "Прекратить рассылку"]),
+        ];
+        for (lang, samples) in yes {
+            assert!(samples.len() >= 3);
+            for t in *samples {
+                assert!(offered(t), "{lang}: {t:?} should offer Unsubscribe");
+                assert!(offered(&nfd(t)), "{lang}: the decomposed {t:?} should offer Unsubscribe");
+            }
+        }
+    }
+
+    #[test]
+    fn order_account_and_log_out_links_do_not_offer_unsubscribe() {
+        let no: &[(&str, &[&str])] = &[
+            ("vi", &["Hủy nhận hàng", "Ngừng nhận đơn", "Từ chối nhận hàng", "Hủy đơn hàng", "Xem đơn hàng", "Huy nhan hang"]),
+            ("zh", &["取消订单", "查看订单", "管理订阅", "邮件订阅设置", "查看详情"]),
+            ("ja", &["キャンセル", "注文をキャンセル", "退会", "配信設定", "詳細を見る"]),
+            ("fr", &["Annuler la commande", "Gérer mes abonnements", "Gérer mes préférences", "Suivre ma commande", "Annuler la réservation"]),
+            ("es", &["Cancelar el pedido", "Cancelar reserva", "Gestionar preferencias", "Ver mi pedido", "cancelar el pedido"]),
+            ("de", &["Von allen Geräten abmelden", "Sitzung abmelden", "Abmelden", "Abmeldung", "Bestellung stornieren", "Jetzt anmelden"]),
+            ("ru", &["Отменить заказ", "Отмена заказа", "Управление подпиской", "Отследить заказ", "Подтвердить"]),
+        ];
+        for (lang, samples) in no {
+            for t in *samples {
+                assert!(!offered(t), "{lang}: {t:?} must not offer Unsubscribe");
+                assert!(!offered(&nfd(t)), "{lang}: the decomposed {t:?} must not offer Unsubscribe");
+            }
+        }
+        // documented behaviour: Chinese 退订 is also the word of a hotel cancellation (low risk: only for mail without a List-Unsubscribe header)
+        assert!(offered("退订房"));
+    }
+
+    #[test]
+    fn abmelden_counts_only_with_an_unsubscribe_context() {
+        // the text names a newsletter / subscription / e-mails / mailing
+        for t in ["Newsletter abmelden", "Vom Abo abmelden", "Abonnement abmelden", "Von E-Mails abmelden", "Hier vom Mailing abmelden", "Von allen E-Mails abmelden"] {
+            assert!(offered(t), "{t}");
+        }
+        // the address names it (the text alone is the bare word)
+        assert!(offered_with("Abmelden", "https://news.example/newsletter/abmelden?t=1"));
+        assert!(offered_with("Abmelden", "https://news.example/abbestellen/12"));
+        assert!(offered_with("Hier abmelden", "https://news.example/unsubscribe?t=1"));
+        // log-out links, with or without "abmeld" in the address
+        assert!(!offered_with("Von allen Geräten abmelden", "https://account.example/signout-all"));
+        assert!(!offered_with("Sitzung abmelden", "https://account.example/abmelden"));
+        assert!(!offered_with("Abmelden", HREF));
+        assert!(!offered_with("Alle Sitzungen abmelden", "https://account.example/sessions/abmelden-alle"));
+        // a plain-text address after the word follows the same rule
+        assert_eq!(find("", "Newsletter abmelden: https://x.example/z?1").as_deref(), Some("https://x.example/z?1"));
+        assert_eq!(find("", "Von allen Geräten abmelden: https://x.example/signout"), None);
+        assert_eq!(find("", "Sitzung abmelden https://x.example/abmelden"), None);
+    }
+
+    #[test]
+    fn plain_text_address_after_a_new_phrase_or_decomposed_text_is_found_and_odd_characters_do_not_panic() {
+        for (text, url) in [
+            ("Hủy đăng ký: https://x.example/u/1", "https://x.example/u/1"),
+            ("Ngừng nhận email ( https://x.example/u/2 )", "https://x.example/u/2"),
+            ("Désabonnez-vous : https://x.example/u/3", "https://x.example/u/3"),
+            ("Darte de baja https://x.example/u/4", "https://x.example/u/4"),
+            ("Отпишитесь: https://x.example/u/5", "https://x.example/u/5"),
+            ("配信停止はこちら https://x.example/u/6", "https://x.example/u/6"),
+            ("取消订阅：https://x.example/u/7", "https://x.example/u/7"),
+        ] {
+            assert_eq!(find("", text).as_deref(), Some(url), "{text:?}");
+            assert_eq!(find("", &nfd(text)).as_deref(), Some(url), "decomposed {text:?}");
+        }
+        assert_eq!(find("", "Hủy nhận hàng: https://x.example/orders/1"), None);
+        assert_eq!(find("", "Annuler la commande https://x.example/orders/2"), None);
+        // lower-casing İ makes the text longer in bytes: the old byte offsets pointed into the middle of a character
+        assert_eq!(find("", "İİİİİİİİİİİİİİİİİİİİİİİİİİ Unsubscribe https://x.example/u/8").as_deref(), Some("https://x.example/u/8"));
+        assert_eq!(find("", "İİİİİİİİİİİİİİİİİİİİİİİİİİ https://x.example/u/9"), None);
     }
 }

@@ -434,23 +434,34 @@ const ACTION_PHRASES: &[&str] = &[
     // French
     "cliquez ici", "cliquer ici", "se désabonner", "me désabonner", "vous désabonner", "désabonnement", "se désinscrire", "me désinscrire", "désinscription",
     "gérer mes préférences", "gérer vos préférences", "politique de confidentialité",
+    // (fix56: "Désabonnez-vous", "ne plus recevoir", "annuler l'abonnement" ...; accents do not matter, see `fold`)
+    "désabonnez vous", "désabonne toi", "désabonner de la newsletter", "ne plus recevoir", "annuler l abonnement", "annuler mon abonnement", "annuler votre abonnement",
+    "se retirer de la liste", "gérer mes abonnements", "gérer vos abonnements", "désinscrivez vous",
     // German
     "hier klicken", "klicken sie hier", "hier klicken zum anzeigen", "abmelden", "newsletter abbestellen", "abbestellen", "vom newsletter abmelden",
     "newsletter abmelden", "einstellungen verwalten", "datenschutzerklärung",
+    "abmeldung", "newsletter abmeldung", "abo kündigen", "abo kuendigen", "abo beenden", "keine weiteren e mails", "keine weiteren e mails erhalten", "nicht mehr erhalten",
+    "newsletter kündigen", "newsletter kuendigen", "newsletter beenden", "austragen", "aus dem verteiler austragen",
     // Spanish
     "haz clic aquí", "haga clic aquí", "clic aquí", "cancelar suscripción", "cancelar la suscripción", "darse de baja", "darme de baja", "anular suscripción",
     "gestionar preferencias", "gestiona tus preferencias", "política de privacidad",
+    "cancela tu suscripción", "cancelar tu suscripción", "cancelar mi suscripción", "anular la suscripción", "darte de baja", "dar de baja", "date de baja",
+    "desuscribirse", "desuscribirme", "no recibir más", "gestionar suscripciones", "gestiona tus suscripciones",
     // Japanese
     "こちらをクリック", "ここをクリック", "こちら", "配信停止", "配信解除", "メール配信停止", "メール配信解除", "購読解除", "登録解除", "配信停止はこちら", "配信設定",
+    "メルマガ解除", "メルマガ配信停止", "配信を停止", "メール配信を停止", "配信中止", "受信停止", "メール受信停止", "受信を停止", "配信解除はこちら", "登録解除はこちら",
     // Russian
     "нажмите здесь", "кликните здесь", "нажмите сюда", "отписаться", "отписаться от рассылки", "отказаться от рассылки", "отписаться здесь",
     "управление подпиской", "политика конфиденциальности",
+    "отпишитесь", "отписка", "отказаться от подписки", "отменить подписку", "отмена подписки", "больше не получать", "прекратить рассылку",
     // Simplified Chinese
     "点击这里", "点击此处", "单击此处", "点此查看", "取消订阅", "退订", "退订邮件", "点击退订", "不再接收", "管理订阅", "隐私政策",
+    "停止接收", "取消接收", "退订此邮件", "取消关注",
     // Vietnamese
     "nhấn vào đây", "nhấp vào đây", "bấm vào đây", "click vào đây", "chạm vào đây", "hủy đăng ký", "huỷ đăng ký", "hủy nhận tin", "hủy nhận email", "bỏ đăng ký",
     "ngừng nhận email", "ngừng nhận tin", "từ chối nhận email", "quản lý đăng ký", "chính sách bảo mật",
     "nhan vao day", "nhap vao day", "bam vao day", "huy dang ky", "bo dang ky",
+    "hủy đăng kí", "huỷ đăng kí", "bỏ đăng kí", "hủy nhận thư", "ngừng nhận thư", "hủy theo dõi", "từ chối nhận tin", "từ chối nhận thư",
     // Arabic
     "انقر هنا", "اضغط هنا", "إلغاء الاشتراك", "الغاء الاشتراك",
     // Portuguese, Italian, Dutch, Polish, Turkish, Korean, Indonesian, Traditional Chinese (W6.13)
@@ -470,13 +481,57 @@ fn nfc(s: &str) -> std::borrow::Cow<'_, str> {
     icu_normalizer::ComposingNormalizer::new_nfc().normalize(s)
 }
 
-/// A lower-case character as the phrases compare it: the Turkish dotless i is an i (capital I lowers to i), the dot above the İ lowers to is dropped; None = skip.
+/// Base letters of the precomposed Latin letters (Latin-1 to Latin Extended-B: U+00C0..=U+024F, Latin Extended Additional with the Vietnamese ones: U+1E00..=U+1EFF),
+/// read once from the NFD of each character, so "é" is "e" and "ệ" is "e" (a letter with only combining marks after its base; anything else stays itself).
+fn base_letters() -> &'static (Vec<char>, Vec<char>) {
+    static T: std::sync::OnceLock<(Vec<char>, Vec<char>)> = std::sync::OnceLock::new();
+    T.get_or_init(|| {
+        let nfd = icu_normalizer::DecomposingNormalizer::new_nfd();
+        let table = |from: u32, to: u32| -> Vec<char> {
+            (from..=to)
+                .map(|u| {
+                    let Some(c) = char::from_u32(u) else { return '\u{FFFD}' };
+                    let mut buf = [0u8; 4];
+                    let d = nfd.normalize(c.encode_utf8(&mut buf));
+                    let mut it = d.chars();
+                    match it.next() {
+                        Some(b) if it.all(|m| matches!(m, '\u{0300}'..='\u{036F}')) => b,
+                        _ => c,
+                    }
+                })
+                .collect()
+        };
+        (table(0x00C0, 0x024F), table(0x1E00, 0x1EFF))
+    })
+}
+
+/// A lower-case character as the phrases and the unsubscribe words compare it (the ONE place that decides what "the same letter" means): accents and the
+/// combining marks are gone (Vietnamese "hủy" = "huy", French "désabonner" = "desabonner", Spanish "suscripción" = "suscripcion", German "kündigen" = "kundigen"),
+/// "đ" is a "d", Russian "ё" is an "е", the Turkish dotless i is an i (capital I lowers to i), curly apostrophes are the straight one; None = skip (the dot above the İ
+/// lowers to and the other combining marks). Kana, Han, Hangul, Arabic and Cyrillic letters other than "ё" are left as they are.
 fn fold(c: char) -> Option<char> {
+    if c.is_ascii() {
+        return Some(c);
+    }
     match c {
         '\u{0131}' => Some('i'),
-        '\u{0307}' => None,
+        '\u{0110}' | '\u{0111}' => Some('d'),
+        '\u{0401}' | '\u{0451}' => Some('\u{0435}'),
+        '\u{2018}' | '\u{2019}' | '\u{02BC}' | '\u{00B4}' => Some('\''),
+        '\u{0300}'..='\u{036F}' => None,
+        '\u{00C0}'..='\u{024F}' => Some(base_letters().0[(c as u32 - 0xC0) as usize]),
+        '\u{1E00}'..='\u{1EFF}' => Some(base_letters().1[(c as u32 - 0x1E00) as usize]),
         _ => Some(c),
     }
+}
+
+/// `s` as the matching sees it: NFC, lower case, `fold`ed. For testing a text against folded words (the unsubscribe words in `mail.rs`); one allocation, none of
+/// the work for plain ASCII.
+pub fn fold_for_match(s: &str) -> String {
+    if s.is_ascii() {
+        return s.to_ascii_lowercase();
+    }
+    nfc(s).chars().flat_map(|c| c.to_lowercase()).filter_map(fold).collect()
 }
 
 /// The phrases in a comparable form (lower case, one space between words, punctuation gone), longest first; `true` = a "view" phrase.
@@ -1352,6 +1407,68 @@ mod tests {
         assert_eq!(preview_text("Ver novidades da semana"), "Ver novidades da semana");
         assert_eq!(preview_text("Klik hier om je account te bevestigen voor vrijdag"), "Klik hier om je account te bevestigen voor vrijdag");
         assert_eq!(preview_text("Afmelden voor de training kan tot vrijdag"), "Afmelden voor de training kan tot vrijdag");
+    }
+
+    /// fix56: the unsubscribe wordings the language review added (vi, zh, ja, fr, es, de, ru) are dropped when they are all there is, accents and decomposed text do not matter,
+    /// and the order / account / log-out wordings next to them stay content.
+    #[test]
+    fn unsubscribe_wordings_of_the_review_are_dropped_and_order_wordings_stay() {
+        let phrases = [
+            // Vietnamese
+            "Hủy đăng kí", "Bỏ đăng kí", "Hủy nhận thư", "Ngừng nhận thư", "Hủy theo dõi", "Từ chối nhận tin", "Huy nhan tin", "ngung nhan email",
+            // Simplified Chinese
+            "停止接收", "取消接收", "退订此邮件", "取消关注", "不再接收",
+            // Japanese
+            "メルマガ解除", "配信を停止", "配信中止", "受信停止", "メール配信を停止", "配信停止はこちら",
+            // French
+            "Désabonnez-vous", "Ne plus recevoir", "Annuler l’abonnement", "Annuler mon abonnement", "Se retirer de la liste", "Desabonnez-vous", "Desinscrivez-vous", "Gérer mes abonnements",
+            // Spanish
+            "Cancela tu suscripción", "Cancelar tu suscripción", "Anular la suscripción", "Darte de baja", "Dar de baja", "Date de baja", "Cancelar suscripcion", "Desuscribirse",
+            // German
+            "Abmeldung", "Abo kündigen", "Abo beenden", "Keine weiteren E-Mails", "Nicht mehr erhalten", "Abo kuendigen", "abo kundigen", "Austragen",
+            // Russian
+            "Отпишитесь", "Отписка", "Отказаться от подписки", "Отменить подписку", "Отмена подписки", "Больше не получать", "Прекратить рассылку",
+        ];
+        for p in phrases {
+            for t in [p.to_string(), nfd(p)] {
+                let md = format!("[{t}](https://t.example/x?id=1)
+Real words here");
+                assert_eq!(preview_text(&md), "Real words here", "link {t:?}");
+                assert_eq!(preview_text(&format!("{t} https://t.example/x?id=1
+Real words here")), "Real words here", "line {t:?}");
+                assert_eq!(preview_text(&md.replace("
+Real words here", "")), "", "alone {t:?}");
+            }
+        }
+        // order, account, travel and log-out lines are content, in every language
+        for text in [
+            "Hủy nhận hàng tại cửa hàng", "Ngừng nhận đơn mới từ hôm nay", "取消订单后款项将退回", "退订房间需提前三天", "キャンセルは前日までにお願いします", "退会手続きのご案内",
+            "Annuler la commande avant vendredi", "Annuler la réservation de ce soir", "Cancelar el pedido antes del viernes", "Cancelar reserva de hotel",
+            "Von allen Geräten abmelden und neu anmelden", "Sitzung abmelden nach 10 Minuten", "Отменить заказ можно до пятницы", "Отмена заказа в течение часа",
+        ] {
+            for t in [text.to_string(), nfd(text)] {
+                assert_eq!(preview_text(&t), t, "{t:?}");
+            }
+        }
+    }
+
+    /// fix56: the folding that both the snippet phrases and the unsubscribe words use, in one place.
+    #[test]
+    fn fold_for_match_folds_accents_decomposed_text_case_and_a_few_letters() {
+        assert_eq!(fold_for_match("Hủy đăng ký"), "huy dang ky");
+        assert_eq!(fold_for_match(&nfd("HỦY ĐĂNG KÝ")), "huy dang ky");
+        assert_eq!(fold_for_match("Désabonnez-vous"), "desabonnez-vous");
+        assert_eq!(fold_for_match("Cancelar suscripción"), "cancelar suscripcion");
+        assert_eq!(fold_for_match("Abo kündigen"), "abo kundigen");
+        assert_eq!(fold_for_match("Annuler l’abonnement"), "annuler l'abonnement");
+        assert_eq!(fold_for_match("ЕЩЁ Ёлка"), "еще елка");
+        assert_eq!(fold_for_match("İSTANBUL ılık"), "istanbul ilik");
+        // other scripts are left as they are (a voiced kana mark is part of the letter), plain ASCII is just lower-cased
+        assert_eq!(fold_for_match("メルマガ解除"), "メルマガ解除");
+        assert_eq!(fold_for_match(&nfd("メルマガ解除")), "メルマガ解除");
+        assert_eq!(fold_for_match("Отписаться Й"), "отписаться й");
+        assert_eq!(fold_for_match("Hello World"), "hello world");
+        assert_eq!(fold_for_match("取消订阅"), "取消订阅");
     }
 
     /// W6.13: Vietnamese typed with combining marks (NFD) and precomposed (NFC) are the same phrase; the shown text keeps its bytes when it is not boilerplate.
