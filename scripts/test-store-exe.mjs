@@ -45,7 +45,7 @@ check("tauri.store-exe.conf.json: offline installer, no update artifacts", () =>
 });
 check("tauri.conf.json: the normal installers do not carry the WebView2 Runtime", () => {
   const c = JSON.parse(read("src-tauri/tauri.conf.json"));
-  assert.equal(c.bundle.windows, undefined, "bundle.windows must stay unset in the shipped configuration (the setup downloads WebView2 when it is missing)");
+  assert.equal(c.bundle.windows.webviewInstallMode, undefined, "no WebView2 install mode in the shipped configuration (the setup downloads WebView2 when it is missing; only the Store configuration of option B embeds it)");
   assert.equal(c.bundle.createUpdaterArtifacts, true);
 });
 
@@ -188,6 +188,12 @@ f="$FAKE_FILES/$(basename "$url")"
 cp "$f" "$out"
 `,
 );
+for (const n of ["gh", "curl"]) fs.chmodSync(path.join(fakeBin, n), 0o755);
+// hermetic: the scripts must find OUR gh and curl first, never the runner's (a real gh would call the GitHub API with the runner's token)
+for (const n of ["gh", "curl"]) {
+  const r = spawnSync(bash, ["-c", `export PATH="${posix(fakeBin)}:$PATH"; command -v ${n}`], { encoding: "utf8" });
+  assert.equal(r.stdout.trim(), `${posix(fakeBin)}/${n}`, `the fake ${n} is the one found first`);
+}
 const REPO = "thnonl/hey-look";
 const fixture = (releases, files) => {
   const d = fs.mkdtempSync(path.join(work, "case-"));

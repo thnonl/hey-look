@@ -169,9 +169,14 @@ try {
   const wk = await evaluate(`(() => {
     const scroller = document.querySelector('.week'); const hourPx = parseFloat(getComputedStyle(scroller).getPropertyValue('--hour-px'));
     scroller.scrollTop = Math.max(0, 14 * hourPx - 120);
-    const cols = [...document.querySelectorAll('.wk-col')]; const col = cols[Math.min(3, cols.length - 1)]; const r = col.getBoundingClientRect();
-    return { x: r.left + 6, y: r.top + 14.5 * hourPx + 3, hourPx, idx: cols.indexOf(col) };
+    // the day to click is any column that is EMPTY at 14:30 (the mock's events are placed relative to today, so which day has one there depends on the date the test runs on)
+    const cols = [...document.querySelectorAll('.wk-col')];
+    const at = (c) => { const r = c.getBoundingClientRect(); return { x: r.left + 6, y: r.top + 14.5 * hourPx + 3 }; };
+    const free = cols.filter((c) => { const p = at(c); const e = document.elementFromPoint(p.x, p.y); return e && c.contains(e) && !e.closest('.wk-ev'); });
+    const col = free[Math.min(1, free.length - 1)] ?? cols[0];
+    return { ...at(col), hourPx, idx: cols.indexOf(col), free: free.length };
   })()`);
+  ok(wk.free > 0, `the week has a day that is empty at 14:30 (${wk.free} of the columns)`);
   await sleep(150);
   await dbl(wk.x, wk.y);
   await waitFor(`window.__store.getState().dialog?.type === 'event'`, 'the new-event dialog from the week');

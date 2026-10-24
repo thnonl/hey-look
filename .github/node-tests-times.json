@@ -216,6 +216,9 @@
   "node scripts/test-popout-dnd.mjs --require-browser": 12,
   "node --experimental-strip-types scripts/test-drag-drop.mjs": 0,
   "node scripts/test-popout-kinds.mjs --require-browser": 23,
-  "node scripts/test-popout-real.mjs": 0
+  "node scripts/test-popout-real.mjs": 0,
+  "node --experimental-strip-types scripts/test-store-texts.mjs": 2,
+  "node scripts/test-installer-identity.mjs": 1,
+  "node --experimental-strip-types scripts/test-about-store.mjs --quick --require-browser": 40
  }
 }
