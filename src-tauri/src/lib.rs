@@ -40,6 +40,7 @@ mod macdock;
 #[cfg(target_os = "macos")]
 mod macquit;
 // the native window of a pop-out, finished by hand once it is gone (popout.rs)
+mod leakfix;
 #[cfg(target_os = "macos")]
 mod macwin;
 // the macOS title bar repaint strategies (HEYLOOK_TITLEBAR_MODE); pure, so compiled and tested everywhere
