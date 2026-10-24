@@ -138,6 +138,13 @@ export function check({ release, pages, stores, nodeTests }) {
   }
   for (const s of shards) if (!used.get(s)) fail(`(f) the shard "${s}" of the workflow has no command in node-tests.txt`);
 
+  // (h) W9.8: a warning of the crate fails both Rust test jobs; the audit job exists and has its two audits (W9.11)
+  for (const j of ['rust-tests', 'rust-tests-windows']) if (!/RUSTFLAGS: "-D warnings"/.test(jobs[j] || '')) fail(`(h) release.yml: ${j} does not run cargo test with RUSTFLAGS -D warnings`);
+  if (!jobs.audit) fail('(h) release.yml: no job audit');
+  else {
+    if (!/npm audit --omit=dev --audit-level=high/.test(jobs.audit)) fail('(h) release.yml: the audit job does not stop on a high npm advisory');
+    if (!/cargo audit$/m.test(jobs.audit)) fail('(h) release.yml: the audit job does not run cargo audit');
+  }
   // (g)
   if (!/^      rehearse_signing:\s*$/m.test(release)) fail('(g) release.yml: no input rehearse_signing');
   if (!/if \[ "\$EVENT" = "push" \]; then echo "::notice::rehearse_signing is ignored on a tag run"/.test(release)) fail('(g) release.yml: a tag run does not ignore rehearse_signing');
@@ -184,6 +191,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     mut('a -latest runner', 'd', (c) => ({ ...c, release: c.release.replace('runs-on: windows-2025-vs2026', 'runs-on: windows-latest') })),
     mut('a -latest platform in the matrix', 'd', (c) => ({ ...c, release: c.release.replace('"platform":"macos-26"', '"platform":"macos-latest"') })),
     mut('publish without rust-tests-windows', 'e', (c) => ({ ...c, release: c.release.replace('store-exe, node-tests, rust-tests, rust-tests-windows, audit]', 'store-exe, node-tests, rust-tests, audit]') })),
+    mut('a Rust test job without -D warnings', 'h', (c) => ({ ...c, release: c.release.replace('RUSTFLAGS: "-D warnings" # (W9.8, as the Linux job)', '') })),
     mut('publish without the audit job', 'e', (c) => ({ ...c, release: c.release.replace('store-exe, node-tests, rust-tests, rust-tests-windows, audit]', 'store-exe, node-tests, rust-tests, rust-tests-windows]') })),
     mut('a shard with a typo in node-tests.txt', 'f', (c) => ({ ...c, nodeTests: c.nodeTests + 'ui-z | node scripts/x.mjs\n' })),
     mut('a workflow shard without a command', 'f', (c) => ({ ...c, nodeTests: c.nodeTests.replace(/^ui-e \|.*$/gm, '') })),
@@ -191,5 +199,5 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     mut('an unmasked throw-away key', 'g', (c) => ({ ...c, release: c.release.replace('echo "::add-mask::$key"', '') })),
     mut('the SHA-1 pin on dry runs too', 'g', (c) => ({ ...c, release: c.release.replace("github.event_name == 'push' && env.MAC_CERT_SHA1 || ''", 'env.MAC_CERT_SHA1') })),
   ];
-  console.log(`ok - test-release-workflow (rules a-g on 3 workflows, ${done.length} mutations caught)`);
+  console.log(`ok - test-release-workflow (rules a-h on 3 workflows, ${done.length} mutations caught)`);
 }

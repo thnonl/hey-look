@@ -104,6 +104,8 @@ gtk = "0.18"
 webkit2gtk = { version = "=2.0.2", features = ["v2_40"] }
 # testbridge/native.rs (debug builds only): reads the answer of a script run in the web view; the exact version webkit2gtk already uses
 javascriptcore-rs = "=1.1.2"
+# testbridge/native.rs (debug builds only): the PNG of the Linux snapshot; the version already in Cargo.lock (tauri's image-png uses it)
+png = "0.17"
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 
 

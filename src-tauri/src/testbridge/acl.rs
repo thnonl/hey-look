@@ -5,13 +5,13 @@
 use std::path::Path;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, HANDLE, HLOCAL, LocalFree, WIN32_ERROR};
-use windows::Win32::Security::Authorization::{
-    GetNamedSecurityInfoW, SetEntriesInAclW, SetNamedSecurityInfoW, EXPLICIT_ACCESS_W, NO_MULTIPLE_TRUSTEE, SET_ACCESS, SE_FILE_OBJECT, TRUSTEE_IS_SID, TRUSTEE_IS_USER, TRUSTEE_W,
-};
-use windows::Win32::Security::{
-    GetAce, GetAclInformation, GetSecurityDescriptorControl, GetTokenInformation, AclSizeInformation, EqualSid, NO_INHERITANCE, ACL, ACL_SIZE_INFORMATION, DACL_SECURITY_INFORMATION,
-    PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, SE_DACL_PROTECTED, TOKEN_QUERY, TOKEN_USER, TokenUser,
-};
+use windows::Win32::Security::Authorization::{SetEntriesInAclW, SetNamedSecurityInfoW, EXPLICIT_ACCESS_W, NO_MULTIPLE_TRUSTEE, SET_ACCESS, SE_FILE_OBJECT, TRUSTEE_IS_SID, TRUSTEE_IS_USER, TRUSTEE_W};
+use windows::Win32::Security::{GetTokenInformation, NO_INHERITANCE, ACL, DACL_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION, TOKEN_QUERY, TOKEN_USER, TokenUser};
+// (reading the list back is only for the test)
+#[cfg(test)]
+use windows::Win32::Security::Authorization::GetNamedSecurityInfoW;
+#[cfg(test)]
+use windows::Win32::Security::{GetAce, GetAclInformation, GetSecurityDescriptorControl, AclSizeInformation, EqualSid, ACL_SIZE_INFORMATION, PSECURITY_DESCRIPTOR, PSID, SE_DACL_PROTECTED};
 use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
 /// FILE_ALL_ACCESS (standard rights + every file right)

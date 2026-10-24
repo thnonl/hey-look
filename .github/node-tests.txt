@@ -287,6 +287,8 @@ ui-d | node scripts/test-focus-tabs.mjs --require-browser --spacing=0.04
 ui-a | node scripts/test-recipient-menu.mjs --require-browser
 # 1.0.7 D-052: an HTML mail on the dark background is shown at once, also while a picture it asked for is still on its way (a slow or dead host used to leave it blank until the picture came: the recolouring waited for the frame's load event); the owner's anonymised mail with a slow logo, main window and reader window, the dark background in both themes, light theme untouched and the blocked picture not asked for; text contrast >= 4.5:1 from the frame's styles and from its real pixels; first open = after the button twice = after switching mails; print keeps the original colours
 ui-a | node scripts/test-reader-dark.mjs --require-browser
+# 1.0.7 W9.7: the theme tokens that App.css builds with color-mix() are computed in sRGB when the engine has no color-mix() (macOS 11 and 12 with an old Safari): equal to color-mix() within 1 per channel, 8 accents x 2 themes, an old engine simulated
+ui-a | node scripts/test-color-fallback.mjs --require-browser
 # 1.0.7 D-051: a click on the notification of a new mail opens it wherever it is: the Other tab, another mailbox, Focused Inbox off, a search or filter on, far down an oldest-first list, the calendar open, a window of its own, a mail that is gone (the decision: test-notify-plan, the backend lookup: cargo test locate_thread)
 static | node --experimental-strip-types scripts/test-notify-plan.mjs
 ui-d | node scripts/test-notify-open.mjs --require-browser

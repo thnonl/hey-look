@@ -37,6 +37,7 @@ import { captionColors, gradientT } from "./captionColors";
 import { settingsWindowOpen } from "./popout/popoutCount";
 import { SETTINGS_KEY, settingsTarget } from "./popout/windowKinds";
 import { darkTopBar } from "./topBarDark";
+import { applyColorFallback } from "./colorFallback";
 
 /** `quiet`: the caller tells a failure itself. `onSaved`: the caller says "Draft saved" itself (the pane makes no toast). */
 export interface ComposeSaveOpts {
@@ -647,6 +648,7 @@ export function applyPrefs(p: Prefs) {
   const topDk = darkTopBar(validHex(p.accent) ? p.accent : DEFAULT_PREFS.accent);
   root.style.setProperty("--top-dk-start", topDk.start);
   root.style.setProperty("--top-dk-end", topDk.end);
+  applyColorFallback(); // (an engine without color-mix(): the theme tokens that App.css builds with it, W9.7)
 }
 
 let captionSent = "";

@@ -75,6 +75,7 @@
 
 ### Fixed
 
+- macOS 11 and 12 with an older Safari engine (before 16.2): the accent colour and the tints of the buttons, links and focus ring are worked out by the app when the engine has no color-mix(), instead of being lost in the dark theme
 - "Opening message…" while a mail loads now covers the whole message area as one surface in the colour the mail will have there (white, or the dark background), with readable text; before, a small box of the app colour sat in the middle of the area with the mail or the pane showing on both sides.
 - macOS: opening many large mails no longer makes the app use more and more memory: a conversation now reaches the window as raw bytes instead of one big text that the web view kept after it was shown (the mail looks and behaves the same).
 - macOS and Linux: a window logged an "is_permission_granted not allowed" error on every start because the notification permission check the system adds to every window was not allowed (no effect on notifications).

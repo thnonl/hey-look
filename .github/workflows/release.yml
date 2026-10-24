@@ -63,7 +63,9 @@ permissions:
 env:
   # The Rust compiler of every build and test job, exactly. A new Rust release must not change the shipped binary between the
   # last dry run and the tag run. To bump: change it here, run a dry run (platforms=all, all 823+ cargo tests and the three builds must
-  # pass), commit. rustfmt and clippy are not used in CI, so no components are installed.
+  # pass), run `cargo report future-incompatibilities` and, if a lint of imap-proto 0.10.2 (a trailing semicolon in macros, pulled in by the vendored imap) is
+  # becoming an error, vendor imap-proto under src-tauri/vendor/ with the semicolon fix (as imap is) BEFORE the bump, commit. rustfmt and clippy are not used in CI,
+  # so no components are installed. The Rust test jobs run with RUSTFLAGS -D warnings.
   RUST_VERSION: "1.99.1"
   # The runner images, exactly (W11.8). No job uses a `-latest` label: the image must not change between the last dry run and the tag run (the publish
   # job runs only on a tag, so with `ubuntu-latest` its first run on a new image would have been the release itself). In use: ubuntu-24.04 (plan,
@@ -334,6 +336,8 @@ jobs:
         working-directory: src-tauri
         env:
           RUST_BACKTRACE: 1
+          # W9.8: a warning of this crate (or of the vendored imap) fails the job; registry crates keep cargo's --cap-lints, so their warnings never do
+          RUSTFLAGS: "-D warnings"
         run: |
           mkdir -p ../dist
           [ -e ../dist/index.html ] || echo '<!doctype html><title>stand-in</title>' > ../dist/index.html
@@ -408,6 +412,7 @@ jobs:
         working-directory: src-tauri
         env:
           RUST_BACKTRACE: 1
+          RUSTFLAGS: "-D warnings" # (W9.8, as the Linux job)
         run: |
           mkdir -p ../dist
           [ -e ../dist/index.html ] || echo '<!doctype html><title>stand-in</title>' > ../dist/index.html

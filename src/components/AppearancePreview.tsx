@@ -1,5 +1,6 @@
 import { Inbox, RefreshCw, Search } from "lucide-react";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useLayoutEffect, useMemo, useState } from "react";
+import { applyColorFallback } from "../colorFallback";
 import { badgeText } from "../focusCounts";
 import { makeFakeMailbox } from "../fakeMail";
 import { useT } from "../i18n/react";
@@ -21,6 +22,8 @@ export function AppearancePreview() {
   const [seed, setSeed] = useState(() => Math.floor(Math.random() * 1e6));
   const box = useMemo(() => makeFakeMailbox(seed), [seed]);
   const dark = useAppDark();
+  // an engine without color-mix(): the preview has theme tokens of its own, computed here (W9.7); nothing happens elsewhere
+  useLayoutEffect(() => applyColorFallback(), [dark, prefs.accent]);
   const threads = prefs.sortAsc ? [...box.threads].reverse() : box.threads;
   const shown = prefs.focused ? threads.filter((th) => !th.bulk) : threads;
   // like the real side menu: bulk mail is in the Inbox number when "Count Other (bulk) mail" is on or Focused Inbox is off
