@@ -21,6 +21,7 @@
 //   node scripts/test-reader-dark.mjs                    all configurations
 //   node scripts/test-reader-dark.mjs --quick            main window dark + reader (what CI runs)
 //   node scripts/test-reader-dark.mjs --shots=<dir>      PNGs of the first open
+//   node scripts/test-reader-dark.mjs --throttle=4       the page runs 4 times slower (a loaded CI machine)
 //   node scripts/test-reader-dark.mjs --url=http://127.0.0.1:1420/    use a dev server that is already running
 //   node scripts/test-reader-dark.mjs --require-browser  fail (instead of skipping) when no Chrome/Chromium/Edge is installed
 import fs from 'node:fs';
@@ -41,6 +42,7 @@ const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUl
 let logoRequests = 0;
 H.net.stub = (u) => { if (!u.includes('/templates/logo.png')) return undefined; logoRequests++; return { status: 200, type: 'image/png', body: PNG_1PX, delay: SLOW_MS }; };
 
+if (arg('throttle')) await cdp('Emulation.setCPUThrottlingRate', { rate: Number(arg('throttle')) }); // a loaded CI machine
 const DARK = [27, 28, 32], WHITE = [255, 255, 255];
 
 // state of the message frame (scripts/lib/dark-frame-probe.mjs, the same expression the QA bridge runs on a Mac or Linux): a JSON string, 'null' while there is no frame
@@ -62,7 +64,7 @@ async function waitFrame(base, pred, limit = 8000) {
 // the real pixels of the frame: a screenshot of its rectangle, drawn into a canvas in the page: the most frequent colour (the surface) and how many pixels have
 // text-like contrast (>= 4.5:1) against it
 async function pixels(tag) {
-  await evaluate(`document.querySelector('.msg-frame').scrollIntoView({ block: 'start' }); 1`);
+  await evaluate(`document.querySelector('.msg-frame').scrollIntoView({ block: 'start' }); new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok)))`); // (two painted frames)
   await sleep(150);
   const r = await evaluate(`(() => { const b = document.querySelector('.msg-frame').getBoundingClientRect(); return [b.left, b.top, b.width, Math.min(b.height, innerHeight - b.top, 420)]; })()`);
   const shot = await cdp('Page.captureScreenshot', { format: 'png', clip: { x: Math.max(0, r[0]), y: Math.max(0, r[1]), width: Math.max(10, r[2]), height: Math.max(10, r[3]), scale: 1 } });
@@ -90,6 +92,12 @@ const shotTo = async (tag, name) => { if (!SHOTS) return; fs.mkdirSync(SHOTS, { 
 async function readable(tag, what, base, st) {
   check(tag, st && st.n >= 15, `${what}: only ${st && st.n} elements with text were found`);
   check(tag, st && st.min >= 4.5, `${what}: the lowest text contrast is ${st && st.min}:1 (< 4.5): ${JSON.stringify(st && st.rows.filter((r) => r[3] < 4.5).slice(0, 4))}`);
+  // the surface at several frames after the mail is shown: ANY white one fails (a frame that is hidden until it is loaded must never show the pane through it)
+  for (let i = 0; i < 2; i++) {
+    const early = await pixels(tag);
+    check(tag, early && near(early.bg, base), `${what}: sample ${i + 1}: the frame's surface is ${JSON.stringify(early && early.bg)}, expected about ${JSON.stringify(base)}`);
+    await sleep(120);
+  }
   const px = await pixels(tag);
   check(tag, px && near(px.bg, base), `${what}: the frame's surface is ${JSON.stringify(px && px.bg)}, expected about ${JSON.stringify(base)}`);
   check(tag, px && px.text >= 600, `${what}: only ${px && px.text} pixels of text-like contrast in the frame (the mail looks blank)`);
