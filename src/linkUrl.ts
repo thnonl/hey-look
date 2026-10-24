@@ -8,7 +8,7 @@ export type LinkCheck =
   | { ok: true; href: string }
   | { ok: false; reason: "empty" | "scheme" | "invalid" };
 
-export const LINK_SCHEMES = ["http", "https", "mailto", "tel"] as const;
+const LINK_SCHEMES = ["http", "https", "mailto", "tel"] as const;
 const MAX_LENGTH = 2000;
 const EMAIL = /^[^\s@<>()[\]\\,;:"]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/u;
 

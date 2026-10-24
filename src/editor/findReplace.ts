@@ -50,7 +50,7 @@ export interface FindState {
 }
 
 const EMPTY: FindState = { query: "", matchCase: false, current: -1, hits: [] };
-export const findKey = new PluginKey<FindState>("findReplace");
+const findKey = new PluginKey<FindState>("findReplace");
 
 type Meta = { query?: string; matchCase?: boolean; current?: number; clear?: boolean };
 

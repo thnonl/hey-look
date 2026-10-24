@@ -46,7 +46,7 @@ const LIST_BOX_RTL = "margin:0 40px 0 0;padding:0;direction:rtl";
 const paragraphStyle = (a: BlockAttrs): string => marginCss("0", "0", a) + tailCss(a);
 const headingStyle = (level: number, a: BlockAttrs): string => `${HEADING_FONT[level]};${marginCss("12pt", "4pt", a)}${tailCss(a)}`;
 const blockAttrs = (n: JsonNode): BlockAttrs => (n.attrs ?? {}) as BlockAttrs;
-export const MONO = "Consolas,Menlo,'Courier New',monospace";
+const MONO = "Consolas,Menlo,'Courier New',monospace";
 const PRE_STYLE = `font-family:${MONO};font-size:10pt;white-space:pre-wrap;background-color:#f4f4f4;padding:8px;margin:0`;
 const CODE_STYLE = `font-family:${MONO};font-size:10pt;background-color:#f4f4f4`;
 const HR_STYLE = "border:0;border-top:1px solid #bfbfbf;margin:8pt 0";
@@ -287,7 +287,7 @@ export function docToHtml(doc: JsonNode, base?: BaseFont): string {
 }
 
 /** The style of the wrapper: the default font of the message, family and size. */
-export const baseStyle = (b: BaseFont): string => `font-family:${normFamily(b.family)};font-size:${ptText(b.size)}`;
+const baseStyle = (b: BaseFont): string => `font-family:${normFamily(b.family)};font-size:${ptText(b.size)}`;
 
 /** The whole message in one box with its default font, so every client starts from the same family and size (the paragraphs carry their own margins). */
 export function wrapBase(html: string, base: BaseFont): string {

@@ -186,7 +186,7 @@ function applyIndent(state: EditorState, dispatch: ((tr: Transaction) => void) |
 }
 
 /** Whether the selection touches a list item. */
-export const touchesList = (state: EditorState): boolean => textblocksOf(state).some((b) => insideItem(state, b.pos));
+const touchesList = (state: EditorState): boolean => textblocksOf(state).some((b) => insideItem(state, b.pos));
 
 /** The paragraphs and headings of the selection that are not list items go one step (40 px) in / out; false when there are none. */
 export const indentPlain = (dir: 1 | -1): Command => (state, dispatch) => {

@@ -73,7 +73,7 @@ assert.match(dom, /import \{ DARK_CANVAS \} from "\.\/mailCanvas";/);
 const rp = read("src/components/ReadingPane.tsx");
 assert.match(rp, /setMailDark\(doc, /, "the reader keeps using the same module");
 const dark = read("src/darkMail.ts");
-assert.match(dark, /export function buildDarkSheet\(doc: Document, base: RGB, scope\?: Element\): string/);
+assert.match(dark, /export function buildDarkSheet\(doc: Document, base: RGB, scope\?: Element, tags\?: number\[\]\): string/);
 assert.match(dark, /const top = scope \?\? doc\.documentElement;/, "without a scope the whole document, as before");
 assert.match(compose, /setDarkRegion\(r, pv === "dark"\)/);
 assert.match(compose, /querySelectorAll<HTMLElement>\("\.sig-block \.sig-body"\)/, "only the signature region is recoloured");

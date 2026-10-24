@@ -823,4 +823,36 @@ mod tests {
         let one = row_id(&e, "one");
         assert!(get(&e.db, &e.factory, &one, Scope::Series, None).unwrap_err().starts_with("CAL_EVENT_NOT_FOUND"));
     }
+
+    /// D-109: the chips of the calendar open in every scope with what the frontend sends (`id`, scope, `occurrenceStart` of the JSON the list gives).
+    #[test]
+    fn google_chips_open_in_every_scope() {
+        let e = env();
+        let master = row_id(&e, "s");
+        let list: Vec<serde_json::Value> = serde_json::from_str(&serde_json::to_string(&calendar::list_range(&lock(&e.db), berlin(2026, 10, 1, 0, 0), berlin(2027, 1, 1, 0, 0)).unwrap()).unwrap()).unwrap();
+        assert_eq!(list.len(), 8);
+        for chip in &list {
+            let slot = chip["occurrenceStart"].as_i64();
+            assert_eq!(slot, chip["start"].as_i64(), "the chip carries its slot: {chip}");
+            for (name, scope) in [("occurrence", Scope::Occurrence), ("following", Scope::Following), ("series", Scope::Series)] {
+                let d = get(&e.db, &e.factory, chip["id"].as_str().unwrap(), scope, slot).unwrap_or_else(|er| panic!("{name} of {chip}: {er}"));
+                assert_eq!(d.event.id, if scope == Scope::Series { master.clone() } else { d.event.id.clone() });
+                if scope != Scope::Series {
+                    assert_eq!(d.event.start, chip["start"].as_i64().unwrap(), "{name}: the occurrence's own time");
+                }
+            }
+        }
+        // an occurrence that was changed is an exception row: its chip opens too
+        let slot = berlin(2026, 10, 27, 9, 0);
+        let mut x = input(&e, &master, "Weekly sync", berlin(2026, 10, 27, 11, 0), None, Some(slot));
+        x.scope = Some("occurrence".into());
+        save(&e.db, &e.factory, &x, Scope::Occurrence).unwrap();
+        let list = calendar::list_range(&lock(&e.db), berlin(2026, 10, 26, 0, 0), berlin(2026, 10, 28, 0, 0)).unwrap();
+        assert_eq!(list.len(), 1);
+        let chip = &list[0];
+        assert_eq!((chip.occurrence_start, chip.changed_occurrence), (Some(slot), true));
+        for scope in [Scope::Occurrence, Scope::Following, Scope::Series] {
+            assert!(get(&e.db, &e.factory, &chip.id, scope, chip.occurrence_start).is_ok(), "{scope:?}");
+        }
+    }
 }

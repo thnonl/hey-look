@@ -49,7 +49,7 @@ export const isHeadingKey = (e: KeyLike): boolean => {
 };
 
 /** The V key, also with Option held (a Mac types "√" / "◊" then): the letter or the physical key. */
-export const isVKey = (e: Pick<KeyLike, "key" | "code">): boolean => e.key.toLowerCase() === "v" || e.code === "KeyV";
+const isVKey = (e: Pick<KeyLike, "key" | "code">): boolean => e.key.toLowerCase() === "v" || e.code === "KeyV";
 
 /** `os` is only given by the editors (editorKeyHandlers): Cmd+Option+Shift+V is the text-only paste on a Mac and nothing on the other systems. */
 export function keyAction(e: KeyLike, ctx: { inEditor: boolean; os?: string }): KeyAction {

@@ -342,7 +342,7 @@ export default function ComposeView({ label, init, reloaded, recoveryId: handedR
       const left = statusRemaining(id);
       if (left > 0) await wait(left); // the status stays 300 ms once it was drawn (RULE-2)
       shellDone(id);
-      setEditor((prev) => (prev && prev.init.preparing?.id === id ? { init: full, n: prev.n + 1 } : prev));
+      setEditor((prev) => (prev && prev.init.preparing?.id === id ? { init: full, n: prev.n } : prev)); // (the same number: the Compose and its editor made for the shell take the message in place, WP13f-3)
       if (told) st.getState().showToast(() => friendlyError(told), undefined, "error");
     };
     let askTimer: ReturnType<typeof setInterval> | undefined;

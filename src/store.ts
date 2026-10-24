@@ -37,6 +37,7 @@ import { captionColors, gradientT } from "./captionColors";
 import { settingsWindowOpen } from "./popout/popoutCount";
 import { SETTINGS_KEY, settingsTarget } from "./popout/windowKinds";
 import { darkTopBar } from "./topBarDark";
+import { applyColorFallback } from "./colorFallback";
 
 /** `quiet`: the caller tells a failure itself. `onSaved`: the caller says "Draft saved" itself (the pane makes no toast). */
 export interface ComposeSaveOpts {
@@ -109,10 +110,12 @@ export interface ComposeInit {
   confidential?: boolean;
   /**
    * The shell of a Reply / Reply all / Forward whose recipients, quote and attachments are still being prepared (1.0.7 W13.13): Compose shows the header rows with the
-   * recipient fields and Send off and the status "Preparing reply…" in the body; the full message replaces it (`openCompose`) when it is ready. `id` names this preparation,
-   * `key` the answer (`answerKey`: a second press on the same answer only focuses it), `at` the press (ms: the status shows 100 ms after it, not after the pane was built), `fetching`: the attachments of a forward are being fetched ("Getting the attachments…").
+   * recipient fields and Send off and the status "Preparing reply…" in the body; the full message replaces it IN PLACE (`fillCompose`: the same Compose and editor, WP13f-3; the
+   * remount of `openCompose` is the fallback) when it is ready. `id` names this preparation,
+   * `key` the answer (`answerKey`: a second press on the same answer only focuses it), `at` the press (ms: the status shows 100 ms after it, not after the pane was built), `fetching`: the attachments of a forward are being fetched ("Getting the attachments…"),
+   * `cc`: a Reply all that is known (from the message as stored) to have Cc recipients: the Cc and Bcc rows are in the shell, so nothing moves when the message is filled in (REQ-13.13.12).
    */
-  preparing?: { kind: "reply" | "forward"; id: string; key: string; at: number; fetching?: boolean };
+  preparing?: { kind: "reply" | "forward"; id: string; key: string; at: number; fetching?: boolean; cc?: boolean };
   /** this message replaces a shell that was on screen (W13.13): Compose does not fade in again */
   afterShell?: boolean;
   /** a message restored after the app ended unexpectedly: it keeps the id of its snapshot, so the next snapshot replaces it (recovery.ts) */
@@ -443,6 +446,11 @@ interface State {
   /** `restore: false` (closing): the reading pane is not given back the mail that was open before writing (the caller opens another).
    *  `sending`: the message is on its way, not over (the Undo time in seconds, 0 for none or a scheduled message); only a compose window reads it. */
   openCompose: (c: ComposeInit | null, opts?: { restore?: boolean; sending?: number }) => Promise<void>;
+  /**
+   * The finished message of a Reply / Reply all / Forward replaces its shell (the compose whose `preparing.id` is `id`) IN PLACE: the same Compose and editor stay (`composeKey` is not bumped),
+   * they take the new `ComposeInit` as their props (WP13f-3, DEC-023). False = that shell is not the compose any more (Discard, another message): nothing was done.
+   */
+  fillCompose: (id: string, full: ComposeInit) => boolean;
   setComposeDirty: (d: boolean) => void;
   setComposeSaver: (f: ((opts?: ComposeSaveOpts) => Promise<boolean | void>) | null) => void;
   setComposeEnd: (f: ((o?: ComposeEndOpts) => Promise<boolean | void>) | null) => void;
@@ -573,7 +581,7 @@ const roleOf = (folder: string) => (folder === "unread" ? "inbox" : folder);
 export const exhaustedKey = (accountId: string, folder: string) => `${accountId}|${roleOf(folder)}`;
 
 /** Shown where the "Max emails to download" cap stopped the list (toast of "Load older messages"; the list footer words it the same). */
-export const limitMessage = (n: number) => t("errors.limit", { n: fmtNumber(n) });
+const limitMessage = (n: number) => t("errors.limit", { n: fmtNumber(n) });
 
 const MORE_CHUNKS = 4; // one scroll to the end = up to 4 x 50 = 200 older messages in total, however many mailboxes are open
 const MORE_PAUSE_MS = 700; // between two requests, so the server and the list can breathe
@@ -657,6 +665,7 @@ export function applyPrefs(p: Prefs) {
   const topDk = darkTopBar(validHex(p.accent) ? p.accent : DEFAULT_PREFS.accent);
   root.style.setProperty("--top-dk-start", topDk.start);
   root.style.setProperty("--top-dk-end", topDk.end);
+  applyColorFallback(); // (an engine without color-mix(): the theme tokens that App.css builds with it, W9.7)
 }
 
 let captionSent = "";
@@ -739,7 +748,7 @@ export async function flushSends(maxMs = 25_000): Promise<boolean> {
   }
 }
 
-export function storeMissingColors(accounts: Account[], accent: string): Account[] {
+function storeMissingColors(accounts: Account[], accent: string): Account[] {
   return accounts.map((a) => {
     if (a.color) return a;
     const color = accountColor(a, accent);
@@ -1495,6 +1504,11 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
+  fillCompose: (id, full) => {
+    if (get().compose?.preparing?.id !== id) return false;
+    set({ compose: full }); // (a shell has nothing to save, ask or select: composeKey, composeDirty, the saver and the end hook stay as the live Compose made them)
+    return true;
+  },
   setComposeDirty: (composeDirty) => set({ composeDirty }),
   setComposeSaver: (composeSaver) => set({ composeSaver }),
   setComposeEnd: (composeEnd) => set({ composeEnd }),

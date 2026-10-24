@@ -24,7 +24,7 @@ export function writeMailDocument(frame: HTMLIFrameElement, parts: readonly stri
 }
 
 /** What `window.__mailFrame` answers. */
-export function mailFrameReport(): { created: number; removed: number; writes: number; fallbacks: number; live: number; historyLength: number; frameHistoryLength: number | null } {
+function mailFrameReport(): { created: number; removed: number; writes: number; fallbacks: number; live: number; historyLength: number; frameHistoryLength: number | null } {
   const frames = document.querySelectorAll<HTMLIFrameElement>("iframe.msg-frame");
   let frameHistory: number | null = null;
   try {

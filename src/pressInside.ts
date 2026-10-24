@@ -8,7 +8,7 @@
  * mousedown). Each menu therefore registers its anchor here, and a press on a menu counts as inside every element that
  * contains that menu's anchor.
  */
-export const MENU_SELECTOR = ".dd-fixed";
+const MENU_SELECTOR = ".dd-fixed";
 
 type Rooted = { current: Node | null };
 

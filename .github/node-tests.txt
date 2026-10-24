@@ -142,13 +142,13 @@ ui-c | node scripts/test-ai-tab-layout.mjs --quick --require-browser
 # WP15: Settings > About of a copy updated by apt (and by the Snap Store): the dictionary sentence with the command in <code>, no Check for updates button, no switch, nothing clipped, light and dark (English, German, Japanese at 960 x 560; the full run is `node --experimental-strip-types scripts/test-about-managed.mjs`, 8 languages x 2 sizes)
 ui-c | node --experimental-strip-types scripts/test-about-managed.mjs --quick --require-browser
 # the AI Assistant problem toast through every entry point (not set up, 401, 404, timeout ...): stays 20 s, leads to Settings > AI Assistant, Esc / X close it, and a new request removes the old problem toast at once (full run: `node scripts/test-ai-guide.mjs`)
-ui-b | node scripts/test-ai-guide.mjs --quick --require-browser
+ui-f | node scripts/test-ai-guide.mjs --quick --require-browser
 # Settings > Add account and Calendar stand still while a sign-in runs and ends (two of the combinations; the full run is `node scripts/test-settings-layout.mjs`)
 ui-e | node scripts/test-settings-layout.mjs --quick --require-browser
 # the attachment preview and the picture viewer are on top of the whole window, in the main window and in the reader window
 ui-d | node scripts/test-preview-layer.mjs --quick --require-browser
 # the compose pane at the smallest sizes: formatting row and body always in view, the header scrolls, Tab order and popovers, the labelled action row is one row in de and ru with the rest in More actions (thirteen of the combinations, with Meeting on at 946 x 552, in the 308 px pane next to the list when the list is asked for (the list is hidden below 1100 px while writing, W2.26) and in a window 80 px lower than the least one, Shift+Tab back from Where included; the full run is `node scripts/test-compose-fit.mjs`, about 8 minutes, 91 combinations)
-ui-d | node --experimental-strip-types scripts/test-compose-fit.mjs --quick --require-browser
+ui-f | node --experimental-strip-types scripts/test-compose-fit.mjs --quick --require-browser
 # an open compose shows the placeholder and the accessible name of the body, and an open signature / template editor its accessible name, in the language in use after a language switch (and back); typed text and undo survive
 ui-c | node scripts/test-placeholder-lang.mjs --require-browser
 # 1.0.7 WP9c: the dev preview starts in the saved language with no English text drawn at any time and only that language's chunk fetched, all 8 languages one after the other without a raw key, nothing shown in two languages while a chunk loads, #langfail=fr gives the "Failed" toast and leaves language and setting, the pseudo-locale works
@@ -159,7 +159,7 @@ ui-c | node scripts/test-sidebar-collapse.mjs --quick --require-browser
 ui-b | node scripts/test-picture-handles.mjs --require-browser
 # the picture toolbar and the resize handles never overlap (the handles are measured too), and every popover and menu of the message, ALL its boxes, is inside the window at 946 x 552 and 946 x 480
 ui-d | node scripts/test-picture-toolbar.mjs --require-browser
-ui-c | node scripts/test-popover-fit.mjs --quick --require-browser
+ui-f | node scripts/test-popover-fit.mjs --quick --require-browser
 ui-b | node scripts/test-ai-save-toast.mjs --require-browser
 # a meeting survives Save draft and the crash-recovery snapshot in the real pane (the header side is `cargo test --lib meeting_form`)
 ui-a | node scripts/test-meeting-compose.mjs --require-browser
@@ -189,6 +189,14 @@ static | bash .github/scripts/test-check-release-assets.sh
 # 1.0.7 fix16: the apt step of both Linux jobs (cache of the .deb files, retries, time limit per attempt, mirror switch; fake apt-get) and its wiring in release.yml
 static | bash .github/scripts/test-install-linux-deps.sh
 static | node .github/scripts/verify-update-sigs.cjs --selftest
+# 1.0.7 W11.2: the tag run stops when GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET or MICROSOFT_CLIENT_ID is empty (MICROSOFT_CLIENT_SECRET is optional); names only, no value printed
+static | bash .github/scripts/check-oauth-env.sh --selftest
+# 1.0.7 W11.3: the manifest step of the publish job (generate, check, the final asset list: 13 names + latest.json) on fixtures, with negative controls
+static | node scripts/test-publish-manifest.mjs
+# 1.0.7 W11.3, W11.8, W11.9, W11.11, W11.12: the three workflows as text: SHA-pinned actions, secrets only behind the push gate, environments, no -latest runner, the needs of sign-windows and publish, the shards, the signing rehearsal; 12 mutations
+static | node scripts/test-release-workflow.mjs
+# 1.0.7 W9.10: an export of src/ (a value, not a type) that no other file of src/ or scripts/ names is dead code; the scan is proven on a scratch export
+static | node scripts/test-dead-exports.mjs
 # was not run by CI before
 static | node --experimental-strip-types scripts/test-site-top-bar-dark.mjs
 # a press elsewhere closes an open popover: inside a dialog, on the Windows title bar (with a copy of Tauri's drag script) and inside the message text; real mouse presses in the dev preview
@@ -218,7 +226,7 @@ static | node --experimental-strip-types scripts/test-draft-encryption.mjs
 # a sent reply / forward flags the original (\Answered / $Forwarded): the page names the message it answers and keeps that through drafts, windows, Undo and the crash snapshot (the server side: `cargo test --lib`)
 static | node --experimental-strip-types scripts/test-answers-flag.mjs
 # a message that comes back into an editor keeps its signature picker (Automatic / a named one / No signature) after Send + Undo, in the pane and in the window; the first signature outside a quote is the person's own (CF-14); the reference of a reply survives Save draft (CF-18)
-ui-c | node scripts/test-compose-restore.mjs --require-browser
+ui-f | node scripts/test-compose-restore.mjs --require-browser
 # bundle budget gate: the production build's initial JavaScript (gzip and raw), CSS, lazy chunks, modules that must stay lazy and dev-only modules that must never ship, against scripts/bundle-budget.json (about 5 s; raising a budget needs a `history` entry there)
 static | node scripts/check-bundle-budget.mjs
 # the gate's own checks on small fixtures (scripts/fixtures/bundle): the initial set from index.html, the gzip sums, every kind of violation, a budget file without reasons is refused
@@ -228,7 +236,7 @@ static | node scripts/test-source-chars.mjs
 # the UI test harness gives every test its own dev server and browser on ports the program bound itself: two harnesses started together with the same starting ports get different servers and cannot see each other's page
 ui-d | node scripts/test-harness-isolation.mjs --require-browser
 # a message with nothing worth a draft (only recipients) is never saved: the autosave timer fires and not one save_draft call is made, leaving, Discard, X, quit and Save draft write nothing and ask nothing; a subject, text, a file, a meeting place or a reply with text still make a draft (main window and compose window)
-ui-d | node scripts/test-empty-draft.mjs --require-browser
+ui-f | node scripts/test-empty-draft.mjs --require-browser
 # the own Reply-To of a mailbox: what the Settings field accepts (empty or one bare address, no name part, no list) and that the command, the row, the migration and both message builders are wired (the header itself: `cargo test --lib`)
 static | node --experimental-strip-types scripts/test-reply-to.mjs
 # Settings > mailbox > Reply-to address in the dev preview: saved when the field is left, an invalid text shows "Enter a valid email address" and leaves the old value, empty clears it, not shown for All accounts, label and hint fit at 960 x 560 in 8 languages
@@ -279,6 +287,8 @@ ui-d | node scripts/test-focus-tabs.mjs --require-browser --spacing=0.04
 ui-a | node scripts/test-recipient-menu.mjs --require-browser
 # 1.0.7 D-052: an HTML mail on the dark background is shown at once, also while a picture it asked for is still on its way (a slow or dead host used to leave it blank until the picture came: the recolouring waited for the frame's load event); the owner's anonymised mail with a slow logo, main window and reader window, the dark background in both themes, light theme untouched and the blocked picture not asked for; text contrast >= 4.5:1 from the frame's styles and from its real pixels; first open = after the button twice = after switching mails; print keeps the original colours
 ui-a | node scripts/test-reader-dark.mjs --require-browser
+# 1.0.7 W9.7: the theme tokens that App.css builds with color-mix() are computed in sRGB when the engine has no color-mix() (macOS 11 and 12 with an old Safari): equal to color-mix() within 1 per channel, 8 accents x 2 themes, an old engine simulated
+ui-a | node scripts/test-color-fallback.mjs --require-browser
 # 1.0.7 D-051: a click on the notification of a new mail opens it wherever it is: the Other tab, another mailbox, Focused Inbox off, a search or filter on, far down an oldest-first list, the calendar open, a window of its own, a mail that is gone (the decision: test-notify-plan, the backend lookup: cargo test locate_thread)
 static | node --experimental-strip-types scripts/test-notify-plan.mjs
 ui-d | node scripts/test-notify-open.mjs --require-browser
@@ -287,13 +297,13 @@ ui-a | node scripts/test-discard-expunged.mjs --require-browser
 # 1.0.7 fix batch 9: the per-command time limit of .github/scripts/run-node-tests.sh (a hung test is killed with its process tree and reported as TIMEOUT: <command> instead of holding the shard)
 static | node scripts/test-run-node-tests.mjs
 # 1.0.7 WP7a in the real page: the question before the browser opens for calendar access (W7.7: Cancel / Esc / Open browser, focus, one calendar_connect call, Google and Microsoft, Allow access again, 8 languages light and dark, buttons on one row), the disabled switch and note of a build without the OAuth client (W7.8), the failed-sender-check warning, held sentence and Apply anyway on the invitation card (W7.3) and "Custom" for a series with only extra dates (W7.2)
-ui-a | node --experimental-strip-types scripts/test-calendar-consent.mjs --require-browser
+ui-b | node --experimental-strip-types scripts/test-calendar-consent.mjs --require-browser
 # 1.0.7 W7.10 (owner report: double-click on an event did not open the edit form): REAL double-clicks and Ctrl / Cmd+Enter in the month chip, the week block and all-day chip and the agenda row open the edit dialog (popover gone, no new event); an invitation, a read-only calendar and an event only its organizer may change show the details popover; empty space still makes a new event (09:00 in the month, 14:30 in the week); Esc from the popover or the dialog puts the focus back on the event; Settings > Shortcuts has the row in 8 languages
 ui-b | node --experimental-strip-types scripts/test-calendar-dblclick.mjs --require-browser
 # 1.0.7 W7.12 (owner request: the event popover actions as buttons, no More menu): which buttons per kind of event (Delete last and red, never an empty footer row), what each does, the Tab order, fit at 946 x 480, 946 x 552 and 1266 x 712 in light and dark (en, fr, de, ru: inside the window, labels whole, two lines at most, Delete last), an event near the bottom edge gets the popover above it, a window that becomes too low scrolls the details and keeps title and footer, icon-only buttons at 320 px
 ui-e | node --experimental-strip-types scripts/test-event-popover-actions.mjs --require-browser
 # 1.0.7 WP7f3 (W7.9, owner request: calendar sync is offered at Google / Microsoft sign-in) in the real page with real clicks and keys: Add account has the box "Also sync my calendar" (ticked, named, described, absent when the build cannot connect the service, unticked = the 1.0.6 flow); ticked + mail sign-in OK = the second step at once (one calendar_connect call, no question, mailbox already in the folder pane, Skip has the focus) and the calendar toast; Skip, Esc, the X and another Settings tab all end it as Skip; every refusal shows the Settings sentence with Retry and Continue, for Google and Microsoft; a mail sign-in without an account never starts it; the Calendar sidebar offer for earlier mailboxes (Not now stays after a reload, Turn on... asks the W7.7 question at once, none for IMAP only, answered, the icon column); the keyboard; 8 languages, light and dark, 960 x 560 and 1280 x 800, a long address wraps inside the notice (--quick: English, German and Japanese; the full run is `node scripts/test-calendar-at-signin.mjs`, about 4 minutes)
-ui-b | node scripts/test-calendar-at-signin.mjs --quick --require-browser
+ui-f | node scripts/test-calendar-at-signin.mjs --quick --require-browser
 # 1.0.7 WP7f2 (W7.11, owner request: no separate "Invitations · address" entry when the calendar is synced) in the real page: the sidebar and the icon column list no Invitations entry for a Google or Outlook mailbox with sync (the IMAP mailbox and a Gmail one without sync keep theirs), an invitation without a twin is drawn in the main calendar's colour and goes with its checkbox, a meeting that is an invitation and a synced event shows once in month, week and agenda, the popover of an invitation that only came by mail says so (the synced copy and an IMAP invitation do not), sync off or the main calendar's Sync off brings the entry back with what it had, on again folds it again, the empty agenda says what it said (--quick: English, German and Japanese; the full run is `node scripts/test-calendar-fold.mjs`; the backend rules: `cargo test --lib`)
 ui-b | node scripts/test-calendar-fold.mjs --quick --require-browser
 # 1.0.7 CI speed: the shard list is sound (every line has a known shard, the names match the plan job of the release workflow, no command twice, every named script exists) and the estimated minutes per shard are printed; scripts/test-*.mjs that no shard runs are only listed
@@ -417,7 +427,7 @@ static | node --experimental-strip-types scripts/test-calendar-series.mjs
 # 1.0.7 W7.1 in the real page with real clicks and keys (dates of the test, not of today): double-click on an occurrence asks which part (4 choices, This occurrence focused, within the press budget), the form "Edit occurrence" with its note and no Repeat, the changed occurrence at its time with the popover line, Delete one occurrence, This and following (old part keeps its title, no date twice), the whole series (a time change asks "Change every occurrence?", a title change does not), no "This and following" for the first occurrence, Google / Outlook (Repeat usable, the service sentence on delete, a pattern the app cannot change disables Repeat, no connection), keyboard only (Ctrl+Enter, Tab, Esc back to the chip), a slow save shows its pending state by 150 ms (scaled), the question and the form titles and notes fit at 960 x 560 and 1280 x 800, light and dark, 8 languages (--quick: English and German at 960 x 560; the full run is `node scripts/test-calendar-series-ui.mjs`, about 3.5 minutes; --only=my,whole,keys,synced,fit)
 ui-a | node --experimental-strip-types scripts/test-calendar-series-ui.mjs --quick --require-browser
 # 1.0.7 W7.4 (CalDAV, dev preview with the mock backend): Settings > Calendar offers Set up only where the build offers CalDAV, the connect dialog per service (iCloud / Fastmail fixed address and mailbox password, Nextcloud / Other address and certificate choice), the typed values go out once, the server answers (wrong password, no server, no CalDAV, no calendars, certificate, redirect, http) show as one sentence and keep the values, a connected server (user and host, calendars, Stop), the password asked again after a refusal, Tab order, Enter, Esc closes this dialog only, the pending state by 150 ms (scaled), fit at 960 x 560 in light and dark in 8 languages (--quick: English and German; the full run is `node scripts/test-caldav-dialog.mjs`)
-ui-a | node --experimental-strip-types scripts/test-caldav-dialog.mjs --quick --require-browser
+ui-c | node --experimental-strip-types scripts/test-caldav-dialog.mjs --quick --require-browser
 static | node --experimental-strip-types scripts/test-calendar-move.mjs
 # 1.0.7 W7.5 in the real page with real clicks and keys (days of October 2030, not today): the popover has an icon-only "Move to another calendar…" right after Duplicate for the user's own event with a writable calendar to go to (not for a read-only calendar), the dialog lists the calendars of the same mailbox (My events: every writable synced one), a series says it moves whole, guests where the service cannot move them show the sentence instead of the list, the move makes one call and the toast names the calendar, a slow move shows its pending state by 150 ms (scaled), keyboard only; Settings > Calendar: the dot is a button with the colour choice (a colour is kept and shown, the service colour comes back), New calendar (the dialog, the call, a refusal stays in the dialog, Esc closes only it, none for Google); the dialogs, the button and the colour row fit at 960 x 560 in light and dark in 8 languages (--quick: English and German; the full run is `node scripts/test-calendar-move-ui.mjs`)
 ui-b | node --experimental-strip-types scripts/test-calendar-move-ui.mjs --quick --require-browser
@@ -426,6 +436,8 @@ static | node --experimental-strip-types scripts/test-thread-pack.mjs
 ui-c | node scripts/test-thread-pack-ui.mjs --require-browser
 # 1.0.7 fix35: the message frame is written, not navigated: one frame, constant history, no srcdoc copy of the mail, over 20 selections
 ui-c | node scripts/test-mail-frame-history.mjs --require-browser
+# 1.0.7 fix42 (D-103): the dark walk of a mail runs once per mail and in one kept hidden frame, never in a message frame; the same sheet and tags as before; counted with window.__darkMail
+ui-c | node scripts/test-dark-walk.mjs --require-browser
 # 1.0.7 WP13g (DEC-025): the app theme decides the mail background - Light shows the original whatever is stored, the button there is a session choice (nothing stored) that any theme switch clears, Dark shows the stored choice, System follows the OS (the app's OS-theme seam); the reading pane, the reader window and the composer's Preview as recipient follow within 1 s, the frame pixels show only the old and the new background through every switch, a mail with its own dark design is not recoloured, print is original
 ui-e | node scripts/test-mail-canvas-theme.mjs --require-browser
 # 1.0.7 W6.1: `folder-reset` (the server renumbered a folder and it was read again): the folder on screen drops the selection, the checked rows and the open conversation and the list is read again; another folder or mailbox changes nothing; the all-mailboxes view follows every mailbox
@@ -451,10 +463,14 @@ ui-a | node --experimental-strip-types scripts/test-ctx-search.mjs --require-bro
 # 1.0.7 W8.2 (and W8.11): Settings > AI Assistant asks for the model list only when the request changed - the rule (Base URL without trailing slash, the key used: typed or saved, Save moves the typed key to the saved one), the sequences of the acceptance criteria, and the wiring of AiTab
 static | node --experimental-strip-types scripts/test-ai-models-key.mjs
 # 1.0.7 W8.2 in the real page (the preview counts every ai_list_models): open 1, a typed key 2, Save and a second Save 2, a trailing / added and taken back nothing, another Base URL +1, letter by letter 1, Remove the saved key +1 without a key, the tab opened again +1
-ui-a | node --experimental-strip-types scripts/test-ai-models-once.mjs --require-browser
+ui-d | node --experimental-strip-types scripts/test-ai-models-once.mjs --require-browser
 ui-a | node --experimental-strip-types scripts/test-ai-confidential-ui.mjs --require-browser
 ui-a | node --experimental-strip-types scripts/test-conf-ui.mjs --require-browser
 # 1.0.7 W8.11 (the model list URL of Settings > AI Assistant > Advanced): resolveModelsUrl / originOf against scripts/fixtures/ai-models-url/cases.json (the backend runs the same cases), which server counts as the same, when the key goes along, the fetch key, and the wiring of the tab, the command and the page's call
 static | node --experimental-strip-types scripts/test-ai-models-url.mjs
 static | node --experimental-strip-types scripts/test-ai-confidential.mjs
 static | node --experimental-strip-types scripts/test-reply-last.mjs
+# 1.0.7 WP13f-3 (DEC-023): what a message starts with - the recipients and the Cc rows, the attachments, the Encrypt / Sign start values, the first content of the editor - is made by ONE helper for the fresh mount and for the in-place fill of a Reply / Forward shell; the helpers against the expressions they replaced, and the source guards that both paths use them
+static | node --experimental-strip-types scripts/test-compose-start.mjs
+# 1.0.7 WP13f-3 (AC-13.13.16): ten fixtures (reply, reply all with Cc, forward with 3 attachments, encrypted reply, confidential reply, Reply-To note, signature above the quote, no signature on replies, plain-text original, HTML original) - the message handed to the outbox after the in-place fill is equal to the one a fresh mount of the same finished message gives (pictures ids masked)
+ui-e | node scripts/test-reply-golden.mjs --require-browser

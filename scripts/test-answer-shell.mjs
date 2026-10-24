@@ -17,6 +17,7 @@ function rig(over = {}) {
     pane: null,
     opened: 0,
     filled: [],
+    filledIds: [],
     delivered: [],
     failed: [],
     busy: [],
@@ -31,8 +32,9 @@ function rig(over = {}) {
         return { ok: true, where: "pane" };
       },
       paneHas: (id) => r.pane === id,
-      fillPane: async (init) => {
+      fillPane: async (id, init) => {
         log.push("fill");
+        r.filledIds.push(id);
         r.filled.push(init);
         r.pane = null;
       },
@@ -82,6 +84,7 @@ const job = (r, over = {}) => ({
   assert.equal(r.filled.length, 1);
   assert.equal(r.filled[0].afterShell, true, "the message that replaces the shell does not fade in again");
   assert.equal(r.filled[0].preparing, undefined, "and is not a shell");
+  assert.equal(r.filledIds[0], r.last.preparing.id, "the message replaces the shell it was made for (fillPane gets the id of the shell: filled in place, WP13f-3)");
   assert.deepEqual(r.filled[0].to, ["a@b.c"]);
   // the shell: what is known, flagged
   assert.deepEqual(r.last.preparing.kind, "reply");
@@ -235,6 +238,16 @@ const job = (r, over = {}) => ({
   assert.deepEqual(told, [["<q>", 1]]);
 }
 
+// ---- a Reply all that has Cc recipients puts the Cc rows in the shell (REQ-13.13.12); nothing else carries the flag
+{
+  const r = rig();
+  await createAnswerShell(r.deps).open(job(r, { cc: true }));
+  assert.equal(r.last.preparing.cc, true, "the shell knows that the Cc rows are needed");
+  const r2 = rig();
+  await createAnswerShell(r2.deps).open(job(r2));
+  assert.equal(r2.last.preparing.cc, undefined, "a Reply or Forward has no such flag");
+}
+
 // ---- the hand-over to a window waits for both sides, in either order, and sends once
 {
   const sent = [];
@@ -281,6 +294,10 @@ const read = (p) => fs.readFileSync(new URL(`../${p}`, import.meta.url), "utf8")
   const compose = read("src/components/Compose.tsx");
   assert.ok(/compose\.preparing\.forward/.test(compose) && /compose\.preparing\.reply/.test(compose) && /compose\.fwd\.fetching/.test(compose));
   assert.ok(/function PreparingStatus[\s\S]*role="status" aria-busy="true"/.test(compose) && compose.includes("<PreparingStatus p={preparing} />"), "the status is a status, in a component of its own (its timer must not re-render the whole composer)");
+  // the finished message replaces the shell IN PLACE (WP13f-3, DEC-023): the store action does not bump the key, the pane uses it, the window keeps the editor number
+  assert.ok(/fillCompose: \(id, full\) => \{[^}]*set\(\{ compose: full \}\)/.test(read("src/store.ts")), "fillCompose replaces the compose and nothing else (no composeKey bump)");
+  assert.ok(/fillPane: async \(id, init\) => void useStore\.getState\(\)\.fillCompose\(id, init\)/.test(actions), "the pane fill goes through fillCompose");
+  assert.ok(/const fillWith = async[\s\S]*?\{ init: full, n: prev\.n \}/.test(read("src/popout/ComposeView.tsx")), "the compose window keeps its editor number at the fill");
   const view = read("src/popout/ComposeView.tsx");
   assert.ok(view.includes("FILL_ID") && view.includes('notifyMain("fill-ready")'), "the compose window asks for its message");
   assert.ok(read("src/popout/composeHub.ts").includes("fills.listening("), "the main window answers");

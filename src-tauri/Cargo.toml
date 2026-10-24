@@ -59,8 +59,16 @@ icu_normalizer = { version = "2.3", default-features = false, features = ["compi
 semver = "1"
 tokio = { version = "1", features = ["sync", "time", "macros"] }
 
-[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 tauri-plugin-updater = "2.13"
+
+# Windows: the updater without its "zip" feature. That feature only adds the unpacking of a .zip update package (zip 4.x, RUSTSEC-2026-0367/0368/0369, no
+# fix in the 4.x line and the plugin has no release on zip 9 yet) and, on macOS and Linux, the .tar.gz / AppImage unpacking (needed there). Our Windows packages
+# are the NSIS setup .exe and the .msi (.github/scripts/make-latest-json.cjs), never a zip, so the Windows build does not compile the zip crate at all.
+[target.'cfg(windows)'.dependencies.tauri-plugin-updater]
+version = "2.13"
+default-features = false
+features = ["rustls-tls", "system-proxy"]
 
 # macOS / Linux native notifications (Windows has its own toasts with buttons, see shell.rs); used from Rust only
 [target.'cfg(not(windows))'.dependencies]
@@ -71,7 +79,7 @@ tauri-winrt-notification = "0.8"
 # custom window frame: caption-button hit-testing (Snap Layouts) + system menu, see src/winframe.rs
 # the web view's own process events (webview_health.rs): the same version tauri's runtime uses, so the types are shared
 webview2-com = "0.39"
-windows = { version = "0.62", features = ["ApplicationModel", "ApplicationModel_Activation", "Foundation", "UI_Notifications", "Wdk_System_Threading", "Win32_Foundation", "Win32_Globalization", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_Media_Audio", "Win32_Security_Credentials", "Win32_Storage_Packaging_Appx", "Win32_Storage_Xps", "Win32_System_Com", "Win32_System_Diagnostics_ToolHelp", "Win32_System_LibraryLoader", "Win32_System_ProcessStatus", "Win32_System_RemoteDesktop", "Win32_System_Threading", "Win32_UI_Accessibility", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.62", features = ["ApplicationModel", "ApplicationModel_Activation", "Foundation", "UI_Notifications", "Wdk_System_Threading", "Win32_Foundation", "Win32_Globalization", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_Media_Audio", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Credentials", "Win32_Storage_Packaging_Appx", "Win32_Storage_Xps", "Win32_System_Com", "Win32_System_Diagnostics_ToolHelp", "Win32_System_LibraryLoader", "Win32_System_ProcessStatus", "Win32_System_RemoteDesktop", "Win32_System_Threading", "Win32_UI_Accessibility", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 windows-version = "0.1"
 keyring = { version = "3", features = ["windows-native"] }
 
@@ -104,6 +112,8 @@ gtk = "0.18"
 webkit2gtk = { version = "=2.0.2", features = ["v2_40"] }
 # testbridge/native.rs (debug builds only): reads the answer of a script run in the web view; the exact version webkit2gtk already uses
 javascriptcore-rs = "=1.1.2"
+# testbridge/native.rs (debug builds only): the PNG of the Linux snapshot; the version already in Cargo.lock (tauri's image-png uses it)
+png = "0.17"
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 
 

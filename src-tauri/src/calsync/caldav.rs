@@ -83,7 +83,8 @@ impl Preset {
         }
     }
 
-    /// The preset an IMAP host suggests.
+    /// The preset an IMAP host suggests (the page makes the same choice for the form; this rule is pinned by the tests).
+    #[cfg(test)]
     pub fn for_imap_host(host: &str) -> Preset {
         match host.trim().to_ascii_lowercase().as_str() {
             "imap.mail.me.com" => Preset::Icloud,

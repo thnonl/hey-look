@@ -10,9 +10,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 /** Pointer at rest on the icons this long (ms) opens the menu: passing over them on the way somewhere else does not. */
 export const PEEK_HOVER_MS = 200;
 /** A drag held over the icons this long opens it, so a message can be dropped on a folder that is not shown as an icon. */
-export const PEEK_DRAG_MS = 350;
+const PEEK_DRAG_MS = 350;
 /** The pointer may leave and come back within this time (ms) without the menu closing. */
-export const PEEK_LEAVE_MS = 180;
+const PEEK_LEAVE_MS = 180;
 
 export function useSidebarPeek(active: boolean, busy: boolean) {
   const [open, setOpen] = useState(false);

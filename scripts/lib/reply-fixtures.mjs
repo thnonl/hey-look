@@ -1,7 +1,7 @@
 // The fixture mails of the Reply / Forward timing (1.0.7 W13.13, spec-107-wp13e-feedback.md step 1): F-small 20 KB HTML, F-big 500 KB HTML with 30 remote pictures,
-// F-huge 2 MB HTML with 40 inline (cid:) pictures, F-plain 1 MB of plain text, F-att a small mail with 3 attachments. They are made inside the page
+// F-huge 2 MB HTML with 40 inline (cid:) pictures, F-plain 1 MB of plain text, F-att a small mail with 3 attachments, F-cc a small mail with two other recipients and two Cc (Reply all has Cc rows). They are made inside the page
 // (`window.__mockAddThread`, src/devMock.ts), so nothing big is stored in the repository. FIXTURES is the page script that adds them; the ids are in IDS.
-export const IDS = { small: 'fx-small', big: 'fx-big', huge: 'fx-huge', plain: 'fx-plain', att: 'fx-att' };
+export const IDS = { small: 'fx-small', big: 'fx-big', huge: 'fx-huge', plain: 'fx-plain', att: 'fx-att', cc: 'fx-cc' };
 
 export const FIXTURES = `
 (() => {
@@ -11,6 +11,7 @@ export const FIXTURES = `
   const add = window.__mockAddThread;
   const common = { fromName: 'Linh Tran', fromEmail: 'linh@example.com' };
   add('fx-small', 'Fixture small 20 KB', { ...common, html: html(20 * 1024) });
+  add('fx-cc', 'Fixture with Cc', { ...common, to: 'nam@example.com,bao@example.com', cc: 'chi@example.com,dung@example.com', html: html(20 * 1024) });
   add('fx-big', 'Fixture big 500 KB', { ...common, html: html(500 * 1024, (i) => (i % 40 === 0 ? '<p><img src="https://pictures.example.invalid/p' + i + '.png" width="120"></p>' : '')) });
   const pics = cidPics(40);
   add('fx-huge', 'Fixture huge 2 MB', { ...common, html: html(2 * 1024 * 1024, (i) => (i % 100 === 0 && i / 100 < 40 ? '<p><img src="cid:p' + (i / 100) + '@fx" width="120"></p>' : '')) .replace(/<\\/div>$/, pics.map((p) => '<img src="cid:' + p.cid + '" width="40">').join('') + '</div>'), attachments: pics });

@@ -1,0 +1,32 @@
+# cargo-audit settings for the job `audit` of .github/workflows/release.yml (W9.11), read when it runs in src-tauri.
+# A vulnerability found by cargo audit stops the release run. An advisory that has to stay is listed here, never skipped in the workflow, with
+# the advisory id, the reason, the date and who approved it (the BA or the owner), for example:
+#   "RUSTSEC-2099-0001", # reason: the affected function is never called; 2026-10-24; approved by the BA
+# "unmaintained" and "unsound" notices (proc-macro-error, ttf-parser, zbus*, zvariant*, glib 0.18, lexical-core, tokio AsyncFd, all from the tauri/gtk/zbus stack)
+# are only warnings for cargo audit and do not stop the run; they are not listed here, so a new one stays visible in the log.
+[advisories]
+ignore = [
+    # zip 4.6.1: RUSTSEC-2026-0367 (SUID/SGID bits kept), -0368 and -0369 (ZipArchive::extract follows attacker symlinks). Only ZipArchive::extract is affected.
+    # The only dependent is tauri-plugin-updater 2.13.3 (latest 2.x, 2.14.0 and 3.0.0-alpha.3 also use zip ^4); there is no fix in zip 4.x and the plugin cannot take zip 9.
+    # Our code never calls zip. The plugin calls extract() only in its Windows path, only if the downloaded package starts with the zip magic bytes, and only
+    # after the minisign signature of the package was verified against our public key. Our Windows packages are the setup .exe and the .msi (make-latest-json.cjs),
+    # never a zip. Besides that, src-tauri/Cargo.toml builds the Windows updater without its "zip" feature, so the zip crate is not compiled for any target
+    # (cargo tree -i zip --target x86_64-pc-windows-msvc / x86_64-unknown-linux-gnu / aarch64-apple-darwin prints nothing); it stays in Cargo.lock only because
+    # the feature still has to be on for macOS and Linux (tar.gz / AppImage unpacking). Remove these three lines when tauri-plugin-updater moves to zip >= 9.
+    # 2026-10-24; approved by the lead (fix46)
+    "RUSTSEC-2026-0367",
+    "RUSTSEC-2026-0368",
+    "RUSTSEC-2026-0369",
+    # rsa 0.9.10: RUSTSEC-2023-0071 (Marvin attack: key recovery through timing seen over the network). No fixed version exists (0.10.0-rc.* is affected too).
+    # Used only through pgp 0.21.0 (rPGP) in src/openpgp.rs, pgpstore.rs, pgpmail.rs: the optional OpenPGP keys of the user (RSA 3072) and RSA keys of others,
+    # for signing, encrypting and decrypting mail on the user's own computer. No server of ours, and no network service answers with a decryption result or its
+    # timing, so there is no observable oracle for the attack ("local use on a non-compromised computer is fine", says the advisory). Revisit when rsa has a fix.
+    # 2026-10-24; approved by the lead (fix46)
+    "RUSTSEC-2023-0071",
+    # crypto-bigint 0.5.5: RUSTSEC-2026-0387 (secret-dependent branches in constant-time integer operations, depending on compiler and CPU). Fixed in 0.7.6 only.
+    # Used only through pgp 0.21.0 -> elliptic-curve 0.13 / p256 / p384 / p521 / k256 / cx448 (OpenPGP elliptic-curve keys), pinned to crypto-bigint 0.5 by that
+    # RustCrypto generation; pgp 0.21.0 is the latest release and a newer one needs elliptic-curve 0.14. Same exposure as rsa above: local OpenPGP operations on
+    # the user's own computer, an attacker has to measure timing or microarchitectural effects of that machine. Revisit with the next pgp release.
+    # 2026-10-24; approved by the lead (fix46)
+    "RUSTSEC-2026-0387",
+]

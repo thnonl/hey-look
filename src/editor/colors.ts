@@ -11,7 +11,7 @@ export interface Swatch {
 }
 
 /** The base row of the theme colours (spec 4.2), left to right. */
-export const THEME_BASE: readonly Swatch[] = [
+const THEME_BASE: readonly Swatch[] = [
   { hex: "#FFFFFF", id: "white" },
   { hex: "#000000", id: "black" },
   { hex: "#E7E6E6", id: "lightGray" },

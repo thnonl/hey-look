@@ -3,6 +3,8 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import { kbd } from "../platform";
 import { startPreview, previewVars } from "../composePreview";
 import { statusShown, STATUS_AFTER_MS, STATUS_MIN_MS } from "../composeShell";
+import { startRecipients } from "../composeStart";
+import { eff } from "../prefs";
 import { useDelayedFlag } from "../delayedFlag";
 import { useT } from "../i18n/react";
 import { useStore, type ComposeInit } from "../store";
@@ -20,6 +22,7 @@ export function ComposeFrame({ init, late }: { init: ComposeInit; late: boolean 
   const t = useT();
   const accounts = useStore((s) => s.accounts);
   const canvas = useStore((s) => s.prefs.mailCanvas);
+  const prefs = useStore((s) => s.prefs);
   const themeDark = useAppDark();
   const preparing = init.preparing;
   // the same delay as the real pane's (counted from the press), so the status neither comes twice nor flashes
@@ -33,6 +36,11 @@ export function ComposeFrame({ init, late }: { init: ComposeInit; late: boolean 
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const discard = () => void useStore.getState().openCompose(null, { restore: false });
   const account = accounts.find((a) => a.id === init.accountId) ?? accounts[0];
+  // the Cc and Bcc rows of the real pane (a Reply all with Cc recipients, a forward with an Auto Cc / Bcc): in the shell from the first frame, so nothing appears at the fill (REQ-13.13.12)
+  const rows = startRecipients(init, { cc: eff(prefs, account?.id, "autoCc"), bcc: eff(prefs, account?.id, "autoBcc") });
+  const hiddenChip = (
+    <span className="rchip" aria-hidden style={{ visibility: "hidden" }}><span>.</span><button type="button" tabIndex={-1}><X size={11} /></button></span>
+  );
   return (
     <div
       className={`compose-pane ${preparing ? "preparing" : ""}`}
@@ -57,10 +65,20 @@ export function ComposeFrame({ init, late }: { init: ComposeInit; late: boolean 
             <label>{t("compose.to")}</label>
             {/* the boxes of the real field, so the row has its height before the message is filled in (D-067): a reply has a recipient (one invisible chip), a forward has none; the input is the one of RecipientField */}
             <div className="chips">
-              {preparing?.kind === "reply" && <span className="rchip" aria-hidden style={{ visibility: "hidden" }}><span>.</span><button type="button" tabIndex={-1}><X size={11} /></button></span>}
+              {preparing?.kind === "reply" && hiddenChip}
               <input readOnly tabIndex={-1} aria-label={t("compose.to")} />
             </div>
           </div>
+          {!rows.showCc && (
+            // (the row of the real pane that adds them: same height, so the Subject row below does not move when the real pane replaces this frame)
+            <div className="cf-links"><button className="link" tabIndex={-1}>{t("compose.cc")}</button><button className="link" tabIndex={-1}>{t("compose.bcc")}</button></div>
+          )}
+          {rows.showCc && (
+            <>
+              <div className="cf-field rcpt"><label>{t("compose.cc")}</label><div className="chips">{rows.cc.length > 0 && hiddenChip}<input readOnly tabIndex={-1} aria-label={t("compose.cc")} /></div></div>
+              <div className="cf-field rcpt"><label>{t("compose.bcc")}</label><div className="chips">{rows.bcc.length > 0 && hiddenChip}<input readOnly tabIndex={-1} aria-label={t("compose.bcc")} /></div></div>
+            </>
+          )}
           <div className="cf-field cf-subject"><label>{t("compose.subject")}</label><input readOnly tabIndex={-1} value={init.subject ?? ""} aria-label={t("compose.subject")} /></div>
         </div>
       </div>

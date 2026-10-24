@@ -199,7 +199,7 @@ const block = (name) => {
 check("workflow: the msix job", () => {
   const b = block("msix");
   assert.match(b, /^    needs: \[plan, build\]$/m);
-  assert.match(b, /^    runs-on: windows-latest$/m);
+  assert.match(b, /^    runs-on: windows-2025-vs2026$/m);
   assert.ok(!/^    environment:/m.test(b) && !/secrets\./.test(b), "no Environment, no secret");
   assert.match(b, /^    permissions:\n      contents: read$/m);
   // identity from the three repository variables, tag runs refuse the placeholder and a tag that is not the version
@@ -229,7 +229,7 @@ check("workflow: publish does not wait for the Store package", () => {
 });
 check("workflow: msix-check", () => {
   const b = block("msix-check");
-  assert.match(b, /^    runs-on: windows-latest$/m);
+  assert.match(b, /^    runs-on: windows-2025-vs2026$/m);
   assert.match(b, /^    needs: \[msix\]$/m);
   assert.ok(!/^    environment:/m.test(b) && !/secrets\./.test(b));
   assert.ok(b.includes("shell: powershell") && b.includes("msix-check.ps1") && b.includes("name: msix-test"));

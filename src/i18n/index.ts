@@ -25,7 +25,7 @@ export type Key = keyof typeof en;
 
 /** The languages every language control offers (header menu, Welcome screen, Settings), in registry order; names in their own language. */
 export const LANGS: readonly (Language & { code: Lang })[] = [...LANGUAGES].sort((a, b) => a.sortOrder - b.sortOrder);
-export const PSEUDO = "en-XA";
+const PSEUDO = "en-XA";
 
 // ---- loading the languages ----------------------------------------------------------------------------------------------------
 // A language in the registry without a loader here fails `tsc`. The import() arguments are literals (vite makes one chunk of each, node loads them too).

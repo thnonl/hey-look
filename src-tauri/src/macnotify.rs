@@ -38,18 +38,25 @@ impl State {
     }
 }
 
-/// `UNAuthorizationStatus` raw values.
+/// `UNAuthorizationStatus` raw values (read on macOS; the tests pin the rule everywhere).
+#[cfg(any(test, target_os = "macos"))]
 const AUTH_NOT_DETERMINED: i64 = 0;
+#[cfg(any(test, target_os = "macos"))]
 const AUTH_DENIED: i64 = 1;
+#[cfg(any(test, target_os = "macos"))]
 const AUTH_AUTHORIZED: i64 = 2;
+#[cfg(any(test, target_os = "macos"))]
 const AUTH_PROVISIONAL: i64 = 3;
+#[cfg(any(test, target_os = "macos"))]
 const AUTH_EPHEMERAL: i64 = 4;
 /// `UNAlertStyle` none.
+#[cfg(any(test, target_os = "macos"))]
 const ALERT_STYLE_NONE: i64 = 0;
 
 /// The state for what `getNotificationSettings` reports: the authorization status, the alert style (0 none, 1 banner, 2 alert) and whether the badge
 /// is enabled. Authorized with no alerts AND no badge is as good as denied (the person turned both off in System Settings). A status this version
 /// does not know is `Unsupported` (nothing is asked, no note is shown). Pure.
+#[cfg(any(test, target_os = "macos"))]
 pub fn permission_state(auth: i64, alert_style: i64, badge_enabled: bool) -> State {
     match auth {
         AUTH_NOT_DETERMINED => State::Undetermined,

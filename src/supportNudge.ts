@@ -20,8 +20,8 @@ export const DEFAULT_NUDGE: NudgeState = { enabled: true, firstRunAt: null, next
 export const FIRST_MIN_DAYS = 7;
 export const FIRST_MAX_DAYS = 30;
 /** Calendar months until the next nudge: after it was shown, and after "Buy me a coffee" was pressed. */
-export const REPEAT_MONTHS = 2;
-export const SUPPORTED_MONTHS = 6;
+const REPEAT_MONTHS = 2;
+const SUPPORTED_MONTHS = 6;
 /** The app must have been open this long (this session) before a nudge may appear. */
 export const MIN_SESSION_MS = 2 * 60_000;
 /** The toast goes away by itself after this long. */

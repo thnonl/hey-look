@@ -16,7 +16,7 @@ The installers are not code-signed with a publisher certificate and the macOS ap
 
 - Many mailboxes in one place: Google and Microsoft, iCloud, Yahoo and any IMAP/SMTP server, with push for new mail where the server supports it
 - An Outlook-like editor, undo send, send later, snooze, filters, signatures and templates, and a window of its own for writing or reading
-- A local calendar for invitations, with optional two-way sync with Google Calendar and Outlook / Microsoft 365
+- A local calendar for invitations, with optional two-way sync with Google Calendar, Outlook / Microsoft 365 and CalDAV calendars (iCloud, Fastmail, Nextcloud and others)
 - OpenPGP encryption and signing, and Confidential mail that cannot be copied or printed (and, on Windows and macOS, not captured on screen)
 - An optional AI Assistant that uses your own endpoint and sends text only when you press a button
 - Eight languages: English, Tiếng Việt, Français, 中文（简体）, Español, 日本語, Deutsch and Русский; light and dark themes
@@ -26,6 +26,8 @@ Your mail stays on your computer and your passwords in your system's credential 
 ## Known notes
 
 - macOS: the first time you print, macOS may ask whether Hey Look! may find devices on your local network. This lets the print window find your printers; Hey Look! uses the local network for nothing else.
+- macOS: each pop-out window you close keeps a small empty system window, about 0.2 MB, until Hey Look! quits.
+- Linux: the x86_64 packages (AppImage, .deb, .rpm) are built the same way as the ones that were tested (on a KDE desktop in an ARM virtual machine), but were not installed or tested themselves.
 
 ## Documentation and support
 
@@ -59,4 +61,4 @@ Please report vulnerabilities privately: see [SECURITY.md](SECURITY.md).
 
 MIT, free to use: see [LICENSE](LICENSE).
 
-Third-party data: the emoji names and keywords come from the Unicode CLDR annotations (version 48.2.0), Copyright © 1991-2026 Unicode, Inc., used under the [Unicode License v3](https://www.unicode.org/license.txt).
+Third-party data and components: the emoji names and keywords come from the Unicode CLDR annotations (version 48.2.0), Copyright © 1991-2026 Unicode, Inc., used under the [Unicode License v3](https://www.unicode.org/license.txt); the PDF preview is PDF.js ([Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0)) with its fonts and character maps, and its licences ship with the app.

@@ -21,7 +21,7 @@ export interface ForwardFiles {
 const DATA_URI = /data:[^;,"')\s]+;base64,([A-Za-z0-9+/=]+)/g;
 
 /** The Content-IDs a body refers to (`cid:...` in an src or a CSS url), found in one pass: asking the body once per picture is a pass over 2 MB each, 40 times for 40 pictures. */
-export function cidsIn(html: string | null): Set<string> {
+function cidsIn(html: string | null): Set<string> {
   const out = new Set<string>();
   if (html) for (const m of html.matchAll(/cid:([^"'\s)>]+)/g)) out.add(m[1]);
   return out;
