@@ -1,0 +1,6 @@
+Mac QA round 23. Bundles: 7e1ea97 sha256 86ed8d22b5ec9a27 (no leak strings); 95ea1e6 sha256 a1d0714a3ac61ae9 (no leak strings). 2b27a0e sha 54511c6d912757ea with HEYLOOK_MAC_LEAK_FIX=1 crashed on first reader close (evidence/crash-2b27a0e.ips).
+7e1ea97: compose 3+20 PASS (nsapp +1/cycle residual); reader 3+20 FAIL footprint 0.75 / 1.10 MB/cycle (limit 0.5); mixed 40 PASS 0.27/cycle; stress 100: 0.52/cycle; AC-4.1.10 200 mixed cycles 14.5 min: 72.7 -> 199.1 MB, 197.2 after 10 min idle, mail opens 51/22 ms, no crash.
+Reader memory: 7e1ea97 WebContent(main) 148->249 MB, WebKit Malloc dirty 130->212; short mail +6 MB. App process heap +7.8 MB/20 cycles independent of mail size (SwiftUI title bar host, KVO, NSViewLayoutAux of leaked windows).
+95ea1e6: main WebContent 165.5 -> 259.0 MB, WebKit Malloc dirty 133.3 -> 223.2; selecting the 2 MB mail 20x in main alone: 269.8 -> 308.2 MB. Not fixed.
+30 min mixed use on 95ea1e6: 300 cycles, no crash. D-099 strips all 7 kinds Dark 27,28,32 / Light 255, live switch OK. Real input: title band drag moves window, header drag does not (fix27), reader Next/Previous OK, compose Send toast + close dialog OK.
+Harness bug: Discard selector must be .ask .danger-fill.
