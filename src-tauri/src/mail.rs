@@ -764,7 +764,7 @@ struct LabelWords {
 
 const LABEL_WORDS: [LabelWords; 6] = [
     // en (unchanged rule: a word of its own, not negated by the word before it)
-    LabelWords { words: &["confidential", "secret", "restricted"], stems: &[], seqs: &[], whole: &[], not: &["non", "not", "no", "un"] },
+    LabelWords { words: &["confidential", "secret", "restricted"], stems: &[], seqs: &[], whole: &[], not: &["non", "not", "no", "un", "never", "without"] },
     LabelWords {
         words: &[
             "confidentiel", "confidentielle", "confidentiels", "confidentielles", "secret", "secrète", "secrete", "secrets", "restreint", "restreinte", "restreints", "restreintes",
@@ -772,7 +772,7 @@ const LABEL_WORDS: [LabelWords; 6] = [
         stems: &[],
         seqs: &[],
         whole: &[],
-        not: &["non", "pas", "sans"],
+        not: &["non", "pas", "sans", "jamais"],
     },
     LabelWords {
         words: &[
@@ -782,14 +782,14 @@ const LABEL_WORDS: [LabelWords; 6] = [
         stems: &[],
         seqs: &[],
         whole: &[],
-        not: &["nicht", "kein", "keine", "keinen"],
+        not: &["nicht", "kein", "keine", "keinen", "keiner", "keines", "keinem", "nie", "niemals", "ohne"],
     },
     LabelWords {
         words: &["confidencial", "confidenciales", "secreto", "secreta", "secretos", "secretas", "restringido", "restringida", "restringidos", "restringidas"],
         stems: &[],
         seqs: &[],
         whole: &[],
-        not: &["no", "sin"],
+        not: &["no", "sin", "nunca", "jamás", "jamas"],
     },
     LabelWords {
         words: &[],
@@ -800,14 +800,14 @@ const LABEL_WORDS: [LabelWords; 6] = [
             &["bi", "mat"], &["toi", "mat"], &["tuyet", "mat"],
         ],
         whole: &[&["mật"], &["thư", "mật"], &["bảo", "mật"]],
-        not: &["không", "phi"],
+        not: &["không", "khong", "phi"],
     },
     LabelWords {
         words: &["секретно", "дсп"],
         stems: &["конфиденциальн", "секретн"],
         seqs: &[&["совершенно", "секретно"], &["ограниченного", "доступа"], &["для", "служебного", "пользования"]],
         whole: &[],
-        not: &["не"],
+        not: &["не", "нет", "никогда", "без"],
     },
 ];
 
@@ -922,7 +922,9 @@ fn label_is_confidential(name: &str) -> bool {
     false
 }
 
-/// Did the sender mark this message confidential? Outlook's Sensitivity option sends `Sensitivity: Company-Confidential`
+/// Did the sender mark this message confidential? The header values are read after their RFC 2047 encoded-words are decoded (`decode_encoded_words`: B and Q, the
+/// charsets of mail-parser's table, folded values, adjacent words): Exchange and Purview send a label name that is not ASCII ("Bảo mật", "Конфиденциально", "機密",
+/// "机密") as `=?utf-8?b?...?=`, and a raw 8-bit value works as well. Outlook's Sensitivity option sends `Sensitivity: Company-Confidential`
 /// (Normal / Personal / Private are not enough); Microsoft Purview sensitivity labels add `msip_labels:
 /// MSIP_Label_<guid>_Name=Highly Confidential; ...` or a `MSIP_Label_<guid>_Name:` header of their own.
 pub fn is_confidential(raw: &[u8]) -> bool {
@@ -930,16 +932,22 @@ pub fn is_confidential(raw: &[u8]) -> bool {
     let label = label_is_confidential;
     headers.iter().any(|(name, value)| {
         let n = name.to_ascii_lowercase();
+        let own_header = n.trim_start_matches("x-").starts_with("msip_label_") && n.ends_with("_name");
+        if n != "sensitivity" && n != "msip_labels" && n != "x-msip_labels" && !own_header {
+            return false; // the other headers of the message are not decoded here
+        }
+        let decoded = decode_encoded_words(value);
+        let value = decoded.as_str();
         if n == "sensitivity" {
             matches!(value.trim().to_ascii_lowercase().as_str(), "company-confidential" | "confidential")
-        } else if n == "msip_labels" || n == "x-msip_labels" {
+        } else if own_header {
+            label(value)
+        } else {
             value.split(';').any(|kv| {
                 let (k, v) = kv.split_once('=').unwrap_or(("", ""));
                 let k = k.trim().to_ascii_lowercase();
                 k.starts_with("msip_label_") && k.ends_with("_name") && label(v)
             })
-        } else {
-            n.trim_start_matches("x-").starts_with("msip_label_") && n.ends_with("_name") && label(value)
         }
     })
 }
@@ -1609,10 +1617,17 @@ pub(crate) fn replace_cid_refs(html: &str, cid: &str, uri: &str) -> String {
 /// brackets from a plain search. Whitespace between two encoded-words is dropped (RFC 2047 6.2); anything that is not a well-formed
 /// encoded-word stays as it is.
 pub fn decode_encoded_words(raw: &str) -> String {
-    fn bytes_of(charset: &str, bytes: Vec<u8>) -> String {
-        match charset.to_ascii_lowercase().as_str() {
-            "iso-8859-1" | "latin1" | "windows-1252" => bytes.iter().map(|b| *b as char).collect(),
-            _ => String::from_utf8_lossy(&bytes).into_owned(),
+    /// The text of the bytes in the charset of the word: mail-parser's own table (single-byte pages, GBK / GB18030, Big5, Shift_JIS, EUC-JP / KR, ISO-2022-JP, ...), the
+    /// same one that decodes a Subject; an unknown charset is read as UTF-8.
+    fn text_of(charset: &str, bytes: &[u8]) -> String {
+        match mail_parser::decoders::charsets::map::charset_decoder(charset.as_bytes()) {
+            Some(decode) if !charset.eq_ignore_ascii_case("utf-8") => decode(bytes),
+            _ => String::from_utf8_lossy(bytes).into_owned(),
+        }
+    }
+    fn flush(out: &mut String, pending: &mut Option<(String, Vec<u8>)>) {
+        if let Some((charset, bytes)) = pending.take() {
+            out.push_str(&text_of(&charset, &bytes));
         }
     }
     fn decode_q(text: &str) -> Vec<u8> {
@@ -1636,6 +1651,8 @@ pub fn decode_encoded_words(raw: &str) -> String {
     let mut out = String::with_capacity(unfolded.len());
     let mut rest = unfolded.as_str();
     let mut last_was_word = false;
+    // the bytes of the words so far that stand side by side: a character cut between two words of one charset (some senders do) is whole again
+    let mut pending: Option<(String, Vec<u8>)> = None;
     while let Some(start) = rest.find("=?") {
         let (before, tail) = rest.split_at(start);
         // `=?charset?enc?text?=`
@@ -1655,18 +1672,26 @@ pub fn decode_encoded_words(raw: &str) -> String {
                 }
                 _ => return None,
             };
-            Some((bytes_of(charset.split('*').next().unwrap_or(charset), bytes), after))
+            Some((charset.split('*').next().unwrap_or(charset).to_string(), bytes, after))
         })();
         match parsed {
-            Some((decoded, after)) => {
+            Some((charset, bytes, after)) => {
                 if !(last_was_word && before.trim().is_empty()) {
+                    flush(&mut out, &mut pending);
                     out.push_str(before);
                 }
-                out.push_str(&decoded);
+                match &mut pending {
+                    Some((c, b)) if c.eq_ignore_ascii_case(&charset) => b.extend_from_slice(&bytes),
+                    _ => {
+                        flush(&mut out, &mut pending);
+                        pending = Some((charset, bytes));
+                    }
+                }
                 rest = after;
                 last_was_word = true;
             }
             None => {
+                flush(&mut out, &mut pending);
                 out.push_str(before);
                 out.push_str("=?");
                 rest = &tail[2..];
@@ -1674,6 +1699,7 @@ pub fn decode_encoded_words(raw: &str) -> String {
             }
         }
     }
+    flush(&mut out, &mut pending);
     out.push_str(rest);
     out
 }
@@ -2252,6 +2278,164 @@ mod encoded_words_tests {
     #[test]
     fn whitespace_between_two_words_is_dropped_and_between_word_and_text_kept() {
         assert_eq!(decode_encoded_words("=?utf-8?Q?a?= =?utf-8?Q?b?= c"), "ab c");
+    }
+}
+
+/// 1.0.7 fix52 (D-110, D-111): a label name that is RFC 2047 encoded is read like the raw one, and a negated name is no label for Confidential.
+#[cfg(test)]
+mod confidential_encoded_label_tests {
+    use super::*;
+
+    fn b64(bytes: &[u8]) -> String {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    }
+    /// `=?utf-8?b?...?=`
+    fn b(text: &str) -> String {
+        format!("=?utf-8?b?{}?=", b64(text.as_bytes()))
+    }
+    /// `=?charset?q?...?=` with every byte but a letter or digit written as =XX
+    fn q(charset: &str, bytes: &[u8]) -> String {
+        let t: String = bytes.iter().map(|c| if c.is_ascii_alphanumeric() { (*c as char).to_string() } else { format!("={c:02X}") }).collect();
+        format!("=?{charset}?q?{t}?=")
+    }
+    fn msg(headers: &str) -> Vec<u8> {
+        format!("From: a@example.com\r\nTo: b@example.com\r\nSubject: s\r\n{headers}\r\n\r\nbody\r\n").into_bytes()
+    }
+    /// The same label name in every shape a sender or an admin's gateway can write it: raw 8-bit, B, Q, the whole `msip_labels` value encoded, folded, in a header of its own.
+    fn shapes(name: &str) -> Vec<String> {
+        let (enc_b, enc_q) = (b(name), q("utf-8", name.as_bytes()));
+        let tail = "; MSIP_Label_1f2e_Method=Standard";
+        let (first, second) = name.char_indices().nth(name.chars().count() / 2).map(|(i, _)| name.split_at(i)).unwrap_or((name, ""));
+        let whole = format!("MSIP_Label_1f2e_Enabled=true; MSIP_Label_1f2e_Name={name}{tail}");
+        vec![
+            format!("msip_labels: MSIP_Label_1f2e_Enabled=true; MSIP_Label_1f2e_Name={name}{tail}"),
+            format!("msip_labels: MSIP_Label_1f2e_Enabled=true; MSIP_Label_1f2e_Name={enc_b}{tail}"),
+            format!("msip_labels: MSIP_Label_1f2e_Enabled=true; MSIP_Label_1f2e_Name={enc_q}{tail}"),
+            format!("msip_labels: MSIP_Label_1f2e_Enabled=true; MSIP_Label_1f2e_Name= {enc_b}{tail}"),
+            format!("msip_labels: {}", b(&whole)),
+            format!("msip_labels: MSIP_Label_1f2e_Enabled=true;\r\n MSIP_Label_1f2e_Name={enc_b};\r\n MSIP_Label_1f2e_Method=Standard"),
+            format!("msip_labels: MSIP_Label_1f2e_Enabled=true; MSIP_Label_1f2e_Name={}\r\n {}{tail}", b(first), b(second)),
+            format!("MSIP_Label_1f2e_Name: {enc_b}"),
+            format!("MSIP_Label_1f2e_Name:\r\n {}\r\n {}", b(first), b(second)),
+            format!("X-MSIP_Label_1f2e_Name: {enc_q}"),
+        ]
+    }
+    /// (what `is_confidential` says about the raw message, whether the list / sync path `parse` stores the Confidential bit). The reader and the refusals
+    /// (`ensure_not_confidential`) read that stored bit; a message inside PGP goes through `is_confidential` again when it is opened.
+    fn both_paths(headers: &str) -> (bool, bool) {
+        let raw = msg(headers);
+        let stored = parse(1, &raw, false, false, 0).unwrap().pgp & crate::pgpmail::FLAG_CONFIDENTIAL != 0;
+        (is_confidential(&raw), stored)
+    }
+
+    #[test]
+    fn encoded_label_names_in_all_eight_languages_are_confidential() {
+        let names = [
+            "Confidentiel", "Très confidentiel", "Streng vertraulich", "Altamente confidencial", "Tuyệt mật", "Bảo mật", "Bảo mật cao", "Конфиденциально", "Совершенно секретно",
+            "社外秘", "機密", "机密", "绝密", "Highly Confidential", "Company-Confidential", "Confidential \\ All Employees", "Confidential - Not for distribution",
+        ];
+        for name in names {
+            for h in shapes(name) {
+                assert_eq!(both_paths(&h), (true, true), "{name}: {h}");
+            }
+        }
+        // the Sensitivity header may be encoded as well
+        assert_eq!(both_paths(&format!("Sensitivity: {}", b("Company-Confidential"))), (true, true));
+        // the plain and the encoded part of one name
+        for h in [
+            format!("msip_labels: MSIP_Label_1f2e_Name=Interne {}; MSIP_Label_1f2e_Method=Standard", b("Très confidentiel")),
+            format!("msip_labels: MSIP_Label_1f2e_Name=Thư {}; MSIP_Label_1f2e_Method=Standard", b("mật")),
+            format!("MSIP_Label_1f2e_Name: Company {}", b("機密")),
+            format!("msip_labels: MSIP_Label_1f2e_Name=Internal; MSIP_Label_9a8b_Name={}", b("Конфиденциально")),
+        ] {
+            assert_eq!(both_paths(&h), (true, true), "{h}");
+        }
+    }
+
+    #[test]
+    fn encoded_negated_and_public_labels_are_normal_mail() {
+        let names = [
+            "Public", "Internal", "Never confidential", "Never Confidential", "Not confidential", "Not Confidential", "Non confidentiel", "Non-confidentiel", "Pas confidentiel",
+            "Jamais confidentiel", "Sans restriction", "Nicht vertraulich", "Kein Geheimnis", "Nie vertraulich", "Niemals geheim", "Ohne Verschlusssache", "No confidencial",
+            "Nunca confidencial", "Sin restricciones", "Không bí mật", "Khong bi mat", "Không bảo mật cao", "Mật khẩu", "Несекретно", "Не конфиденциально", "Нет конфиденциальности",
+            "Никогда не секретно", "Без конфиденциальности", "非機密", "非机密", "不机密", "无机密", "不絕密", "機密ではない", "Secrétariat", "秘書", "Public (not confidential)",
+        ];
+        for name in names {
+            for h in shapes(name) {
+                assert_eq!(both_paths(&h), (false, false), "{name}: {h}");
+            }
+        }
+        for h in [
+            format!("msip_labels: MSIP_Label_1f2e_Name=Public {}", b("(non confidentiel)")),
+            format!("msip_labels: MSIP_Label_1f2e_Name={} confidential", b("Never")),
+            "Sensitivity: Normal".to_string(),
+            format!("Sensitivity: {}", b("Private")),
+        ] {
+            assert_eq!(both_paths(&h), (false, false), "{h}");
+        }
+        // an encoded name and the raw one give the same answer
+        for name in ["Never confidential", "Bảo mật", "Public", "非机密", "机密"] {
+            assert_eq!(label_is_confidential(name), is_confidential(&msg(&format!("MSIP_Label_1f2e_Name: {}", b(name)))), "{name}");
+        }
+    }
+
+    #[test]
+    fn labels_in_other_charsets_are_decoded() {
+        // 0xE8 is è in ISO-8859-1, -15 and Windows-1252
+        let tres = b"Tr\xe8s confidentiel";
+        // Windows-1251: А (U+0410) is 0xC0
+        let ru: Vec<u8> = "Конфиденциально".chars().map(|c| (c as u32 - 0x410 + 0xC0) as u8).collect();
+        let jis: &[u8] = b"\x1b$B5!L)\x1b(B"; // ISO-2022-JP
+        for (charset, bytes, negated) in [
+            ("iso-8859-1", tres.to_vec(), false),
+            ("ISO-8859-15", tres.to_vec(), false),
+            ("windows-1252", tres.to_vec(), false),
+            ("windows-1251", ru.clone(), false),
+            ("shift_jis", b"\x8b\x40\x96\xa7".to_vec(), false),
+            ("euc-jp", b"\xb5\xa1\xcc\xa9".to_vec(), false),
+            ("iso-2022-jp", jis.to_vec(), false),
+            ("gb2312", b"\xbb\xfa\xc3\xdc".to_vec(), false),
+            ("gbk", b"\xbb\xfa\xc3\xdc".to_vec(), false),
+            ("utf-8", "Bảo mật".as_bytes().to_vec(), false),
+            ("shift_jis", b"\x94\xf1\x8b\x40\x96\xa7".to_vec(), true),
+            ("euc-jp", b"\xc8\xf3\xb5\xa1\xcc\xa9".to_vec(), true),
+            ("gbk", b"\xb7\xc7\xbb\xfa\xc3\xdc".to_vec(), true),
+        ] {
+            let word_q = q(charset, &bytes);
+            let word_b = format!("=?{charset}?B?{}?=", b64(&bytes));
+            for h in [
+                format!("msip_labels: MSIP_Label_1f2e_Enabled=true; MSIP_Label_1f2e_Name={word_q}; MSIP_Label_1f2e_Method=Standard"),
+                format!("MSIP_Label_1f2e_Name: {word_b}"),
+            ] {
+                assert_eq!(both_paths(&h), (!negated, !negated), "{charset}: {h}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_character_cut_between_two_encoded_words_is_whole_again() {
+        let bytes = "Bảo mật".as_bytes(); // ả is three bytes: cut inside it
+        let (x, y) = bytes.split_at(2);
+        let value = format!("=?utf-8?b?{}?=\r\n =?utf-8?b?{}?=", b64(x), b64(y));
+        assert_eq!(decode_encoded_words(&value), "Bảo mật");
+        assert_eq!(both_paths(&format!("MSIP_Label_1f2e_Name: {value}")), (true, true));
+        // a different charset in between starts a new run
+        assert_eq!(decode_encoded_words("=?utf-8?q?a=C3?= =?iso-8859-1?q?=E9?="), "a\u{fffd}é");
+        assert_eq!(decode_encoded_words("=?us-ascii?q?plain?= text =?utf-8?b?w6k=?="), "plain text é");
+    }
+
+    #[test]
+    fn headers_that_are_not_labels_are_left_alone() {
+        // an encoded word in another header, or a label-looking line in the body, never counts
+        assert_eq!(both_paths(&format!("X-Note: MSIP_Label_1f2e_Name={}", b("机密"))), (false, false));
+        assert_eq!(both_paths(&format!("Subject: {}", b("Confidential"))), (false, false));
+        assert!(!is_confidential(format!("From: a@example.com\r\n\r\nMSIP_Label_1f2e_Name: {}\r\n", b("机密")).as_bytes()));
+        // a broken word stays text and is no label
+        assert_eq!(both_paths("MSIP_Label_1f2e_Name: =?utf-8?b?!!!!?="), (false, false));
+        assert_eq!(both_paths("MSIP_Label_1f2e_Name: =?utf-8?x?abc?="), (false, false));
+        assert_eq!(both_paths("MSIP_Label_1f2e_Name: =?utf-8?b?"), (false, false));
+        assert_eq!(both_paths("MSIP_Label_1f2e_Name: Confidential =?utf-8?b?"), (true, true));
     }
 }
 
