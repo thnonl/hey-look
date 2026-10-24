@@ -49,8 +49,22 @@ import { Avatar, Dropdown } from "./ui";
 import { openReader } from "../popout/openReader";
 import { readerAllowed } from "../popout/readerLogic";
 
-// Remote images already fetched through the backend (url -> data: URI), shared by all messages.
+// Remote images already fetched through the backend (url -> data: URI), shared by all messages. Capped by size (the oldest go first): a long session with newsletters would else keep every
+// picture it ever showed.
 const imageCache = new Map<string, string>();
+const IMAGE_CACHE_CHARS = 40_000_000;
+let imageChars = 0;
+function cacheImage(url: string, data: string): void {
+  imageChars -= imageCache.get(url)?.length ?? 0;
+  imageCache.delete(url);
+  imageCache.set(url, data);
+  imageChars += data.length;
+  while (imageChars > IMAGE_CACHE_CHARS && imageCache.size > 1) {
+    const oldest = imageCache.keys().next().value as string;
+    imageChars -= imageCache.get(oldest)?.length ?? 0;
+    imageCache.delete(oldest);
+  }
+}
 
 /**
  * Free height of the reading pane from the top of this frame down (pane viewport minus everything above the frame
@@ -72,6 +86,12 @@ const MIN_ZOOM = 0.6;
 
 // Last measured content height per message: reopening a mail starts at its real height.
 const heightCache = new Map<string, number>();
+const HEIGHTS_MAX = 500;
+function rememberHeight(id: string, h: number): void {
+  heightCache.delete(id);
+  heightCache.set(id, h);
+  if (heightCache.size > HEIGHTS_MAX) heightCache.delete(heightCache.keys().next().value as string);
+}
 
 function remoteImageUrls(html: string): string[] {
   const doc = new DOMParser().parseFromString(html, "text/html");
@@ -81,6 +101,29 @@ function remoteImageUrls(html: string): string[] {
     if (/^https?:\/\//i.test(u)) urls.add(u);
   });
   return Array.from(urls);
+}
+
+/**
+ * The HTML the frame shows, kept with the cleaned result it was made from. The main page gets a new message object whenever a reader window marks the mail read, a sync or a refresh
+ * reads the conversation again, and building this parses and serialises the whole mail (pictureHtml, inlineImages): for a 2 MB mail that leaves a parsed document of several MB behind
+ * on every one of those, and WebKit collects such documents late (Mac round 13: the main page grew by about 5 MB per reader window opened on the same 2 MB mail). With the same inputs the
+ * same string comes back and nothing is parsed. One entry per cleaned result; the result is dropped from CLEANED by size and count, and the entry goes with it.
+ */
+const SHOWN = new WeakMap<object, { key: string; html: string }>();
+function shownHtml(clean: { html: string }, allowed: boolean, m: MessageFull, loaded: Record<string, string>, state: Record<string, { status: "loading" | "failed"; error?: string }>, lang: string, version: number): string {
+  const key = [
+    allowed ? 1 : 0,
+    allowed ? version : 0,
+    lang,
+    m.attachments.filter((a) => a.cid).map((a) => `${a.cid}:${a.name}:${a.size}`).join(","),
+    Object.entries(loaded).map(([k, v]) => `${k}:${v.length}`).join(","),
+    Object.entries(state).map(([k, v]) => `${k}:${v.status}:${v.error ?? ""}`).join(","),
+  ].join("|");
+  const hit = SHOWN.get(clean);
+  if (hit && hit.key === key) return hit.html;
+  const out = pictureHtml(allowed ? inlineImages(clean.html) : clean.html, m, loaded, state);
+  SHOWN.set(clean, { key, html: out });
+  return out;
 }
 
 /** Pictures the sync did not embed: loaded ones become data: URIs, the rest become click-to-load placeholders. */
@@ -177,10 +220,9 @@ const CLEANED = new Map<string, { html: string; blocked: number }>();
 const CLEANED_MAX = 20;
 const CLEANED_CHARS = 8_000_000;
 let cleanedChars = 0;
-const cleanKey = (m: MessageFull, allowed: boolean) => `${m.id}|${allowed ? 1 : 0}|${m.html?.length ?? 0}`;
+const cleanKey = (m: MessageFull, allowed: boolean) => (m.html ? `${m.id}|${allowed ? 1 : 0}|${m.html.length}` : `${m.id}|text|${m.text?.length ?? 0}`);
 export const isCleaned = (m: MessageFull, allowed: boolean): boolean => CLEANED.has(cleanKey(m, allowed));
 function cleanOf(m: MessageFull, allowed: boolean): { html: string; blocked: number } {
-  if (!m.html) return { html: plainToHtml(m.text ?? ""), blocked: 0 };
   const key = cleanKey(m, allowed);
   const hit = CLEANED.get(key);
   if (hit) {
@@ -189,7 +231,7 @@ function cleanOf(m: MessageFull, allowed: boolean): { html: string; blocked: num
     return hit;
   }
   hlMark("open:clean:start");
-  const r = sanitizeHtml(m.html, allowed);
+  const r = m.html ? sanitizeHtml(m.html, allowed) : { html: plainToHtml(m.text ?? ""), blocked: 0 };
   hlMark("open:clean:end");
   CLEANED.set(key, r);
   cleanedChars += r.html.length;
@@ -235,7 +277,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   const html = useMemo(
     () => {
       hlMark("open:pics:start");
-      const out = pictureHtml(allowed ? inlineImages(clean.html) : clean.html, m, loadedPics, picState);
+      const out = shownHtml(clean, allowed, m, loadedPics, picState, lang, version);
       hlMark("open:pics:end");
       return out;
     },
@@ -287,7 +329,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     let live = true;
     api.fetchRemoteImages(missing).then((got) => {
       if (!live) return;
-      Object.entries(got).forEach(([u, d]) => imageCache.set(u, d));
+      Object.entries(got).forEach(([u, d]) => cacheImage(u, d));
       setVersion((v) => v + 1);
     }).catch(() => undefined);
     return () => {
@@ -392,7 +434,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
       frame.style.height = target;
       frame.dispatchEvent(new Event("rp-measured", { bubbles: true }));
     }
-    if (h > 0 && !loading) heightCache.set(m.id, h);
+    if (h > 0 && !loading) rememberHeight(m.id, h);
     if (frame.style.visibility === "hidden") {
       frame.style.visibility = ""; // first measurement done: show the mail at its final height
       hlMark("open:shown");
