@@ -75,6 +75,7 @@
 
 ### Fixed
 
+- A big mail in the dark message background no longer makes the app use more and more memory on a Mac: the colours of a mail are worked out once and kept, and the work is done in one hidden frame instead of in the frame that shows the message (the same mail opens again without the work; the look is the same)
 - "Opening message…" while a mail loads now covers the whole message area as one surface in the colour the mail will have there (white, or the dark background), with readable text; before, a small box of the app colour sat in the middle of the area with the mail or the pane showing on both sides.
 - macOS: opening many large mails no longer makes the app use more and more memory: a conversation now reaches the window as raw bytes instead of one big text that the web view kept after it was shown (the mail looks and behaves the same).
 - macOS and Linux: a window logged an "is_permission_granted not allowed" error on every start because the notification permission check the system adds to every window was not allowed (no effect on notifications).

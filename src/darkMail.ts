@@ -162,6 +162,8 @@ const SIDES = ["Top", "Right", "Bottom", "Left"] as const;
 const NEW_COLOR_FN = /oklch|oklab|\blab\(|\blch\(|\bcolor\(|color-mix|\bhsl|\bhwb/i;
 
 interface Read {
+  /** position in the walk's list (the element itself, then everything in the body): where a cached result puts its tag back */
+  at: number;
   el: Element;
   color: string;
   bg: string;
@@ -178,15 +180,24 @@ interface Read {
  * Builds the dark stylesheet for a mail document and tags the elements it styles (`data-hm`). Must run with the
  * dark base styles on and no earlier dark sheet, so it reads the mail's own colours. `base` is the surface behind the mail.
  * `scope`: only that element and what is inside it (a part of the app's own page, such as the signature in the composer) instead of the whole document.
+ * `tags` (the message frame only): receives, for each element of the walk's list (the document element, then every element in the body, in tree order) the number of its
+ * `data-hm` rule, or -1; with the sheet's text it is all that is needed to dress the same document again without reading a single style (1.0.7 fix42, see `setMailDark`).
  */
-export function buildDarkSheet(doc: Document, base: RGB, scope?: Element): string {
+export function buildDarkSheet(doc: Document, base: RGB, scope?: Element, tags?: number[]): string {
   const win = doc.defaultView;
   if (!win || !doc.body) return "";
+  darkStats.walks++;
   // pass 1: read everything first (no writes in between, so the style is recalculated once)
   const reads: Read[] = [];
   const top = scope ?? doc.documentElement;
-  for (const el of [top, ...Array.from((scope ?? doc.body).querySelectorAll("*"))]) {
+  const list = [top, ...Array.from((scope ?? doc.body).querySelectorAll("*"))];
+  if (tags) tags.length = list.length, tags.fill(-1);
+  for (let at = 0; at < list.length; at++) {
+    const el = list[at];
     const cs = win.getComputedStyle(el);
+    darkStats.computed++;
+    if (scratch && doc === scratch.contentDocument) darkStats.inScratch++;
+    else darkStats.inFrame++;
     if (cs.display === "none") continue;
     const edge: Read["edge"] = [];
     for (const s of SIDES) {
@@ -195,6 +206,7 @@ export function buildDarkSheet(doc: Document, base: RGB, scope?: Element): strin
     }
     const svg = el.namespaceURI === "http://www.w3.org/2000/svg" && el.localName !== "svg";
     reads.push({
+      at,
       el,
       color: cs.color,
       bg: cs.backgroundColor,
@@ -301,7 +313,9 @@ export function buildDarkSheet(doc: Document, base: RGB, scope?: Element): strin
       rules.push(`[data-hm="${id}"]{${decl.map((d) => `${d}!important`).join(";")}}`);
     }
     r.el.setAttribute("data-hm", String(id));
+    if (tags) tags[r.at] = id;
   }
+  darkStats.rules += rules.length;
   // @layer: important declarations of an earlier layer beat the mail's own (unlayered) !important rules and inline styles
   const chip = "img[data-hm-chip]{background:#c2c5cd!important;border-radius:4px}"; // dim light backing (exactly the image box) for dark logos
   return `@media screen{@layer hm{${rules.join("")}${chip}}}`;
@@ -349,10 +363,83 @@ export function markDarkLogos(scope: ParentNode): void {
 const sheets = new WeakMap<Element, HTMLStyleElement>();
 
 /**
+ * The dark walk of a mail, and where it runs (1.0.7 fix42, D-103). Mac QA root cause: on WebKit, reading the computed style of every element of a document keeps native style data
+ * (about 5.7 MB for the 2 MB / 4,400-element fixture) after the frame is removed, and clearing the document or navigating the frame away before removing it does not give it back, so
+ * every selection of a big mail in the dark canvas left that much behind (the same loop on the original canvas, where no walk runs, was flat). Two changes, neither of which
+ * relies on cleaning up after `getComputedStyle`:
+ *  1. the walk is made ONCE per mail: its result (the sheet's text and the rule number of every element in tree order: strings and numbers, never elements, rules or style objects)
+ *     is kept for the last 8 mails, and the same mail in a new frame is dressed from it without reading a style;
+ *  2. a walk that has to be made runs in ONE hidden frame that is kept for the life of the page (written again for each mail, emptied after it), never in the message frame, so
+ *     the native style data lives and dies with that one document instead of piling up behind removed frames. Its result is copied into the message frame by tree position.
+ * The scratch document is written from the same pieces as the message frame (same CSS, same mail, the dark class) at the same width, with a CSP that loads nothing, so the colours it
+ * reads are the ones the message frame would have given. If the scratch frame cannot be used (no frame, a document of another shape) the message frame is walked as before.
+ * `window.__darkMail` (read through the QA bridge `/eval`): walks made, answered from the cache, in the scratch frame, styles read in the scratch frame and in a message frame, rules made.
+ */
+const darkStats = { walks: 0, cached: 0, scratch: 0, computed: 0, inScratch: 0, inFrame: 0, rules: 0 };
+const DARK_CACHE_MAX = 8;
+const darkCache = new Map<string, { sheet: string; tags: Int32Array }>();
+const cacheKey = (key: string, base: RGB) => `${key}|${base.join(",")}`;
+const elementsOf = (doc: Document): Element[] => [doc.documentElement, ...Array.from(doc.body.querySelectorAll("*"))];
+let scratch: HTMLIFrameElement | undefined;
+const SCRATCH_CSP = "default-src 'none'; style-src 'unsafe-inline'";
+if (typeof window !== "undefined") {
+  Object.defineProperty(window, "__darkMail", { get: () => ({ ...darkStats, cache: darkCache.size }), configurable: true });
+  // (a QA / test seam: forget the cached walks)
+  Object.defineProperty(window, "__darkMailClear", { value: () => darkCache.clear(), configurable: true });
+}
+
+/** What a written mail document is made of: the pieces it was written from (ReadingPane.tsx docParts), a name for them (`mailKey`) and the message frame it is in. */
+export interface MailDarkInput {
+  key: string;
+  parts: readonly string[];
+  frame: HTMLIFrameElement | null;
+}
+
+/** The walk, in the kept hidden frame. null when that cannot be done (the caller walks the message frame itself). */
+function walkInScratch(mail: MailDarkInput, base: RGB): { sheet: string; tags: Int32Array } | null {
+  if (typeof window === "undefined" || (window as { __darkMailScratch?: boolean }).__darkMailScratch === false) return null;
+  const head = mail.parts[0];
+  const csp = /(Content-Security-Policy" content=")[^"]*"/;
+  if (!head || !csp.test(head) || !mail.frame) return null;
+  try {
+    if (!scratch || !scratch.isConnected) {
+      const f = document.createElement("iframe");
+      f.setAttribute("sandbox", frameSandbox(navigator.userAgent));
+      f.setAttribute("aria-hidden", "true");
+      f.tabIndex = -1;
+      f.title = "";
+      // laid out like the message frame (its width decides the mail's media queries) but out of sight and out of reach
+      f.style.cssText = "position:fixed;left:-20000px;top:0;border:0;visibility:hidden;pointer-events:none;height:40px";
+      document.body.appendChild(f);
+      scratch = f;
+    }
+    scratch.style.width = `${mail.frame.clientWidth || mail.frame.getBoundingClientRect().width || 800}px`;
+    const d = scratch.contentDocument;
+    if (!d) return null;
+    d.open();
+    d.write(head.replace(csp, `$1${SCRATCH_CSP}"`));
+    for (let i = 1; i < mail.parts.length; i++) d.write(mail.parts[i]);
+    d.close();
+    if (!d.body || !d.documentElement.hasAttribute("data-hm-doc")) return null;
+    d.documentElement.classList.add("hm-dark"); // (the walk reads the mail with the dark base styles on, as in the message frame)
+    const tags: number[] = [];
+    const sheet = buildDarkSheet(d, base, undefined, tags);
+    darkStats.scratch++;
+    d.open(); // (one document at a time: nothing of this mail stays in the frame)
+    d.close();
+    return tags.length > 0 ? { sheet, tags: Int32Array.from(tags) } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Puts a mail document on (or takes it off) the dark background, in place: the class switches the base colours of the
  * frame, the generated sheet (built once, on first use) recolours the mail itself. Nothing reloads or moves.
+ * `mail` names the document (ReadingPane.tsx): the same mail again, in a new frame, gets the sheet and the tags of the first walk back without reading a style, and a walk that has to be
+ * made runs in the kept hidden frame (see above). Without it (the composer, a dev check) the document itself is walked.
  */
-export function setMailDark(doc: Document, dark: boolean, base: RGB): void {
+export function setMailDark(doc: Document, dark: boolean, base: RGB, mail?: MailDarkInput): void {
   const root = doc.documentElement;
   if (!root || !doc.head) return;
   if (!dark) {
@@ -366,7 +453,28 @@ export function setMailDark(doc: Document, dark: boolean, base: RGB): void {
     let s = sheets.get(root);
     if (!s) {
       s = doc.createElement("style");
-      s.textContent = buildDarkSheet(doc, base);
+      const ck = mail ? cacheKey(mail.key, base) : "";
+      let res = ck ? darkCache.get(ck) : undefined;
+      if (res) {
+        darkStats.cached++;
+        darkCache.delete(ck); // (least recently used goes first)
+        darkCache.set(ck, res);
+      } else if (mail) {
+        res = walkInScratch(mail, base) ?? undefined;
+        if (res) darkCache.set(ck, res);
+      }
+      const els = res ? elementsOf(doc) : null;
+      if (res && els && els.length === res.tags.length) {
+        s.textContent = res.sheet;
+        for (let i = 0; i < els.length; i++) if (res.tags[i] >= 0) els[i].setAttribute("data-hm", String(res.tags[i]));
+      } else {
+        // no cached or scratch result for this document (or it does not have the shape of the one that was walked): walk this document itself
+        if (res) darkCache.delete(ck);
+        const tags: number[] = [];
+        s.textContent = buildDarkSheet(doc, base, undefined, ck ? tags : undefined);
+        if (ck && tags.length > 0) darkCache.set(ck, { sheet: s.textContent, tags: Int32Array.from(tags) });
+      }
+      while (darkCache.size > DARK_CACHE_MAX) darkCache.delete(darkCache.keys().next().value as string);
       doc.head.appendChild(s);
       sheets.set(root, s);
       markDarkLogos(doc);
@@ -379,8 +487,20 @@ export function setMailDark(doc: Document, dark: boolean, base: RGB): void {
   }
 }
 
+/** A short name for a written mail document, from its pieces (never joined into one string): 32-bit FNV-1a over all of them and their total length. See `setMailDark`. */
+export function mailKey(...parts: readonly string[]): string {
+  let h = 0x811c9dc5;
+  let n = 0;
+  for (const p of parts) {
+    n += p.length;
+    for (let i = 0; i < p.length; i++) h = Math.imul(h ^ p.charCodeAt(i), 0x01000193);
+  }
+  return `${(h >>> 0).toString(36)}-${n.toString(36)}`;
+}
+
 /** The app surface a mail sits on (the frame itself is transparent). */
 export function appSurface(): RGB {
   const c = parseColor(getComputedStyle(document.body).backgroundColor);
   return c ? [c[0], c[1], c[2]] : [27, 28, 32];
-}
+}import { frameSandbox } from "./frameSandbox";
+
