@@ -10,3 +10,4 @@ WK-31.03/.04 PASS (same values as Mac; typed true, changed true).
 R8c Linux:
 WK-31.01 PASS (1280x800): dots 8x8 bg rgb(15,106,185), weight 650, tooltip 'Inbox\n289 unread\nNew mail', heading dot, cleared after opening Inbox. WK-31.02 PASS (960): ring 2px gap + 2px accent, avatar tooltip '...\n290 unread\nNew mail', folder dot 6x6, label 'Inbox, 290 unread, New mail'.
 WK-9c.01 PASS (de): first read lang de, ribbon Start/Ansicht/Hilfe/Neue E-Mail/Löschen/Archivieren/Melden/Aufräumen, splash 0. WK-9c.02 PASS: ja 44 ms, en 30 ms, de 52 ms. P-chunks BLOCKED, pop-outs/9c.03 NOT RUN.
+WK-31.05/.06 PASS Linux: 2 MB: statusMs 115, gone 416, frameMs 406, head box unchanged [139,84], gapMax 166; 500 KB: statusMs 44, shown 153; 20 KB: no block, frame 33 ms.
