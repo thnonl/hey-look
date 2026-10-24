@@ -313,7 +313,7 @@ async function keys(c) {
   check(st.live === '', `the live region is silent while typing: "${st.live}"`);
   await sleep(380);
   check((await boxState()).live === '', 'and 380 ms after the last change');
-  await sleep(450);
+  await waitFor(`(document.querySelector('.set-search [role=status]')?.textContent ?? '') !== ''`); // (the page says it 500 ms after the last change by its own timer: a slow machine or a busy page says it later, so it is waited for, not slept for)
   const count = (await boxState()).live;
   check(/\d/.test(count) && count.length > 3, `the live region says the count 500 ms after the last change: "${count}"`);
   const n = (await boxState()).opts.length;
@@ -328,7 +328,7 @@ async function keys(c) {
   await press('Enter', 'Enter');
   await sleep(150);
   check((await evaluate(`document.querySelector('.settings-body h3')?.textContent`)) === pageBefore && !(await evaluate(`!!document.querySelector('.set-hit')`)), 'Enter with no result did nothing');
-  await sleep(500);
+  await waitFor(`(document.querySelector('.set-search [role=status]')?.textContent ?? '') !== ''`);
   const none = (await boxState()).live;
   check(none.length > 3 && none === (await boxState()).none.split(/(?<=\S)(?=[A-ZÀ-ÖА-Я])/)[0].trim() || none.length > 3, `the live region says "No settings found": "${none}"`);
   // case, accents, spaces
@@ -457,7 +457,7 @@ async function small(c) {
   await waitFor(`!!document.querySelector(${JSON.stringify(BOX)}) && !!window.__settingsIndex`);
   const m = await evaluate(`(() => {
     const b = document.querySelector(${JSON.stringify(BOX)}), cs = getComputedStyle(b);
-    const cv = document.createElement('canvas').getContext('2d'); cv.font = cs.fontStyle + ' ' + cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily;
+    const cv = document.createElement('canvas').getContext('2d'); const ph = getComputedStyle(b, '::placeholder'); cv.font = cs.fontStyle + ' ' + cs.fontWeight + ' ' + ph.fontSize + ' ' + cs.fontFamily; // (the placeholder has its own size)
     const room = b.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
     const modal = document.querySelector('.modal').getBoundingClientRect(), nav = document.querySelector('.settings-nav').getBoundingClientRect();
     return { text: cv.measureText(b.placeholder).width, room, fits: modal.bottom <= innerHeight + 1 && modal.right <= innerWidth + 1, navScrollW: document.querySelector('.settings-nav').scrollWidth, navW: nav.width };

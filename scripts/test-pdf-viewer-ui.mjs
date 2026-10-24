@@ -21,6 +21,8 @@ const check = async (name, fn) => { try { await fn(); } catch (e) { failures.pus
 let baseCanvases = 0; // (canvases the app itself has: none of them is the viewer's)
 let scale = 1; // (a slow computer waits longer for the same thing; calibrated below)
 const waitFor = async (js, ms = 8000) => { ms *= Math.max(1, scale); const t0 = Date.now(); while (Date.now() - t0 < ms) { try { if (await evaluate(js)) return true; } catch { /* between renders */ } await sleep(40); } return false; };
+// the "tlayer" strip has three previewable cards (agenda.pdf, photo-orphan.png, notes.txt): since 1.0.7 W8.8c the header says which one this is (a lone attachment shows no count)
+const STRIP = '1 of 3';
 const fx = (name) => fs.readFileSync(new URL(`./fixtures/pdf/${name}`, import.meta.url)).toString('base64');
 const dialogs = [];
 H.on((m) => { if (m.method === 'Page.javascriptDialogOpening') { dialogs.push(m.params.message); void cdp('Page.handleJavaScriptDialog', { accept: true }); } });
@@ -62,7 +64,7 @@ try {
     assert.ok(await ready(), `the viewer is "${await state()}"`);
     const px = await pixels();
     assert.ok(px.nonWhite > 5000 && px.blue > 3000, JSON.stringify(px));
-    assert.equal(await headText(), 'agenda.pdf Page 1 of 1 Fit Open Save as…');
+    assert.equal(await headText(), `agenda.pdf ${STRIP} Page 1 of 1 Fit Open Save as…`);
     const dom = await evaluate(`({ links: document.querySelectorAll('.pv-stage a, .pv-stage [href]').length, frames: document.querySelectorAll('.pv-stage iframe, .pv-stage object, .pv-stage embed').length, blob: !!document.querySelector('.pv-stage [src^="blob:"], .pv-stage [data^="blob:"]'),
       text: [...document.querySelectorAll('.pv-text-layer span')].map((s) => s.textContent).join(' '), worker: document.querySelector('.pv-pdfjs').dataset.worker, hand: [...document.querySelectorAll('.pv-text-layer span')].some((s) => getComputedStyle(s).cursor === 'pointer'),
       group: document.querySelector('.pv-page').getAttribute('role'), label: document.querySelector('.pv-page').getAttribute('aria-label'), canvasHidden: document.querySelector('.pv-page canvas').getAttribute('aria-hidden'),
@@ -100,7 +102,7 @@ try {
   await check('AC-5.1.2 30 pages: "Page n of 30" follows the scroll; only the pages near the view keep a canvas; the pages are one under the other, 16 px apart', async () => {
     await openPreview('thirty-pages.pdf');
     assert.ok(await ready(), `the viewer is "${await state()}"`);
-    assert.equal(await headText(), 'agenda.pdf Page 1 of 30 Fit Open Save as…');
+    assert.equal(await headText(), `agenda.pdf ${STRIP} Page 1 of 30 Fit Open Save as…`);
     const list = await pages();
     assert.equal(list.length, 30);
     assert.equal(list[29].label, 'Page 30 of 30');
@@ -176,7 +178,7 @@ try {
     await openPreview('locked.pdf');
     assert.ok(await waitFor(`document.querySelector('.pv-pdfjs')?.dataset.state === 'locked'`, 8000), `the viewer is "${await state()}"`);
     assert.equal(await evaluate(`document.querySelector('.pv-pdfjs-msg').innerText.trim()`), 'This PDF is protected by a password, so it can’t be shown here. You can still open or save it.');
-    assert.equal(await headText(), 'agenda.pdf Open Save as…');
+    assert.equal(await headText(), `agenda.pdf ${STRIP} Open Save as…`);
     assert.equal(await evaluate(`getComputedStyle(document.querySelector('.pv-pdfjs')).visibility`), 'hidden');
     await closeEsc();
   });
@@ -223,6 +225,9 @@ try {
     await sleep(300); // (a key pressed in the last frame of the smooth scroll of the one before is dropped by the engine)
     await key('End');
     assert.ok(await waitFor(`/Page 30 of 30/.test(document.querySelector('.pv-head').innerText)`, 8000), `End did not go to the last page: ${await evaluate(`JSON.stringify({ top: document.querySelector('.pv-pdfjs').scrollTop, h: document.querySelector('.pv-pdfjs').scrollHeight, head: document.querySelector('.pv-head').innerText, active: document.activeElement.className })`)}`); // (the engine animates a long jump)
+    // (the strip has three previewable cards since W8.8c: Next, enabled and ahead of the viewer in the tab order, is what Shift+Tab reaches first; Previous is disabled at the first card; the next Shift+Tab is the header)
+    await key('Tab', 8);
+    assert.equal(await evaluate(`document.activeElement.classList.contains('pv-nav') && document.activeElement.classList.contains('next')`), true, 'Shift+Tab did not leave the pages for the Next button');
     await key('Tab', 8);
     assert.equal(await evaluate(`document.activeElement.closest('.pv-head') !== null`), true, 'Shift+Tab did not reach the header');
     await closeEsc();
@@ -303,7 +308,7 @@ try {
   await check('Linux works like macOS', async () => {
     await openPreview('one-page.pdf', { hash: 'lang=en&os=linux' });
     assert.ok(await ready(), 'not ready');
-    assert.equal(await headText(), 'agenda.pdf Page 1 of 1 Fit Open Save as…');
+    assert.equal(await headText(), `agenda.pdf ${STRIP} Page 1 of 1 Fit Open Save as…`);
     await closeEsc();
   });
 } finally {

@@ -13,6 +13,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { en } from "../src/i18n/en.ts";
 import { LANGUAGES, loadLanguage, setLangPref, t } from "../src/i18n/index.ts";
+import { hitProbe, searchProbe } from "./lib/settings-search-probe.mjs";
 import { buildIndex, fold, foldMap, listSep, optionName, searchSettings } from "../src/settingsIndex.ts";
 
 const read = (f) => readFileSync(fileURLToPath(new URL(`../${f}`, import.meta.url)), "utf8").replace(/\r\n/g, "\n");
@@ -433,4 +434,6 @@ for (const lang of LANGUAGES.map((l) => l.code)) {
   ok(p95 < 5, `a search takes ${p95.toFixed(2)} ms (95th percentile of 500), the limit is 5 ms`);
   console.log(`speed: p95 ${p95.toFixed(2)} ms over ${times.length} searches, ${idx.length} entries`);
 }
+// the probes that the Mac / Linux QA pastes into the bridge's /eval are one line each and must parse (a `//` comment inside one swallows the rest of the line)
+for (const probe of [searchProbe(), hitProbe(), hitProbe("undoSend")]) { ok(!probe.includes(String.fromCharCode(10)), "a probe is one line"); ok(typeof new Function(`return ${probe}`) === "function", "a probe parses"); }
 console.log(`test-settings-index: ok (${checks} checks)`);

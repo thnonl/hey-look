@@ -4,7 +4,7 @@
 //   node scripts/lib/settings-search-probe.mjs                 prints the state probe (the box, the results, the placeholder fit); paste it into /eval or a console
 //   node scripts/lib/settings-search-probe.mjs hit [id]        prints the probe of the lit setting (default: the one that has .set-hit, else #set-<id>)
 //
-// The state: { box: null | { value, focused, type, role, expanded, activedescendant, placeholder, placeholderPx (the text measured in the box's font), roomPx (what the box has for it),
+// The state: { box: null | { value, focused, type, role, expanded, activedescendant, placeholder, placeholderPx (the text measured in the box's font at the placeholder's own size), placeholderFontSize ("12px"), roomPx (what the box has for it),
 //   fits, fontFamily, fontSize, height, ring: { outlineStyle, boxShadow, borderColor } (the focus ring of the box), clearVisible, nativeCancel (a WebKit search-field cancel button: must be false) },
 //   nav: { width, scrollTop, scrollWidth, sticky: position of .set-search, top (its top relative to the navigation) }, options: [{ label, place, lines (rendered lines of the label), clamped,
 //   bold (the text of the <b> parts), placeEllipsis (the place line is cut with an ellipsis), width, scrollWidth, active }], none: text of the empty state or null, live: text of the status region }.
@@ -18,14 +18,16 @@ export const searchProbe = () => oneLine(`(() => {
   let box = null;
   if (b) {
     const cs = getComputedStyle(b), cv = document.createElement('canvas').getContext('2d');
-    cv.font = cs.fontStyle + ' ' + cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily;
+    /* the placeholder has its own size, 12 px: the pseudo-element's computed style; older WebKit knows it as ::-webkit-input-placeholder */
+    let pf = ''; for (const pe of ['::placeholder', '::-webkit-input-placeholder']) { try { pf = getComputedStyle(b, pe).fontSize; } catch (e) { pf = ''; } if (pf) break; }
+    cv.font = cs.fontStyle + ' ' + cs.fontWeight + ' ' + (pf || cs.fontSize) + ' ' + cs.fontFamily;
     const room = b.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight), text = cv.measureText(b.placeholder).width;
     box = {
       value: b.value, focused: document.activeElement === b, type: b.type, role: b.getAttribute('role'), expanded: b.getAttribute('aria-expanded'), activedescendant: b.getAttribute('aria-activedescendant'),
-      placeholder: b.placeholder, placeholderPx: Math.round(text * 10) / 10, roomPx: Math.round(room * 10) / 10, fits: text <= room + 0.5, fontFamily: cs.fontFamily, fontSize: cs.fontSize, height: b.getBoundingClientRect().height,
+      placeholder: b.placeholder, placeholderPx: Math.round(text * 10) / 10, roomPx: Math.round(room * 10) / 10, fits: text <= room + 0.5, fontFamily: cs.fontFamily, fontSize: cs.fontSize, placeholderFontSize: pf, height: b.getBoundingClientRect().height,
       ring: { outlineStyle: cs.outlineStyle, boxShadow: cs.boxShadow, borderColor: cs.borderColor },
       clearVisible: !!document.querySelector('.settings-nav .set-clear'),
-      nativeCancel: b.type === 'search', // (a type="search" field gets WebKit's own cancel button and Esc behaviour: the box is type="text")
+      nativeCancel: b.type === 'search', /* (a type="search" field gets WebKit's own cancel button and Esc behaviour: the box is type="text") */
     };
   }
   const bar = document.querySelector('.settings-nav .set-search');
