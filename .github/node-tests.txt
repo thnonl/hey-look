@@ -370,3 +370,5 @@ ui-b | node scripts/test-folder-reset.mjs --require-browser
 ui-b | node scripts/test-update-toast.mjs --require-browser
 # 1.0.7 W6.3: lowering the download limit asks the backend to prune at once with the open conversation kept, raising it asks nothing, `mail-pruned` shows the limit notice at the end of an unfiltered list without a sync (not under a filter), a sync in progress keeps what it was told
 ui-b | node scripts/test-prune-limit.mjs --require-browser
+# 1.0.7 W6.7: "Search on the server" in the real page - the button at the end of a search (never started by itself, hint, before the webmail buttons), Enter starts it, the running state and Cancel, the heading and the rows (unread, attachment, flag, no snippet), arrows / Home / End between the rows and Enter opens one, a different search or scope drops the results, the capped / nothing more / failed mailbox / pinned notes, a row whose message is gone
+ui-b | node scripts/test-server-search-ui.mjs --require-browser

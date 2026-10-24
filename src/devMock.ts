@@ -774,6 +774,7 @@ const mockCap = () => {
   const n = Number(settings.max_download);
   return settings.max_download?.trim() && Number.isFinite(n) ? Math.min(5000, Math.max(100, Math.trunc(n))) : 2000;
 };
+let mockServerRun = 0;
 const mockMail = {
   calls: [] as { accountId: string; role: string; limit: number; at: number }[],
   opened: [] as string[],
@@ -1615,6 +1616,39 @@ export function installMock() {
           mockMail.local[id] = have + added;
           const exhausted = have + added >= total;
           return { added, exhausted, limited: !exhausted && have + added >= cap };
+        });
+      }
+      // Search on the server (W6.7): `#serversearch[=capped|none|fail|slow|local]`. The answer is made of rows that this computer does not have; `__serverCalls` logs what the page asked
+      // (search / cancel / open). `slow` answers after 6 s (Cancel in between makes the answer stale), `fail` says the second mailbox could not be searched.
+      case "server_search": {
+        const w = window as unknown as { __serverCalls?: { cmd: string; filter?: unknown; at: number }[] };
+        (w.__serverCalls ??= []).push({ cmd: "search", filter: a.filter, at: Date.now() });
+        const mode = hashTokens().get("serversearch") || "";
+        const gen = ++mockServerRun;
+        const rows = Array.from({ length: mode === "none" ? 0 : mode === "capped" ? 200 : 7 }, (_, i) => ({
+          accountId: "a1", role: i % 3 === 2 ? "archive" : "inbox", uid: 5000 - i, validity: 1, subject: i === 0 ? "Báo cáo quý 3" : `Old invoice ${i + 1}`, fromName: i % 2 ? "Ann Lee" : "", fromEmail: "ann@x.test",
+          date: Math.floor(Date.now() / 1000) - 86400 * 400 - i * 3600, seen: i % 2 === 0, flagged: i === 3, hasAttach: i === 1,
+        }));
+        return later(mode === "slow" ? 6000 : 300, () => ({
+          rows: gen === mockServerRun ? rows : [],
+          capped: mode === "capped",
+          errors: mode === "fail" ? [{ accountId: "a2", error: "IMAP login failed: the mock server is down" }] : [],
+          localOnly: mode === "local",
+          cancelled: gen !== mockServerRun,
+        }));
+      }
+      case "server_search_cancel": {
+        mockServerRun++;
+        const w = window as unknown as { __serverCalls?: { cmd: string; at: number }[] };
+        (w.__serverCalls ??= []).push({ cmd: "cancel", at: Date.now() });
+        return null;
+      }
+      case "server_open": {
+        const w = window as unknown as { __serverCalls?: { cmd: string; uid?: number; at: number }[] };
+        (w.__serverCalls ??= []).push({ cmd: "open", uid: Number(a.uid), at: Date.now() });
+        return later(hashNum("serveropenms", 250), () => {
+          if (hashTokens().has("serveropenfail")) throw "MSG_NOT_ON_SERVER: message not found on server";
+          return "t1";
         });
       }
       case "prune_to_limit": {

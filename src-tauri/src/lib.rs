@@ -67,6 +67,7 @@ mod recover;
 mod replyhdr;
 use oauth::Provider;
 mod schedule;
+mod serversearch;
 mod sessionend;
 mod shard;
 mod shell;
@@ -1765,6 +1766,10 @@ fn account_total(db: &Db, account_id: &str) -> R<u32> {
 /// "downloaded to the oldest message", so its `exhausted:` mark is cleared. Never holds the lock across network IO (it has none).
 /// Returns how many messages were deleted.
 fn prune_oldest(db: &Db, account_id: &str, cap: u32, keep: &std::collections::HashSet<String>) -> R<u32> {
+    // (W6.7) a message the person opened from a server search stays for the rest of the run
+    let mut keep = keep.clone();
+    keep.extend(serversearch::protected());
+    let keep = &keep;
     let ids: Vec<(String, String)> = {
         let c = lock(db);
         let total: u32 = c
@@ -2458,6 +2463,13 @@ struct Query {
     after: Option<i64>,
     before: Option<i64>,
     folder: Option<String>,
+}
+
+impl Query {
+    /// `is:snoozed` is no operator of the local search (it stays a word there); the server search leaves it out like `is:pinned` (W6.7).
+    fn snoozed_asked(&self) -> bool {
+        self.words.iter().any(|w| w.eq_ignore_ascii_case("is:snoozed"))
+    }
 }
 
 fn split_tokens(q: &str) -> Vec<String> {
@@ -6525,6 +6537,9 @@ pub fn run() {
             cancel_action,
             load_older,
             prune_to_limit,
+            serversearch::server_search,
+            serversearch::server_search_cancel,
+            serversearch::server_open,
             attachment_data,
             set_secret,
             has_secret,
@@ -7243,7 +7258,7 @@ mod capability_tests {
             "quit_now", "quit_cancelled", "sends_flushed", "quit_page_alive", "quit_dialog", "frontend_ready", "page_state", "page_pong", "show_window", "set_mail_available", "take_tray_compose",
             // calendar connections, sync triggers, mail actions that belong to the main page's intent layer
             "calendar_connect", "calendar_disconnect", "calendar_sources", "calendar_set_sync", "calendar_sync_now", "sync_account", "refresh_badge", "thread_action",
-            "queue_action", "cancel_action", "sender_action", "load_older", "prune_to_limit", "idle_states", "frame_info", "frame_caption_rect", "frame_system_menu", "test_notification", "play_notify_sound", "create_mail_folder",
+            "queue_action", "cancel_action", "sender_action", "load_older", "prune_to_limit", "server_search", "server_search_cancel", "server_open", "idle_states", "frame_info", "frame_caption_rect", "frame_system_menu", "test_notification", "play_notify_sound", "create_mail_folder",
             // the caption colours are the main page's to hand over (W4.3): a window never sets its own
             "window_caption_colors",
             // a secondary window asks the main page (popout_request); only the main page answers
@@ -7276,7 +7291,7 @@ mod capability_tests {
         // what no secondary window ever gets (REQ-S2 and the quit, update and frame commands)
         let never = [
             "quit_now", "quit_cancelled", "sends_flushed", "quit_page_alive", "quit_dialog", "frontend_ready", "page_state", "page_pong", "popout_reply", "popout_save_all", "update_install",
-            "thread_action", "queue_action", "cancel_action", "sender_action", "prepare_action", "load_older", "prune_to_limit", "frame_info", "frame_caption_rect", "frame_system_menu", "show_window", "set_mail_available",
+            "thread_action", "queue_action", "cancel_action", "sender_action", "prepare_action", "load_older", "prune_to_limit", "server_search", "server_search_cancel", "server_open", "frame_info", "frame_caption_rect", "frame_system_menu", "show_window", "set_mail_available",
             "take_tray_compose", "idle_states", "window_caption_colors", "update_startup_state", "update_startup_ack", "refresh_badge", "sync_account", "popout_show", "popout_park", "popout_set_key",
             "drag_begin", "drag_take", "send_message", "save_draft", "discard_draft", "recovery_save", "recovery_clear", "outbox_hold", "outbox_hold_send", "outbox_update", "outbox_reschedule", "create_mail_folder",
         ];

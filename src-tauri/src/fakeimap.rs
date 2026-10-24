@@ -34,6 +34,14 @@ pub struct State {
     /// a server whose SEARCH does not look at HEADER: it answers with every message of the folder
     pub search_ignores_header: bool,
     pub deleted: BTreeSet<(String, u32)>,
+    /// CAPABILITY lists X-GM-EXT-1 (a Gmail-like server)
+    pub gmail: bool,
+    /// INTERNALDATE by (folder, uid) as IMAP writes it (`01-Jan-2024 10:00:00 +0000`); a message without one has 1 January 2024
+    pub dates: BTreeMap<(String, u32), String>,
+    /// messages with \Seen
+    pub seen: BTreeSet<(String, u32)>,
+    /// the bytes of every literal a client sent inside a SEARCH
+    pub literals: Vec<Vec<u8>>,
     /// UIDVALIDITY per folder (1 when a folder has none here); `Fake::renumber` raises it
     pub validity: BTreeMap<String, u32>,
     /// CAPABILITY lists UIDPLUS and `UID EXPUNGE <set>` works (W6.1); without it only a plain `EXPUNGE` does
@@ -71,6 +79,10 @@ impl Fake {
             search_ignores_header: false,
             deleted: BTreeSet::new(),
             validity: BTreeMap::new(),
+            gmail: false,
+            dates: BTreeMap::new(),
+            seen: BTreeSet::new(),
+            literals: vec![],
             uidplus: false,
             noinferiors: vec![],
             hide_from_list: vec![],
@@ -229,7 +241,23 @@ fn serve(c: TcpStream, shared: Arc<Mutex<State>>) {
         if r.read_line(&mut line).unwrap_or(0) == 0 {
             return;
         }
-        let text = line.trim_end().to_string();
+        let mut text = line.trim_end().to_string();
+        // a SEARCH with literals (`SUBJECT {18}` + bytes + the rest of the line): the continuation is answered, the literal is read and put back into the command as a quoted string
+        while text.to_uppercase().contains(" SEARCH ") && text.ends_with('}') && text.rfind('{').is_some_and(|i| text[i + 1..text.len() - 1].chars().all(|c| c.is_ascii_digit())) {
+            let i = text.rfind('{').unwrap();
+            let n: usize = text[i + 1..text.len() - 1].parse().unwrap_or(0);
+            if w.write_all(b"+ go ahead\r\n").is_err() {
+                return;
+            }
+            let mut bytes = vec![0u8; n];
+            if std::io::Read::read_exact(&mut r, &mut bytes).is_err() {
+                return;
+            }
+            let mut rest = String::new();
+            let _ = r.read_line(&mut rest);
+            shared.lock().unwrap().literals.push(bytes.clone());
+            text = format!("{}\"{}\"{}", &text[..i], String::from_utf8_lossy(&bytes), rest.trim_end());
+        }
         let (tag, cmd) = text.split_once(' ').unwrap_or((&text, ""));
         let upper = cmd.to_uppercase();
         let mut st = shared.lock().unwrap();
@@ -240,7 +268,7 @@ fn serve(c: TcpStream, shared: Arc<Mutex<State>>) {
         } else if upper.starts_with("LOGIN") {
             out += &format!("{tag} OK logged in\r\n");
         } else if upper.starts_with("CAPABILITY") {
-            out += &format!("* CAPABILITY IMAP4rev1{}{}\r\n{tag} OK done\r\n", if st.no_move { "" } else { " MOVE" }, if st.uidplus { " UIDPLUS" } else { "" });
+            out += &format!("* CAPABILITY IMAP4rev1{}{}{}\r\n{tag} OK done\r\n", if st.no_move { "" } else { " MOVE" }, if st.uidplus { " UIDPLUS" } else { "" }, if st.gmail { " X-GM-EXT-1" } else { "" });
         } else if upper.starts_with("LIST") {
             for name in st.folders.keys().filter(|n| !st.hide_from_list.contains(n)) {
                 let special = st.special.get(name).map(|s| format!(" {s}")).unwrap_or_default();
@@ -248,8 +276,8 @@ fn serve(c: TcpStream, shared: Arc<Mutex<State>>) {
                 out += &format!("* LIST ({kind}{special}) \"{}\" \"{name}\"\r\n", st.delimiter);
             }
             out += &format!("{tag} OK LIST done\r\n");
-        } else if upper.starts_with("SELECT") {
-            let (name, _) = arg(&cmd[6..]);
+        } else if upper.starts_with("SELECT") || upper.starts_with("EXAMINE") {
+            let (name, _) = arg(&cmd[if upper.starts_with("SELECT") { 6 } else { 7 }..]);
             match st.folders.get(&name) {
                 Some(uids) => {
                     out += &format!("* FLAGS (\\Seen \\Deleted)\r\n* {} EXISTS\r\n* 0 RECENT\r\n* OK [UIDVALIDITY {}] ok\r\n{tag} OK [READ-WRITE] selected\r\n", uids.len(), st.validity.get(&name).copied().unwrap_or(1));
@@ -310,7 +338,34 @@ fn serve(c: TcpStream, shared: Arc<Mutex<State>>) {
                     let Some(raw) = st.messages.get(&(src.clone(), *u)).filter(|_| want.contains(&key)) else { continue };
                     let head_end = raw.windows(4).position(|w| w == b"\r\n\r\n").map(|p| p + 4).unwrap_or(raw.len());
                     let (section, bytes) = if whole { ("BODY[]", &raw[..]) } else { ("BODY[HEADER]", &raw[..head_end]) };
-                    out += &format!("* {} FETCH (UID {u} {section} {{{}}}\r\n", i + 1, bytes.len());
+                    // the items the client asked for, in the order a server writes them
+                    let asked = rest.to_uppercase();
+                    let mut items = String::new();
+                    if asked.contains("FLAGS") {
+                        let mut f = vec![];
+                        if st.seen.contains(&(src.clone(), *u)) {
+                            f.push("\\Seen");
+                        }
+                        if st.deleted.contains(&(src.clone(), *u)) {
+                            f.push("\\Deleted");
+                        }
+                        items += &format!(" FLAGS ({})", f.join(" "));
+                    }
+                    if asked.contains("INTERNALDATE") {
+                        items += &format!(" INTERNALDATE \"{}\"", st.dates.get(&(src.clone(), *u)).cloned().unwrap_or_else(|| "01-Jan-2024 00:00:00 +0000".into()));
+                    }
+                    if asked.contains("RFC822.SIZE") {
+                        items += &format!(" RFC822.SIZE {}", raw.len());
+                    }
+                    if asked.contains("BODYSTRUCTURE") {
+                        let text_part = "(\"TEXT\" \"PLAIN\" (\"CHARSET\" \"UTF-8\") NIL NIL \"7BIT\" 10 1)";
+                        items += &if String::from_utf8_lossy(raw).contains("Content-Disposition: attachment") {
+                            format!(" BODYSTRUCTURE ({text_part}(\"APPLICATION\" \"PDF\" (\"NAME\" \"a.pdf\") NIL NIL \"BASE64\" 100 NIL (\"ATTACHMENT\" (\"FILENAME\" \"a.pdf\")) NIL) \"MIXED\")")
+                        } else {
+                            format!(" BODYSTRUCTURE {text_part}")
+                        };
+                    }
+                    out += &format!("* {} FETCH (UID {u}{items} {section} {{{}}}\r\n", i + 1, bytes.len());
                     out += &String::from_utf8_lossy(bytes);
                     out += ")\r\n";
                 }

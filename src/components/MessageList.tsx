@@ -25,6 +25,7 @@ import { openPopout } from "../popout/open";
 import { searchKey, SCHEDULED_KEY, type SearchInit } from "../popout/windowKinds";
 
 import { ScheduledList } from "./ScheduledList";
+import { ServerSearchSection } from "./ServerSearch";
 import { EmptyState, SkeletonRows } from "./overlays";
 import { Avatar, Dropdown } from "./ui";
 import { downloadLine } from "../backfill";
@@ -522,11 +523,14 @@ export function MessageList({ hidden = false }: { hidden?: boolean } = {}) {
             holdTop={prefs.sortAsc}
             footer={
               searching ? (
-                webmails.some((t) => webmailQuery(t.webmail, search, webmailFolder)) ? (
-                  <div className="ml-foot">
-                    <WebmailSearch targets={webmails} query={search} openFolder={webmailFolder} />
-                  </div>
-                ) : null
+                <>
+                  <ServerSearchSection />
+                  {webmails.some((t) => webmailQuery(t.webmail, search, webmailFolder)) ? (
+                    <div className="ml-foot">
+                      <WebmailSearch targets={webmails} query={search} openFolder={webmailFolder} />
+                    </div>
+                  ) : null}
+                </>
               ) : pageable && !prefs.sortAsc ? (
                 <div className="ml-foot" role="status">{pagingStatus}</div>
               ) : null

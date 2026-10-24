@@ -21,7 +21,7 @@ const APP_COMMANDS: &[&str] = &[
     "calendar_open_message", "calendar_sources", "calendar_kinds_available", "calendar_connect", "calendar_cancel_connect", "calendar_disconnect", "calendar_set_sync",
     "calendar_sync_now", "list_templates", "save_template", "delete_template", "list_signatures", "save_signature", "delete_signature",
     "get_setting", "set_setting", "first_run_hint", "suggest_contacts", "unsubscribe", "unsubscribe_opened", "fetch_remote_images", "queue_action", "cancel_action",
-    "load_older", "prune_to_limit", "attachment_data", "set_secret", "has_secret", "ai_complete", "ai_cancel", "ai_list_models", "shell_info", "check_update",
+    "load_older", "prune_to_limit", "server_search", "server_search_cancel", "server_open", "attachment_data", "set_secret", "has_secret", "ai_complete", "ai_cancel", "ai_list_models", "shell_info", "check_update",
     "update_download", "update_cancel", "update_discard", "update_defer", "update_note", "set_mail_available", "take_tray_compose", "frontend_ready", "sends_flushed",
     "quit_page_alive", "popout_flush_alive", "popout_flush_dialog", "popout_flush_done", "popout_save_all", "popout_open", "popout_init",
     "popout_ready", "popout_focus", "popout_close", "popout_park", "popout_destroy", "popout_note", "popout_set_key", "popout_show", "drag_begin", "drag_peek", "drag_take", "drag_end", "popout_request", "popout_reply", "thread_meta", "page_pong", "quit_dialog", "quit_cancelled", "show_window", "page_state", "update_install",

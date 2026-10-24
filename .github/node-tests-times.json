@@ -228,6 +228,7 @@
   "node scripts/test-answer-geometry.mjs --require-browser": 60,
   "node scripts/test-folder-reset.mjs --require-browser": 20,
   "node scripts/test-update-toast.mjs --require-browser": 25,
-  "node scripts/test-prune-limit.mjs --require-browser": 20
+  "node scripts/test-prune-limit.mjs --require-browser": 20,
+  "node scripts/test-server-search-ui.mjs --require-browser": 40
  }
 }

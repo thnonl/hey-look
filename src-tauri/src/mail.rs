@@ -1192,6 +1192,25 @@ pub fn fetch_older<T: Read + Write>(s: &mut imap::Session<T>, folder: &str, expe
     Ok((out, exhausted))
 }
 
+/// One message of a folder, parsed like the sync parses it (W6.7: a row of the server search that is opened). `BODY.PEEK[]`: it stays unread on the server. `expect_validity`: the
+/// UIDVALIDITY the UID was read under; a folder that was renumbered since is `FOLDER_CHANGED` and nothing is read. A message that is gone is `MSG_NOT_ON_SERVER`.
+pub fn fetch_one<T: Read + Write>(s: &mut imap::Session<T>, folder: &str, uid: u32, expect_validity: Option<u32>) -> R<Parsed> {
+    let mb = s.examine(folder).map_err(err)?;
+    if let (Some(was), Some(now)) = (expect_validity, mb.uid_validity) {
+        if was != now {
+            return Err(folder_changed());
+        }
+    }
+    let fetched = s.uid_fetch(uid.to_string(), "(UID FLAGS INTERNALDATE BODY.PEEK[])").map_err(err)?;
+    let f = fetched.iter().find(|m| m.uid == Some(uid)).ok_or("MSG_NOT_ON_SERVER: message not found on server")?;
+    let body = f.body().ok_or("MSG_NOT_ON_SERVER: message not found on server")?;
+    let flags = f.flags();
+    let seen = flags.iter().any(|x| matches!(x, imap::types::Flag::Seen));
+    let flagged = flags.iter().any(|x| matches!(x, imap::types::Flag::Flagged));
+    let fb = f.internal_date().map(|d| d.timestamp()).unwrap_or(0);
+    parse(uid, body, seen, flagged, fb).ok_or_else(|| "MSG_NOT_ON_SERVER: the message could not be read".to_string())
+}
+
 pub fn fetch_raw<T: Read + Write>(s: &mut imap::Session<T>, folder: &str, uid: u32) -> R<Vec<u8>> {
     s.select(folder).map_err(err)?;
     let f = s.uid_fetch(uid.to_string(), "BODY.PEEK[]").map_err(err)?;
