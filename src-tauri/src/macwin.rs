@@ -377,14 +377,21 @@ pub fn check(label: &str, destroyed: bool) -> Option<String> {
 /// The release of the extra references of a finished window (D-093, round 12b; the reasoning and the numbers are in leakfix.rs). Main thread, after `Destroyed` and `sweep` (the caller is the
 /// check that runs a second after the sweep). OFF by default since fix29 (round 13: fix28 over-released and crashed); `HEYLOOK_MAC_LEAK_FIX=1` turns it on, `HEYLOOK_MAC_NO_LEAK_FIX=1` forces it off. Takes the strong reference that `check` made (it is dropped here, once, on every path).
 ///
-/// The references that may be released are `retainCount - OWN_REFS`, where OWN_REFS is the one reference this function holds itself (`strong`); `sweep` dropped its own before the weak
-/// reference was made. The count is read again before every release, and the loop stops at 4 releases or when nothing is left over. `strong` keeps the window alive for the whole loop, so
-/// no release can free it and no message reaches a freed object; the window is freed when `strong` is dropped, and the weak reference says so afterwards (the pointer is not used after that).
+/// HOW MANY (fix29, after fix28 released 4 where 3 were safe and crashed in `objc_autoreleasePoolPop`): the count is read FIRST, as the very first message to the window after `check` made the
+/// strong reference (that count includes the one reference this function owns, `strong`: round 13 saw "retain count 4"); then the state questions are asked inside an autorelease pool of
+/// their own, which is emptied before the count is read a second time (a question that returns an autoreleased reference to the window, or a method that retains it for the length of a call, would
+/// otherwise show up as an "extra" reference that belongs to a pool and not to a leak: releasing it is the over-release that crashed). The number released is
+/// `min(first, second) - OWN_REFS` (leakfix::release_plan: 3 for the observed 4, the number the experiment released for 3 minutes 20 seconds without a crash), is FIXED before the first release
+/// (the count is not used to decide again), each release is made only while the count read just before it is above OWN_REFS, and `strong` is dropped exactly once, by this function, after the
+/// last release and never by the loop: the window is freed by that drop or by nobody. The count before and after every release is in the line for the log.
 fn leak_fix(strong: Retained<AnyObject>, weak: &objc2::rc::Weak<AnyObject>, label: &str, destroyed: bool) -> String {
     const OWN_REFS: usize = 1;
     let ptr = Retained::as_ptr(&strong) as *mut AnyObject;
-    // SAFETY: `strong` keeps the window alive; the messages are the ones every NSWindow answers; each returned object is checked for null before it is messaged; main thread (caller).
-    let state = unsafe {
+    // SAFETY: `strong` keeps the window alive; the message answers a plain number; main thread (caller).
+    let first: usize = unsafe { msg_send![ptr, retainCount] };
+    // SAFETY: `strong` keeps the window alive; the messages are the ones every NSWindow answers; each returned object is checked for null before it is messaged; main thread (caller). The pool
+    // is emptied when the closure returns, before the second count.
+    let state = objc2::rc::autoreleasepool(|_| unsafe {
         let visible: Bool = msg_send![ptr, isVisible];
         let key: Bool = msg_send![ptr, isKeyWindow];
         let main: Bool = msg_send![ptr, isMainWindow];
@@ -404,28 +411,38 @@ fn leak_fix(strong: Retained<AnyObject>, weak: &objc2::rc::Weak<AnyObject>, labe
             has_parent: !parent.is_null(),
             switched_off: !leakfix::enabled(std::env::var(leakfix::ENABLE).ok().as_deref(), std::env::var(leakfix::KILL_SWITCH).ok().as_deref()),
         }
-    };
+    });
     if let Some(why) = leakfix::refusal(&state) {
         drop(strong);
         return format!("; leak fix: not applied ({why})");
     }
+    // SAFETY: as for the first count.
+    let second: usize = unsafe { msg_send![ptr, retainCount] };
+    let planned = leakfix::release_plan(&[first, second], OWN_REFS);
     let mut released = 0;
-    while released < leakfix::MAX_RELEASES {
-        // SAFETY: as above.
-        let count: usize = unsafe { msg_send![ptr, retainCount] };
-        if leakfix::expected_extra(count, OWN_REFS) == 0 {
-            break;
+    let mut trace = String::new();
+    for _ in 0..planned {
+        // SAFETY: as for the first count.
+        let before: usize = unsafe { msg_send![ptr, retainCount] };
+        if before <= OWN_REFS {
+            break; // nothing but our own reference is left: never release it
         }
-        // SAFETY: the count is above our own reference, so this release gives back a reference that nobody else will use; `strong` is still held, so the window cannot be freed by it.
-        unsafe {
+        // SAFETY: the count is above our own reference, so this release gives back a reference that is not ours; `strong` is held until after the loop, so the window cannot be freed by it.
+        let after: usize = unsafe {
             let _: () = msg_send![ptr, release];
-        }
+            msg_send![ptr, retainCount]
+        };
+        trace.push_str(&format!(" {before}>{after}"));
         released += 1;
     }
     drop(strong);
     RELEASED.fetch_add(released, Ordering::Relaxed);
     let freed = weak.load().is_none();
-    format!("; leak fix: released {released} extra reference(s), window {}", if freed { "freed" } else { "still alive" })
+    format!(
+        "; leak fix: released {released} extra reference(s) (retain count {first} then {second} before, planned {planned}, one by one:{}), window {}",
+        if trace.is_empty() { " none".to_string() } else { trace },
+        if freed { "freed" } else { "still alive" }
+    )
 }
 
 /// What [`apply_appearance`] found and did, for the log (one line per window).
