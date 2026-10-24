@@ -61,7 +61,18 @@
     },
     "windows": {
       "nsis": {
-        "installerHooks": "nsis/hooks.nsh"
+        "installerHooks": "nsis/hooks.nsh",
+        "languages": ["English", "Vietnamese", "French", "SimpChinese", "Spanish", "Japanese", "German", "Russian"],
+        "displayLanguageSelector": false,
+        "customLanguageFiles": {
+          "Vietnamese": "nsis/languages/Vietnamese.nsh",
+          "French": "nsis/languages/French.nsh",
+          "SimpChinese": "nsis/languages/SimpChinese.nsh",
+          "Spanish": "nsis/languages/Spanish.nsh",
+          "Japanese": "nsis/languages/Japanese.nsh",
+          "German": "nsis/languages/German.nsh",
+          "Russian": "nsis/languages/Russian.nsh"
+        }
       }
     },
     "macOS": {

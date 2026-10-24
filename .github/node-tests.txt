@@ -362,3 +362,5 @@ static | node --experimental-strip-types scripts/test-pdf-viewer.mjs
 ui-b | node scripts/test-pdf-viewer-ui.mjs --require-browser
 # 1.0.7 W5.1 (REQ-5.1.10, AC-5.1.10): PDF.js with the options of the viewer under the SHIPPED content security policy (sent as the header of the page, the worker and every asset file by a small server; a probe shows that eval is refused there): one page, CJK text from the cMaps, a PDF with JavaScript, 30 pages at 200 %; a real module worker; no securitypolicyviolation, no refused line in the console
 ui-e | node scripts/test-pdf-csp.mjs --require-browser
+# 1.0.7 W5.8 (REQ-5.8.1, REQ-5.8.2): the Windows setup follows the Windows display language: the 8 languages with English first, no selector in the release config, a custom file for each of the 7 others (BOM, the 27 ids of Tauri's English file, own language constant, balanced quotes, placeholders intact, text in its own script), the corrections agreed with the specialists in and the typos of Tauri's files out, the .msi stays English
+static | node scripts/test-nsis-languages.mjs

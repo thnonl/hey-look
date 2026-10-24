@@ -38,8 +38,10 @@ check("bundle identity", () => {
   assert.equal(b.license, "MIT");
   assert.match(read("src-tauri/Cargo.toml"), /^authors = \["thnonl"\]$/m);
 });
-check("the hooks are wired in and nothing else of bundle.windows is set", () => {
-  assert.deepEqual(conf.bundle.windows, { nsis: { installerHooks: "nsis/hooks.nsh" } });
+check("the hooks are wired in and nothing else of bundle.windows is set but the installer languages (WP5e, W5.8: scripts/test-nsis-languages.mjs pins them)", () => {
+  const { languages, displayLanguageSelector, customLanguageFiles, ...nsis } = conf.bundle.windows.nsis;
+  assert.ok(Array.isArray(languages) && displayLanguageSelector === false && typeof customLanguageFiles === "object");
+  assert.deepEqual({ ...conf.bundle.windows, nsis }, { nsis: { installerHooks: "nsis/hooks.nsh" } });
   assert.ok(existsSync(path.join(root, "src-tauri", conf.bundle.windows.nsis.installerHooks)));
   // the Store's offline installer (option B) is the one place that sets the WebView2 mode
   assert.equal(JSON.parse(read("src-tauri/tauri.store-exe.conf.json")).bundle.windows.webviewInstallMode.type, "offlineInstaller");
