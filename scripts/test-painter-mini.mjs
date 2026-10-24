@@ -243,7 +243,7 @@ try {
     await dragSel(ED, 'Alpha');
     await I.keys.esc();
     await sleep(300);
-    const w = await json(wordRect(ED, 'Beta'));
+    const w = await json(wordRect(ED, 'Third'));
     await I.drag(w.x0 + 1, w.y, w.x1 - 1, w.y);
     const m0 = await waitMini();
     assert.ok(m0, 'no mini toolbar after a drag');
@@ -258,7 +258,7 @@ try {
     assert.ok(m.h > 30 && m.h < 46 && m.w > 180 && m.w < 260, `about 36 x 210: ${m.w} x ${m.h}`);
     assert.deepEqual([m.label, m.role], ['Mini toolbar', 'toolbar']);
     assert.equal(await evaluate(`${ED}.view.hasFocus()`), true, 'the editor keeps the focus');
-    assert.equal((await sel(ED)).text, 'Beta');
+    assert.equal((await sel(ED)).text, 'Third');
     // (a press on selected text may start dragging it: a double click is made on text that is not selected)
     const elsewhere = await json(wordRect(ED, 'Fourth'));
     await I.click(elsewhere.x0 + 3, elsewhere.y);
@@ -269,7 +269,7 @@ try {
     await sleep(200);
     await I.click(w.x0 + 4, w.y, 3);
     assert.ok(await waitMini(), 'triple click');
-    const a = await json(wordRect(ED, 'Alpha'));
+    const a = await json(wordRect(ED, 'Fourth')); // (not a line the toolbar hangs over)
     await I.click(a.x0 + 3, a.y);
     assert.equal(await noMini(250), true, 'a click: no selection, no toolbar');
     await I.click(w.x1 - 2, w.y, 1, MOD.shift);
@@ -506,6 +506,57 @@ try {
       await I.keys.esc();
     }
     await evaluate(languageJs('en'));
+  });
+
+  // D-090 (Mac / Linux round 9b): a word in the FIRST line of the body is right under the formatting toolbar; the mini toolbar must not be drawn over that toolbar. The room above a
+  // selection ends at the bottom of the formatting toolbar: with no room the toolbar goes BELOW the word, 8 px away; a later line keeps it above.
+  const FIRST = '<p>Alpha first line words</p><p>Second line with Beta words</p><p>Third paragraph one</p><p>Fourth paragraph here</p>';
+  const bar = () => json("(() => { const b = document.querySelector('.fmt-tb'); const r = b.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right }; })()");
+  const noOverlap = (a, b) => a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom;
+  const firstLineCases = async (where) => {
+    await setBody(ED, FIRST);
+    await dragSel(ED, 'Third'); // warm-up of the lazy chunk (another word: a press on selected text may start dragging it)
+    await I.keys.esc();
+    await sleep(300);
+    const w = await json(wordRect(ED, 'Alpha'));
+    await I.drag(w.x0 + 1, w.y, w.x1 - 1, w.y);
+    const m0 = await waitMini();
+    assert.ok(m0, `${where}: no mini toolbar for a word of the first line`);
+    await sleep(200);
+    const m = await miniRect();
+    const b = await bar();
+    const rects = await lines();
+    const selTop = Math.min(...rects.map((q) => q.t));
+    const selBottom = Math.max(...rects.map((q) => q.b));
+    assert.ok(noOverlap(m, b), `${where}: the mini toolbar covers the formatting toolbar: ${JSON.stringify([m, b])}`);
+    assert.ok(disjoint(m, rects), `${where}: it covers the word`);
+    assert.ok(m.top >= selBottom + 7 && m.top <= selBottom + 9, `${where}: below the word with an 8 px gap: ${m.top} vs ${selBottom}`);
+    assert.ok(m.top > selTop, `${where}: it is below the first line`);
+    await I.keys.esc();
+    await sleep(200);
+    // the fourth line has room above the word: above, as before
+    const w2 = await json(wordRect(ED, 'Fourth'));
+    await I.drag(w2.x0 + 1, w2.y, w2.x1 - 1, w2.y);
+    assert.ok(await waitMini(), `${where}: no mini toolbar for a word of a later line`);
+    await sleep(200);
+    const m2 = await miniRect();
+    const r2 = await lines();
+    assert.ok(m2.bottom <= Math.min(...r2.map((q) => q.t)) - 7, `${where}: a later line keeps it above the word, 8 px gap: ${JSON.stringify([m2, r2])}`);
+    assert.ok(noOverlap(m2, await bar()), `${where}: and clear of the formatting toolbar`);
+    // a phrase over two lines starting in the first: still no cover
+    await I.keys.esc();
+  };
+  await check('D-090 inline compose at 960 x 560: a word of the first line gets the mini toolbar below it, a later line above', async () => {
+    await openCompose(960, 560);
+    await firstLineCases('inline 960x560');
+  });
+  await check('D-090 the compose window at 960 x 560: the same', async () => {
+    await H.cdp('Emulation.setDeviceMetricsOverride', { width: 960, height: 560, deviceScaleFactor: 1, mobile: false });
+    await H.cdp('Page.navigate', { url: 'about:blank' });
+    await H.cdp('Page.navigate', { url: `${H.base}?w=compose&mock=new#lang=en` });
+    assert.ok(await waitFor(`!!document.querySelector('.compose-pane .cp-editor .tiptap')?.editor`, 20000), 'the compose window did not start');
+    await sleep(600);
+    await firstLineCases('compose window 960x560');
   });
 } finally {
   await H.shutdown();

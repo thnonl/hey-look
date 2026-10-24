@@ -36,7 +36,10 @@ try {
     await check(`${q}: renders with the title "${title}"`, async () => {
       assert.ok(await waitFor(`!!document.querySelector('[data-popout]:not([data-popout="loading"])')`, 20000), 'the view did not render');
       assert.ok(await waitFor(`document.title === ${JSON.stringify(title)}`, 8000), `title ${await evaluate('document.title')}`);
-      const box = await json(`(() => { const r = document.getElementById('root').firstElementChild.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; })()`);
+      // (the event form and the Settings page are chunks of their own: the window is drawn once they are there)
+      const boxJs = `(() => { const r = document.getElementById('root').firstElementChild.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; })()`;
+      await waitFor(`(() => { const b = ${boxJs}; return b[0] > 300 && b[1] > 200; })()`, 10000);
+      const box = await json(boxJs);
       assert.ok(box[0] > 300 && box[1] > 200, `drawn ${box}`);
     });
   }
