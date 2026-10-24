@@ -39,7 +39,7 @@ for (let i = jobsAt + 1; i < yml.length; i++) {
   const c = /^    if:\s*(.*)$/.exec(l);
   if (c) cur.cond = c[1].trim().replace(/^\$\{\{\s*/, "").replace(/\s*\}\}$/, "");
 }
-for (const n of ["plan", "create-release", "node-tests", "rust-tests", "build", "sign-windows", "store-exe", "publish", "apt-repo", "apt-repo-dryrun", "msix", "msix-check", "store-url", "store-submit", "store-submit-exe"]) assert.ok(jobs[n], `job ${n} not found`);
+for (const n of ["plan", "create-release", "node-tests", "rust-tests", "rust-tests-windows", "build", "sign-windows", "store-exe", "publish", "apt-repo", "apt-repo-dryrun", "msix", "msix-check", "store-url", "store-submit", "store-submit-exe"]) assert.ok(jobs[n], `job ${n} not found`);
 
 const planScript = (() => {
   const at = yml.findIndex((l, i) => i > jobs.plan.start && /^ {8}run: \|\s*$/.test(l));
@@ -54,7 +54,7 @@ const planFile = path.join(dir, "plan.sh");
 writeFileSync(planFile, planScript);
 
 // --- one run of the plan job ---
-const runPlan = ({ event, platforms = "", testVersion = "", uiTests = "", signDry = "false", signpathVars = false, storeExe = "", storeSubmit = "" }) => {
+const runPlan = ({ event, platforms = "", testVersion = "", uiTests = "", signDry = "false", signpathVars = false, storeExe = "", storeSubmit = "", rehearse = "" }) => {
   const out = path.join(dir, "out.txt");
   writeFileSync(out, "");
   const r = spawnSync(bash, [posix(planFile)], {
@@ -65,6 +65,7 @@ const runPlan = ({ event, platforms = "", testVersion = "", uiTests = "", signDr
       PLATFORMS: platforms,
       TEST_VERSION: testVersion,
       UI_TESTS: uiTests,
+      REHEARSE: rehearse,
       SIGN_DRY_RUN: signDry,
       SP_ORG: signpathVars ? "o" : "",
       SP_PROJECT: signpathVars ? "p" : "",
@@ -110,7 +111,7 @@ const evalCond = (cond, ctx) => {
 const simulate = ({ event, plan, fail = [], testVersion = "", outputs = {} }) => {
   const result = { plan: { result: "success", outputs: plan } };
   const legs = [];
-  const order = ["plan", "create-release", "node-tests", "rust-tests", "build", "sign-windows", "store-exe", "publish", "apt-repo", "apt-repo-dryrun", "msix", "msix-check", "store-url", "store-submit", "store-submit-exe"];
+  const order = ["plan", "create-release", "node-tests", "rust-tests", "rust-tests-windows", "build", "sign-windows", "store-exe", "publish", "apt-repo", "apt-repo-dryrun", "msix", "msix-check", "store-url", "store-submit", "store-submit-exe"];
   for (const name of order.slice(1)) {
     const job = jobs[name];
     const needs = {};
@@ -136,7 +137,7 @@ const simulate = ({ event, plan, fail = [], testVersion = "", outputs = {} }) =>
   return { result: Object.fromEntries(Object.entries(result).map(([k, v]) => [k, v.result])), legs };
 };
 
-const UI = ["ui-a", "ui-b", "ui-c", "ui-d", "ui-e"];
+const UI = ["ui-a", "ui-b", "ui-c", "ui-d", "ui-e", "ui-f"];
 const run = (opts) => simulate({ ...opts, plan: runPlan(opts) });
 let n = 0;
 const check = (label, fn) => {
@@ -153,7 +154,7 @@ check("shard names match the list", () => {
       .map((l) => l.slice(0, l.indexOf(" | "))),
   );
   assert.deepEqual([...words].sort(), ["static", ...UI]);
-  assert.match(planScript, /ui_shards='ui-a ui-b ui-c ui-d ui-e'/);
+  assert.match(planScript, /ui_shards='ui-a ui-b ui-c ui-d ui-e ui-f'/);
 });
 
 // (a) a tag push with everything green publishes; all six shards ran
@@ -179,7 +180,7 @@ for (const shard of ["static", ...UI]) {
     });
   }
 }
-for (const job of ["rust-tests", "build", "create-release"]) {
+for (const job of ["rust-tests", "rust-tests-windows", "build", "create-release"]) {
   check(`(b) tag, ${job} fails`, () => {
     assert.equal(run({ event: "push", fail: [job] }).result.publish, "skipped");
   });
@@ -207,6 +208,7 @@ for (const uiTests of ["", "false"]) {
       "create-release": "skipped",
       "node-tests": "success",
       "rust-tests": "success",
+      "rust-tests-windows": "success",
       build: "success",
       "sign-windows": "skipped",
       "store-exe": "skipped",
@@ -407,6 +409,31 @@ check("(f) the jobs that publish name their Environment, the others have none an
     const b = block(name);
     for (const s of ["AZURE_AD_TENANT_ID", "AZURE_AD_APPLICATION_CLIENT_ID", "AZURE_AD_APPLICATION_SECRET", "SELLER_ID"]) assert.equal(b.split(`secrets.${s}`).length - 1, 1, `${name}: secrets.${s} once`);
   }
+});
+
+// (f) WP11: the signing rehearsal and the Windows Rust tests
+check("(f) rehearse_signing=true on a manual run: rehearsal on; a tag run and a test build ignore it", () => {
+  assert.equal(runPlan({ event: "workflow_dispatch", platforms: "all", rehearse: "true" }).rehearse, "true");
+  assert.equal(runPlan({ event: "workflow_dispatch", platforms: "all", rehearse: "false" }).rehearse, "false");
+  assert.equal(runPlan({ event: "workflow_dispatch", platforms: "all" }).rehearse, "false");
+  assert.equal(runPlan({ event: "push", rehearse: "true" }).rehearse, "false");
+  assert.equal(runPlan({ event: "workflow_dispatch", platforms: "all", testVersion: "0.9.0", rehearse: "true" }).rehearse, "false");
+});
+check("(f) a rehearsal run builds, never publishes, and creates no release", () => {
+  const r = run({ event: "workflow_dispatch", platforms: "all", rehearse: "true" });
+  assert.equal(r.result.build, "success");
+  assert.equal(r.result["create-release"], "skipped");
+  assert.equal(r.result.publish, "skipped");
+});
+check("(f) the Windows Rust tests run when Windows is built, and a failure there blocks the tag run", () => {
+  assert.equal(runPlan({ event: "workflow_dispatch", platforms: "windows" }).wintests, "true");
+  assert.equal(runPlan({ event: "workflow_dispatch", platforms: "linux" }).wintests, "false");
+  assert.equal(runPlan({ event: "push" }).wintests, "true");
+  assert.equal(run({ event: "workflow_dispatch", platforms: "windows" }).result["rust-tests-windows"], "success");
+  assert.equal(run({ event: "workflow_dispatch", platforms: "linux" }).result["rust-tests-windows"], "skipped");
+  const bad = run({ event: "push", fail: ["rust-tests-windows"], signpathVars: true });
+  assert.equal(bad.result.publish, "skipped");
+  assert.equal(bad.result["sign-windows"], "skipped");
 });
 
 rmSync(dir, { recursive: true, force: true });
