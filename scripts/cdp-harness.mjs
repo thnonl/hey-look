@@ -130,7 +130,7 @@ export async function startHarness(name, { vitePort0 = 5480 } = {}) {
 /**
  * Expression for `evaluate`: picks the UI language through the store and resolves when the window is in it. A language that was not used before is a
  * chunk of its own (src/i18n/lang-<code>.ts) that the store fetches first, so the texts change a moment after setPrefs; a test that sets a language
- * and then reads texts waits with this instead of a fixed sleep. Rejects after 20 s (the chunk could not be loaded).
+ * and then reads texts waits with this instead of a fixed sleep. Rejects after 90 s (the chunk could not be loaded: a cold dev server transforms the chunk on the first request, and six shards share one machine in CI, so 20 s was not enough on a loaded runner).
  */
 export const languageJs = (lang) => `new Promise((ok, no) => {
   const L = ${JSON.stringify(lang)}, t0 = Date.now();
@@ -138,7 +138,7 @@ export const languageJs = (lang) => `new Promise((ok, no) => {
   const t = setInterval(() => {
     const s = window.__store.getState();
     if (s.langLoading === null && s.prefs.language === L) { clearInterval(t); ok(1); }
-    else if (Date.now() - t0 > 20000) { clearInterval(t); no(new Error('the language ' + L + ' was not applied')); }
+    else if (Date.now() - t0 > 90000) { clearInterval(t); no(new Error('the language ' + L + ' was not applied after 90 s (langLoading ' + JSON.stringify(s.langLoading) + ', prefs.language ' + JSON.stringify(s.prefs.language) + ')')); }
   }, 20);
 })`;
 
