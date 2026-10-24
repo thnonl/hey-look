@@ -70,6 +70,8 @@ jobs:
   snap:
     name: Snap
     needs: metainfo
+    # DEC-028: no Snap in 1.0.7: a tag run builds the snap only when the repository variable SNAP_PUBLISH is 'true' (a manual run and a pull request still build it)
+    if: ${{ github.event_name != 'push' || vars.SNAP_PUBLISH == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     # the Environment (its deployment rule: v* tags) and every secret below exist for a tag PUSH only; release.yml gates the same way
