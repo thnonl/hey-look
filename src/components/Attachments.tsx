@@ -16,6 +16,7 @@ import { denyIfConfidential, imageLock } from "../protect";
 import { revealSaved } from "../reveal";
 import { friendlyError, useStore } from "../store";
 import { fmtSize } from "../util";
+import { folderNameOf, savedFolderName } from "../attachName";
 import riskyExt from "../riskyExt.json";
 import { kbd, usePlatform } from "../platform";
 import { isFrameRefusal, nextPdfState, PDF_DRAW_WAIT_MS, pdfPreview, type PdfFrameState } from "../pdfFrame";
@@ -201,14 +202,10 @@ export async function saveAs(m: Pick<MessageFull, "id">, a: AttMeta, onDone: (pa
   if (path) onDone(path);
 }
 
-const folderName = (path: string) => {
-  const folder = path.replace(/[\/][^\/]*$/, "");
-  return folder.split(/[\/]/).filter(Boolean).pop() ?? folder;
-};
 
 /** Plain "saved" toast (no automatic open: used after a risky file was saved instead of opened, and by the preview's Save as). */
 function savedToast(path: string, name: string) {
-  useStore.getState().showToast(() => t("reading.att.savedTo", { name, folder: folderName(path) }), undefined, "success", [{ label: () => t("reading.att.showInFolder"), run: () => void revealSaved(path) }]);
+  useStore.getState().showToast(() => t("reading.att.savedTo", { name, folder: savedFolderName(path) }), undefined, "success", [{ label: () => t("reading.att.showInFolder"), run: () => void revealSaved(path) }]);
 }
 
 /** Toast after a save, following the "After saving" setting. */
@@ -218,7 +215,7 @@ function afterSave(path: string, name: string, m: Pick<MessageFull, "id" | "from
   const open = { label: t("reading.att.open"), run: () => void openAttachment(m, a) };
   if (st.prefs.afterSave === "reveal") return void revealSaved(path);
   if (st.prefs.afterSave === "open") return void openAttachment(m, a);
-  st.showToast(() => t("reading.att.savedTo", { name, folder: folderName(path) }), undefined, "success", [open, reveal]);
+  st.showToast(() => t("reading.att.savedTo", { name, folder: savedFolderName(path) }), undefined, "success", [open, reveal]);
 }
 
 // ---------------------------------------------------------------- card
@@ -233,7 +230,7 @@ export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
   const kind = fileKind(a.name, a.mime);
   const pv = previewable(a, conf);
   const sub = conf && !pv ? t("reading.att.cantPreview") : `${typeName(a.name, a.mime)} · ${fmtSize(a.size)}`;
-  const saveTo = (prefs.downloadDir ? prefs.downloadDir.split(/[\\/]/).filter(Boolean).pop() : undefined) ?? t("reading.att.downloads");
+  const saveTo = (prefs.downloadDir ? folderNameOf(prefs.downloadDir) : undefined) || t("reading.att.downloads");
 
   const run = async (label: "saving" | "opening", job: () => Promise<void>) => {
     setSt({ status: "busy", label });
@@ -357,7 +354,7 @@ export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
         <span className="att-name" title={a.name}>{a.name}</span>
         <span className="att-sub">
           {st.status === "busy" ? (st.label === "opening" ? t("reading.att.opening") : t("reading.att.saving")) : st.status === "error" ? st.error : st.status === "done" ? (
-            <><Check size={11} aria-hidden /> {t("reading.att.statusSavedTo", { folder: st.path ? st.path.replace(/[\\/][^\\/]*$/, "").split(/[\\/]/).filter(Boolean).pop() ?? saveTo : saveTo })}</>
+            <><Check size={11} aria-hidden /> {t("reading.att.statusSavedTo", { folder: st.path ? savedFolderName(st.path) || saveTo : saveTo })}</>
           ) : sub}
         </span>
       </div>
@@ -404,7 +401,7 @@ export function AttachmentStrip({ m }: { m: MessageFull }) {
     try {
       const r = await api.attachmentSaveAll(m.id, ask || prefs.askWhereToSave, jobId);
       if (!r) return; // cancelled
-      const folder = r.dir.split(/[\\/]/).filter(Boolean).pop() ?? r.dir;
+      const folder = folderNameOf(r.dir) || r.dir;
       if (r.failed.length === 0) {
         showToast(() => t("reading.strip.savedMany", { n: r.saved.length, folder }), undefined, "success", [
           { label: () => t("reading.att.showInFolder"), run: () => r.saved[0] && void revealSaved(r.saved[0]) },

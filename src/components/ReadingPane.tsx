@@ -23,6 +23,7 @@ import { eff } from "../prefs";
 import { CONFIDENTIAL_FRAME_CSS, lockDocument, useContentProtection } from "../protect";
 import { accountsOf, canMoveToJunk } from "../junk";
 import { friendlyError, useStore } from "../store";
+import { folderNameOf } from "../attachName";
 import { cancelTranslation, dismissTranslation, jobErrorText, startTranslation } from "../translate";
 import { MAX_CHARS } from "../translateChunks";
 import { summaryBody } from "../summaryText";
@@ -738,7 +739,7 @@ export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boole
       const r = await api.attachmentSaveAll(m.id, ask || prefs.askWhereToSave);
       working?.end();
       if (!r) return;
-      const folder = r.dir.split(/[\\/]/).filter(Boolean).pop() ?? r.dir;
+      const folder = folderNameOf(r.dir) || r.dir;
       if (r.failed.length === 0) showToast(() => t("reading.strip.savedMany", { n: r.saved.length, folder }), undefined, "success", r.saved[0] ? [{ label: () => t("reading.att.showInFolder"), run: () => void revealSaved(r.saved[0]) }] : undefined);
       else showToast(() => t("reading.strip.savedPartial", { n: r.saved.length, total: m.attachments.length, name: r.failed[0].name, error: friendlyError(r.failed[0].error) }), undefined, "error", [{ label: () => t("common.retry"), run: () => void saveAll(ask) }]);
     } catch (e) {

@@ -16,6 +16,7 @@
   "node --experimental-strip-types scripts/test-send-size.mjs": 0,
   "node --experimental-strip-types scripts/test-from-account.mjs": 0,
   "node --experimental-strip-types scripts/test-attach-name.mjs": 0,
+  "node --experimental-strip-types scripts/test-folder-name.mjs": 0,
   "node --experimental-strip-types scripts/test-link-url.mjs": 0,
   "node scripts/test-csp-ready.mjs": 0,
   "node --experimental-strip-types scripts/test-update-result.mjs": 0,

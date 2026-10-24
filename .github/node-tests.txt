@@ -13,6 +13,8 @@ static | node --experimental-strip-types scripts/test-pasted-html.mjs
 static | node --experimental-strip-types scripts/test-send-size.mjs
 static | node --experimental-strip-types scripts/test-from-account.mjs
 static | node --experimental-strip-types scripts/test-attach-name.mjs
+# W6.8: the folder name in the save texts (Windows, POSIX, UNC, root)
+static | node --experimental-strip-types scripts/test-folder-name.mjs
 static | node --experimental-strip-types scripts/test-link-url.mjs
 static | node scripts/test-csp-ready.mjs
 static | node --experimental-strip-types scripts/test-update-result.mjs
