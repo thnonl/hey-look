@@ -2,6 +2,8 @@
 // MODES (DEC-022): the environment variable APT_SITE says whether the site being built carries the repository. pages.yml sets it from one fact only
 // (the branch `apt` exists: on, else off); nothing else may.
 //   no APT_SITE   local and the static shard: the checks of the sources below; the throw-away key fails unless APT_ALLOW_PLACEHOLDER_KEY=1 (DEC-020)
+//                 (release.yml sets that to 1 on every run that does not publish the APT repository, DEC-028: APT is OFF unless the repository variable
+//                 APT_PUBLISH is true, and then the key is not looked at as a fault but reported as a notice)
 //   APT_SITE=on   the same, and the throw-away key FAILS HARD (APT_ALLOW_PLACEHOLDER_KEY is ignored): a published branch `apt` with that key stops the deploy
 //   APT_SITE=off  the same, but the throw-away key is not checked (the key files are not deployed), and with --built=_site the BUILT site must be
 //                 dormant: no id="apt", no hl:apt- marker, no apt/ folder, no link to /apt/ or #apt, none of the 8 summary texts, none of the commands
@@ -17,9 +19,10 @@
 //   - the workflows: every `uses:` is pinned by a full SHA, the container images of the install test by digest, pages.yml runs this test
 //   - THE PLACEHOLDER KEY (DEC-020, DEC-001): until the owner's real signing key is committed, docs/apt carries a throw-away key with the UID
 //     "Hey Look! APT test (throwaway)". That is a FAILURE here, in every mode (the website and a release must not go with a fingerprint nobody
-//     can sign with). Only the exact value APT_ALLOW_PLACEHOLDER_KEY=1 turns this ONE check into a ::warning:: line; every other check stays strict.
-//     Where the variable is set: release.yml, job node-tests, on every run that is not a tag push (so branch runs and dry runs are green with the
-//     warning and a tag run fails). pages.yml and node-tests.txt never set it (scripts/test-apt-placeholder-guard.mjs keeps it that way).
+//     can sign with). Only the exact value APT_ALLOW_PLACEHOLDER_KEY=1 turns this ONE check into a ::notice:: line; every other check stays strict.
+//     Where the variable is set (DEC-028): release.yml, job node-tests, on every run that does not publish the APT repository, that is every run except a tag
+//     run with the repository variable APT_PUBLISH=true (so branch runs, dry runs and the tag run of a release WITHOUT APT are green with the notice, and a
+//     tag run that would publish the repository fails). pages.yml and node-tests.txt never set it (scripts/test-apt-placeholder-guard.mjs keeps it that way).
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -31,7 +34,7 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => fs.readFileSync(path.join(root, p), "utf8");
 const errors = [];
 const notes = [];
-const warnings = [];
+const notices = [];
 const fail = (where, msg) => errors.push(`${where}: ${msg}`);
 const rawMode = process.env.APT_SITE;
 if (rawMode !== undefined && rawMode !== "on" && rawMode !== "off") { console.error(`test-site-apt: APT_SITE is "${rawMode}", it must be on or off (or not set)`); process.exit(1); }
@@ -89,7 +92,7 @@ if (fs.existsSync(path.join(root, "docs/apt/heylook-archive-keyring.gpg"))) {
         notes.push(`APT_SITE=off: the throw-away key (${a.fpr}) is not checked, the key files are not deployed`);
       } else if (placeholder) {
         const msg = `docs/apt holds the throw-away key (${a.fpr}, UID "${PLACEHOLDER_UID}"), not the owner's signing key. Replace heylook-archive-keyring.asc/.gpg and the fingerprint on the 8 download pages (spec-107-wp15-apt.md section 12) before the website or a tag run uses them.`;
-        if (mode !== "on" && process.env.APT_ALLOW_PLACEHOLDER_KEY === "1") warnings.push(`APT signing key is the throw-away placeholder (DEC-001): tag runs and Pages deploys fail until the real key is committed`);
+        if (mode !== "on" && process.env.APT_ALLOW_PLACEHOLDER_KEY === "1") notices.push(`docs/apt holds the throw-away APT key (DEC-001). That is fine while no APT repository is published (repository variable APT_PUBLISH is not true, DEC-028): the site shows no APT block (DEC-022). A tag run with APT_PUBLISH=true, and a Pages deploy of a site that has the branch apt, fail here until the owner's real key is committed.`);
         else fail("docs/apt", msg);
       }
     }
@@ -219,7 +222,7 @@ for (const f of [".github/workflows/release.yml", ".github/workflows/pages.yml"]
 }
 
 for (const n of notes) console.log(`NOTE: ${n}`);
-for (const w of warnings) console.log(`::warning::${w}`);
+for (const w of notices) console.log(`::notice::${w}`);
 if (errors.length) {
   console.error(`test-site-apt: ${errors.length} problem(s)`);
   for (const e of errors) console.error(`  ${e}`);

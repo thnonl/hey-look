@@ -54,7 +54,7 @@ const planFile = path.join(dir, "plan.sh");
 writeFileSync(planFile, planScript);
 
 // --- one run of the plan job ---
-const runPlan = ({ event, platforms = "", testVersion = "", uiTests = "", signDry = "false", signpathVars = false, storeExe = "", storeSubmit = "", rehearse = "" }) => {
+const runPlan = ({ event, platforms = "", testVersion = "", uiTests = "", signDry = "false", signpathVars = false, storeExe = "", storeSubmit = "", rehearse = "", aptPublish = "" }) => {
   const out = path.join(dir, "out.txt");
   writeFileSync(out, "");
   const r = spawnSync(bash, [posix(planFile)], {
@@ -73,6 +73,7 @@ const runPlan = ({ event, platforms = "", testVersion = "", uiTests = "", signDr
       REQUIRE_WIN: "",
       STORE_EXE: storeExe,
       STORE_SUBMIT: storeSubmit,
+      APT_PUBLISH: aptPublish,
       GITHUB_OUTPUT: posix(out),
     },
   });
@@ -258,17 +259,17 @@ check("(d) dispatch asking for SignPath: signing follows the tests, with and wit
 });
 
 // (e) WP15, the APT repository: the tag job needs the published release and no secret is reachable from a dry run; the dry-run job has its own throw-away key
-check("(e) tag, all green: apt-repo runs after publish, the dry-run job does not", () => {
-  const r = run({ event: "push" });
+check("(e) tag with APT_PUBLISH=true, all green: apt-repo runs after publish, the dry-run job does not", () => {
+  const r = run({ event: "push", aptPublish: "true" });
   assert.equal(r.result["apt-repo"], "success");
   assert.equal(r.result["apt-repo-dryrun"], "skipped");
 });
-check("(e) tag, publish fails: no APT repository is made", () => {
-  assert.equal(run({ event: "push", fail: ["publish"] }).result["apt-repo"], "skipped");
-  assert.equal(run({ event: "push", fail: ["node-tests:ui-a"] }).result["apt-repo"], "skipped");
+check("(e) tag with APT_PUBLISH=true, publish fails: no APT repository is made", () => {
+  assert.equal(run({ event: "push", aptPublish: "true", fail: ["publish"] }).result["apt-repo"], "skipped");
+  assert.equal(run({ event: "push", aptPublish: "true", fail: ["node-tests:ui-a"] }).result["apt-repo"], "skipped");
 });
-check("(e) tag, apt-repo fails: the release stays published", () => {
-  const r = run({ event: "push", fail: ["apt-repo"] });
+check("(e) tag with APT_PUBLISH=true, apt-repo fails: the release stays published", () => {
+  const r = run({ event: "push", aptPublish: "true", fail: ["apt-repo"] });
   assert.equal(r.result.publish, "success");
   assert.equal(r.result["apt-repo"], "failure");
 });
@@ -318,8 +319,9 @@ check("(f) a failing package or install check never stops the GitHub release", (
     const r = run({ event: "push", fail: [job] });
     assert.equal(r.result[job], "failure");
     assert.equal(r.result.publish, "success", `publish after ${job} failed`);
-    assert.equal(r.result["apt-repo"], "success");
+    assert.equal(r.result["apt-repo"], "skipped", "APT is off by default (DEC-028)");
   }
+  assert.equal(run({ event: "push", aptPublish: "true", fail: ["msix"] }).result["apt-repo"], "success");
   assert.equal(run({ event: "push", fail: ["msix"] }).result["msix-check"], "skipped");
 });
 check("(f) the package is made when Windows is built and it is not a test build", () => {
@@ -410,6 +412,117 @@ check("(f) the jobs that publish name their Environment, the others have none an
     const b = block(name);
     for (const s of ["AZURE_AD_TENANT_ID", "AZURE_AD_APPLICATION_CLIENT_ID", "AZURE_AD_APPLICATION_SECRET", "SELLER_ID"]) assert.equal(b.split(`secrets.${s}`).length - 1, 1, `${name}: secrets.${s} once`);
   }
+});
+
+// (g) DEC-028: v1.0.7 is released without the APT repository and without the Microsoft Store. A tag run with no repository variable set must go green end to end:
+// every job that runs is green, publish is not held back by a skipped store job, nothing that waits for the owner (an Environment with reviewers, a key, Partner
+// Center) and no step that fails on purpose (the throw-away APT key) is on that path.
+const text = readFileSync(path.join(root, ".github/workflows/release.yml"), "utf8");
+const storesYml = readFileSync(path.join(root, ".github/workflows/linux-stores.yml"), "utf8");
+const blockOf = (src, name) => {
+  const head = `\n  ${name}:\n`;
+  const at = src.indexOf(head);
+  assert.ok(at >= 0, `${name} not found`);
+  const next = src.slice(at + head.length).search(/\n  [a-z][\w-]*:\n/);
+  return src.slice(at, next < 0 ? undefined : at + head.length + next);
+};
+// the value the node-tests job gives APT_ALLOW_PLACEHOLDER_KEY, with the plan output of that run
+const placeholderValue = (plan) => {
+  const m = /^      APT_ALLOW_PLACEHOLDER_KEY: \$\{\{ (.*) \}\}$/m.exec(text);
+  assert.ok(m, "the node-tests job does not set APT_ALLOW_PLACEHOLDER_KEY");
+  assert.ok(/needs\.plan\.outputs\.apt_publish/.test(m[1]), "the value does not follow the plan output apt_publish");
+  const js = m[1].replace(/needs\.plan\.outputs\.apt_publish/g, JSON.stringify(plan.apt_publish)).replace(/ == /g, " === ").replace(/ != /g, " !== ");
+  return String(new Function(`return (${js});`)());
+};
+const siteAptWith = (value) => {
+  const env = { ...process.env };
+  delete env.APT_SITE;
+  delete env.APT_ALLOW_PLACEHOLDER_KEY;
+  if (value !== undefined) env.APT_ALLOW_PLACEHOLDER_KEY = value;
+  return spawnSync(process.execPath, [path.join(root, "scripts/test-site-apt.mjs")], { env, encoding: "utf8" });
+};
+const bareSiteApt = siteAptWith(undefined); // (what the sources are like today: it fails while docs/apt holds the throw-away key)
+check("(g) tag, no repository variable: every job that runs is green, publish runs, the store and APT jobs are skipped", () => {
+  const plan = runPlan({ event: "push" });
+  assert.equal(plan.apt_publish, "false");
+  const r = run({ event: "push" });
+  assert.equal(r.result.publish, "success");
+  assert.equal(r.result.build, "success");
+  assert.equal(r.result["sign-windows"], "skipped");
+  for (const j of ["apt-repo", ...STORE_JOBS]) assert.equal(r.result[j], "skipped", j);
+  // nothing is red, and what ran is exactly the jobs of the tag path
+  const bad = Object.entries(r.result).filter(([, v]) => v !== "success" && v !== "skipped");
+  assert.deepEqual(bad, [], "a job is not green");
+  const ran = Object.entries(r.result).filter(([, v]) => v === "success").map(([k]) => k).sort();
+  assert.deepEqual(ran, ["audit", "build", "create-release", "msix", "msix-check", "node-tests", "plan", "publish", "rust-tests", "rust-tests-windows"]);
+});
+check("(g) publish is not held back by the skipped store jobs, nor by a failing MSIX or APT dry-run check", () => {
+  const needs = jobs.publish.needs;
+  assert.ok(needs.includes("store-exe") && !needs.includes("store-url") && !needs.includes("store-submit") && !needs.includes("apt-repo"), `publish needs ${needs}`);
+  assert.ok(!needs.some((n) => ["msix", "msix-check", "apt-repo-dryrun"].includes(n)), "publish needs a dry-run or package check");
+  assert.match(jobs.publish.cond, /contains\(fromJSON\('\["success","skipped"\]'\), needs\.store-exe\.result\)/, "publish does not accept a skipped store-exe");
+  for (const fail of [["msix"], ["msix-check"], ["msix", "msix-check"]]) assert.equal(run({ event: "push", fail }).result.publish, "success", fail.join());
+  assert.equal(run({ event: "workflow_dispatch", platforms: "all", fail: ["apt-repo-dryrun", "msix", "msix-check"] }).result.publish, "skipped", "a dry run never publishes");
+});
+check("(g) APT_PUBLISH: only a tag push with exactly the value true turns the APT job on", () => {
+  for (const value of ["", "false", "TRUE", "True", "1", "yes", "true ", " true", "on", "tru"]) {
+    assert.equal(runPlan({ event: "push", aptPublish: value }).apt_publish, "false", `'${value}'`);
+    assert.equal(run({ event: "push", aptPublish: value }).result["apt-repo"], "skipped", `'${value}'`);
+  }
+  assert.equal(runPlan({ event: "push", aptPublish: "true" }).apt_publish, "true");
+  for (const platforms of ["all", "linux", "windows"]) {
+    assert.equal(runPlan({ event: "workflow_dispatch", platforms, aptPublish: "true" }).apt_publish, "false", "a dry run never publishes");
+    assert.equal(run({ event: "workflow_dispatch", platforms, aptPublish: "true" }).result["apt-repo"], "skipped");
+  }
+  // the Store variables and APT_PUBLISH are independent
+  assert.equal(run({ event: "push", aptPublish: "true", storeSubmit: "true", outputs: { msix: { ready: "true" } } }).result["apt-repo"], "success");
+  assert.equal(run({ event: "push", storeExe: "true" }).result["apt-repo"], "skipped");
+});
+check("(g) the placeholder-key check of the node tests: a tag run without APT passes with the throw-away key, a tag run with APT does not", () => {
+  const off = runPlan({ event: "push" });
+  const on = runPlan({ event: "push", aptPublish: "true" });
+  assert.equal(placeholderValue(off), "1");
+  assert.equal(placeholderValue(runPlan({ event: "workflow_dispatch", platforms: "all", aptPublish: "true" })), "1", "a dry run");
+  assert.equal(placeholderValue(on), "0");
+  // the real script, with the value the workflow would give
+  const offRun = siteAptWith(placeholderValue(off));
+  assert.equal(offRun.status, 0, `test-site-apt.mjs in a tag run without APT: ${(offRun.stderr || offRun.stdout).slice(0, 400)}`);
+  const onRun = siteAptWith(placeholderValue(on));
+  if (bareSiteApt.status !== 0) {
+    assert.notEqual(onRun.status, 0, "a tag run that publishes the APT repository must fail on the throw-away key");
+    assert.match(onRun.stderr, /throw-away/);
+  } else assert.equal(onRun.status, 0, "(the real key is committed: both pass)");
+});
+check("(g) the secrets of the jobs that run in a tag run without variables are the ones the earlier tag runs used; no APT, Store or Snap secret", () => {
+  const r = run({ event: "push" });
+  const known = new Set(["GITHUB_TOKEN", "TAURI_SIGNING_PRIVATE_KEY", "TAURI_SIGNING_PRIVATE_KEY_PASSWORD", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "MICROSOFT_CLIENT_ID", "MICROSOFT_CLIENT_SECRET", "APPLE_CERTIFICATE", "APPLE_CERTIFICATE_PASSWORD", "APPLE_SIGNING_IDENTITY", "APPLE_API_ISSUER", "APPLE_API_KEY", "APPLE_API_PRIVATE_KEY", "APPLE_ID", "APPLE_PASSWORD"]);
+  for (const [name, res] of Object.entries(r.result)) {
+    if (res !== "success") continue;
+    const code = blockOf(text, name).split("\n").filter((l) => !/^\s*#/.test(l)).join("\n");
+    for (const m of code.matchAll(/secrets\.([A-Za-z0-9_]+)/g)) assert.ok(known.has(m[1]), `job ${name} (runs in a tag run without variables) reads secrets.${m[1]}`);
+    // an Environment that needs a reviewer is only `store`; `release` has the tag rule only
+    assert.ok(!/^    environment: store$/m.test(code), `job ${name} waits for the Environment store`);
+  }
+  // the jobs that read the APT, Store or Snap secrets are the ones that are skipped
+  for (const j of ["apt-repo", "store-submit", "store-submit-exe"]) assert.equal(r.result[j], "skipped", j);
+  // the snap of linux-stores.yml: built on a tag, uploaded only with SNAP_PUBLISH=true (the store login secret is read in that step only)
+  const up = /      - name: Upload to the Snap Store \(candidate\)\n        if: (.*)\n/.exec(storesYml);
+  assert.ok(up, "no upload step in linux-stores.yml");
+  assert.ok(up[1].includes("vars.SNAP_PUBLISH == 'true'") && up[1].includes("github.event_name == 'push'"), up[1]);
+  const code = storesYml.split("\n").filter((l) => !/^\s*#/.test(l)).join("\n");
+  assert.equal((code.match(/secrets\.SNAPCRAFT_STORE_CREDENTIALS/g) ?? []).length, 1);
+  assert.equal((code.match(/vars\.SNAP_PUBLISH/g) ?? []).length, 1);
+  const evalUp = (snap) => new Function("event", "refType", "snap", `return (${up[1].replace(/github\.event_name/g, "event").replace(/github\.ref_type/g, "refType").replace(/vars\.SNAP_PUBLISH/g, "snap").replace(/ == /g, " === ")});`)("push", "tag", snap);
+  assert.equal(evalUp(""), false);
+  assert.equal(evalUp(undefined), false);
+  assert.equal(evalUp("TRUE"), false);
+  assert.equal(evalUp("true"), true);
+});
+check("(g) the two variables are read nowhere else: APT_PUBLISH only in the plan job, SNAP_PUBLISH only in linux-stores.yml", () => {
+  const lines = text.split("\n").filter((l) => !/^\s*#/.test(l));
+  assert.equal(lines.filter((l) => /vars\.APT_PUBLISH/.test(l)).length, 1);
+  assert.ok(blockOf(text, "plan").includes("vars.APT_PUBLISH"));
+  assert.ok(!/SNAP_PUBLISH/.test(lines.join("\n")));
 });
 
 // (f) WP11: the signing rehearsal and the Windows Rust tests
