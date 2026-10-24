@@ -82,7 +82,7 @@ function at(d, word, nth = 0) {
   return hit;
 }
 const sel = (d, word, nth = 0) => [at(d, word, nth), at(d, word, nth) + word.length];
-const marksOf = (d, word, nth = 0) => d.nodeAt(at(d, word, nth)).marks.map((m) => m.type.name + (Object.keys(m.attrs).length ? JSON.stringify(Object.fromEntries(Object.entries(m.attrs).filter(([, v]) => v !== null))) : "")).sort();
+const marksOf = (d, word, nth = 0) => d.nodeAt(at(d, word, nth)).marks.map((m) => m.type.name + (Object.keys(m.attrs).length ? JSON.stringify(Object.fromEntries(Object.entries(m.attrs).filter(([k, v]) => v !== null && (m.type.name !== "link" || k === "href")))) : "")).sort();
 const apply = (st, src, opts) => {
   const r = applyPainter(st, src, opts);
   return { ...r, state: r.tr ? st.apply(r.tr) : st };
@@ -126,7 +126,7 @@ const fmt = [M("bold"), M("textStyle", { fontFamily: "Georgia, serif", fontSize:
 {
   const d = doc(P(null, txt("ab", M("bold")), txt("cd", M("italic"))));
   assert.deepEqual(pickUp(stateOf(d, 2, 5)).marks.map((m) => m.type.name), ["bold"], "the first character of the selection");
-  assert.deepEqual(pickUp(stateOf(d, 4, 4)).marks.map((m) => m.type.name), ["bold"].concat([]).length ? pickUp(stateOf(d, 4, 4)).marks.map((m) => m.type.name) : [], "at the join the caret has the marks of the text before it");
+  assert.deepEqual(pickUp(stateOf(d, 3, 3)).marks.map((m) => m.type.name), ["bold"], "at the join the caret has the marks of the text before it");
   const st = stateOf(d, 5, 5);
   const stored = st.apply(st.tr.setStoredMarks([M("underline")]));
   assert.deepEqual(pickUp(stored).marks.map((m) => m.type.name), ["underline"], "stored marks win at a caret");
@@ -269,7 +269,7 @@ const fmt = [M("bold"), M("textStyle", { fontFamily: "Georgia, serif", fontSize:
 
 // ---- the click rule: the caret paints a word; no word, no text change but the paragraph and the stored marks
 {
-  const d = doc(P({ textAlign: "center" }, txt("Gamma value")), P(null, txt("")), P(null, txt("left")));
+  const d = doc(P({ textAlign: "center" }, txt("Gamma value")), P(null), P(null, txt("left")));
   const src = { marks: [M("bold")], block: { style: "normal", attrs: { textAlign: "right", direction: null, lineHeight: null, spaceAfter: null, indent: 0 } } };
   const st = stateOf(d, at(d, "Gamma") + 2);
   const word = apply(st, src, { word: [at(d, "Gamma"), at(d, "Gamma") + 5] });

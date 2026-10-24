@@ -43,6 +43,7 @@
     { "module": "src/popout/ComposeView.tsx", "reason": "the view of the compose window, a chunk of its own, only in that window", "since": "1.0.7" },
     { "module": "src/popout/ReaderView.tsx", "reason": "the view of the reader window, a chunk of its own, only in that window (it never loads the editor)", "since": "1.0.7" },
     { "module": "src/editor/autoFormat.ts", "reason": "AutoFormat as you type (W3.2, DEC-015 item 4): the replacement rules and the plugin, with the editor stack", "since": "1.0.7" },
+    { "module": "src/editor/formatPainter.ts", "reason": "Format painter (W3.1, DEC-015 item 4): pick-up, paint, the plugin and the brush pointer, with the editor stack", "since": "1.0.7" },
     { "module": "node_modules/prosemirror-*", "reason": "the editor engine, with the editor stack", "since": "1.0.7" },
     { "module": "node_modules/@tiptap/*", "reason": "the editor framework, with the editor stack", "since": "1.0.7" },
     { "module": "src/editor/emojiSearch.ts", "reason": "emoji search and the loader of the names, with the picker", "since": "1.0.7" },

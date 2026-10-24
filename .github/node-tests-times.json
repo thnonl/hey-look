@@ -212,6 +212,8 @@
   "node scripts/test-msix-build.mjs": 1,
   "node scripts/test-store-exe.mjs": 25,
   "node --experimental-strip-types scripts/test-autoformat.mjs": 0,
-  "node scripts/test-autoformat-ui.mjs --require-browser": 70
+  "node scripts/test-autoformat-ui.mjs --require-browser": 70,
+  "node --experimental-strip-types scripts/test-format-painter.mjs": 0,
+  "node scripts/test-painter-mini.mjs --require-browser": 80
  }
 }
