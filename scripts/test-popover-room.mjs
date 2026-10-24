@@ -72,6 +72,12 @@ const btn = (left, top, w = 30, h = 28) => ({ left, right: left + w, top, bottom
   assert.deepEqual([p.top, p.up], [30 + 20 + 8, false]);
   assert.equal(placePopover(box(400, 8 + 8 + 36), tb, W, O).up, true, 'exactly enough room above (8 px from the top edge)');
   assert.equal(placePopover(box(400, 8 + 8 + 36 - 1), tb, W, O).up, false, 'one px less: below');
+  // D-090: the room above ends at the roof (the bottom of the formatting toolbar), not at the window edge
+  assert.equal(placePopover(box(400, 120), tb, W, { ...O, roof: 100 }).up, false, 'a word 20 px under the formatting toolbar: below it');
+  assert.equal(placePopover(box(400, 100 + 8 + 36), tb, W, { ...O, roof: 100 }).up, true, 'exactly 8 + 36 under the roof: above');
+  assert.equal(placePopover(box(400, 100 + 8 + 36 - 1), tb, W, { ...O, roof: 100 }).up, false, 'one px less: below');
+  assert.equal(placePopover(box(400, 120), tb, W, { ...O, roof: 0 }).up, true, 'no roof: as before');
+  assert.equal(placePopover(box(400, 120), tb, W, { ...O, roof: 4 }).up, true, 'a roof above the edge changes nothing');
   // neither side has the room (a selection that fills the window): null, never a covered selection
   assert.equal(placePopover(box(100, 30, 800, 500), tb, W, O), null);
   assert.equal(placePopover(box(100, 20, 800, 530), tb, W, O), null);
