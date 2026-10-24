@@ -49,6 +49,7 @@
     "allow-list-threads",
     "allow-locate-thread",
     "allow-get-thread",
+    "allow-get-thread-packed",
     "allow-thread-action",
     "allow-prepare-action",
     "allow-list-senders",

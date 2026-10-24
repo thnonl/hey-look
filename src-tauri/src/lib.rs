@@ -3091,6 +3091,45 @@ async fn get_thread(state: tauri::State<'_, AppState>, thread_id: String, scope:
     blocking(move || get_thread_in(&db, &thread_id, scope, light.unwrap_or(false))).await
 }
 
+/// `get_thread` for the page as ONE raw byte buffer instead of a JSON string (D-103): a conversation with a 2 MB mail used to travel as a 2 MB JSON string that the web view
+/// (WKWebView on macOS) kept alive long after the page was done with it (about the size of every large answer, Mac QA bisect). The buffer is read once by `unpackThread` (src/threadPack.ts):
+/// the metadata JSON of the messages (everything `MessageFull` has except `html` and `text`, small) and the bodies as raw UTF-8, no JSON string of them and no second copy of them to parse.
+/// Layout (little-endian): u32 length of the metadata JSON, the metadata JSON (an array, `html` and `text` null), then for each message in the same order: u32 html code, u32 text code
+/// (0 = none, n + 1 = n bytes), the html bytes, the text bytes. Same arguments and same messages as `get_thread`, which stays for callers that want the JSON form.
+#[tauri::command]
+async fn get_thread_packed(state: tauri::State<'_, AppState>, thread_id: String, scope: Option<String>, light: Option<bool>) -> R<tauri::ipc::Response> {
+    let db = state.db.clone();
+    let bytes = blocking(move || pack_thread(get_thread_in(&db, &thread_id, scope, light.unwrap_or(false))?)).await?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// The packed form of a conversation (see `get_thread_packed`): the bodies are taken out of the messages, so the metadata JSON carries none and the bodies are copied once, as bytes.
+fn pack_thread(mut messages: Vec<MessageFull>) -> R<Vec<u8>> {
+    let bodies: Vec<(Option<String>, Option<String>)> = messages.iter_mut().map(|m| (m.html.take(), m.text.take())).collect();
+    let meta = serde_json::to_vec(&messages).map_err(err)?;
+    drop(messages);
+    let code = |s: &Option<String>| -> R<u32> {
+        match s {
+            None => Ok(0),
+            Some(s) => u32::try_from(s.len()).ok().and_then(|n| n.checked_add(1)).ok_or_else(|| "MSG_TOO_BIG: a message body is over 4 GB".to_string()),
+        }
+    };
+    let mut total = 4 + meta.len();
+    for (h, t) in &bodies {
+        total += 8 + h.as_ref().map_or(0, String::len) + t.as_ref().map_or(0, String::len);
+    }
+    let mut out = Vec::with_capacity(total);
+    out.extend_from_slice(&u32::try_from(meta.len()).map_err(|_| "MSG_TOO_BIG: the messages are over 4 GB".to_string())?.to_le_bytes());
+    out.extend_from_slice(&meta);
+    for (h, t) in &bodies {
+        out.extend_from_slice(&code(h)?.to_le_bytes());
+        out.extend_from_slice(&code(t)?.to_le_bytes());
+        out.extend_from_slice(h.as_deref().unwrap_or("").as_bytes());
+        out.extend_from_slice(t.as_deref().unwrap_or("").as_bytes());
+    }
+    Ok(out)
+}
+
 fn get_thread_in(db: &Db, thread_id: &str, scope: Option<String>, light: bool) -> R<Vec<MessageFull>> {
     let cols = if light { MESSAGE_COLS_LIGHT } else { MESSAGE_COLS };
     // the rows are read with the lock; the messages are opened without it
@@ -6537,6 +6576,7 @@ pub fn run() {
             os_color_scheme,
             open_notification_settings,
             print_html,
+            get_thread_packed,
             notify_caps,
             play_notify_sound,
             create_mail_folder,
@@ -7439,16 +7479,16 @@ mod capability_tests {
         // (kind, capability file, window pattern, what the view needs on top of the basics, what it must not get on top of `never`)
         let kinds: [(&str, &str, &[&str], &[&str]); 4] = [
             ("event", "event-*", &["calendar_get_event", "calendar_save_event", "calendar_delete_event", "calendar_list_calendars", "suggest_contacts", "list_accounts"], &[
-                "add_account", "update_account", "remove_account", "set_secret", "set_setting", "pgp_export_secret", "pgp_generate_key", "check_update", "update_download", "list_threads", "get_thread", "outbox_send_now", "popout_open", "calendar_connect", "calendar_respond",
+                "add_account", "update_account", "remove_account", "set_secret", "set_setting", "pgp_export_secret", "pgp_generate_key", "check_update", "update_download", "list_threads", "get_thread", "get_thread_packed", "outbox_send_now", "popout_open", "calendar_connect", "calendar_respond",
             ]),
             ("search", "search-*", &["list_threads", "thread_meta", "locate_thread", "popout_open", "list_accounts", "list_folders"], &[
-                "add_account", "update_account", "remove_account", "set_secret", "set_setting", "pgp_export_secret", "pgp_generate_key", "check_update", "update_download", "get_thread", "get_raw", "calendar_save_event", "outbox_send_now", "cancel_outbox",
+                "add_account", "update_account", "remove_account", "set_secret", "set_setting", "pgp_export_secret", "pgp_generate_key", "check_update", "update_download", "get_thread", "get_thread_packed", "get_raw", "calendar_save_event", "outbox_send_now", "cancel_outbox",
             ]),
             ("scheduled", "scheduled-*", &["list_outbox", "outbox_open_for_edit", "outbox_release", "outbox_retry", "outbox_send_now", "cancel_outbox", "outbox_to_draft", "pgp_unlock", "popout_open", "list_accounts"], &[
-                "add_account", "update_account", "remove_account", "set_secret", "set_setting", "pgp_export_secret", "pgp_generate_key", "check_update", "update_download", "list_threads", "get_thread", "calendar_save_event", "send_message",
+                "add_account", "update_account", "remove_account", "set_secret", "set_setting", "pgp_export_secret", "pgp_generate_key", "check_update", "update_download", "list_threads", "get_thread", "get_thread_packed", "calendar_save_event", "send_message",
             ]),
             ("settings", "settings-*", &["add_account", "update_account", "remove_account", "set_secret", "set_setting", "save_signature", "save_template", "save_rule", "pgp_generate_key", "pgp_export_secret", "check_update", "update_download", "update_defer", "calendar_connect", "get_autostart", "set_autostart"], &[
-                "list_threads", "get_thread", "get_raw", "calendar_save_event", "calendar_delete_event", "outbox_send_now", "cancel_outbox", "popout_open", "attachment_data",
+                "list_threads", "get_thread", "get_thread_packed", "get_raw", "calendar_save_event", "calendar_delete_event", "outbox_send_now", "cancel_outbox", "popout_open", "attachment_data",
             ]),
         ];
         let pop = capability("popout.json");
@@ -9026,5 +9066,108 @@ mod reply_header_tests {
         let code = include_str!("lib.rs");
         assert!(code.contains("startup::line(\"reply\", \"headers: fallback\")"));
         assert!(code.contains("startup::line(\"reply\", &replyhdr::log_text(&h, source, &own))"));
+    }
+}
+
+/// D-103: `get_thread_packed` answers the conversation as one raw buffer (metadata JSON without the bodies + the bodies as UTF-8 bytes) instead of one JSON string with 2 MB of HTML in it.
+#[cfg(test)]
+mod packed_thread_tests {
+    use super::*;
+
+    fn account() -> Account {
+        Account {
+            id: "a1".into(), email: "me@example.com".into(), display_name: "Me".into(), imap_host: "h".into(), imap_port: 993, imap_ssl: true,
+            smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
+            smtp_username: String::new(), tls_insecure: false, reply_to: String::new(),
+        }
+    }
+
+    fn message(c: &Connection, uid: u32, subject: &str) -> MessageFull {
+        let raw = format!("From: Ann <ann@example.com>\r\nTo: me@example.com\r\nSubject: {subject}\r\nMessage-ID: <m{uid}@example.com>\r\nDate: Mon, 12 Oct 2026 10:00:0{uid} +0000\r\n\r\nbody\r\n");
+        let p = mail::parse(uid, raw.as_bytes(), false, false, 0).unwrap();
+        insert_parsed(c, &account(), "inbox", &p).unwrap();
+        message_full(c, &format!("a1:inbox:{uid}")).unwrap()
+    }
+
+    /// The reader of the buffer, as `unpackThread` in src/threadPack.ts does it: (metadata JSON, bodies).
+    fn unpack(b: &[u8]) -> (serde_json::Value, Vec<(Option<String>, Option<String>)>) {
+        let u32_at = |at: usize| u32::from_le_bytes(b[at..at + 4].try_into().unwrap()) as usize;
+        let n = u32_at(0);
+        let meta: serde_json::Value = serde_json::from_slice(&b[4..4 + n]).unwrap();
+        let mut at = 4 + n;
+        let mut bodies = Vec::new();
+        for _ in 0..meta.as_array().unwrap().len() {
+            let (h, t) = (u32_at(at), u32_at(at + 4));
+            at += 8;
+            let mut take = |code: usize| {
+                if code == 0 {
+                    return None;
+                }
+                let s = String::from_utf8(b[at..at + code - 1].to_vec()).unwrap();
+                at += code - 1;
+                Some(s)
+            };
+            let html = take(h);
+            let text = take(t);
+            bodies.push((html, text));
+        }
+        assert_eq!(at, b.len(), "nothing is left over");
+        (meta, bodies)
+    }
+
+    #[test]
+    fn the_packed_conversation_has_the_metadata_without_bodies_and_the_bodies_as_they_were() {
+        let c = db::test_conn(&["a1"]);
+        let mut a = message(&c, 1, "first");
+        let mut b = message(&c, 2, "second");
+        let mut third = message(&c, 3, "third");
+        let big = format!("<p>{}</p>", "é€😀 ".repeat(200_000)); // about 1.2 MB of multi-byte text
+        a.html = Some(big.clone());
+        a.text = Some("plain ü".into());
+        b.html = None; // a message without a text part, one without an HTML part
+        b.text = Some(String::new()); // (an empty body is not "none")
+        third.html = Some("<p>x</p>".into());
+        third.text = None;
+        let want = serde_json::to_value(vec![&a, &b, &third]).unwrap();
+        let bytes = pack_thread(vec![a, b, third]).unwrap();
+        let (meta, bodies) = unpack(&bytes);
+        // the metadata is everything the JSON form carries, except the two bodies
+        let mut expected = want.clone();
+        for m in expected.as_array_mut().unwrap() {
+            m["html"] = serde_json::Value::Null;
+            m["text"] = serde_json::Value::Null;
+        }
+        assert_eq!(meta, expected);
+        assert!(!String::from_utf8_lossy(&bytes[..4 + meta.to_string().len() + 8]).contains("é€"), "no body inside the metadata");
+        assert!(serde_json::to_vec(&meta).unwrap().len() < 4_000, "the metadata stays small whatever the bodies are");
+        // the bodies are byte for byte what the JSON form has
+        let bodies_json: Vec<(Option<String>, Option<String>)> =
+            want.as_array().unwrap().iter().map(|m| (m["html"].as_str().map(String::from), m["text"].as_str().map(String::from))).collect();
+        assert_eq!(bodies, bodies_json);
+        assert_eq!(bodies[0].0.as_deref(), Some(big.as_str()));
+        assert_eq!(bodies[1], (None, Some(String::new())));
+        assert_eq!(bodies[2], (Some("<p>x</p>".into()), None));
+    }
+
+    #[test]
+    fn an_empty_conversation_packs_to_an_empty_list() {
+        let (meta, bodies) = unpack(&pack_thread(Vec::new()).unwrap());
+        assert_eq!(meta, serde_json::json!([]));
+        assert!(bodies.is_empty());
+    }
+
+    /// The command answers raw bytes (not a JSON value), has the arguments of `get_thread`, and is in the three places with the same windows as `get_thread`.
+    #[test]
+    fn the_command_is_raw_and_placed_like_get_thread() {
+        let lib = crate::test_guard::non_test_code(include_str!("lib.rs"));
+        assert!(lib.contains("async fn get_thread_packed(state: tauri::State<'_, AppState>, thread_id: String, scope: Option<String>, light: Option<bool>) -> R<tauri::ipc::Response>"));
+        assert!(lib.contains("tauri::ipc::Response::new(bytes)"));
+        let handler = &lib[lib.find("tauri::generate_handler![").unwrap()..];
+        assert!(handler.contains("get_thread_packed,"));
+        assert!(include_str!("../build.rs").contains("\"get_thread\", \"get_thread_packed\""));
+        for f in ["default", "popout"] {
+            let c = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("capabilities").join(format!("{f}.json"))).unwrap();
+            assert!(c.contains("\"allow-get-thread\"") && c.contains("\"allow-get-thread-packed\""), "{f}: the two commands go together");
+        }
     }
 }

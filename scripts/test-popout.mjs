@@ -386,7 +386,7 @@ assert.equal(popoutTitle(readerTitleText("", "(no subject)")), "(no subject) –
     const c = /invoke(?:<[^(]*>)?\("(\w+)"/.exec(line);
     if (c && prop) cmd.set(prop, c[1]);
   }
-  assert.equal(cmd.get("getThread"), "get_thread");
+  assert.equal(cmd.get("getThread"), "get_thread_packed");
   assert.equal(cmd.get("popoutRequest"), "popout_request");
   const allowed = new Set(JSON.parse(read("src-tauri/capabilities/popout.json")).permissions.filter((p) => p.startsWith("allow-")).map((p) => p.slice(6).replace(/-/g, "_")));
   let checked = 0;

@@ -4,7 +4,7 @@
 //   the open mail is NOT parsed again (DOMParser.parseFromString is called 0 times per cycle once the mail is shown: before, 4 parses of 2 MB per cycle left parsed documents that WebKit collects
 //   late), no get_thread result or cleaned copy piles up (JS heap after GC grows by less than 3 MB over 20 cycles after 15 of warm-up, the number is calibrated: the same run before the fix
 //   gave the same heap in Chrome, because V8 collects the parsed documents at once; the parse count is the part that does not depend on the engine's collector), the DOM and listener
-//   counts do not grow, and a changed picture state or language still rebuilds the html
+//   counts do not grow, 50 reads of the 2 MB conversation through the packed command keep no bytes (D-103), and a changed picture state or language still rebuilds the html
 //   node scripts/test-main-reader-memory.mjs [--require-browser]
 import assert from 'node:assert/strict';
 import { languageJs, sleep, startHarness } from './cdp-harness.mjs';
@@ -75,6 +75,18 @@ try {
     await evaluate('window.__pc = 0; 1');
     for (let i = 0; i < 3; i++) await cycle(IDS.huge, i);
     assert.equal(await evaluate('window.__pc'), 0);
+  });
+  // D-103 (fix39): the conversation arrives as one raw buffer (src/threadPack.ts); the bytes of the answers are not kept: the heap after 60 reads of the 2 MB conversation is where it was after 10 (the Mac QA loop, invoke x80,
+  // grew WebContent by 0.8 MB per call while the answer was a JSON string; the page cannot see WebKit Malloc, so this counts what the page itself could keep)
+  await check('reads of the 2 MB conversation through the packed command keep no bytes', async () => {
+    await evaluate('window.__store.getState().select(null); 1');
+    await sleep(500);
+    const read = (k) => evaluate(`(async () => { const { api } = await import('/src/api.ts'); let n = 0; for (let i = 0; i < ${k}; i++) n += (await api.getThread(${JSON.stringify(IDS.huge)})).length; return n; })()`);
+    await read(10);
+    const a = await metrics();
+    await read(50);
+    const z = await metrics();
+    assert.ok(z.heapMB - a.heapMB < 3, `JS heap grew by ${(z.heapMB - a.heapMB).toFixed(2)} MB over 50 reads of a 2 MB conversation`);
   });
 } finally {
   await H.shutdown();
