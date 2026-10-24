@@ -1,0 +1,402 @@
+Process 85804 is not debuggable. Due to security restrictions, leaks can only show or save contents of readonly memory of restricted processes.
+
+Tracing: <NSKVONotifying_TaoWindow 0x78fbba6080> [640]
+
+Found 101 roots referencing: <NSKVONotifying_TaoWindow 0x78fbba6080> [640]
+
+This is a reverse reference tree showing how the specified block is referenced.
+The top node is the specified block, the next level down are blocks that reference that, and so on.
+The number at the start of each line is the number of paths-to-roots going through that node.
+
+    101 <NSKVONotifying_TaoWindow 0x78fbba6080> [640]
+      26 <non-object from hey-look 0x78fba91900> [1280]   +720:  0x78fba91bd0
+      + 26 <..NSKVONotifying_wry::wkwebview::class::wry_web_view::WryWebView0.57.0 0x78fa418f00> [1280]  +1144: ivars + 16 0x78fa419378 --> offset 1024
+      +   12 <WebKit::NavigationState 0x1220c40e0> [112]    +16:  0x1220c40f0
+      +   ! 11 <non-object in zone WebKit Malloc_0x1196625f8 0x123060000> [3072]   +416:  0x1230601a0 --> offset 56
+      +   ! : 11 <WTF::RunLoop 0x122008180> [160]    +24:  0x122008198 --> offset 16
+      +   ! :   4 <CFRunLoopSource 0x78fa5d88c0> [224]   +112:  0x78fa5d8930
+      +   ! :   | 3 <CFSet (Value Storage) 0x78fc781680> [640]   +480: __strong  0x78fc781860
+      +   ! :   | + 3 <CFSet 0x78fac4a480> [64]    +40: __strong _values 0x78fac4a4a8
+      +   ! :   | +   3 <CFRunLoop 0x78fa914000> [3072]  +2648:  0x78fa914a58
+      +   ! :   | +     1 <CVDisplayLink 0x78fb674000> [1536]   +632:  0x78fb674278
+      +   ! :   | +     ! 1 <CFSet (Value Storage) 0x78fb8de580> [64]     +0: __strong  0x78fb8de580 --> offset 32
+      +   ! :   | +     !   1 <CFSet 0x78fa9df140> [64]    +40: __strong _values 0x78fa9df168
+      +   ! :   | +     !     1 Region __DATA_DIRTY /System/Library/Frameworks/CoreVideo.framework/Versions/A/CoreVideo __DATA_DIRTY __bss: 'gActiveDisplayLinkSet' 0x1ec020850
+      +   ! :   | +     1 <CVDisplayLink 0x78fb674600> [1536]   +632:  0x78fb674878
+      +   ! :   | +     ! 1 <calloc in SLDisplayRegisterReconfigurationCallback 0x78fb40a0a0> [32]     +8:  0x78fb40a0a8 --> offset 32
+      +   ! :   | +     !   1 <calloc in SLDisplayRegisterReconfigurationCallback 0x78fc4c7320> [32]    +16:  0x78fc4c7330
+      +   ! :   | +     !     1 Region SkyLight __DATA __bss: 'sReconfigNotifierControl' 0x1ea14d010
+      +   ! :   | +     1 <NSTimer 0x78fc454c40> [224]    +88:  0x78fc454c98
+      +   ! :   | +       1 Region __DATA_DIRTY /System/Library/Frameworks/QuartzCore.framework/Versions/A/QuartzCore __DATA_DIRTY __bss: 'CA::callback_timer' 0x1ec015138
+      +   ! :   | 1 <CFSet (Value Storage) 0x78fb07ed80> [112]    +48: __strong  0x78fb07edb0
+      +   ! :   |   1 <CFSet 0x78fac4b900> [64]    +40: __strong _values 0x78fac4b928
+      +   ! :   |     1 <CFRunLoopMode 0x78fac902a0> [224]    +96:  0x78fac90300
+      +   ! :   |       1 <CFSet (Value Storage) 0x78fbad6340> [192]    +32: __strong  0x78fbad6360
+      +   ! :   |         1 <CFSet 0x78fac4a400> [64]    +40: __strong _values 0x78fac4a428
+      +   ! :   |           1 Region Stack thread 1 __CFRunLoopRun (in CoreFoundation) + 2032 0x16b8d29e0
+      +   ! :   2 <WebKit::WebProcessProxy 0x12208c680> [1472]   +192:  0x12208c740
+      +   ! :   | 2 <non-object in zone WebKit Malloc_0x1196625f8 0x122040390> [16]     +8:  0x122040398
+      +   ! :   |   2 <WebKit::LogStream 0x1221000f0> [48]    +24:  0x122100108
+      +   ! :   |     2 <IPC::StreamServerConnection 0x12204c180> [192]    +56:  0x12204c1b8
+      +   ! :   |       2 <non-object in zone WebKit Malloc_0x1196625f8 0x122002b00> [128]     +0:  0x122002b00
+      +   ! :   |         2 <IPC::StreamConnectionWorkQueue 0x122002980> [128]   +104:  0x1220029e8
+      +   ! :   |           1 <WTF::Detail::CallableWrapper<IPC::StreamConnectionWorkQueue::startProcessingThread()::$_0, void> 0x1220043b0> [16]     +8:  0x1220043b8
+      +   ! :   |           + 1 Region Stack thread 20 semaphore_wait_trap (in libsystem_kernel.dylib) + 8 0x16e116f78
+      +   ! :   |           1 Thread 20  Thread_12451746: Log work queue $x19
+      +   ! :   1 <non-object in zone WebKit Malloc_0x1196625f8 0x122001c00> [128]   +112:  0x122001c70
+      +   ! :   | 1 <non-object in zone WebKit Malloc_0x1196625f8 0x1220204e0> [416]    +16:  0x1220204f0
+      +   ! :   |   1 <__NSMallocBlock__ 0x78fc48ae80> [64]  WebKit  invocation function for block in IPC::Connection::initializeSendSource()  0x1b4d32ea8    +32: [capture] 0x78fc48aea0
+      +   ! :   |     1 <calloc in _dispatch_async_f_slow 0x78fc541180> [80]    +40:  0x78fc5411a8
+      +   ! :   |       1 <calloc in _dispatch_unote_create 0x78fb754bd0> [112]    +64:  0x78fb754c10
+      +   ! :   |         1 <calloc in _dispatch_unote_register_muxed 0x78fb671f80> [112]    +16:  0x78fb671f90
+      +   ! :   |           1 Region __DATA_DIRTY /usr/lib/system/libdispatch.dylib __DATA_DIRTY __bss: '_dispatch_sources' + 528 0x1ebf79fd8
+      +   ! :   1 Region WebCore __DATA __bss: '_MergedGlobals.330' + 96 0x1eaab9048
+      +   ! :   1 Region WebKit __DATA __common: 'WebKit::GPUProcessProxy::keepProcessAliveTemporarily()::releaseGPUProcessTimer' + 8 0x1eaad2e40
+      +   ! :   1 Region __DATA_DIRTY /System/Library/Frameworks/JavaScriptCore.framework/Versions/A/JavaScriptCore __DATA_DIRTY __common: 'WTF::s_mainRunLoop' 0x1ec69d618
+      +   ! :   1 Region __DATA_DIRTY /System/Library/Frameworks/WebKit.framework/Versions/A/Frameworks/WebCore.framework/Versions/A/WebCore __DATA_DIRTY __bss: '_MergedGlobals' + 312 0x1ec7135a8
+      +   ! 1 <non-object in zone WebKit Malloc_0x1196625f8 0x122040360> [16]     +8:  0x122040368
+      +   !   1 <non-object in zone WebKit Malloc_0x1196625f8 0x122009120> [160]    +40:  0x122009148
+      +   !     1 Region __DATA_DIRTY /System/Library/Frameworks/WebKit.framework/Versions/A/WebKit __DATA_DIRTY __common: 'WebKit::navigationStates()::navigationStates' 0x1ec72eb00 --> offset 16
+      +   9 <NSKVONotifying_TaoWindow 0x78fb62e300> [640]    +32: _firstResponder 0x78fb62e320
+      +   ! 8 <TaoApp 0x78fa928000> [384]    +32: _keyWindow 0x78fa928020
+      +   ! : 5 <malloc in _CFXNotificationRegistrarAddObserver 0x78fa79b800> [5120]  +1016:  0x78fa79bbf8
+      +   ! : | 5 <CFXNotificationRegistrar 0x78fac40240> [192]   +144:  0x78fac402d0
+      +   ! : |   5 <CFNotificationCenter 0x78fb033040> [64]    +16:  0x78fb033050
+      +   ! : |     4 <__NSMallocBlock__ 0x78fb042520> [48]  CoreFoundation  ____CFXNotificationCenterSetupConnection_block_invoke  0x18650d688    +32: [capture] 0x78fb042540
+      +   ! : |     + 4 <xpc_connection_t 0x78fb404140> [320]  "com.apple.distributed_notifications@Uv3" [no process]    +32: [capture] 0x78fb404160
+      +   ! : |     +   4 <calloc in _dispatch_unote_create 0x78fac4aa40> [64]    +48:  0x78fac4aa70
+      +   ! : |     +     4 <dispatch_mach_t 0x78fb045220> [160]  "com.apple.distributed_notifications@Uv3"    +88: [capture] 0x78fb045278
+      +   ! : |     +       3 <calloc in dispatch_mach_send_barrier 0x78fb584460> [80]    +56:  0x78fb584498
+      +   ! : |     +       ! 2 <calloc in _dispatch_apply_with_attr_f 0x78fb9ea260> [80]    +16:  0x78fb9ea270
+      +   ! : |     +       ! : 2 <calloc in _dispatch_source_timer_create 0x78fab00200> [128]    +40:  0x78fab00228
+      +   ! : |     +       ! :   2 <dispatch_source_t 0x78fb9fea80> [160]    +88: [capture] 0x78fb9fead8
+      +   ! : |     +       ! :     2 <AGXG13XDevice 0x78fa4ac000> [3072]   +992: _device_pool_cleanup_source 0x78fa4ac3e0
+      +   ! : |     +       ! :       1 <GLDDeviceRec 0x78fc044000> [540672]    +88:  0x78fc044058
+      +   ! : |     +       ! :       | 1 <__NSMallocBlock__ 0x78fb50c900> [48]  AppleMetalOpenGLRenderer  invocation function for block in GLDDeviceRec::initWithDisplayMask(uns..."    +32: [capture] 0x78fb50c920
+      +   ! : |     +       ! :       |   1 <malloc in CGLRegisterDestroyPBufferCallback 0x78fa53a0c0> [32]     +0:  0x78fa53a0c0
+      +   ! : |     +       ! :       |     1 Region __DATA_DIRTY /System/Library/Frameworks/OpenGL.framework/Versions/A/OpenGL __DATA_DIRTY __common + 32 0x27d9f39f8
+      +   ! : |     +       ! :       1 <IOGPUMetalResource 0x78fa92aa00> [384]   +104: _res + 80 0x78fa92aa68
+      +   ! : |     +       ! :         1 <IOGPUMetalResource 0x78fa92ab80> [384]   +264: next 0x78fa92ac88
+      +   ! : |     +       ! :           1 <IOGPUMemoryInfo 0x78fa54a520> [48]    +16: fResourceListHead 0x78fa54a530
+      +   ! : |     +       ! :             1 Region __DATA_DIRTY /System/Library/PrivateFrameworks/IOGPU.framework/Versions/A/IOGPU __DATA_DIRTY __common: '_ioGPUMemoryInfo' 0x1ec6c3290
+      +   ! : |     +       ! 1 <calloc in _dispatch_unote_create 0x78fa919f80> [96]    +40:  0x78fa919fa8
+      +   ! : |     +       !   1 <dispatch_source_t 0x78fb9feda0> [160]    +88: [capture] 0x78fb9fedf8
+      +   ! : |     +       !     1 <calloc in IONotificationPortCreate 0x78fa542580> [48]    +24:  0x78fa542598
+      +   ! : |     +       !       1 <AGXG13XDevice._impl (malloc) 0x78fa57c000> [16384] +14048:  0x78fa57f6e0
+      +   ! : |     +       !         1 Region AGXMetalG13X __DATA __bss: 'AGX::DeviceUSCStateLoader<AGX::G13::Encoders, AGX::G13::Classes, AGX::G13::ObjClasses>::heap_configs' + 400 0x279e552a0 --> offset 6448
+      +   ! : |     +       1 <calloc in _dispatch_apply_with_attr_f 0x78fb9ea210> [80]    +56:  0x78fb9ea248
+      +   ! : |     +         1 <calloc in _dispatch_mach_push_send_barrier_drain 0x78fba04dc0> [80]    +16:  0x78fba04dd0
+      +   ! : |     +           1 <calloc in _dispatch_unote_create 0x78fa91a2e0> [96]    +48:  0x78fa91a310
+      +   ! : |     +             1 <dispatch_source_t 0x78fb9fe080> [160]    +88: [capture] 0x78fb9fe0d8
+      +   ! : |     +               1 <MTLIOAccelServiceGlobalContext._deviceNotifyPort (struct IONotificationPort) 0x78fa5425b0> [48]    +24:  0x78fa5425c8
+      +   ! : |     +                 1 <MTLIOAccelServiceGlobalContext 0x78fa54c4b0> [80]    +24: _deviceNotifyPort 0x78fa54c4c8
+      +   ! : |     +                   1 Region __DATA_DIRTY /System/Library/Frameworks/Metal.framework/Versions/A/Metal __DATA_DIRTY __bss: '_mtlIOAccelServiceGlobalContext' 0x1ec036438
+      +   ! : |     1 <_NSLocalNotificationCenter 0x78fac2c600> [48]     +8: _impl 0x78fac2c608
+      +   ! : |       1 <__NSObserver 0x78fa9d0b40> [48]     +8: nc 0x78fa9d0b48
+      +   ! : |         1 <Swift._DictionaryStorage<GenerativeModels.AvailabilityCacheKey, GenerativeModels.GenerativeModelsAvailability> 0x78fb9a8800> [2048]  +1296:  0x78fb9a8d10
+      +   ! : |           1 Region GenerativeModels __DATA __data + 1360 0x27c3310f0
+      +   ! : 2 <NSApplicationSceneWorkspace 0x78fa4b6580> [80]    +32: appkitHandler 0x78fa4b65a0
+      +   ! : | 1 <FBSWorkspace 0x78fb085020> [96]    +40: __strong _delegate 0x78fb085048
+      +   ! : | + 1 <FBSWorkspaceCoupler 0x78fa4d8870> [48]     +8: __strong _lock_workspace 0x78fa4d8878
+      +   ! : | +   1 Region __DATA_DIRTY /System/Library/PrivateFrameworks/FrontBoardServices.framework/Versions/A/FrontBoardServices __DATA_DIRTY __bss: '_sharedInstance.__sharedInstance' 0x1ec104ef0
+      +   ! : | 1 <FBSWorkspaceScenesClient 0x78fc46e080> [160]    +16: __strong _workspaceDelegate 0x78fc46e090
+      +   ! : |   1 <BSXPCServiceConnectionEventHandler 0x78fb437640> [224]    +56: __strong _localInterfaceTarget 0x78fb437678
+      +   ! : |     1 <BSXPCServiceConnection 0x78fb437560> [224]   +120: __strong _lock_eventHandler 0x78fb4375d8
+      +   ! : |       1 <NSMutableArray (Storage) 0x78fb4307c0> [32]     +8: __strong  0x78fb4307c8
+      +   ! : |         1 <NSMutableArray 0x78fa4f4dc0> [64]    +16: __strong storage 0x78fa4f4dd0
+      +   ! : |           1 <BSXPCServiceConnection 0x78fb4356c0> [224]    +72: __strong _lock_childConnections 0x78fb435708
+      +   ! : |             1 <NSMutableDictionary (Storage) 0x78fa9d8b80> [64]    +32: __strong  0x78fa9d8ba0
+      +   ! : |               1 <NSMutableDictionary 0x78fa4d9b60> [48]     +8: __strong storage 0x78fa4d9b68
+      +   ! : |                 1 <BSServiceInitiatingConnectionMultiplexer 0x78fa4d9b30> [48]     +8: __strong _lock_endpointToOutgoingRootConnections 0x78fa4d9b38
+      +   ! : |                   1 <BSServiceInitiator 0x78fa4f4a40> [64]     +8: __strong _uiMuxer 0x78fa4f4a48
+      +   ! : |                     1 Region __DATA_DIRTY /System/Library/PrivateFrameworks/BoardServices.framework/Versions/A/BoardServices __DATA_DIRTY __bss: '_MergedGlobals' + 8 0x1ec105e70
+      +   ! : 1 <malloc in _CFXNotificationRegistrarAddObserver 0x78fbb5c640> [320]     +8:  0x78fbb5c648
+      +   ! :   1 <CFXNotificationRegistrar 0x78fac406c0> [192]   +144:  0x78fac40750
+      +   ! :     1 <CFNotificationCenter 0x78fb0335c0> [64]    +16:  0x78fb0335d0
+      +   ! :       1 <NSNotificationCenter 0x78fa4d8900> [48]     +8: _impl 0x78fa4d8908
+      +   ! :         1 Region __DATA_DIRTY /System/Library/PrivateFrameworks/SkyLight.framework/Versions/A/SkyLight __DATA_DIRTY __bss: 'SLSCoordinatedLocalNotificationCenter::center' 0x1ebfe9db8
+      +   ! 1 <NSKeyValueDependencyInfo 0x78faae4af0> [80]    +40: _owner 0x78faae4b18
+      +   !   1 Region __DATA_DIRTY /System/Library/PrivateFrameworks/ViewBridge.framework/Versions/A/ViewBridge __DATA_DIRTY __bss: 'observeMenuTracking.sNotifications' 0x1ec01e138
+      +   1 <CFDictionary (Value Storage) 0x78f9ffc780> [384]   +256: __strong  0x78f9ffc880
+      +   ! 1 <CFDictionary 0x78fb67b340> [80]    +40: __strong _values 0x78fb67b368
+      +   !   1 Region AppKit __DATA __bss: '_MergedGlobals.85' + 120 0x1ea130948
+      +   1 <NSMutableSet (Storage) 0x78fb4322c0> [32]    +16: __strong  0x78fb4322d0
+      +   ! 1 <NSMutableSet 0x78fabcf4e0> [48]    +16: __strong storage 0x78fabcf4f0
+      +   !   1 <malloc in swift::ConcurrentReadableHashMap<(anonymous namespace)::ConformanceCacheEntry, swift::LazyMutex>::resize(swift::ConcurrentReadableHashMap<(anonymous namespace)::ConformanceCacheEntry, swift::LazyMutex>::ElementStorage*, unsigned long) 0x78fb5c4000> [12288]  +9216:  0x78fb5c6400
+      +   !     1 Region __DATA_DIRTY /usr/lib/swift/libswiftCore.dylib __DATA_DIRTY __bss: 'Conformances' + 8 0x1ec0895b8
+      +   1 <WebKit::FullscreenClient 0x1220800e0> [32]     +8:  0x1220800e8
+      +   ! 1 <WKObject 0x78fa415000> [2048]   +632:  0x78fa415278
+      +   !   1 <WKImmediateActionController._page (struct) 0x122040220> [16]     +8:  0x122040228 --> offset 40
+      +   !     1 <WebKit::RemoteScrollingCoordinatorProxyMac 0x1220f40b0> [176]    +24:  0x1220f40c8
+      +   !       1 <non-object in zone WebKit Malloc_0x1196625f8 0x1220401d0> [16]     +8:  0x1220401d8
+      +   !         1 <WebKit::RemoteScrollingTreeMac 0x1220f81f0> [496]   +440:  0x1220f83a8
+      +   !           1 <WebKit::ScrollingTreeFrameScrollingNodeRemoteMac 0x122148400> [512]    +32:  0x122148420
+      +   !             1 <non-object in zone WebKit Malloc_0x1196625f8 0x123000000> [2048]   +920:  0x123000398
+      +   !               1 <calloc in _NewPage 0x78fa72a520> [48]    +13:  0x78fa72a52d --> offset 634
+      +   !                 1 <CUICommonAssetStorage._imagedb (malloc) 0x78faca7480> [384]   +184:  0x78faca7538
+      +   !                   1 <CUICommonAssetStorage 0x78fb4c1b80> [640]    +32: _imagedb 0x78fb4c1ba0
+      +   !                     1 <CUIStructuredThemeStore 0x78fa91d030> [112]    +16: _store 0x78fa91d040
+      +   !                       1 <malloc in __CFBasicHashRehash 0x78fb05cd90> [112]    +40:  0x78fb05cdb8
+      +   !                         1 <CFBasicHash 0x78fb071a90> [80]    +40:  0x78fb071ab8
+      +   !                           1 <NSClassicMapTable 0x78fa91c380> [112]    +80: _ht 0x78fa91c3d0
+      +   !                             1 Region __DATA_DIRTY /System/Library/PrivateFrameworks/CoreUI.framework/Versions/A/CoreUI __DATA_DIRTY __bss: '__PerformBlockWithThemeRegistry.__themeRegistry' 0x1ec01cff8
+      +   1 <WebKit::PageClientImpl 0x122074150> [112]    +16:  0x122074160
+      +   ! 1 <WebKit Owned>     +0: __strong  0x19
+      +   1 <_NSAutomaticFocusRingState 0x78fac28240> [192]    +16: automaticFocusRingView 0x78fac28250
+      +     1 Region __DATA_DIRTY /System/Library/Frameworks/AppKit.framework/Versions/C/AppKit __DATA_DIRTY __data: 's_NSSharedAutomaticFocusRingStateStorage' 0x1ebfcf0e0
+      24 <non-object from hey-look 0x78f94099a0> [160]    +16:  0x78f94099b0
+      + 24 <non-object from hey-look 0x78fac385a0> [96]    +32:  0x78fac385c0 --> offset 128
+      +   9 <non-object from hey-look 0x78fa837100> [896]   +128:  0x78fa837180
+      +   ! 8 <non-object from hey-look 0x78fb065900> [1280]   +304:  0x78fb065a30
+      +   ! : 8 <non-object from hey-look 0x78faa03900> [768]   +176:  0x78faa039b0
+      +   ! :   1 <malloc in dyld::ThreadLocalVariables::instantiateVariable(dyld::ThreadLocalVariables::Thunk const&) 0x78facb4400> [1024]   +104:  0x78facb4468
+      +   ! :   | 1 Thread 2  Thread_12451638: tokio-rt-worker $x27 --> offset 88
+      +   ! :   1 <malloc in dyld::ThreadLocalVariables::instantiateVariable(dyld::ThreadLocalVariables::Thunk const&) 0x78facb4800> [1024]   +104:  0x78facb4868
+      +   ! :   | 1 Thread 3  Thread_12451639: tokio-rt-worker $x27 --> offset 88
+      +   ! :   1 <malloc in dyld::ThreadLocalVariables::instantiateVariable(dyld::ThreadLocalVariables::Thunk const&) 0x78facb4c00> [1024]   +104:  0x78facb4c68
+      +   ! :   | 1 Thread 5  Thread_12451641: tokio-rt-worker $x27 --> offset 88
+      +   ! :   1 <malloc in dyld::ThreadLocalVariables::instantiateVariable(dyld::ThreadLocalVariables::Thunk const&) 0x78facb5000> [1024]   +104:  0x78facb5068
+      +   ! :   | 1 Thread 4  Thread_12451640: tokio-rt-worker $x27 --> offset 88
+      +   ! :   1 <malloc in dyld::ThreadLocalVariables::instantiateVariable(dyld::ThreadLocalVariables::Thunk const&) 0x78facb5400> [1024]   +104:  0x78facb5468
+      +   ! :   | 1 Thread 6  Thread_12451642: tokio-rt-worker $x27 --> offset 88
+      +   ! :   1 <malloc in dyld::ThreadLocalVariables::instantiateVariable(dyld::ThreadLocalVariables::Thunk const&) 0x78facb5800> [1024]   +104:  0x78facb5868
+      +   ! :   | 1 Thread 7  Thread_12451643: tokio-rt-worker $x27 --> offset 88
+      +   ! :   1 <malloc in dyld::ThreadLocalVariables::instantiateVariable(dyld::ThreadLocalVariables::Thunk const&) 0x78facb5c00> [1024]   +104:  0x78facb5c68
+      +   ! :   | 1 Thread 8  Thread_12451644: tokio-rt-worker $x27 --> offset 88
+      +   ! :   1 Thread 9  Thread_12451645: tokio-rt-worker $x21 --> offset 440
+      +   ! 1 <non-object from hey-look 0x78fb48c200> [512]   +144:  0x78fb48c290 --> offset 552
+      +   !   1 Kernel Pointers Into User Space  --> offset 128
+      +   2 <non-object from hey-look 0x78fb40c600> [192]    +88:  0x78fb40c658
+      +   ! 2 <non-object from hey-look 0x78fa5017c0> [160]    +40:  0x78fa5017e8
+      +   !   1 Region Stack thread 19 0x104e5c290 (in hey-look) + 560 0x16de5aed8
+      +   !   1 Thread 19  Thread_12451734: test-bridge $x28
+      +   1 <Swift._DictionaryStorage<Swift.ObjectIdentifier, SwiftUI.(AnyTrackedValue in $22afd5644)> 0x78f941b800> [1792]   +864:  0x78f941bb60
+      +   ! 1 <PropertyList.Tracker 0x78fb756680> [112]    +48: __strong data.value._rawLayout.values._variant 0x78fb7566b0
+      +   !   1 <SwiftUI.Image.(ImageViewChild in $22afe21b8)<SwiftUI.EmptyImageAccessibilityProvider> 0x11852eec0> [110]    +32: __strong value.tracker 0x11852eee0
+      +   !     1 <AttributeGraph Owned>     +0: __strong  0x1a
+      +   1 <non-object from hey-look 0x78fac938e0> [224]    +72:  0x78fac93928
+      +   ! 1 Thread 13  Thread_12451697 $x21
+      +   1 Region Stack thread 0 thread-specific-data key 144 0x16b617560
+      +   1 Region Stack thread 12 0x104e5e050 (in hey-look) + 64 0x16cdfae98
+      +   1 Region Stack thread 13 0x104a849cc (in hey-look) + 64 0x16d006db8
+      +   1 Region Stack thread 14 0x104a84b70 (in hey-look) + 208 0x16d2126a8
+      +   1 Region Stack thread 15 0x104e5dc80 (in hey-look) + 64 0x16d41ee98
+      +   1 Region Stack thread 16 0x104e5dae0 (in hey-look) + 64 0x16d62acf8
+      +   1 Region Stack thread 17 0x104acd564 (in hey-look) + 64 0x16d836de8
+      +   1 Region Stack thread 18 0x104b1d004 (in hey-look) + 504 0x16da42760
+      +   1 Region Stack thread 22 0x104b1eb14 (in hey-look) + 64 0x16e7c6e48
+      +   1 Region hey-look __DATA __data + 45576 0x105c58418
+      +   1 Thread 16  Thread_12451713 $x28
+      18 <_NSCoreHostingView<ThemeWidgetView> 0x78fa090c00> [768]    +64: _viewRoot 0x78fa090c40
+      + 18 <ViewGraph 0x78fa4fe400> [512]   +208: delegate 0x78fa4fe4d0
+      +   12 <AGGraphStorage 0x78fba880e0> [112]    +24:  0x78fba880f8
+      +   ! 12 <AGSubgraph 0x78f9cd9080> [48]    +24:  0x78f9cd9098
+      +   !   12 <malloc in AGSubgraphCreate2 0x78fa7bce80> [128]    +32:  0x78fa7bcea0
+      +   !     12 <realloc in AG::details::realloc_vector<unsigned int, 8ul>(void*, unsigned int&, unsigned int) 0x78fa4e1e00> [1536]    +72:  0x78fa4e1e48
+      +   !       12 <malloc in create_graph(AGGraphStorage*, unsigned int) 0x78fb874e00> [448]   +296:  0x78fb874f28
+      +   !         10 <malloc in AGSubgraphCreate2 0x78fa7be280> [128]    +40:  0x78fa7be2a8
+      +   !         : 10 <malloc in AG::details::realloc_vector<unsigned int, 8ul>(void*, unsigned int&, unsigned int) 0x78fabc3460> [32]     +8:  0x78fabc3468
+      +   !         :   10 <Swift Metadata 0x78fbab4000> [20480] +16320:  0x78fbab7fc0
+      +   !         :     4 <Swift Metadata 0x78fcc63000> [20480]   +408:  0x78fcc63198 --> offset 10208
+      +   !         :     | 3 <Swift Metadata 0x78fb5f0000> [20480]  +8976:  0x78fb5f2310 --> offset 7624
+      +   !         :     | + 1 <malloc in swift::ConcurrentReadableHashMap<swift::HashMapElementWrapper<swift::GenericCacheEntry>, swift::Mutex>::getOrInsertExternallyLocked<swift::MetadataCacheKey, std::pair<swift::GenericCacheEntry*, bool> swift::StableAddressConcurrentReadableHashMap<swift::GenericCacheEntry, swift::TaggedMetadataAllocator<(unsigned short)14>, swift::Mutex>::getOrInsert<swift::MetadataCacheKey, swift::MetadataWaitQueue::Worker&, swift::MetadataRequest&, swift::TargetTypeContextDescriptor<swift::InProcess> const*&, void const* const*&>(swift::MetadataCacheKey, swift::MetadataWaitQueue::Worker&, swift::MetadataRequest&, swift::TargetTypeContextDescriptor<swift::InProcess> const*&, void const* const*&)::'lambda'(swift::HashMapElementWrapper<swift::GenericCacheEntry>*, bool)>(swift::MetadataCacheKey, std::pair<swift::GenericCacheEntry*, bool> swift::StableAddressConcurrentReadableHashMap<swift::GenericCacheEntry, swift::TaggedMetadataAllocator<(unsigned short)14>, swift::Mutex>::getOrInsert<swift::MetadataCacheKey, swift::MetadataWaitQueue::Worker&, swift::MetadataRequest&, swift::TargetTypeContextDescriptor<swift::InProcess> const*&, void const* const*&>(swift::MetadataCacheKey, swift::MetadataWaitQueue::Worker&, swift::MetadataRequest&, swift::TargetTypeContextDescriptor<swift::InProcess> const*&, void const* const*&)::'lambda'(swift::HashMapElementWrapper<swift::GenericCacheEntry>*, bool) const&) 0x78fb6e1b40> [64]     +8:  0x78fb6e1b48 --> offset 7400
+      +   !         :     | + ! 1 Region __DATA_DIRTY /usr/lib/swift/libswiftSynchronization.dylib __DATA_DIRTY __bss: 'type metadata instantiation cache for Mutex' + 8 0x2d53c15a0
+      +   !         :     | + 1 Region __AUTH /System/Library/PrivateFrameworks/GenerativeModels.framework/Versions/A/GenerativeModels __AUTH __data: 'OBJC_METACLASS_$_GMLanguageRecognizerRunner' + 1328 0x27eb50dd8 --> offset 7360
+      +   !         :     | + 1 Region __DATA_DIRTY /System/Library/PrivateFrameworks/GenerativeModels.framework/Versions/A/GenerativeModels __DATA_DIRTY __data: 'OBJC_METACLASS_$_GMOptIn' + 320 0x27dfb6370 --> offset 7840
+      +   !         :     | 1 Region Foundation __DATA __data: 'type metadata instantiation cache for KeyPathComparator' + 40 0x1ea005ef8 --> offset 3432
+      +   !         :     3 <Swift Metadata 0x78fcc5e000> [20480]   +144:  0x78fcc5e090 --> offset 16272
+      +   !         :     | 1 <Swift Metadata 0x78fcc68000> [20480]   +992:  0x78fcc683e0 --> offset 13496
+      +   !         :     | + 1 Region __DATA_DIRTY /System/Library/PrivateFrameworks/Gestures.framework/Versions/A/Gestures __DATA_DIRTY __data: 'OBJC_METACLASS_$__TtC8Gestures18AnyGestureNodeShim' + 1072 0x27e043a88 --> offset 688
+      +   !         :     | 1 <Swift.ReferenceWritableKeyPath<DesignLibrary.GlassMaterialProvider.Pocket.Storage, DesignLibrary.GlassMaterialProvider.Pocket.Parameters> 0x78fcc2c140> [80]     +0: isa 0x78fcc2c140 --> offset 1824
+      +   !         :     | + 1 Region DesignLibrary __DATA __bss: 'deviceIsLowMemory.onceToken' + 155192 0x27bffeff0
+      +   !         :     | 1 Region __DATA_DIRTY /usr/lib/swift/libswiftObservation.dylib __DATA_DIRTY __data: 'demangling cache variable for type metadata for [@Sendable (_:)]' 0x2d53c07d8 --> offset 3560
+      +   !         :     1 Region __AUTH /System/Library/Frameworks/AppKit.framework/Versions/C/AppKit __AUTH __objc_data: '_DATA_NSScrollPocket' + 48 0x1ed332158 --> offset 6936
+      +   !         :     1 Region __DATA_DIRTY /System/Library/PrivateFrameworks/DesignLibrary.framework/Versions/A/DesignLibrary __DATA_DIRTY __objc_data: '_DATA__TtCVV13DesignLibrary21GlassMaterialProvider6Pocket7Storage' + 48 0x27deb6e50 --> offset 11128
+      +   !         :     1 Region __DATA_DIRTY /usr/lib/swift/libswiftXPC.dylib __DATA_DIRTY __data: 'demangling cache variable for type metadata for [EncodingGraph.Key : EncodingGraph.Value].Keys' 0x1ec77b5a8 --> offset 1224
+      +   !         1 <AGGraphStorage 0x78fba8c150> [112]    +16:  0x78fba8c160
+      +   !         : 1 <UpdateGroup 0x78fba10fc0> [96]    +56: sharedGraph 0x78fba10ff8
+      +   !         :   1 Region __DATA_DIRTY /System/Library/Frameworks/SwiftUICore.framework/Versions/A/SwiftUICore __DATA_DIRTY __data: 'static UpdateGroup.main' 0x27db306e0
+      +   !         1 Region __DATA_DIRTY /System/Library/PrivateFrameworks/AttributeGraph.framework/Versions/A/AttributeGraph __DATA_DIRTY __common: 'AG::Graph::_all_graphs' 0x1ec89ebe0
+      +   6 <non-object from hey-look 0x78fa4ebb60> [160]    +32:  0x78fa4ebb80
+      +     6 <non-object from hey-look 0x78fac1b5c0> [320]    +88:  0x78fac1b618
+      +       1 Region Stack thread 2 0x1053c5a7c (in hey-look) + 288 0x16badedb0 --> offset 64
+      +       1 Region Stack thread 3 0x1053c5a7c (in hey-look) + 288 0x16bceadb0 --> offset 64
+      +       1 Region Stack thread 4 0x1053c5a7c (in hey-look) + 288 0x16bef6db0 --> offset 64
+      +       1 Region Stack thread 5 0x1053c5a7c (in hey-look) + 288 0x16c102db0 --> offset 64
+      +       1 Region Stack thread 6 0x1053c5a7c (in hey-look) + 288 0x16c30edb0 --> offset 64
+      +       1 Region Stack thread 8 0x1053c5a7c (in hey-look) + 288 0x16c726db0 --> offset 64
+      10 <_NSCoreHostingView<ThemeWidgetView> 0x78fa091e00> [768]    +64: _viewRoot 0x78fa091e40
+      + 10 <__NSMallocBlock__ 0x78fc486100> [48]  AppKit  __22-[NSView _commonAwake]_block_invoke  0x18b4e3594    +32: __strong [capture] 0x78fc486120
+      +   10 <non-object from hey-look 0x78fa077800> [5120]  +4328:  0x78fa0788e8
+      +     10 <non-object from hey-look 0x78f9675400> [5120]  +4120:  0x78f9676418 --> offset 4096
+      +       10 <non-object from hey-look 0x78fbab9000> [20480] +15776:  0x78fbabcda0 --> offset 4096
+      +         10 <non-object from hey-look 0x78fac3bea0> [96]    +64:  0x78fac3bee0
+      +           8 <non-object from hey-look 0x78f9800000> [5120]  +4128:  0x78f9801020
+      +           ! 8 Region Deferred Reclaim  region + 1792 0x1067b0700
+      +           !   7 <malloc in std::vector<std::pair<OTL::LookupSubtable const*, OTL::Coverage>>::reserve(unsigned long) 0x78fb667890> [80]    +40:  0x78fb6678b8 --> offset 67111547
+      +           !   : 7 <malloc in TBaseFont::NthLookup<OTL::GSUB>(OTL::GSUB const&, unsigned int) const 0x78fa4e9a40> [160]   +120:  0x78fa4e9ab8
+      +           !   :   7 <malloc in TBaseFont::NthLookup<OTL::GSUB>(OTL::GSUB const&, unsigned int) const 0x78fa4e8320> [160]     +0:  0x78fa4e8320
+      +           !   :     7 <malloc in TBaseFont::NthLookup<OTL::GSUB>(OTL::GSUB const&, unsigned int) const 0x78fac415c0> [192]   +152:  0x78fac41658
+      +           !   :       7 <TTenuousComponentFont 0x78fa87a700> [768]   +344:  0x78fa87a858
+      +           !   :         6 <NSCTFont 0x78fba72d00> [640]   +456:  0x78fba72ec8
+      +           !   :         | 5 <NSAttributeDictionary 0x78faaf9780> [128]    +80:  0x78faaf97d0
+      +           !   :         | + 5 <NSMutableRLEArray.theList (struct _NSRefCountedRunArray) 0x744a01b610> [80]    +48:  0x744a01b640
+      +           !   :         | +   5 <NSMutableRLEArray 0x78fa925fa0> [32]     +8: theList 0x78fa925fa8
+      +           !   :         | +     5 <NSConcreteAttributedString 0x78fa5b3ea0> [48]  " "    +16: attributes 0x78fa5b3eb0
+      +           !   :         | +       5 <NSStringMeasurementCacheKey 0x78fa54e0d0> [80]     +8: _string 0x78fa54e0d8
+      +           !   :         | +         5 <calloc in _entry_table_resize 0x78f9c883c0> [160]   +100:  0x78f9c88424
+      +           !   :         | +           5 <NSCache._cache (struct cache_s) 0x78fb691a40> [320]    +88:  0x78fb691a98
+      +           !   :         | +             5 <NSCache._cache (struct cache_s) 0x78fb693e80> [320]     +8:  0x78fb693e88
+      +           !   :         | +               5 <NSCache._cache (struct cache_s) 0x78fb65d400> [320]     +8:  0x78fb65d408
+      +           !   :         | +                 5 <NSCache._cache (struct cache_s) 0x78fb65d2c0> [320]     +8:  0x78fb65d2c8
+      +           !   :         | +                   5 <NSCache._cache (struct cache_s) 0x78fb517c00> [320]     +8:  0x78fb517c08
+      +           !   :         | +                     4 <calloc in cache_create 0x78fb690280> [320]     +8:  0x78fb690288
+      +           !   :         | +                     ! 4 <calloc in cache_create 0x78fb691180> [320]     +8:  0x78fb691188
+      +           !   :         | +                     !   4 <calloc in cache_create 0x78fb691e00> [320]     +8:  0x78fb691e08
+      +           !   :         | +                     !     4 <NSCache._cache (struct cache_s) 0x78fb65d7c0> [320]     +8:  0x78fb65d7c8
+      +           !   :         | +                     !       4 <NSCache._cache (struct cache_s) 0x78fb65fe80> [320]     +8:  0x78fb65fe88
+      +           !   :         | +                     !         4 <NSCache._cache (struct cache_s) 0x78fb65ee40> [320]     +8:  0x78fb65ee48
+      +           !   :         | +                     !           4 <NSCache._cache (struct cache_s) 0x78fb65c3c0> [320]     +8:  0x78fb65c3c8
+      +           !   :         | +                     !             4 <NSCache._cache (struct cache_s) 0x78fb693480> [320]     +8:  0x78fb693488
+      +           !   :         | +                     !               4 <NSCache._cache (struct cache_s) 0x78fb516a80> [320]     +8:  0x78fb516a88
+      +           !   :         | +                     !                 4 <NSCache._cache (struct cache_s) 0x78fb517480> [320]     +8:  0x78fb517488
+      +           !   :         | +                     !                   4 <NSCache._cache (struct cache_s) 0x78fb8a35c0> [320]     +8:  0x78fb8a35c8
+      +           !   :         | +                     !                     4 <NSCache._cache (struct cache_s) 0x78fb8a30c0> [320]     +8:  0x78fb8a30c8
+      +           !   :         | +                     !                       4 <NSCache._cache (struct cache_s) 0x78fb9a4f00> [320]     +8:  0x78fb9a4f08
+      +           !   :         | +                     !                         3 <calloc in cache_create 0x78fc4bcf00> [320]     +8:  0x78fc4bcf08
+      +           !   :         | +                     !                         : 2 <calloc in cache_create 0x78fc4bca00> [320]     +8:  0x78fc4bca08
+      +           !   :         | +                     !                         : | 2 <calloc in cache_create 0x78fc4bee40> [320]     +8:  0x78fc4bee48
+      +           !   :         | +                     !                         : |   2 <calloc in cache_create 0x78fc4bf200> [320]     +8:  0x78fc4bf208
+      +           !   :         | +                     !                         : |     1 <calloc in cache_create 0x78fc4bf340> [320]     +8:  0x78fc4bf348
+      +           !   :         | +                     !                         : |     + 1 <calloc in cache_create 0x78fc4bf480> [320]     +8:  0x78fc4bf488
+      +           !   :         | +                     !                         : |     +   1 <NSCache._cache (struct cache_s) 0x78fc4bf840> [320]     +8:  0x78fc4bf848
+      +           !   :         | +                     !                         : |     +     1 <NSCache._cache (struct cache_s) 0x78fc4bf980> [320]     +8:  0x78fc4bf988
+      +           !   :         | +                     !                         : |     +       1 <NSCache._cache (struct cache_s) 0x78fc4bfac0> [320]     +8:  0x78fc4bfac8
+      +           !   :         | +                     !                         : |     +         1 <calloc in cache_create 0x78fb515a40> [320]     +8:  0x78fb515a48
+      +           !   :         | +                     !                         : |     +           1 <calloc in cache_create 0x78fb516f80> [320]     +8:  0x78fb516f88
+      +           !   :         | +                     !                         : |     +             1 <calloc in cache_create 0x78fb65f700> [320]     +8:  0x78fb65f708
+      +           !   :         | +                     !                         : |     +               1 <calloc in cache_create 0x78fb65fac0> [320]     +8:  0x78fb65fac8
+      +           !   :         | +                     !                         : |     +                 1 Region __DATA_DIRTY /System/Library/Frameworks/Accelerate.framework/Versions/A/Frameworks/vImage.framework/Versions/A/vImage __DATA_DIRTY __bss: '_MergedGlobals' 0x1ec012188
+      +           !   :         | +                     !                         : |     1 <pthread_mutex_t 0x78fc4cca00> [80]    +64:  0x78fc4cca40
+      +           !   :         | +                     !                         : |       1 Region CoreGraphics __DATA __bss: 'get_cache.conversion_cache' 0x1ea15b9c0
+      +           !   :         | +                     !                         : 1 Region __DATA_DIRTY /System/Library/Frameworks/ImageIO.framework/Versions/A/ImageIO __DATA_DIRTY __common: 'gImageBlockCache' 0x1ec03c6d8
+      +           !   :         | +                     !                         1 <NSCache 0x78fa5a5880> [64]    +16: _cache 0x78fa5a5890
+      +           !   :         | +                     !                           1 Region __DATA_DIRTY /System/Library/PrivateFrameworks/BaseBoard.framework/Versions/A/BaseBoard __DATA_DIRTY __bss: '__StackInfoCache' 0x1ebffcd50
+      +           !   :         | +                     1 <NSCache 0x78faa614c0> [64]    +16: _cache 0x78faa614d0
+      +           !   :         | +                       1 <malloc in TCFStringUniquer::CreateStringUniquer(void*) 0x78fac4d090> [16]     +0:  0x78fac4d090
+      +           !   :         | +                         1 Region libFontRegistry.dylib __DATA __common: 'TCFStringUniquer::sStringUniquer' 0x1ea1e1628
+      +           !   :         | 1 Region __DATA_DIRTY /System/Library/PrivateFrameworks/UIFoundation.framework/Versions/A/UIFoundation __DATA_DIRTY __data: '__NSSpecialFontTable' + 96 0x1ebfda2b8
+      +           !   :         1 <NSCTFontDescriptor 0x78fac9d340> [112]    +80: _reserved3 0x78fac9d390
+      +           !   :           1 <TSplicedFont 0x78fb843980> [640]   +536:  0x78fb843b98
+      +           !   :             1 <NSCTFontDescriptor 0x78fac9d3b0> [112]    +80: _reserved3 0x78fac9d400
+      +           !   :               1 <NSMutableDictionary (Storage) 0x78fa9db8c0> [64]    +40: __strong  0x78fa9db8e8
+      +           !   :                 1 <NSMutableDictionary 0x78faadf750> [48]     +8: __strong storage 0x78faadf758
+      +           !   :                   1 Region __DATA_DIRTY /System/Library/Frameworks/CoreText.framework/Versions/A/CoreText __DATA_DIRTY __common: 'TDescriptorSource::sSplicedFonts' 0x1ebfb5128
+      +           !   1 Region __DATA_DIRTY /usr/lib/system/libsystem_malloc.dylib __DATA_DIRTY __bss: 'xzm_reclaim_buffer' 0x1ebf778c0
+      +           1 <non-object from hey-look 0x78f9da0c00> [5120]  +4128:  0x78f9da1c20
+      +           ! 1 <non-object from hey-look 0x78fc0c8000> [49152] +13600:  0x78fc0cb520 --> offset 1854
+      +           !   1 <non-object from hey-look 0x78fa5a1c00> [896]    +32:  0x78fa5a1c20 --> offset 40272
+      +           !     1 <non-object from hey-look 0x78faa84d20> [160]    +48:  0x78faa84d50
+      +           !       1 Thread 14  Thread_12451698 $x26
+      +           1 <non-object from hey-look 0x78f9da5400> [5120]  +4128:  0x78f9da6420
+      +             1 Region hey-look __DATA __bss + 30696 0x105c64c68 --> offset 4096
+      8 <realloc in _CFXNotificationRegistrarAddObject 0x78fa903000> [6144]  +2088:  0x78fa903828
+      + 8 <CFXNotificationRegistrar 0x78fac40180> [192]   +120:  0x78fac401f8
+      +   8 <CFNotificationCenter 0x78fb032f80> [64]    +16:  0x78fb032f90
+      +     7 <NSNotificationCenter 0x78fac2c180> [48]     +8: _impl 0x78fac2c188
+      +     ! 4 <__NSObserver 0x78fa549b90> [48]     +8: nc 0x78fa549b98
+      +     ! : 4 <WKProcessPool 0x78fb511500> [1792]   +624: _processPool + 616 0x78fb511770
+      +     ! :   4 <__NSMallocBlock__ 0x78fb6bdec0> [48]  WebKit  invocation function for block in WebKit::WebProcessPool::registerNotificationObservers()..."    +32: [capture] 0x78fb6bdee0 --> offset 8
+      +     ! :     4 <non-object from libsystem_notify.dylib 0x78fa640600> [128]    +56:  0x78fa640638
+      +     ! :       4 <calloc in _os_set_32_ptr_rehash 0x78fa900000> [6144]   +616:  0x78fa900268 --> offset 20
+      +     ! :         4 Region OS Alloc Once  region + 5768 0x105c91688
+      +     ! :           1 <malloc in atexit_register 0x78fb064a00> [1280]     +0:  0x78fb064a00 --> offset 48
+      +     ! :           | 1 Region __DATA_DIRTY /usr/lib/system/libsystem_c.dylib __DATA_DIRTY __bss: '__atexit' 0x1ebf7e308
+      +     ! :           1 Region __DATA_DIRTY /usr/lib/system/libsystem_kernel.dylib __DATA_DIRTY __common: '_os_alloc_once_table' + 8 0x1ebf7f9d8 --> offset 5344
+      +     ! :           1 Region __DATA_DIRTY /usr/lib/system/libsystem_platform.dylib __DATA_DIRTY __common: '_os_alloc_heap' 0x1ebf90060
+      +     ! :           1 Region __TPRO_CONST /usr/lib/dyld __TPRO_CONST __allocator: 'lsl::sPoolBytes' + 9704 0x1ebc9e7a8
+      +     ! 1 <Foundation.Notification.(Subscription in $188de2c10)<Combine.AsyncPublisher<(extension in Foundation):__C.NSNotificationCenter.Publisher>.Inner<>> 0x78fb53b8e0> [80]    +40: __strong center 0x78fb53b908
+      +     ! : 1 <Combine.AsyncPublisher<(extension in Foundation):__C.NSNotificationCenter.Publisher>.Inner<> 0x78fa532d00> [96]    +32: state.subscribed 0x78fa532d20
+      +     ! :   1 <Task stack 0x78fa5ab000> [1024]   +128: [capture] 0x78fa5ab080
+      +     ! :     1 <Swift Task Owned>     +0:  0x1b
+      +     ! 1 <__NSObserver 0x78fa02fb40> [48]     +8: nc 0x78fa02fb48
+      +     ! : 1 <_NSTrackingAreaAKManager 0x78faad79c0> [192]    +40: __strong _orderOnScreenObserver 0x78faad79e8
+      +     ! :   1 <TUINSWindow 0x78fb6d6f80> [640]   +184: _trackingAreaManager 0x78fb6d7038
+      +     ! :     1 <TUINSCursorUIController 0x78fc53a680> [224]    +32: __strong _hostWindow 0x78fc53a6a0
+      +     ! :       1 Region __DATA_DIRTY /System/Library/PrivateFrameworks/TextInputUIMacHelper.framework/Versions/A/TextInputUIMacHelper __DATA_DIRTY __bss: 'sharedInstance.__instance' 0x2d504df38
+      +     ! 1 Region __DATA_DIRTY /System/Library/Frameworks/Foundation.framework/Versions/C/Foundation __DATA_DIRTY __bss: '_MergedGlobals' + 56 0x1ebfaf0a0
+      +     1 Region __DATA_DIRTY /System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation __DATA_DIRTY __bss: '__taskCenter' 0x1ebf932d0
+      5 <NSDragDestination 0x78fc53baa0> [224]     +8: _window 0x78fc53baa8
+      + 4 <realloc in CSMemSetHandleSize 0x78fc552300> [640]   +424:  0x78fc5524a8
+      + ! 4 <valloc in AllocateHandleBlock 0x78fa48c000> [16384]   +120:  0x78fa48c078
+      + !   1 <CFDictionary (Value Storage) 0x78fb85bdc0> [32]     +8: __strong  0x78fb85bdc8 --> offset 112
+      + !   : 1 <CFDictionary 0x78fba20690> [80]    +40: __strong _values 0x78fba206b8
+      + !   :   1 Region __DATA_DIRTY /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/HIServices.framework/Versions/A/HIServices __DATA_DIRTY __bss: 'gTrackingConnections' 0x1ebfedaf8
+      + !   1 <calloc in utNewTSMDocument 0x78fa0ac540> [224]    +80:  0x78fa0ac590 --> offset 248
+      + !   : 1 <calloc in _objc_rootAllocWithZone 0x78fc588820> [160]    +32:  0x78fc588840
+      + !   :   1 <IMKClient_Modern 0x78fb6f2940> [320]     +8: _currentSession 0x78fb6f2948
+      + !   :     1 <NSMutableDictionary (Storage) 0x78fa721300> [64]    +40: __strong  0x78fa721328
+      + !   :       1 <NSMutableDictionary 0x78fa6a9e90> [48]     +8: __strong storage 0x78fa6a9e98
+      + !   :         1 Region HIToolbox __DATA __bss: '_knownIMKClients' 0x1ea2a2c30
+      + !   1 Region __DATA_DIRTY /System/Library/Frameworks/Carbon.framework/Versions/A/Frameworks/HIToolbox.framework/Versions/A/HIToolbox __DATA_DIRTY __common: 'TypeManager::sCollection' 0x1ec03ad10 --> offset 88
+      + !   1 Region __DATA_DIRTY /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/CarbonCore.framework/Versions/A/CarbonCore __DATA_DIRTY __bss: 'gHandleBlockList' 0x1ebfb9bd8
+      + 1 <realloc in CSMemSetHandleSize 0x78fc5c8300> [768]   +468:  0x78fc5c84d4
+      +   1 Region Stack thread 9 kevent (in libsystem_kernel.dylib) 0x16c932b18
+      4 <NSTitlebarContainerView 0x78fa092100> [768]    +64: _viewRoot 0x78fa092140
+      + 3 <non-object in zone QuartzCore_0x10a834000 0x78f9cc6f80> [320]   +136:  0x78f9cc7008
+      + ! 2 <NSViewBackingLayer 0x78faa61140> [64]    +16: _attr + 8 0x78faa61150
+      + ! : 2 <malloc in CreatePass_ChunkyToPlanarWithCGColorConversionInfo 0x78fb940000> [8192]  +6216:  0x78fb941848
+      + ! :   2 <malloc in CreatePass_ChunkyToPlanarWithCGColorConversionInfo 0x78fba8efb0> [112]     +0:  0x78fba8efb0
+      + ! :     2 <malloc in CreatePass_Unpremultiply 0x78fc540910> [80]     +0:  0x78fc540910
+      + ! :       2 <vImageConverterRef 0x78fb885b00> [768]    +24:  0x78fb885b18
+      + ! :         2 <calloc in CGCMSConverterCreateCachedCGvImageConverter 0x78fa59e300> [896]     +0:  0x78fa59e300
+      + ! :           2 <calloc in _value_entry_table_resize 0x78fc5c8f00> [768]   +660:  0x78fc5c9194
+      + ! :             2 <calloc in cache_create 0x78fb9a4b40> [320]    +96:  0x78fb9a4ba0
+      + ! :               1 <calloc in cache_create 0x78fb9a7980> [320]     +8:  0x78fb9a7988
+      + ! :               | 1 <calloc in cache_create 0x78fb514a00> [320]     +8:  0x78fb514a08
+      + ! :               |   1 <NSCache._cache (struct cache_s) 0x78fb8a3980> [320]     +8:  0x78fb8a3988
+      + ! :               |     1 <NSCache._cache (struct cache_s) 0x78fb8a2f80> [320]     +8:  0x78fb8a2f88
+      + ! :               |       1 <NSCache._cache (struct cache_s) 0x78fb65c000> [320]     +8:  0x78fb65c008
+      + ! :               |         1 <NSCache._cache (struct cache_s) 0x78fb65cf00> [320]     +8:  0x78fb65cf08
+      + ! :               |           1 <NSCache 0x78fa5a4180> [64]    +16: _cache 0x78fa5a4190
+      + ! :               |             1 <malloc in invocation function for block in TRequestCache::TRequestCache() 0x78fac4d0c0> [16]     +0:  0x78fac4d0c0
+      + ! :               |               1 Region __DATA_DIRTY /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/ATS.framework/Versions/A/Resources/libFontRegistry.dylib __DATA_DIRTY __common: 'TRequestCache::sCache' 0x1ec01b028
+      + ! :               1 <pthread_mutex_t 0x78fba20460> [80]    +64:  0x78fba204a0
+      + ! :                 1 Region __DATA_DIRTY /System/Library/Frameworks/CoreGraphics.framework/Versions/A/CoreGraphics __DATA_DIRTY __bss: 'get_cache.converter_cache' 0x1ebfecb20
+      + ! 1 <malloc in CA::Transaction::create() 0x78fc52b800> [10240]   +944:  0x78fc52bbb0
+      + !   1 Region Stack thread 10 thread-specific-data key 72 0x16cad7320
+      + 1 <__NSExactBlockVariable__ 0x78fbbb1d40> [64]    +40: [capture] 0x78fbbb1d68
+      +   1 <__NSMallocBlock__ 0x78fb9cfc80> [64]  AppKit  __reusableDependencyContextForKey_block_invoke  0x18b2e5d3c    +40: [__block capture] 0x78fb9cfca8
+      +     1 <NSKeyValueDependencyContext 0x78fac2f540> [48]     +8: _invalidationHandler 0x78fac2f548
+      +       1 <NSKeyValueDependency 0x78fac2f510> [48]     +8: _context 0x78fac2f518
+      +         1 <CFSet (Value Storage) 0x78fbbd4bc0> [32]     +0: __strong  0x78fbbd4bc0
+      +           1 <CFSet 0x78fa5def80> [64]    +40: __strong _values 0x78fa5defa8
+      +             1 Region Stack thread 11 __CFRunLoopRun (in CoreFoundation) + 2752 0x16cb62c20
+      3 <_NSThemeZoomWidget 0x78fa090600> [768]    +64: _viewRoot 0x78fa090640
+      + 1 <NSMutableArray (Storage) 0x78fa718b40> [64]    +24: __strong  0x78fa718b58
+      + ! 1 <NSMutableArray 0x78fa5a6480> [64]    +16: __strong storage 0x78fa5a6490
+      + !   1 <malloc in gfxAddPlugin 0x78fba7d400> [2560]   +680:  0x78fba7d6a8
+      + !     1 Region __DATA_DIRTY /System/Library/Frameworks/OpenGL.framework/Versions/A/Libraries/libGFXShared.dylib __DATA_DIRTY __bss: 'gfx_plugin_head' 0x27d9f3bf0
+      + 1 <_NSThemeZoomWidgetCell 0x78fc57ed80> [448]    +24: _controlViewDoNotUse 0x78fc57ed98
+      + ! 1 <malloc in _CFXNotificationRegistrarAddObserver 0x78fa5b6000> [4096]   +736:  0x78fa5b62e0
+      + !   1 <CFXNotificationRegistrar 0x78fac40300> [192]   +144:  0x78fac40390
+      + !     1 <CFNotificationCenter 0x78fb033080> [64]    +16:  0x78fb033090
+      + !       1 <NSWorkspaceNotificationCenter 0x78fb488000> [448]     +8: _impl 0x78fb488008
+      + !         1 <__NSMallocBlock__ 0x78fb550280> [80]  LaunchServices  ___LSScheduleNotificationFunction_block_invoke  0x18693bd08    +56:  0x78fb5502b8
+      + !           1 <LSNotificationReceiverRef 0x78fb809680> [160]    +48:  0x78fb8096b0
+      + !             1 <malloc in std::set<void const*>::insert[abi:nqn220106](void const*&&) 0x78fb50d8c0> [48]    +32:  0x78fb50d8e0
+      + !               1 <malloc in std::set<void const*>::insert[abi:nqn220106](void const*&&) 0x78fb50d680> [48]     +8:  0x78fb50d688
+      + !                 1 <malloc in std::set<void const*>::insert[abi:nqn220106](void const*&&) 0x78fb50c180> [48]     +8:  0x78fb50c188
+      + !                   1 <malloc in invocation function for block in LSNotificationReceiver::getActiveLSNotificationReceiverRefs() 0x78fa40c1e0> [32]     +8:  0x78fa40c1e8
+      + !                     1 Region __DATA_DIRTY /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/LaunchServices __DATA_DIRTY __bss: 'LSNotificationReceiver::getActiveLSNotificationReceiverRefs()::sSet' 0x1ebf951d0
+      + 1 <non-object in zone QuartzCore_0x10a834000 0x78f9c78140> [320]   +136:  0x78f9c781c8
+      +   1 <malloc in CA::Transaction::create() 0x78fb410000> [10240]  +5856:  0x78fb4116e0
+      +     1 Region __DATA_DIRTY /usr/lib/dyld __DATA_DIRTY __common: '_main_thread' + 800 0x1ebf742a0
+      1 <@autoreleasepool content 0x78fba56000> [8192]    +88: __strong  0x78fba56058
+      + 1 Region Stack thread 7 thread-specific-data key 43 0x16c51b238
+      1 <NSTextField 0x78fb610a80> [896]    +64: _viewRoot 0x78fb610ac0
+      + 1 <malloc in objc::SmallDenseMap<void const*, objc::ObjcAssociation, 1u, objc::DenseMapValueInfo<objc::ObjcAssociation>, objc::DenseMapInfo<void const*>, objc::detail::DenseMapPair<void const*, objc::ObjcAssociation>>::grow(unsigned int) 0x78fb8779c0> [448]   +184:  0x78fb877a78
+      +   1 <malloc in objc_setAssociatedObject 0x78fcc3a000> [24576]   +376:  0x78fcc3a178
+      +     1 Region __DATA_DIRTY /usr/lib/libobjc.A.dylib __DATA_DIRTY __bss: 'objc::AssociationsManager::_mapStorage' 0x1ebf6ea88
+      1 <non-object from hey-look 0x78fa8be000> [10240]  +2600:  0x78fa8bea28
+        1 Region Stack thread 21 0x104b16bc8 (in hey-look) + 720 0x16dc4e9a8
