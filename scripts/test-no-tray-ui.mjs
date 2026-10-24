@@ -75,6 +75,37 @@ try {
     assert.equal(s.heading, 'Notifications & tray');
     assert.ok(s.nav.includes('Notifications & tray'), JSON.stringify(s.nav));
   });
+  await check('D-019 Settings > Notifications: the three tray labels say menu bar on a Mac (8 languages) and keep the tray words on Windows and Linux', async () => {
+    const mac = {
+      en: ['Keep running in the menu bar when the window is closed', 'Menu bar icon badge', 'Starts minimized to the menu bar'],
+      vi: ['Tiếp tục chạy trên thanh menu khi đóng cửa sổ', 'Huy hiệu biểu tượng thanh menu', 'Khởi động ở dạng thu nhỏ vào thanh menu'],
+      fr: ['Continuer à fonctionner dans la barre des menus à la fermeture de la fenêtre', 'Pastille de l’icône de la barre des menus', 'Démarre réduit dans la barre des menus'],
+      'zh-Hans': ['关闭窗口后在菜单栏中继续运行', '菜单栏图标角标', '启动时最小化到菜单栏'],
+      es: ['Seguir en la barra de menús al cerrar la ventana', 'Insignia del icono de la barra de menús', 'Se inicia minimizado en la barra de menús'],
+      ja: ['ウィンドウを閉じてもメニューバーで実行を続ける', 'メニューバーアイコンのバッジ', 'メニューバーに最小化した状態で起動します'],
+      de: ['In der Menüleiste weiterlaufen, wenn das Fenster geschlossen wird', 'Badge am Menüleisten-Symbol', 'Startet minimiert in der Menüleiste'],
+      ru: ['Продолжать работу в строке меню при закрытии окна', 'Индикатор на значке в строке меню', 'Запускается свёрнутым в строку меню'],
+    };
+    const other = {
+      en: ['Keep running in the tray when the window is closed', 'Tray icon badge', 'Starts minimized to the tray'],
+      de: ['Im Infobereich weiterlaufen, wenn das Fenster geschlossen wird', 'Badge am Infobereich-Symbol', 'Startet minimiert im Infobereich'],
+      ja: ['ウィンドウを閉じてもトレイで実行を続ける', 'トレイアイコンのバッジ', 'トレイに最小化した状態で起動します'],
+    };
+    const seen = async (hash) => { await settingsTray(hash); return evaluate(`document.querySelector('.settings-body').innerText`); };
+    for (const [lang, labels] of Object.entries(mac)) {
+      const body = await seen(`lang=${lang}&os=macos`);
+      for (const l of labels) assert.ok(body.includes(l), `macos ${lang}: "${l}" is not in the tab`);
+    }
+    for (const os of ['windows', 'linux']) {
+      for (const [lang, labels] of Object.entries(other)) {
+        const body = await seen(`lang=${lang}&os=${os}`);
+        for (const l of labels) assert.ok(body.includes(l), `${os} ${lang}: "${l}" is not in the tab`);
+      }
+    }
+    // the old tray labels are gone from a Mac's tab
+    const macEn = await seen('lang=en&os=macos');
+    for (const l of other.en) assert.ok(!macEn.includes(l), `macos en still shows "${l}"`);
+  });
   await check('AC-5.6.1 the quit question: "Keep Hey Look! open" without a tray host, "Keep running in tray" with one, "in the menu bar" on a Mac', async () => {
     for (const [hash, label] of [['lang=en&os=linux&notray', 'Keep Hey Look! open'], ['lang=en&os=linux', 'Keep running in tray'], ['lang=en&os=macos', 'Keep running in the menu bar'], ['lang=de&os=linux&notray', 'Hey Look! geöffnet lassen']]) {
       await H.openApp(hash, 1280, 800);

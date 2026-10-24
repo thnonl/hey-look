@@ -22,7 +22,8 @@ import { normalizeSidebar } from "../sidebarState";
 import { folderVisible, ruleTargetProblem } from "../junk";
 import { cutAtWord, friendlyError, useStore } from "../store";
 import { credStore, kbd, riskyHint, usePlatform } from "../platform";
-import { filtersIntroKey, trayTabTitleKey } from "../trayWords";
+import { portFromText, portText } from "../portField";
+import { filtersIntroKey, keepRunningLabelKey, startsMinimizedKey, trayBadgeLabelKey, trayTabTitleKey } from "../trayWords";
 import { systemTz } from "../calendar";
 import { setEnabled as setNudgeEnabled } from "../supportNudge";
 import { fmtDay, fmtFpr, shortKey } from "../util";
@@ -779,7 +780,7 @@ function ImapForm({ initialProvider = "custom" }: { initialProvider?: string }) 
               <label>{t("settings.add.imapServer")}</label>
               <div className="row-inline">
                 <input aria-label={t("settings.add.imapHost")} placeholder="imap.example.com" value={adv.imapHost} onChange={(e) => setAdv({ ...adv, imapHost: e.target.value })} />
-                <input type="number" aria-label={t("settings.add.imapPort")} placeholder="993" value={adv.imapPort} onChange={(e) => setAdv({ ...adv, imapPort: Number(e.target.value) })} />
+                <input type="text" inputMode="numeric" aria-label={t("settings.add.imapPort")} placeholder="993" value={portText(adv.imapPort)} onChange={(e) => setAdv({ ...adv, imapPort: portFromText(e.target.value, adv.imapPort) })} />
                 <select aria-label={t("settings.add.imapSecurity")} value={adv.imapSsl ? "ssl" : "starttls"} onChange={(e) => setAdv({ ...adv, imapSsl: e.target.value === "ssl" })}>
                   {/* i18n-ok: protocol names */}
                   <option value="ssl">SSL/TLS</option><option value="starttls">STARTTLS</option>
@@ -788,7 +789,7 @@ function ImapForm({ initialProvider = "custom" }: { initialProvider?: string }) 
               <label>{t("settings.add.smtpServer")}</label>
               <div className="row-inline">
                 <input aria-label={t("settings.add.smtpHost")} placeholder="smtp.example.com" value={adv.smtpHost} onChange={(e) => setAdv({ ...adv, smtpHost: e.target.value })} />
-                <input type="number" aria-label={t("settings.add.smtpPort")} placeholder="465" value={adv.smtpPort} onChange={(e) => setAdv({ ...adv, smtpPort: Number(e.target.value) })} />
+                <input type="text" inputMode="numeric" aria-label={t("settings.add.smtpPort")} placeholder="465" value={portText(adv.smtpPort)} onChange={(e) => setAdv({ ...adv, smtpPort: portFromText(e.target.value, adv.smtpPort) })} />
                 <select aria-label={t("settings.add.smtpSecurity")} value={adv.smtpSecurity} onChange={(e) => setAdv({ ...adv, smtpSecurity: e.target.value as "ssl" | "starttls" })}>
                   {/* i18n-ok: protocol names */}
                   <option value="ssl">SSL/TLS</option><option value="starttls">STARTTLS</option>
@@ -1894,7 +1895,7 @@ function TrayTab() {
       <Row id="sentSound" label={t("settings.tray.sentSound")}><Switch checked={prefs.sentSound} onChange={(v) => setPrefs({ sentSound: v })} /></Row>
       <Row
         id="keepRunning"
-        label={t("settings.tray.keepRunning")}
+        label={t(keepRunningLabelKey(os))}
         hint={
           !tray
             ? t("settings.tray.noTray")
@@ -1906,7 +1907,7 @@ function TrayTab() {
         <Switch checked={tray && prefs.closeToTray} disabled={!tray} onChange={(v) => setPrefs({ closeToTray: v })} />
       </Row>
       {tray && (
-        <Row id="trayBadge" label={t("settings.tray.trayBadge")} hint={t("settings.tray.trayBadgeHint")}>
+        <Row id="trayBadge" label={t(trayBadgeLabelKey(os))} hint={t("settings.tray.trayBadgeHint")}>
           <select value={prefs.trayBadge} onChange={(e) => setPrefs({ trayBadge: e.target.value as Prefs["trayBadge"] })}>
             <option value="number">{t("settings.tray.unreadNumber")}</option>
             <option value="dot">{t("settings.tray.dotOnly")}</option>
@@ -1928,7 +1929,7 @@ function TrayTab() {
       <Row
         id="autostart"
         label={os === "windows" ? t("settings.tray.autostartWindows") : t("settings.tray.autostart")}
-        hint={autostart.locked === "user" ? t("settings.tray.autostartOffInWindows") : autostart.locked === "policy" ? t("settings.tray.autostartByPolicy") : os === "linux" && !tray ? t("settings.tray.startsOpen") : t("settings.tray.startsMinimized")}
+        hint={autostart.locked === "user" ? t("settings.tray.autostartOffInWindows") : autostart.locked === "policy" ? t("settings.tray.autostartByPolicy") : os === "linux" && !tray ? t("settings.tray.startsOpen") : t(startsMinimizedKey(os))}
       >
         <Switch checked={autostart.enabled} disabled={autostart.locked !== null} onChange={(v) => void toggleAuto(v)} />
       </Row>

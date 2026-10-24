@@ -19,3 +19,14 @@ export const filtersIntroKey = (tray = true) => (tray ? "settings.filters.intro"
 
 /** The title of the Settings tab that holds notifications and the tray (the entry of the navigation and the heading). */
 export const trayTabTitleKey = (tray = true) => (tray ? "settings.tray.title" : "settings.tray.titleNoTray");
+
+// Settings > Notifications: three labels name the tray icon. On a Mac that icon lives in the menu bar, so the Mac texts say so (D-019); Windows and Linux keep the tray words.
+
+/** The label of the "keep running when the window is closed" switch. */
+export const keepRunningLabelKey = (os: Os) => (os === "macos" ? "settings.tray.keepRunningMenuBar" : "settings.tray.keepRunning");
+
+/** The label of the tray icon's badge choice. */
+export const trayBadgeLabelKey = (os: Os) => (os === "macos" ? "settings.tray.trayBadgeMenuBar" : "settings.tray.trayBadge");
+
+/** The hint of the start-at-login switch when the system does not lock it. */
+export const startsMinimizedKey = (os: Os) => (os === "macos" ? "settings.tray.startsMinimizedMenuBar" : "settings.tray.startsMinimized");
