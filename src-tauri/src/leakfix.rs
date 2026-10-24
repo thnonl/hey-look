@@ -23,6 +23,14 @@ pub const MAX_PLAUSIBLE: usize = 16;
 pub const ENABLE: &str = "HEYLOOK_MAC_LEAK_FIX";
 pub const KILL_SWITCH: &str = "HEYLOOK_MAC_NO_LEAK_FIX";
 
+/// How many references to release from a window, from the retain counts read while only the caller's strong reference was held (`counts`: the first read, taken before any other message
+/// to the window, and a second after the questions were asked and their autorelease pool was emptied). The LOWEST count counts: a higher one holds references of a pool, not leaked ones.
+/// The caller's own references are `own_refs`, so the plan is `min(counts) - own_refs` and never more: `count - 1` for `own_refs` = 1 (round 13: count 4 -> 3 releases is what the experiment did
+/// without a crash; fix28 released 4 and crashed). Nothing for an empty list.
+pub fn release_plan(counts: &[usize], own_refs: usize) -> usize {
+    counts.iter().copied().min().map_or(0, |c| expected_extra(c, own_refs))
+}
+
 /// Whether the release may run: asked for (`enable` = `HEYLOOK_MAC_LEAK_FIX`) and not forced off (`kill` = `HEYLOOK_MAC_NO_LEAK_FIX`).
 pub fn enabled(enable: Option<&str>, kill: Option<&str>) -> bool {
     !switched_off(kill) && enable.map(str::trim) == Some("1")
@@ -96,6 +104,24 @@ mod tests {
         assert_eq!(expected_extra(usize::MAX, 1), 0, "an immortal object reports a huge count");
     }
 
+    /// Round 13: observed count 4 (the check's own reference included). The experiment released 3 with the check's reference still held (no crash in 3 min 20 s); fix28 released 4 (it read a count
+    /// of 5 after its questions: one more reference belonged to an autorelease pool) and crashed in objc_autoreleasePoolPop.
+    #[test]
+    fn the_observed_count_of_four_plans_three_releases_never_four() {
+        assert_eq!(release_plan(&[4], 1), 3);
+        assert_eq!(release_plan(&[4, 5], 1), 3, "a higher second count (a pool's reference) is not a leaked one: the lowest counts");
+        assert_eq!(release_plan(&[5, 4], 1), 3);
+        assert_eq!(release_plan(&[4, 3], 1), 2, "the lower of two reads wins");
+        assert_eq!(release_plan(&[2], 1), 1);
+        assert_eq!(release_plan(&[1, 4], 1), 0, "a fixed leak: nothing");
+        assert_eq!(release_plan(&[], 1), 0);
+        assert_eq!(release_plan(&[0], 1), 0);
+        for count in 0..=40usize {
+            assert!(release_plan(&[count], 1) <= count.saturating_sub(1), "never more than count - 1 (count {count})");
+            assert!(release_plan(&[count], 1) <= MAX_RELEASES);
+        }
+    }
+
     #[test]
     fn the_kill_switch_is_one_and_nothing_else() {
         assert!(switched_off(Some("1")) && switched_off(Some(" 1 ")));
@@ -138,6 +164,14 @@ mod tests {
         let check = &mac[mac.find("pub fn check(").unwrap()..];
         let fix = &check[check.find("fn leak_fix(").unwrap()..];
         let fix = &fix[..fix.find("\n}\n").unwrap()];
+        // fix29: the count is read first, the questions run in their own pool, the number is planned once and fixed, and no release is made at or below our own reference
+        let first = fix.find("let first: usize").unwrap();
+        assert!(first < fix.find("autoreleasepool(").unwrap() && fix.find("autoreleasepool(").unwrap() < fix.find("let second: usize").unwrap());
+        assert!(fix.find("let second: usize").unwrap() < fix.find("leakfix::release_plan(&[first, second], OWN_REFS)").unwrap());
+        assert!(fix.contains("for _ in 0..planned") && !fix.contains("while released"), "a fixed number of releases, decided before the first");
+        assert!(fix.contains("if before <= OWN_REFS") && fix.contains("break;"), "never release at or below our own reference");
+        assert!(fix.contains("retain count {first} then {second}") && fix.contains("trace.push_str(&format!(\" {before}>{after}\"))"), "the count before and after every release is logged");
+        assert_eq!(fix.matches("drop(strong)").count(), 2);
         // asked only from `check`, which `popout.rs` runs after `Destroyed` + `sweep`
         assert!(check.contains("leak_fix(strong, &weak, label, destroyed)"));
         assert!(mac.find("pub fn sweep(").unwrap() < mac.find("pub fn check(").unwrap());
@@ -146,16 +180,15 @@ mod tests {
         assert!(pop.contains("after_destroyed(app, &label, true)") && pop.contains("after_destroyed(app, label, false)"), "a window that was given up is never released");
         // the guards, before the first release
         let first_release = fix.find("msg_send![ptr, release]").unwrap();
-        for guard in ["leakfix::refusal(&state)", "leakfix::expected_extra(", "isVisible", "isKeyWindow", "isMainWindow", "attachedSheet", "childWindows", "parentWindow", "crate::QUITTING", "leakfix::ENABLE", "leakfix::KILL_SWITCH"] {
+        for guard in ["leakfix::refusal(&state)", "leakfix::release_plan(", "isVisible", "isKeyWindow", "isMainWindow", "attachedSheet", "childWindows", "parentWindow", "crate::QUITTING", "leakfix::ENABLE", "leakfix::KILL_SWITCH"] {
             let at = fix.find(guard).unwrap_or_else(|| panic!("{guard}"));
             assert!(at < first_release, "{guard} must come before the release");
         }
         // the count is read again before every release, the loop is capped, and our own reference is the last one to go
-        assert!(fix.contains("while released < leakfix::MAX_RELEASES"));
         assert_eq!(fix.matches("msg_send![ptr, release]").count(), 1);
         assert!(fix.find("msg_send![ptr, release]").unwrap() < fix.rfind("drop(strong)").unwrap());
         assert_eq!(fix.matches("drop(strong)").count(), 2, "dropped once on a refusal and once after the loop, never twice on one path");
-        assert!(fix.contains("leak fix: released {released} extra reference(s), window"));
+        assert!(fix.contains("leak fix: released {released} extra reference(s) (retain count"));
         // counted for GET /native
         assert!(mac.contains("RELEASED.fetch_add(released"));
         let native = include_str!("testbridge/native.rs");
