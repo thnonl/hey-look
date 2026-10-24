@@ -98,9 +98,36 @@ try {
     assert.equal(await evaluate(`document.querySelectorAll('iframe').length`), 2, 'the message frame and the one kept hidden frame');
   });
 
+  await check('a dark mail is written with its rules in it: the message frame has no element of it listed or wrapped for the dark mode (fix44, D-103)', async () => {
+    settle = 1800;
+    await evaluate('window.__darkMailScratch = true; window.__darkMailClear(); 1');
+    await select(IDS.huge);
+    await select(IDS.big);
+    settle = 250;
+    const a = await stats();
+    for (let i = 0; i < 12; i++) await select(i % 2 ? IDS.huge : IDS.big);
+    const z = await stats();
+    assert.ok(z.tagged - a.tagged >= 12, `${z.tagged - a.tagged} of 12 selections were written from the tagged document`);
+    // frameWrappers counts the frame's elements our dark code listed: only the pictures of the mail (logo check) may be, never the thousands of elements of the 2 MB mail
+    assert.ok(z.frameWrappers - a.frameWrappers <= 12 * 40, `${z.frameWrappers - a.frameWrappers} frame elements wrapped in 12 selections`);
+    const sheetEl = await evaluate(`(() => { const d = document.querySelector('.msg-frame').contentDocument; return { id: !!d.getElementById('hm-dark-sheet'), styles: [...d.querySelectorAll('style')].filter((x) => x.textContent.includes('@layer hm')).length, csp: d.querySelector('meta[http-equiv="Content-Security-Policy"]').content, doctype: !!d.doctype }; })()`);
+    assert.ok(sheetEl.id && sheetEl.styles === 1, 'one dark sheet, the one that came in the written text: ' + JSON.stringify(sheetEl));
+    assert.ok(/img-src data:/.test(sheetEl.csp), "the mail's own CSP is back in the document (not the hidden frame's): " + sheetEl.csp);
+    assert.ok(sheetEl.doctype, 'the document keeps its doctype (standards mode)');
+    // control: with the hidden frame off the old path lists the elements of the message frame
+    const c0 = await stats();
+    await evaluate('window.__darkMailScratch = false; window.__darkMailClear(); 1');
+    settle = 1800;
+    await select(IDS.big);
+    const c1 = await stats();
+    await evaluate('window.__darkMailScratch = true; 1');
+    assert.ok(c1.frameWrappers - c0.frameWrappers > 1000, `the control (no hidden frame) listed ${c1.frameWrappers - c0.frameWrappers} elements of the message frame`);
+    settle = 250;
+  });
+
   await check('the cache holds text and numbers only: no element, rule or style object is kept', async () => {
     const src = readFileSync(new URL('../src/darkMail.ts', import.meta.url), 'utf8');
-    assert.ok(/const darkCache = new Map<string, \{ sheet: string; tags: Int32Array \}>\(\)/.test(src), 'the cache entry is {sheet: string, tags: Int32Array}');
+    assert.ok(/const darkCache = new Map<string, \{ sheet: string; tags: Int32Array; html\?: string \}>\(\)/.test(src), 'the cache entry is {sheet: string, tags: Int32Array, html?: string}: text and numbers');
     assert.ok(!/new Map<[^>]*(Element|CSSStyleSheet|CSSRule|CSSStyleDeclaration)/.test(src.split('export function buildDarkSheet')[0]), 'no module-level map of elements or style objects before the walk');
     assert.ok(/new WeakMap<Element, HTMLStyleElement>\(\)/.test(src), 'the per-document sheet is a WeakMap keyed by the root');
   });
@@ -109,4 +136,4 @@ try {
   await H.shutdown();
 }
 if (failures.length) { console.error(failures.map((f) => 'FAIL ' + f).join('\n')); process.exit(1); }
-console.log('ok - test-dark-walk (one walk per mail, in the hidden frame; a repeat reads no style; the same sheet and tags as a walk of the message frame; no style read in a message frame; the cache keeps text and numbers only)');
+console.log('ok - test-dark-walk (one walk per mail, in the hidden frame; a repeat reads no style; the same sheet and tags as a walk of the message frame; no style read in a message frame; a dark mail is written tagged, no element of the frame listed; the cache keeps text and numbers only)');
