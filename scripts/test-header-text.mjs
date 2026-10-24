@@ -32,9 +32,12 @@ assert.match(actions, /const subject = cleanHeaderText\(m\.subject\);\s*const fw
 assert.match(actions, /to: targets\.to\.map\(cleanHeaderText\),\s*cc: targets\.cc\.map\(cleanHeaderText\),/, 'a reply cleans its recipients');
 const compose = read('../src/components/Compose.tsx');
 assert.match(compose, /useState\(cleanHeaderText\(init\.subject \?\? ""\)\)/, 'Compose cleans the subject it opens with');
-assert.match(compose, /\(init\.to \?\? \[\]\)\.map\(cleanHeaderText\)/);
-assert.match(compose, /\(init\.cc \?\? \[\]\)\.map\(cleanHeaderText\)/);
-assert.match(compose, /\(init\.bcc \?\? \[\]\)\.map\(cleanHeaderText\)/);
+// (the recipients are made in composeStart.ts, for the fresh mount and for the in-place fill of a Reply / Forward shell)
+const start = read('../src/composeStart.ts');
+assert.match(start, /\(init\.to \?\? \[\]\)\.map\(cleanHeaderText\)/);
+assert.match(start, /\(init\.cc \?\? \[\]\)\.map\(cleanHeaderText\)/);
+assert.match(start, /\(init\.bcc \?\? \[\]\)\.map\(cleanHeaderText\)/);
+assert.match(compose, /startRecipients\(init, /, 'Compose takes the recipients it opens with from startRecipients');
 // the backend does the same when the MIME is built
 const smtp = read('../src-tauri/src/smtp.rs');
 assert.match(smtp, /fn clean_header_text\(/, 'the backend has the same rule');

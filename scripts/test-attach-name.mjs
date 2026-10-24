@@ -30,6 +30,7 @@ assert.equal(outgoingName("CON.txt"), "_CON.txt");
 // the wiring: files are cleaned when they are attached and when a draft / forward brings its attachments in
 const compose = readFileSync(new URL("../src/components/Compose.tsx", import.meta.url), "utf8");
 assert.ok(/filename: outgoingName\(f\.name \|\| "pasted-image\.png"\)/.test(compose), "attached files get the clean name");
-assert.ok(/outgoingNames\(\(init\.attachments/.test(compose), "attachments of a draft / forward are shown under the clean name");
+const start = readFileSync(new URL("../src/composeStart.ts", import.meta.url), "utf8"); // (the start values are made in composeStart.ts, for the fresh mount and the in-place fill of a Reply / Forward shell)
+assert.ok(/outgoingNames\(\(init\.attachments/.test(start) && /useState<Att\[\]>\(\(\) => startAttachments\(init\)\)/.test(compose) && /setAtts\(startAttachments\(init\)\)/.test(compose), "attachments of a draft / forward are shown under the clean name");
 assert.ok(/filename: outgoingName\(picSel\.name/.test(compose), "a picture turned into an attachment gets the clean name");
 console.log("test-attach-name: ok");

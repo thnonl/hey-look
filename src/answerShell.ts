@@ -2,7 +2,8 @@
 // server round trip), the pictures of the quote, the cleaning of the quote and the editor; on a long mail nothing happened for seconds. Now:
 //   1. the slow steps START at once and run side by side (`job.prepare`: headers, pictures / attachments, the quote module),
 //   2. the compose opens in the same moment as a shell with what is known (subject, account) and a "preparing" flag: header rows, the recipient fields and Send off, the status in the body,
-//   3. the message is built when the steps are done (the quote is cleaned only after the shell was painted: paint first, then work) and replaces the shell in one step.
+//   3. the message is built when the steps are done (the quote is cleaned only after the shell was painted: paint first, then work) and replaces the shell in one step - IN PLACE: the
+//      Compose and the editor made for the shell take the message, nothing is mounted again (WP13f-3, DEC-023; `fillPane`).
 // A second press on the same answer only brings the shell forward; Discard / closing while it prepares ends it and the finished message is dropped; a step that fails is replaced by
 // today's fallback (answer to From, no quote); a shell never stays (15 s). Pure apart from `deps`, so scripts/test-answer-shell.mjs runs it in plain Node (types only are imported).
 import type { ComposeInit } from "./store.ts";
@@ -17,8 +18,8 @@ export interface ShellDeps {
   open(init: ComposeInit, o: StartOpts): Promise<ShellStart>;
   /** Is the shell `id` still the compose in the pane (not discarded, not replaced by another message)? */
   paneHas(id: string): boolean;
-  /** The finished message replaces the shell in the pane. */
-  fillPane(init: ComposeInit): Promise<void>;
+  /** The finished message replaces the shell `id` in the pane (in place; the remount of a new compose is the fallback). */
+  fillPane(id: string, init: ComposeInit): Promise<void>;
   /** The finished message is handed to the window `label` (it keeps the status for its minimum time itself). */
   fillWindow(label: string | null, init: ComposeInit): void;
   /** A second press on an answer that is being prepared: bring that shell forward. True = there was one. */
@@ -45,6 +46,8 @@ export interface AnswerJob<T> {
   shell: ComposeInit;
   /** the attachments of a forward are fetched: the status says so ("Getting the attachments…") */
   fetching?: boolean;
+  /** a Reply all that is known to have Cc recipients (from the message as stored): the Cc and Bcc rows are in the shell (REQ-13.13.12) */
+  cc?: boolean;
   o: StartOpts;
   /** The slow steps. Called at once, before the shell is open; `painted` resolves when the shell was drawn (heavy work waits for it). Never rejects in practice (each step has its fallback). */
   prepare(painted: Promise<void>): Promise<T>;
@@ -79,7 +82,7 @@ export function createAnswerShell(deps: ShellDeps, safetyMs: number = SAFETY_MS,
       const gate = new Promise<void>((r) => (painted = r));
       // the slow steps start now, side by side, not after the shell (REQ-13.13.3)
       const work: Promise<Outcome<T>> = job.prepare(gate).then((value) => ({ ok: true as const, value }), (error: unknown) => ({ ok: false as const, error }));
-      const shell: ComposeInit = { ...job.shell, preparing: { kind: job.kind, id, key: job.key, at: now(), ...(job.fetching ? { fetching: true } : {}) } };
+      const shell: ComposeInit = { ...job.shell, preparing: { kind: job.kind, id, key: job.key, at: now(), ...(job.fetching ? { fetching: true } : {}), ...(job.cc ? { cc: true } : {}) } };
       const opening = deps.open(shell, job.o).catch((): ShellStart => ({ ok: false }));
       void opening.then(() => deps.paint()).then(painted, painted);
       const start = await opening;
@@ -110,7 +113,7 @@ export function createAnswerShell(deps: ShellDeps, safetyMs: number = SAFETY_MS,
         const left = deps.remaining(id);
         if (left > 0) await deps.wait(left); // the status stays on screen for 300 ms once it was shown
         if (!deps.paneHas(id)) return finish();
-        await deps.fillPane(full);
+        await deps.fillPane(id, full);
       } else {
         deps.fillWindow(start.label, full);
       }

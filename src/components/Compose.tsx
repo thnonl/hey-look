@@ -1,4 +1,5 @@
 import { EditorContent, Node as TipNode, useEditor, type Editor } from "@tiptap/react";
+import { Selection } from "@tiptap/pm/state";
 import {
   BadgeCheck, CalendarClock, CalendarPlus, ChevronDown, ExternalLink, FileText, SquareArrowDownLeft, ImagePlus, Info, Lock, LockOpen, MoreHorizontal, Paperclip, Save, Send, ShieldAlert, ShieldCheck, Sparkles, Trash2,
   TriangleAlert, X,
@@ -19,7 +20,7 @@ import { onThemeSwitch, themeSwitches } from "../mailCanvasSync";
 import { themeIsDark } from "../mailCanvas";
 import { osDark } from "../osTheme";
 import { setDarkRegion } from "../composePreviewDom";
-import { extractSignature, normalizeHtml, SIG_MARK } from "../signature";
+import { extractSignature, normalizeHtml } from "../signature";
 import { baseExtensions, refreshPlaceholder, setEditorLabel } from "../editor/extensions";
 import { loadKit, useKit } from "../editor/kit";
 import { useDelayedFlag } from "../delayedFlag";
@@ -42,8 +43,10 @@ import { settleHeader } from "../headerRows";
 import { insertPictureNodes, type PictureAttrs } from "../editor/insertPictures";
 import { cleanHeaderText } from "../headerText";
 import { fromAccountFor } from "../fromAccount";
+import { isFreshMessage, startAttachments, startRecipients, startSecurity } from "../composeStart";
+import { answerBodyHtml } from "../composeBody";
 import { askFreshBeforeSend, DRAFT_LIMIT, draftSize, draftTooLargeError, isSizeRefusal, sendLimit, showSizeToast, wireSize } from "../sendSize";
-import { outgoingName, outgoingNames } from "../attachName";
+import { outgoingName } from "../attachName";
 import { blockedAttachmentExt, dataUriBytes, fileToBase64, fmtClock, fmtIn, fmtSize, fmtWhen, htmlToText, imageSize, PICTURE_TYPES, playSent, resizeImage, sanitizeHtml, shortKey, userName } from "../util";
 import { calTz } from "../calendar";
 import { defaultMeeting, MeetingState, MeetingStrip, meetingToDraft } from "./MeetingStrip";
@@ -203,16 +206,18 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   const [accountId, setAccountId] = useState(fromAccountFor(accounts, init.accountId, prefs.defaultAccount));
   const accountRef = useRef(accountId); // (the editor's paste handler is made once: it reads the account of the moment from here)
   accountRef.current = accountId;
-  const isFresh = !init.replaces && !init.isReply && !init.outboxId && !init.restore;
+  const isFresh = isFreshMessage(init);
   // an opened draft / scheduled message / message that failed to send: its body already holds the signature, shown as the region again
   const editing = !!(init.replaces || init.outboxId || init.restore);
   // a draft that was opened from Drafts (W2.2): the backend keeps the version that was opened, and Discard puts it back
   const openedDraft = !!init.replaces && (init.replaces.startsWith("m:") || !!init.openedDraft);
   const autoCc = (id: string) => (isFresh ? eff(prefs, id, "autoCc").trim() : "");
   const autoBcc = (id: string) => (isFresh ? eff(prefs, id, "autoBcc").trim() : "");
-  const [to, setTo] = useState<string[]>((init.to ?? []).map(cleanHeaderText)); // (from a received message, a draft or a link: never a line break in a header)
-  const [cc, setCc] = useState<string[]>([...(init.cc ?? []).map(cleanHeaderText), ...(autoCc(accountId) ? [autoCc(accountId)] : [])]);
-  const [bcc, setBcc] = useState<string[]>([...(init.bcc ?? []).map(cleanHeaderText), ...(autoBcc(accountId) ? [autoBcc(accountId)] : [])]);
+  // (the start values: composeStart.ts, the same code that fills a Reply / Forward shell in place)
+  const start = startRecipients(init, { cc: eff(prefs, accountId, "autoCc"), bcc: eff(prefs, accountId, "autoBcc") });
+  const [to, setTo] = useState<string[]>(start.to);
+  const [cc, setCc] = useState<string[]>(start.cc);
+  const [bcc, setBcc] = useState<string[]>(start.bcc);
   /**
    * What was typed, pasted, dropped or picked in a recipient field. An address lives in ONE field, the first of To, Cc, Bcc that has it
    * (R19A-2): one that is already in an earlier field is not added again (a note says where it is), one that is in a later field moves up.
@@ -241,7 +246,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     if (to_ !== "to") ccTouched.current = true;
     touch();
   };
-  const [showCc, setShowCc] = useState(cc.length > 0 || bcc.length > 0);
+  const [showCc, setShowCc] = useState(start.showCc);
   // the sender asked for answers to go to another address than From (Reply-To): said under To, with a way back to From
   const [replyNote, setReplyNote] = useState(init.replyNote ?? null);
   const noteKeys = replyNote ? replyNote.replyTo.map(recipientKey) : [];
@@ -254,10 +259,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   };
   const [subject, setSubject] = useState(cleanHeaderText(init.subject ?? ""));
   // the attachments of an opened draft / forward are shown (and sent) under a clean name: no folder, no hidden characters (O-05)
-  const [atts, setAtts] = useState<Att[]>(() => {
-    const names = outgoingNames((init.attachments ?? []).map((a) => a.filename));
-    return (init.attachments ?? []).map((a, i) => ({ ...a, filename: names[i] }));
-  });
+  const [atts, setAtts] = useState<Att[]>(() => startAttachments(init));
   const [templates, setTemplates] = useState<Template[]>([]);
   const [sigs, setSigs] = useState<Signature[]>([]);
   // the message of an opened draft carries its signature as stored text: it is shown as the signature region again
@@ -336,16 +338,41 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   };
   // PGP: Encrypt is "on", "off", or "auto" (on while every recipient has a key); Sign is a plain switch
   const keysRev = useStore((s) => s.keysRev);
-  const startMode = eff(prefs, accountId, "pgpEncrypt");
+  const pgpStart = startSecurity(init, { encrypt: eff(prefs, accountId, "pgpEncrypt"), sign: eff(prefs, accountId, "pgpSign"), attachKey: eff(prefs, accountId, "pgpAttachKey") });
   // Outlook's Sensitivity: Confidential. An answer to confidential mail starts that way, and keeps the window out of screen capture
   // while it quotes the mail (init.confidential), as the reading pane does.
   const [confidential, setConfidential] = useState(!!init.confidential);
   // Outlook's Importance (High / Low / Normal): per message, Normal unless a reopened draft or scheduled message was High / Low
   const [importance, setImportance] = useState<Importance>(initialImportance(init));
   useContentProtection(!!init.confidential);
-  const [encIntent, setEncIntent] = useState<"on" | "off" | "auto">(init.restore ? init.restore.encrypt : init.security ? (init.security.encrypt ? "on" : "off") : startMode === "always" ? "on" : startMode === "possible" ? "auto" : "off");
-  const [signOn, setSignOn] = useState(init.restore ? init.restore.sign : init.security ? init.security.sign : eff(prefs, accountId, "pgpSign"));
-  const [attachKey, setAttachKey] = useState(init.restore ? init.restore.attachKey : init.security ? init.security.attachPublicKey : eff(prefs, accountId, "pgpAttachKey"));
+  const [encIntent, setEncIntent] = useState<"on" | "off" | "auto">(pgpStart.encIntent);
+  const [signOn, setSignOn] = useState(pgpStart.sign);
+  const [attachKey, setAttachKey] = useState(pgpStart.attachKey);
+  // ---- a Reply / Reply all / Forward shell that is filled IN PLACE (1.0.7 WP13f-3, DEC-023, REQ-13.13.10): the finished message arrives as the new `init` of THIS Compose (the store's
+  // `fillCompose`, or the compose window's own state), with the same key: no new Compose, no new editor. The fields it owns are set here, in the render that receives it (React runs
+  // this function again at once and draws nothing in between: one update, with the same code as a fresh mount, composeStart.ts); the body is filled in the layout effect below, in one
+  // transaction before the first paint. The shell never touched anything (no autosave, no snapshot, not dirty), so there is nothing to undo, save or ask.
+  const filling = useRef<ComposeInit | null>(null);
+  const [shellSeen, setShellSeen] = useState<string | null>(init.preparing?.id ?? null);
+  if (shellSeen && !init.preparing) {
+    setShellSeen(null);
+    const acct = fromAccountFor(accounts, init.accountId, prefs.defaultAccount);
+    const r = startRecipients(init, { cc: eff(prefs, acct, "autoCc"), bcc: eff(prefs, acct, "autoBcc") });
+    const sec = startSecurity(init, { encrypt: eff(prefs, acct, "pgpEncrypt"), sign: eff(prefs, acct, "pgpSign"), attachKey: eff(prefs, acct, "pgpAttachKey") });
+    setAccountId(acct);
+    setTo(r.to);
+    setCc(r.cc);
+    setBcc(r.bcc);
+    setShowCc((was) => was || r.showCc);
+    setReplyNote(init.replyNote ?? null);
+    setSubject(cleanHeaderText(init.subject ?? ""));
+    setAtts(startAttachments(init));
+    setConfidential(!!init.confidential);
+    setEncIntent(sec.encIntent);
+    setSignOn(sec.sign);
+    setAttachKey(sec.attachKey);
+    filling.current = init;
+  }
   const [signMenu, setSignMenu] = useState(false);
   // how much room the pane has (composeFit.ts): a small one shows the actions as icons and More; the measure is the pane, not the window
   const paneRef = useRef<HTMLDivElement>(null);
@@ -594,7 +621,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     },
     // a new message: typed text, then the signature region, then (reply / forward) the quoted message
     // a quoted or reopened body never brings a remote picture into the editor (the reader's "Load pictures" is the only place they load)
-    content: (startContent.current ??= stripRemotePictures(editing ? startDoc.current!.html : `<p></p>${SIG_MARK}${extractQuote(init.bodyHtml ?? "<p></p>").html}`).html),
+    content: (startContent.current ??= editing ? stripRemotePictures(startDoc.current!.html).html : answerBodyHtml(init.bodyHtml)),
     autofocus: (init.to?.length ?? 0) > 0 ? "start" : false,
     // a body from an older build may lack the paragraph above the signature region: add it without counting as an edit
     onCreate: ({ editor: ed }) => {
@@ -645,7 +672,44 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   // the body as it opened (a reply: the quote), to tell what the person wrote from what Compose put there
   useEffect(() => {
     // (a restored message has nothing "as it opened": everything in it was written by the person, so it is content to keep)
-    if (editor && !baseline.current) baseline.current = init.recoveryId || init.carried ? { text: "", pics: 0 } : { text: editor.getText().trim(), pics: bodyPictures(editor) };
+    // (a shell has no body yet: the baseline is taken when the message is filled in, below)
+    if (editor && !preparing && !baseline.current) baseline.current = init.recoveryId || init.carried ? { text: "", pics: 0 } : { text: editor.getText().trim(), pics: bodyPictures(editor) };
+  }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The editor made for a shell is empty and not editable until the message is filled in (it is not on screen either: the status stands in its place).
+  useLayoutEffect(() => {
+    if (preparing) editor?.setEditable(false, false);
+  }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The message arrives (see "a shell that is filled IN PLACE" above): the editor takes the body in ONE transaction that is not in the undo history (Ctrl+Z cannot take the message back),
+  // is not an edit of the person's (`signatureInit`), puts the caret where a fresh mount puts it, and the baseline of what the person wrote is taken from the result. If anything throws,
+  // today's path runs instead: the message is opened as a new Compose (REQ-13.13.14).
+  useLayoutEffect(() => {
+    const full = filling.current;
+    if (!full || !editor) return;
+    filling.current = null;
+    try {
+      editor.setEditable(true, false);
+      editor
+        .chain()
+        .setMeta("addToHistory", false)
+        .setMeta("signatureInit", true)
+        .setContent(answerBodyHtml(full.bodyHtml))
+        .command(({ tr }) => (tr.setSelection(Selection.atStart(tr.doc)), true))
+        .run();
+      baseline.current = { text: editor.getText().trim(), pics: bodyPictures(editor) };
+      paneRef.current?.setAttribute("data-fill", "in-place"); // (what the probes read: the message got in without a new Compose)
+      if ((full.to?.length ?? 0) > 0) editor.commands.focus("start"); // (a forward has no recipient: the To field takes the focus, see `autoFocus` there)
+    } catch (e) {
+      const note = `[reply] fill: fallback ${e instanceof Error ? e.message : String(e)}`;
+      console.warn(note);
+      if (composeSeam()) void api.popoutNote("info", note).catch(() => undefined);
+      void useStore.getState().openCompose(full);
+    }
+  }, [init, editor]); // eslint-disable-line react-hooks/exhaustive-deps
+  // what the tests look at (AC-13.13.15): this Compose and its editor stay the same objects through the fill
+  useLayoutEffect(() => {
+    const pane = paneRef.current as (HTMLDivElement & { __editor?: Editor | null }) | null;
+    if (pane) pane.__editor = editor;
   }, [editor]);
 
   // the link popover (LinkPopover.tsx): the same one for the toolbar button and Ctrl/Cmd+K, drawn under the button
@@ -1473,8 +1537,10 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     writeSnapshot(true);
     void autosave(why);
   };
+  // (a shell is not looked at at all: no snapshot, no draft, no timer; they start when the message is filled in, REQ-13.13.13)
+  const shellOn = !!preparing;
   useEffect(() => {
-    if (init.outboxId) return;
+    if (init.outboxId || shellOn) return;
     const timer = setInterval(() => tickRef.current(), 1000);
     const away = () => awayRef.current(document.visibilityState === "hidden" ? "hidden" : "blur");
     window.addEventListener("blur", away);
@@ -1485,7 +1551,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       document.removeEventListener("visibilitychange", away);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [shellOn]);
   // a restored message is something the person has not saved: it counts as changed from the start
   useEffect(() => {
     if (init.recoveryId || init.carried) touch();
@@ -2043,6 +2109,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       inert={locked || movingIn || undefined}
       aria-busy={locked || movingIn || !!preparing || undefined}
       onFocusCapture={preparing ? (e) => { if (!(e.target as HTMLElement).closest(".cp-keep, .cp-prep")) prepRef.current?.focus({ preventScroll: true }); } : undefined} // (an engine without `inert`: a field that took the focus gives it back)
+      data-compose-instance={recoveryId}
       className={`compose-pane ${preparing ? "preparing" : init.afterShell ? "after-shell" : ""} ${dragging ? "dragging" : ""} ${chipOver ? "chip-over" : ""} ${compact ? "compact" : ""} ${compact && barWraps ? "bar-wraps" : ""} ${meeting ? "has-meeting" : ""}`}
       onKeyDown={(e) => {
         if (isImeEvent(e)) return; // a key that belongs to an input method (Subject, To, Cc, Bcc): no app shortcut
