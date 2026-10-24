@@ -569,6 +569,7 @@ export default defineLocale<typeof ns.en>({
   "settings.kw.signature": "落款, 页脚, 结尾, 署名",
   "settings.kw.keepRunning": "后台, 最小化, 菜单栏, 常驻, 关闭窗口",
   "settings.kw.autostart": "开机启动, 自启动, 启动项, 开机",
+  "settings.kw.tray": "tray, system tray, 托盘, 系统托盘, 通知区域",
   "settings.kw.pgp": "GPG, OpenPGP, 私钥, 公钥, 密钥",
   "settings.kw.ai": "ChatGPT, 大模型, 语言模型, Ollama, 智能",
   "settings.kw.blocked": "垃圾邮件, 屏蔽, 黑名单, 拉黑",

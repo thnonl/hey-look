@@ -177,6 +177,12 @@ for (const lang of LANGUAGES.map((l) => l.code)) {
         ok(idx.find((e) => e.id === "pg-tray").label.toLowerCase().includes(word.toLowerCase()), `${tag}: the Mac title has "${word}"`);
         ok(searchSettings(idx, word).some((h) => h.entry.tab === "tray"), `${tag}: "${word}" finds the Notifications tab`);
       }
+      // D-113: people type the English word "tray" in any language and on any system (a Mac says menu bar, a Linux without a tray host has no tray at all): the tab and the
+      // keep-running, tray-badge (where it exists) and starts-minimized rows are found by "tray" and by "system tray"
+      for (const q of ["tray", "system tray", "TRAY"]) {
+        const hits = searchSettings(idx, q).map((h) => h.entry.id);
+        for (const id of ["pg-tray", "keepRunning", "autostart", ...(c.tray ? ["trayBadge"] : [])]) ok(hits.includes(id), `${tag}: "${q}" finds ${id} (${hits})`);
+      }
       eq(idx.find((e) => e.id === "keepRunning").hint, !c.tray ? t("settings.tray.noTray") : c.os === "macos" ? t("settings.tray.keepRunningMac") : t("settings.tray.keepRunningHint"), `${tag}: the keep-running hint`);
       eq(idx.filter((e) => e.id === "replyTo").length, accounts.length, `${tag}: one Reply-to row per mailbox`);
       eq(idx.filter((e) => e.id === "calendar").length, accounts.filter((a) => a.cal).length, `${tag}: a Calendar row for the mailboxes that have one`);

@@ -129,7 +129,8 @@ interface Def {
   kind?: EntryKind;
   label: string;
   hint?: string;
-  kw?: Key;
+  /** the keywords key (or keys: the words of the "tray" rows come from two) */
+  kw?: Key | Key[];
   /** the place names that are looked in and shown */
   path?: string[];
   /** looked in, not shown ("Mailboxes", to save width) */
@@ -159,7 +160,7 @@ export function buildIndex(ctx: IndexCtx): Entry[] {
   const mac = ctx.os === "macos";
   const add = (d: Def) => {
     const places = [...(d.quiet ?? []), ...(d.path ?? [])];
-    const kw = d.kw ? kwTerms(d.kw) : [];
+    const kw = d.kw ? ([] as Key[]).concat(d.kw).flatMap(kwTerms) : [];
     const hint = d.hint ?? "";
     const shown = (d.path ?? []).length ? d.path! : d.lead ? [d.lead] : [];
     out.push({
@@ -306,14 +307,15 @@ export function buildIndex(ctx: IndexCtx): Entry[] {
   // ---- More
   const trayTitle = t(trayTabTitleKey(ctx.tray, ctx.os));
   const Y = (id: string, label: Key, hint?: Key, extra: Partial<Def> = {}) => add({ id, tab: "tray", label: t(label), hint: h(hint), path: [trayTitle], ...extra });
-  add({ id: "pg-tray", tab: "tray", kind: "page", label: trayTitle, hint: t(win ? "settings.tray.introWindows" : "settings.tray.intro"), lead: nav.more });
+  // (people type the word "tray" whatever the system calls the icon: a Mac says menu bar, a Linux without a tray host says nothing, D-113)
+  add({ id: "pg-tray", tab: "tray", kind: "page", label: trayTitle, hint: t(win ? "settings.tray.introWindows" : "settings.tray.intro"), lead: nav.more, kw: "settings.kw.tray" });
   Y("testNotify", "settings.tray.test");
   Y("sentSound", "settings.tray.sentSound");
-  Y("keepRunning", keepRunningLabelKey(ctx.os), !ctx.tray ? "settings.tray.noTray" : mac ? "settings.tray.keepRunningMac" : "settings.tray.keepRunningHint", { kw: "settings.kw.keepRunning" });
-  if (ctx.tray) Y("trayBadge", trayBadgeLabelKey(ctx.os), "settings.tray.trayBadgeHint");
+  Y("keepRunning", keepRunningLabelKey(ctx.os), !ctx.tray ? "settings.tray.noTray" : mac ? "settings.tray.keepRunningMac" : "settings.tray.keepRunningHint", { kw: ["settings.kw.keepRunning", "settings.kw.tray"] });
+  if (ctx.tray) Y("trayBadge", trayBadgeLabelKey(ctx.os), "settings.tray.trayBadgeHint", { kw: "settings.kw.tray" });
   if (win || mac) Y("taskbarBadge", mac ? "settings.tray.dockBadge" : "settings.tray.taskbarBadge");
   Y("countOther", "settings.tray.countOther", "settings.tray.countOtherHint");
-  Y("autostart", win ? "settings.tray.autostartWindows" : "settings.tray.autostart", ctx.os === "linux" && !ctx.tray ? "settings.tray.startsOpen" : startsMinimizedKey(ctx.os), { kw: "settings.kw.autostart" });
+  Y("autostart", win ? "settings.tray.autostartWindows" : "settings.tray.autostart", ctx.os === "linux" && !ctx.tray ? "settings.tray.startsOpen" : startsMinimizedKey(ctx.os), { kw: ["settings.kw.autostart", "settings.kw.tray"] });
 
   const actionsTitle = t("settings.actions.title");
   add({ id: "pg-actions", tab: "actions", kind: "page", label: actionsTitle, hint: t("settings.actions.intro"), lead: nav.more });

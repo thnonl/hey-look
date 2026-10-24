@@ -221,6 +221,21 @@ async function jumps(c) {
 }
 
 // ---------------------------------------------------------------------------------------------- (c) the keys, (d) ARIA
+/** D-113: "tray" is what people type, whatever the system calls the icon (a Mac says menu bar): the Notifications tab and the keep-running, starts-minimized and tray-badge rows are listed */
+async function trayWord(c) {
+  const entries = await index();
+  const want = ['pg-tray', 'keepRunning', 'autostart', 'trayBadge'].map((id) => entries.find((e) => e.id === id)?.label).filter(Boolean);
+  check(want.length >= 3, 'the tray entries are in the index');
+  await settingsOpen('general');
+  await waitFor(`!!document.getElementById('set-askWhere')`);
+  await ctrlF(c);
+  await typeText('tray', 40);
+  await sleep(300);
+  const opts = (await boxState()).opts.map((o) => o.label);
+  for (const l of want) check(opts.includes(l), `"tray" lists "${l}" (${JSON.stringify(opts)})`);
+  await click('.settings-nav .set-clear');
+  await sleep(150);
+}
 async function keys(c) {
   const entries = await index();
   // AC-8.12.2: Ctrl+F from a switch; the text is selected
@@ -495,6 +510,7 @@ try {
     await open(c);
     await walk(c);
     n += await jumps(c);
+    await trayWord(c);
     if (c === COMBOS[0]) {
       await keys(c);
       await stability(c);

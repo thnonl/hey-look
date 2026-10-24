@@ -569,6 +569,7 @@ export default defineLocale<typeof ns.en>({
   "settings.kw.signature": "pie de mensaje, despedida, pie",
   "settings.kw.keepRunning": "segundo plano, minimizar, barra de menús, cerrar ventana",
   "settings.kw.autostart": "arranque, inicio automático, encender, ejecutar al arrancar",
+  "settings.kw.tray": "tray, system tray, bandeja del sistema, área de notificación",
   "settings.kw.pgp": "GPG, OpenPGP, encriptar, clave privada, clave pública",
   "settings.kw.ai": "ChatGPT, LLM, Ollama, modelo de lenguaje, inteligencia artificial, AI",
   "settings.kw.blocked": "spam, lista negra, correo basura, bloquear",

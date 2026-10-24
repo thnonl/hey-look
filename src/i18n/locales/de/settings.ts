@@ -569,6 +569,7 @@ export default defineLocale<typeof ns.en>({
   "settings.kw.signature": "Grußformel, Fußzeile, Unterschrift, Abbinder",
   "settings.kw.keepRunning": "Hintergrund, minimieren, Tray, Menüleiste",
   "settings.kw.autostart": "Autostart, Systemstart, Hochfahren, Boot",
+  "settings.kw.tray": "tray, system tray, Infobereich, Systray",
   "settings.kw.pgp": "GPG, OpenPGP, privater Schlüssel, öffentlicher Schlüssel",
   "settings.kw.ai": "ChatGPT, LLM, Ollama, AI, Sprachmodell, künstliche Intelligenz",
   "settings.kw.blocked": "Spam, Sperrliste, Blacklist, entsperren, sperren",

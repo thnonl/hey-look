@@ -569,6 +569,7 @@ export default defineLocale<typeof ns.en>({
   "settings.kw.signature": "chữ ký cuối thư, lời chào cuối, footer",
   "settings.kw.keepRunning": "chạy nền, thu nhỏ, thanh menu, khay",
   "settings.kw.autostart": "khởi động cùng máy, tự mở, startup",
+  "settings.kw.tray": "tray, system tray, khay hệ thống",
   "settings.kw.pgp": "GPG, bảo mật thư, khóa riêng, khóa công khai",
   "settings.kw.ai": "ChatGPT, LLM, Ollama, mô hình ngôn ngữ, trí tuệ nhân tạo",
   "settings.kw.blocked": "thư rác, bỏ chặn, danh sách đen",

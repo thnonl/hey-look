@@ -568,6 +568,7 @@ export default define({
     "settings.kw.signature": "sign-off, footer",
     "settings.kw.keepRunning": "background, minimize, menu bar",
     "settings.kw.autostart": "startup, launch at login, boot",
+    "settings.kw.tray": "tray, system tray, notification area",
     "settings.kw.pgp": "GPG, secure mail, private key, public key",
     "settings.kw.ai": "ChatGPT, LLM, Ollama, language model",
     "settings.kw.blocked": "spam, block, unblock",
