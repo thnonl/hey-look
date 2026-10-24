@@ -186,6 +186,8 @@ impl BrowserState {
 
 #[cfg(not(windows))]
 pub fn wait_for_previous_run() {}
+#[cfg(windows)]
+pub use win::watch_window;
 #[cfg(not(windows))]
 pub fn watch(_app: &tauri::AppHandle) {}
 #[cfg(not(windows))]
@@ -475,6 +477,25 @@ mod win {
                     crate::startup::line("webview", &format!("browser process {pid}: {whose}, {age}; listening for web view failures"));
                 }
                 Err(e) => crate::startup::line("webview", &format!("could not listen for web view failures: {e}")),
+            }
+        });
+        if let Err(e) = asked {
+            crate::startup::line("webview", &format!("could not reach the web view controller: {e}"));
+        }
+    }
+
+    /// Listens for the failures of the web view of a secondary window (W4.2) and hands every one to `popout::page_failed`, which decides (the browser
+    /// process of the whole web view is the main window's business). Call right after the window was built.
+    pub fn watch_window(app: &AppHandle, win: &tauri::WebviewWindow, label: &str) {
+        let (app, label) = (app.clone(), label.to_string());
+        let asked = win.with_webview({
+            let label = label.clone();
+            move |pw| unsafe {
+                let Ok(core) = pw.controller().CoreWebView2() else { return };
+                let (handler_app, handler_label) = (app.clone(), label.clone());
+                if let Err(e) = listen(&core, move |kind, detail| crate::popout::page_failed(&handler_app, &handler_label, kind, &detail)) {
+                    crate::startup::line("webview", &format!("{label}: could not listen for web view failures: {e}"));
+                }
             }
         });
         if let Err(e) = asked {

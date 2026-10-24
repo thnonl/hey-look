@@ -86,6 +86,7 @@ export default defineLocale<typeof ns.en>({
   "app.popout.tooMany": "Đang mở quá nhiều cửa sổ. Hãy đóng bớt một cửa sổ để mở cửa sổ khác.",
   "app.popout.openFailed": "Không mở được cửa sổ mới ({error}).",
   "app.popout.mainUnreachable": "Không kết nối được với cửa sổ chính. Hãy thử lại.",
+  "app.popout.crashed": "Một cửa sổ đã ngừng hoạt động và bị đóng.",
   "app.cmd.openInWindow": "Mở trong cửa sổ mới",
   "app.quit.sending": { one: "Đang gửi thư của bạn trước khi Hey Look! thoát…", other: "Đang gửi {n} thư trước khi Hey Look! thoát…" },
   "app.quit.scheduledTitle": { one: "Có {n} thư đã lên lịch", other: "Có {n} thư đã lên lịch" },

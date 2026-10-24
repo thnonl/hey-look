@@ -732,7 +732,7 @@ assert.equal(draftKey("t9"), "draft:t9");
   for (const a of ["openCompose:", "sync:", "refresh:", "setDialog:", "showToast:"]) assert.ok(view.includes(a), a);
   assert.ok(view.indexOf("setReady(true)") > view.indexOf("openCompose:"), "Compose is drawn after the actions are replaced");
   // Compose.tsx: the seam is the only difference, and the main window (no seam) behaves as before
-  assert.equal(compose.match(/composeSeam\(\)/g).length, 15, "the places where Compose asks the seam (two of them: a message scheduled in a window is announced by the main window, which owns the outbox; the two for the draft the pane shows (W2.11) are in draftOpen.ts since WP9d; one tells a window that the scheduled message it holds paused is handled, W2.10; three for the lock of a send, W13.1; two for the \"Sending…\" toasts that only the pane needs, W13.14 A9)");
+  assert.equal(compose.match(/composeSeam\(\)/g).length, 16, "the places where Compose asks the seam (two of them: a message scheduled in a window is announced by the main window, which owns the outbox; the two for the draft the pane shows (W2.11) are in draftOpen.ts since WP9d; one tells a window that the scheduled message it holds paused is handled, W2.10; three for the lock of a send, W13.1; two for the \"Sending…\" toasts that only the pane needs, W13.14 A9; one reports the snapshot id to the window, W4.2)");
   assert.ok(compose.includes("composeSeam()?.scheduled(") && view.includes("scheduled: (outboxId, sendAt) => notifyMain(\"scheduled\""), "Scheduled for ... with Undo and View comes from the main window");
   assert.ok(compose.includes("openCompose(null, { sending: wait })") && compose.includes("openCompose(null, { sending: 0 })"), "a send hands the message over, it does not end it");
   assert.ok(compose.includes('else showToast(() => t("compose.toast.sending"), undoSend, "info", undefined, wait * 1000)'), "the main window has the Undo toast, as long as the message is held (W13.1)");
@@ -887,6 +887,24 @@ for (const [view, folder] of [["inbox", "inbox"], ["unread", "inbox"], ["pinned"
   const root = read("src/popout/PopoutRoot.tsx");
   assert.ok(root.includes('api.popoutNote("content"') && root.includes('window.addEventListener("error"') && root.includes('"unhandledrejection"'), "a page tells the log about its errors and that it drew");
   assert.ok(JSON.parse(read("src-tauri/capabilities/popout.json")).permissions.includes("allow-popout-note"));
+}
+
+// ---- W4.2: a window whose page process died is loaded again with its message, and ended with a message the second time
+{
+  const view = read("src/popout/ComposeView.tsx");
+  assert.ok(view.includes("reloaded && handedRecovery") && view.includes("api.recoveryLoad(handedRecovery)") && view.includes("composeFromSnapshot(l)"), "the compose page restores its message from the snapshot when the init says it was reloaded");
+  assert.ok(view.includes('recovery: (id) => void api.popoutNote("recovery", id)'), "the compose page tells the backend which snapshot is its message's");
+  assert.ok(read("src/components/Compose.tsx").includes("composeSeam()?.recovery(recoveryId)"), "Compose reports its snapshot id through the seam");
+  const root = read("src/popout/PopoutRoot.tsx");
+  assert.ok(root.includes("reloaded: !!info.reloaded") && root.includes("recoveryId={known.recoveryId}"), "the view gets the reloaded flag and the snapshot id");
+  const hub = read("src/popout/composeHub.ts");
+  assert.ok(hub.includes('listen<{ label?: unknown; kind?: unknown; recoveryId?: unknown }>("popout-crashed"') && hub.includes('t("app.popout.crashed")') && hub.includes("recoverOne(p.recoveryId)"), "main says so and saves the message at once (the start-up recovery road)");
+  assert.ok(hub.includes('p.kind === "compose"'), "only a compose window has a message to save");
+  const rec = read("src/composeRecovery.ts");
+  assert.ok(rec.includes("export async function recoverOne(") && rec.includes("(await api.recoveryList()).filter(pick)"), "one snapshot goes through the same settle road");
+  // the toast text exists in all 8 languages (no raw key)
+  const files = ["src/i18n/ns/app.ts", ...["de", "es", "fr", "ja", "ru", "vi", "zh-Hans"].map((l) => `src/i18n/locales/${l}/app.ts`)];
+  for (const f of files) assert.ok(new RegExp('"app\.popout\.crashed": "[^"]{8,}"').test(read(f)), `${f} has app.popout.crashed`);
 }
 
 console.log("ok - test-popout");

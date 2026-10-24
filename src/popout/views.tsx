@@ -29,6 +29,10 @@ export interface PopoutViewProps {
   keyOf: string | null;
   /** the hand-off data the opener left in the backend */
   init: unknown;
+  /** the page was loaded again after its process died (W4.2) */
+  reloaded?: boolean;
+  /** a compose window: the id of the crash snapshot of its message, when the window reported one */
+  recoveryId?: string | null;
 }
 
 export const devFlagOn = () => {

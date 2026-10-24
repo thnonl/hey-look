@@ -24,6 +24,8 @@ export interface ComposeSeam {
    * to Drafts. Whatever else ends the window releases the pause (the schedule stays), W2.10.
    */
   scheduledHandled(): void;
+  /** The id under which this message writes its crash snapshot: the window tells the backend, which restores the message from it when the page process dies (W4.2). */
+  recovery(id: string): void;
   /** The subject changed: it is the title of the window. */
   title(subject: string): void;
   /** Move the message being written to a window of its own; only the inline Compose has this (the window is the window already). */

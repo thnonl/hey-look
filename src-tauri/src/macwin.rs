@@ -230,6 +230,9 @@ unsafe fn set_one(w: *mut AnyObject, dark: Option<bool>) {
     // SAFETY: `w` is a live NSWindow on the main thread; objects that come back are checked for null before they are messaged.
     unsafe {
         let _: () = msg_send![w, setAppearance: appearance_for(dark)];
+        // D-063: the title bar is not drawn by the system: it shows the window's background colour, which bgcolor.rs sets to the app's own ground (--bg)
+        // in the same apply, so the strip above the page is not a grey of its own (35,36,39 against 27,28,32 in Dark)
+        let _: () = msg_send![w, setTitlebarAppearsTransparent: Bool::YES];
         let content: *mut AnyObject = msg_send![w, contentView];
         if !content.is_null() {
             let frame: *mut AnyObject = msg_send![content, superview];

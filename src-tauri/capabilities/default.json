@@ -186,6 +186,7 @@
     "allow-update-startup-ack",
     "allow-outbox-busy",
     "allow-idle-states",
-    "allow-window-theme-refresh"
+    "allow-window-theme-refresh",
+    "allow-window-caption-colors"
   ]
 }

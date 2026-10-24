@@ -90,6 +90,7 @@ export default define({
     "app.popout.tooMany": "Too many windows are open. Close one to open another.",
     "app.popout.openFailed": "Couldn’t open a new window ({error}).",
     "app.popout.mainUnreachable": "Couldn’t reach the main window. Try again.",
+    "app.popout.crashed": "A window stopped working and was closed.",
     "app.cmd.openInWindow": "Open in new window",
     "app.quit.sending": { one: "Sending your message before Hey Look! quits…", other: "Sending {n} messages before Hey Look! quits…" },
     "app.quit.scheduledTitle": { one: "{n} message is scheduled", other: "{n} messages are scheduled" },

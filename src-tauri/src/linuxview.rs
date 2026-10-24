@@ -176,6 +176,36 @@ pub fn watch(app: &AppHandle) {
     startup::stage(Some(app), &format!("linux: web view signals (process ended, not responding): {}", hooked.err().map(|e| e.to_string()).unwrap_or_else(|| "listening".into())));
 }
 
+/// The same for the web view of a secondary window (W4.2): every end of the web process is a failure of kind 1 (a render process that exited) for
+/// `popout::page_failed`, which reloads the window once and ends it the second time; "does not answer" is a failure of kind 2 (log only).
+#[cfg(target_os = "linux")]
+pub fn watch_window(app: &AppHandle, win: &tauri::WebviewWindow, label: &str) {
+    let (handle, label) = (app.clone(), label.to_string());
+    let hooked = win.with_webview(move |pw| {
+        use webkit2gtk::{WebProcessTerminationReason, WebViewExt};
+        let view = pw.inner();
+        let (on_end, name) = (handle.clone(), label.clone());
+        view.connect_web_process_terminated(move |_, reason| {
+            let why = match reason {
+                WebProcessTerminationReason::Crashed => "crashed",
+                WebProcessTerminationReason::ExceededMemoryLimit => "was ended for using too much memory",
+                WebProcessTerminationReason::TerminatedByApi => "was ended by the app",
+                _ => "ended",
+            };
+            crate::popout::page_failed(&on_end, &name, 1, &format!("the web process {why}"));
+        });
+        let (on_change, name) = (handle.clone(), label.clone());
+        view.connect_is_web_process_responsive_notify(move |view| {
+            if !view.is_web_process_responsive() {
+                crate::popout::page_failed(&on_change, &name, 2, "the web process does not answer");
+            }
+        });
+    });
+    if let Err(e) = hooked {
+        startup::stage(Some(app), &format!("a secondary window's web view could not be watched: {e}"));
+    }
+}
+
 #[cfg(not(target_os = "linux"))]
 pub fn watch(_app: &AppHandle) {}
 

@@ -30,6 +30,7 @@ import { FILL_ID } from "./composeFill";
 import { statusRemaining, shellDone, wait, WINDOW_SAFETY_MS } from "../composeShell";
 import { useDelayedFlag } from "../delayedFlag";
 import { composeFlush, runClose, secondsLeft, START, step, type Ev, type Fx, type WinState } from "./composeWindow";
+import { composeFromSnapshot } from "../recovery";
 import { draftKey } from "./entry";
 import { registerFlushHandler } from "./flush";
 import { popoutTitle } from "./route";
@@ -45,7 +46,7 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
 /** The loader of this view (lazyViews.tsx) waits for this too: the nodes of the editor kit come with the window's view, so the body is there when the window shows (REQ-9.2.3). */
 export const ready = (): Promise<void> => loadEditorKit();
 
-export default function ComposeView({ label, init }: PopoutViewProps) {
+export default function ComposeView({ label, init, reloaded, recoveryId: handedRecovery }: PopoutViewProps) {
   const prefs = useStore((s) => s.prefs);
   configureDates(prefs);
   configureCalendar(prefs);
@@ -148,6 +149,20 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
       await loadPlatform();
       await loadAccounts();
       void st.getState().refreshAi();
+      // the page process of this window died and the window was loaded again (W4.2): the message comes back as of its latest crash snapshot when there is one
+      // (what was typed after it can be lost, the snapshot interval at most), else as it was handed over
+      if (reloaded && handedRecovery) {
+        try {
+          const l = await api.recoveryLoad(handedRecovery);
+          const c = l ? composeFromSnapshot(l) : null;
+          if (c && alive) {
+            shellId.current = null;
+            setEditor((prev) => ({ init: c, n: (prev?.n ?? 0) + 1 }));
+          }
+        } catch {
+          /* the hand-off data stay */
+        }
+      }
       if (alive) setReady(true);
     })();
 
@@ -176,6 +191,7 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
         void api.popoutSetKey(draftKey(threadId)).catch(quiet); // the lock of a draft follows its saves
       },
       title: setTitle,
+      recovery: (id) => void api.popoutNote("recovery", id).catch(quiet),
     };
     const unseam = setComposeSeam(seam);
 

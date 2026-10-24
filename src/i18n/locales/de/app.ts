@@ -88,6 +88,7 @@ export default defineLocale<typeof ns.en>({
   "app.popout.tooMany": "Es sind zu viele Fenster geöffnet. Schließen Sie eines, um ein weiteres zu öffnen.",
   "app.popout.openFailed": "Ein neues Fenster konnte nicht geöffnet werden ({error}).",
   "app.popout.mainUnreachable": "Das Hauptfenster ist nicht erreichbar. Versuchen Sie es erneut.",
+  "app.popout.crashed": "Ein Fenster funktioniert nicht mehr und wurde geschlossen.",
   "app.cmd.openInWindow": "In neuem Fenster öffnen",
   "app.quit.sending": { one: "Ihre Nachricht wird gesendet, bevor Hey Look! beendet wird…", other: "{n} Nachrichten werden gesendet, bevor Hey Look! beendet wird…" },
   "app.quit.scheduledTitle": { one: "{n} Nachricht ist geplant", other: "{n} Nachrichten sind geplant" },

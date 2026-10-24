@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { useT } from "../i18n/react";
+import { publishCaptionColors, useStore } from "../store";
 import { frameAction, useFrame, Zone } from "../winframe";
 
 // Fluent-style 10x10 glyphs (the same shapes as Segoe Fluent Icons E921 / E922 / E923 / E8BB)
@@ -38,6 +39,7 @@ export function WindowControls() {
     let alive = true;
     const send = () => {
       const r = el.getBoundingClientRect(); // all zeros while hidden (fullscreen): the backend then removes the hit-test window
+      publishCaptionColors(useStore.getState().prefs); // (the caption of the other windows takes the band's colour where these buttons are: it moves with the width)
       api
         .frameCaptionRect({ x: r.left, y: r.top, w: r.width, h: r.height })
         .then((ok) => alive && useFrame.setState({ native: ok }))

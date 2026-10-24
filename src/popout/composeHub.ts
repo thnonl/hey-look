@@ -9,6 +9,7 @@ import { fmtWhen } from "../util";
 import { startCompose } from "./composeOpen";
 import { parseComposeRequest } from "./composeRequests";
 import { fills } from "./composeFills";
+import { recoverOne } from "../composeRecovery";
 import { setPopoutCounts } from "./popoutCount";
 
 interface Envelope {
@@ -100,11 +101,18 @@ export function handleComposeRequest(env: Envelope): boolean {
   return true;
 }
 
+/** A window was ended because its page process died twice (W4.2): say so, and save what a compose window held. */
+export function handlePopoutCrashed(p: { label?: unknown; kind?: unknown; recoveryId?: unknown }): void {
+  useStore.getState().showToast(() => t("app.popout.crashed"), undefined, "error");
+  if (p.kind === "compose" && typeof p.recoveryId === "string" && p.recoveryId) void recoverOne(p.recoveryId).catch(() => undefined);
+}
+
 /** The listeners of the main window: compose window requests and the count of open windows. Returns the function that removes them. */
 export function startComposeHub(): () => void {
   const subs = [
     listen<Envelope>("popout-request", (e) => void handleComposeRequest(e.payload)),
     listen<{ compose?: number; reader?: number }>("popout-count", (e) => setPopoutCounts(e.payload)),
+    listen<{ label?: unknown; kind?: unknown; recoveryId?: unknown }>("popout-crashed", (e) => handlePopoutCrashed(e.payload ?? {})),
   ];
   return () => subs.forEach((s) => void s.then((off) => off()).catch(() => undefined));
 }

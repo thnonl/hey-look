@@ -415,6 +415,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   const writerRef = useRef<RecoveryWriter | null>(null);
   writerRef.current ??= new RecoveryWriter(recoveryId, { save: (s) => api.recoverySave(s), clear: (id, why) => api.recoveryClear(id, why) });
   const writer = writerRef.current;
+  useEffect(() => composeSeam()?.recovery(recoveryId), [recoveryId]); // (a window tells the backend which snapshot is its message's: W4.2)
   const savingRef = useRef(0); // saves that are running (autosave, Save draft, leaving)
   const savedRevRef = useRef(0); // the revision the last successful save covered
   const changedAtRef = useRef(0); // when the first change after that save was made

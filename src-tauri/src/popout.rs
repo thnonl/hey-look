@@ -339,6 +339,12 @@ pub struct Entry {
     pub retiring: bool,
     /// The page drew its view and said so (`popout_note("content", ..)`). A page that says it is ready but never draws is reloaded once.
     pub content: bool,
+    /// How many times the process of this window's page died (W4.2): the first death reloads the window, the second ends it.
+    pub deaths: u32,
+    /// A compose window: the id of the crash snapshot of the message it holds (the page tells it: `popout_note("recovery", id)`; a message handed over
+    /// with a snapshot id of its own keeps that one). A reloaded window shows the message of this snapshot again, and a window ended for its second
+    /// death has its snapshot saved to Drafts by the main window (W4.2).
+    pub recovery_id: Option<String>,
 }
 
 /// The key of a saved draft (`draft:<conversation>`, made by `draftKey` in `src/popout/entry.ts`): a window holds one of these at a time.
@@ -393,6 +399,8 @@ impl Registry {
             dirty: false,
             retiring: false,
             content: false,
+            deaths: 0,
+            recovery_id: None,
         });
         Request::Create { label }
     }
@@ -612,6 +620,8 @@ pub fn open(app: &AppHandle, from: &str, kind: Kind, key: Option<String>, init: 
             None => Opened { status: "none", label: None },
         });
     }
+    // (a message handed over with the id of its snapshot keeps that id: the reloaded window finds the snapshot under it, W4.2)
+    let handed_recovery = init.as_ref().and_then(|i| i.get("recoveryId")).and_then(Value::as_str).filter(|id| is_recovery_id(id)).map(String::from);
     // (the cascade and the placement are decided together with the registration, under one lock)
     let token = new_token();
     let (label, cascade) = {
@@ -630,6 +640,9 @@ pub fn open(app: &AppHandle, from: &str, kind: Kind, key: Option<String>, init: 
             }
             Request::Create { label } => {
                 let before = r.newest_rect(kind, &label);
+                if let Some(e) = r.get_mut(&label) {
+                    e.recovery_id = handed_recovery;
+                }
                 (label, before)
             }
         }
@@ -683,6 +696,8 @@ fn create(app: &AppHandle, kind: Kind, label: &str, token: &str, cascade: Option
     }
     let win = b.build().map_err(|e| e.to_string())?;
     native_hold(&win, label);
+    // a death of the page process of this window is answered here, not by the main window's hook (W4.2)
+    watch_page_process(app, &win, label);
     // the title bar has the theme the setting asks of it (never one fixed here: System = follow the OS), wintheme.rs
     crate::wintheme::apply_all(app, &format!("{label} created"));
     if let Some(r) = placement.rect {
@@ -756,12 +771,109 @@ fn watch_content(app: AppHandle, label: String, reloaded: bool) {
     });
 }
 
+// ---------------------------------------------------------------- a window whose page process dies (W4.2, REQ-W16)
+
+/// Event to `main` only: a window was ended because its page process died twice, `{ label, kind, recoveryId }`. The main page says so in a toast and, for a
+/// compose window, saves the latest snapshot of its message to Drafts at once.
+pub const CRASHED_EVENT: &str = "popout-crashed";
+
+/// What a window does about a failure of a process of its web view (REQ-4.2.2).
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum PageFailure {
+    /// Not this window's business: the browser process of the whole web view is gone, the main window's hook restarts the app (no double handling).
+    Ignore,
+    /// Written to the log only (unresponsive, GPU, utility ... the runtime starts its own helpers again).
+    LogOnly,
+    /// The page process died for the first time in the life of this window: load the page again.
+    Reload,
+    /// It died again: the window is ended and the person is told.
+    Close,
+}
+
+/// The reaction to a failure. `kind` is `COREWEBVIEW2_PROCESS_FAILED_KIND` (Linux maps "web process terminated" to 1, a render process that exited);
+/// `deaths_before` how many times the page process of this window died earlier. Pure; the same on every system.
+pub fn popout_failure(kind: i32, deaths_before: u32) -> PageFailure {
+    match kind {
+        0 => PageFailure::Ignore,
+        1 | 3 if deaths_before == 0 => PageFailure::Reload,
+        1 | 3 => PageFailure::Close,
+        _ => PageFailure::LogOnly,
+    }
+}
+
+/// A crash snapshot id as Compose makes it (a UUID); nothing else is taken as an id from a page.
+fn is_recovery_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+}
+
+/// A process of a secondary window's web view failed (called by the hooks of `webview_health` on Windows and `linuxview` on Linux; macOS has no hook:
+/// wry owns the navigation delegate, `watch_content` is the net there). Every failure is a line of the log; a dead page process reloads the window once and
+/// ends it the second time.
+pub fn page_failed(app: &AppHandle, label: &str, kind: i32, detail: &str) {
+    if crate::startup::is_exiting() {
+        return; // the app is closing: the processes of its web views end on purpose
+    }
+    log(&format!("{label}: web view: {}{}", crate::webview_health::kind_name(kind), if detail.is_empty() { String::new() } else { format!(" ({detail})") }));
+    let (action, kind_of_window, recovery) = {
+        let mut r = reg(app);
+        let Some(e) = r.get_mut(label) else { return };
+        if e.retiring {
+            return; // on its way out: its processes end by themselves
+        }
+        let action = popout_failure(kind, e.deaths);
+        if action == PageFailure::Reload {
+            // the page that is loading is not ready: a quit does not ask it, and it shows nothing yet
+            e.deaths += 1;
+            e.ready = false;
+            e.content = false;
+        }
+        (action, e.kind, e.recovery_id.clone())
+    };
+    match action {
+        PageFailure::Ignore | PageFailure::LogOnly => {}
+        PageFailure::Reload => {
+            log(&format!("{label}: page process died: reloading"));
+            let (app, label) = (app.clone(), label.to_string());
+            // (not inside the callback of the web view that reported it; the runtime needs a moment to start a new page process)
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(250));
+                if let Some(w) = app.get_webview_window(&label) {
+                    let _ = w.reload();
+                }
+                watch_ready(app, label);
+            });
+        }
+        PageFailure::Close => {
+            log(&format!("{label}: page process died again: closed"));
+            let _ = app.emit_to("main", CRASHED_EVENT, serde_json::json!({ "label": label, "kind": kind_of_window.name(), "recoveryId": recovery }));
+            retire(app, label, "page process died again");
+        }
+    }
+}
+
+/// Listen for the process failures of the web view of window `label`, right after it was built (Windows: WebView2 `ProcessFailed`; Linux:
+/// `web-process-terminated`; macOS: nothing, see [`page_failed`]).
+fn watch_page_process(app: &AppHandle, win: &tauri::WebviewWindow, label: &str) {
+    let _ = (app, win, label);
+    #[cfg(windows)]
+    crate::webview_health::watch_window(app, win, label);
+    #[cfg(target_os = "linux")]
+    crate::linuxview::watch_window(app, win, label);
+}
+
 /// A page tells the log something (errors of the page, "content" = it drew its view). Only for secondary windows; the text is cut short.
 pub fn note(app: &AppHandle, label: &str, kind: &str, text: &str) {
     if kind == "content" {
         if let Some(e) = reg(app).get_mut(label) {
             e.content = true;
         }
+    }
+    if kind == "recovery" {
+        // the id of the crash snapshot of the message this compose window holds (W4.2): not a log line of its own, it is bookkeeping
+        if let Some(e) = reg(app).get_mut(label) {
+            e.recovery_id = Some(text.chars().take(64).collect()).filter(|id: &String| is_recovery_id(id));
+        }
+        return;
     }
     let text: String = text.chars().take(600).collect();
     log(&format!("{label}: page says {kind}: {text}"));
@@ -927,6 +1039,10 @@ pub struct Init {
     pub label: String,
     pub key: Option<String>,
     pub init: Option<Value>,
+    /// The page of this window was loaded again after its process died (W4.2): a compose window shows the message of `recovery_id` when the
+    /// snapshot exists, else the hand-off data again.
+    pub reloaded: bool,
+    pub recovery_id: Option<String>,
 }
 
 /// Open a secondary window of `kind` ("compose" | "reader"), or focus the one that shows `key`. `init` is kept in the backend for the
@@ -945,7 +1061,7 @@ pub fn popout_init(app: AppHandle, window: tauri::Window, token: String) -> R<In
     if e.token != token {
         return Err("wrong token".into());
     }
-    Ok(Init { kind: e.kind.name(), label: e.label.clone(), key: e.keys.first().cloned(), init: e.init.clone() })
+    Ok(Init { kind: e.kind.name(), label: e.label.clone(), key: e.keys.first().cloned(), init: e.init.clone(), reloaded: e.deaths > 0, recovery_id: e.recovery_id.clone() })
 }
 
 /// The page of a secondary window is up (it listens to the quit request): show the window.
@@ -1006,7 +1122,7 @@ pub fn popout_park(app: AppHandle, window: tauri::Window) -> bool {
 #[tauri::command]
 pub fn popout_note(app: AppHandle, window: tauri::Window, kind: String, text: String) {
     let label = window.label();
-    if is_secondary(label) && reg(&app).get(label).is_some() && matches!(kind.as_str(), "content" | "error" | "info" | "strip") {
+    if is_secondary(label) && reg(&app).get(label).is_some() && matches!(kind.as_str(), "content" | "error" | "info" | "strip" | "recovery") {
         note(&app, label, &kind, &text);
     }
 }
@@ -1876,7 +1992,7 @@ mod tests {
     fn what_is_written_down_reads_back() {
         let e = Entry {
             label: t("compose-1"), kind: Kind::Compose, keys: vec![], token: t("x"), ready: true, ready_at: None, init: None,
-            rect: Some(rect(100, 200, 1140, 1020)), scale: 1.5, maximized: false, moves: 1, dirty: true, retiring: false, content: false,
+            rect: Some(rect(100, 200, 1140, 1020)), scale: 1.5, maximized: false, moves: 1, dirty: true, retiring: false, content: false, deaths: 0, recovery_id: None,
         };
         let s = saved_of(&e).unwrap();
         assert_eq!(s, Saved { x: 100, y: 200, w: 760.0, h: 680.0, maximized: false });
@@ -1893,7 +2009,7 @@ mod tests {
     fn entry() -> Entry {
         Entry {
             label: t("compose-1"), kind: Kind::Compose, keys: vec![], token: t("x"), ready: false, ready_at: None, init: None,
-            rect: Some(rect(494, 258, 950, 850)), scale: 1.25, maximized: false, moves: 0, dirty: false, retiring: false, content: false,
+            rect: Some(rect(494, 258, 950, 850)), scale: 1.25, maximized: false, moves: 0, dirty: false, retiring: false, content: false, deaths: 0, recovery_id: None,
         }
     }
 

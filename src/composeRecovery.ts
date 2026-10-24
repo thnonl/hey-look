@@ -75,24 +75,39 @@ export function reshowRecoveryToast(): void {
   toast.reshow();
 }
 
+/**
+ * A compose window was ended because its page process died twice (W4.2): save the latest snapshot of its message at once, by the same road as the start-up
+ * recovery (a draft on the server, or kept on this computer when that fails), with the same toast. The snapshot is cleared by that road, so the next start
+ * does not offer it again.
+ */
+export async function recoverOne(id: string): Promise<void> {
+  await settleAndShow((i) => i.id === id);
+}
+
 /** Once per start: save what was left from the last session as drafts, then say so with one toast. Never blocks the start. */
 export async function recoverUnsaved(): Promise<void> {
   if (started) return;
   started = true;
-  const kept = await settleRecovery({
-    list: () => api.recoveryList(),
-    load: (id) => api.recoveryLoad(id),
-    saveDraft: (id, draft, replaces) => api.recoverySaveDraft(id, draft, replaces),
-    clear: (id, why) => api.recoveryClear(id, why),
-    now: () => Math.floor(Date.now() / 1000),
-  });
-  if (kept.length === 0) return;
-  // the drafts are on the server: let the Drafts folder show them
-  if (kept.some((k) => k.where === "drafts")) syncAfterSave();
-  toast.show(kept);
+  if (!(await settleAndShow(() => true))) return;
   // a message of the toast that is opened another way (its Compose is up) needs no more telling about
   useStore.subscribe((s, prev) => {
     const id = s.compose?.recoveryId;
     if (id && s.compose !== prev.compose) toast.opened(id);
   });
+}
+
+/** True when something was kept (and the toast says so). */
+async function settleAndShow(pick: (i: { id: string }) => boolean): Promise<boolean> {
+  const kept = await settleRecovery({
+    list: async () => (await api.recoveryList()).filter(pick),
+    load: (id) => api.recoveryLoad(id),
+    saveDraft: (id, draft, replaces) => api.recoverySaveDraft(id, draft, replaces),
+    clear: (id, why) => api.recoveryClear(id, why),
+    now: () => Math.floor(Date.now() / 1000),
+  });
+  if (kept.length === 0) return false;
+  // the drafts are on the server: let the Drafts folder show them
+  if (kept.some((k) => k.where === "drafts")) syncAfterSave();
+  toast.show(kept);
+  return true;
 }

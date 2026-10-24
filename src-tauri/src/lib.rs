@@ -5497,8 +5497,17 @@ fn get_setting(state: tauri::State<AppState>, key: String) -> Option<String> {
     db::get_setting(&lock(&state.db), &key)
 }
 
+/// REQ-4.9.2: the `prefs` blob is written by the main window only (the main page is the one writer, popout.rs), even by a window that is allowed to call
+/// `set_setting` for its other keys (the Settings window, W4.6). Every other key is open to whoever the capability lets call the command.
+fn may_write_setting(window_label: &str, key: &str) -> bool {
+    key != "prefs" || window_label == "main"
+}
+
 #[tauri::command]
 fn set_setting(app: tauri::AppHandle, window: tauri::Window, state: tauri::State<AppState>, key: String, value: String) -> R<()> {
+    if !may_write_setting(window.label(), &key) {
+        return Err(format!("only the main window writes {key}"));
+    }
     db::set_setting(&lock(&state.db), &key, &value)?;
     // the preferences changed: every other window re-reads them (the main page is the only writer, popout.rs)
     if key == "prefs" {
@@ -6056,6 +6065,7 @@ pub fn run() {
             popout::popout_destroy,
             popout::popout_note,
             wintheme::window_theme_refresh,
+            wintheme::window_caption_colors,
             popout::popout_set_key,
             popout::popout_request,
             popout::popout_reply,
@@ -6751,6 +6761,8 @@ mod capability_tests {
             // calendar connections, sync triggers, mail actions that belong to the main page's intent layer
             "calendar_connect", "calendar_disconnect", "calendar_sources", "calendar_set_sync", "calendar_sync_now", "sync_account", "refresh_badge", "thread_action",
             "queue_action", "cancel_action", "sender_action", "load_older", "idle_states", "frame_info", "frame_caption_rect", "frame_system_menu", "test_notification", "play_notify_sound", "create_mail_folder",
+            // the caption colours are the main page's to hand over (W4.3): a window never sets its own
+            "window_caption_colors",
             // a secondary window asks the main page (popout_request); only the main page answers
             "popout_reply", "popout_save_all",
         ];
@@ -6771,6 +6783,30 @@ mod capability_tests {
             assert!(perms.contains(&p), "{p}");
         }
         assert!(!perms.contains(&"core:default"), "core:default also grants what a pop-out does not need");
+    }
+}
+
+#[cfg(test)]
+mod prefs_writer_tests {
+    use super::may_write_setting;
+
+    /// REQ-4.9.2: `prefs` is written by `main` only; the command calls the check before it touches the database.
+    #[test]
+    fn only_the_main_window_writes_the_prefs_setting() {
+        assert!(may_write_setting("main", "prefs"));
+        for label in ["compose-1", "reader-2", "event-1", "search-3", "scheduled-1", "settings-1", "main-2", "", "Main"] {
+            assert!(!may_write_setting(label, "prefs"), "{label} may write prefs");
+            assert!(may_write_setting(label, "ui_language"), "{label} may write another key");
+            assert!(may_write_setting(label, "window.compose"), "{label} may write the geometry key");
+            assert!(may_write_setting(label, "prefs.draft"), "{label}: only the exact key prefs is the blob");
+        }
+        let lib = crate::test_guard::non_test_code(include_str!("lib.rs"));
+        let f = &lib[lib.find("fn set_setting(").unwrap()..];
+        let f = &f[..f.find("
+}
+").unwrap()];
+        let check = f.find("may_write_setting(window.label(), &key)").expect("set_setting asks may_write_setting");
+        assert!(check < f.find("db::set_setting(").unwrap(), "the check comes before the write: {f}");
     }
 }
 

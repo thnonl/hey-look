@@ -210,6 +210,7 @@
   "node scripts/check-shards.mjs": 0,
   "node scripts/test-release-gates.mjs": 0,
   "node scripts/test-msix-build.mjs": 1,
-  "node scripts/test-store-exe.mjs": 25
+  "node scripts/test-store-exe.mjs": 25,
+  "node --experimental-strip-types scripts/test-caption-colors.mjs": 0
  }
 }
