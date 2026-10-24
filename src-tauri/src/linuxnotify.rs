@@ -100,6 +100,7 @@ impl ActionMap {
         self.map.remove(&id);
     }
 
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.map.len()
     }

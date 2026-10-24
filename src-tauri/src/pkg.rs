@@ -23,6 +23,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 /// The id of the startup task in the manifest (src-tauri/msix/AppxManifest.xml.in).
+#[cfg(windows)]
 pub const STARTUP_TASK_ID: &str = "HeyLookStartup";
 /// The credential store service of a packaged copy (a GitHub install on the same PC keeps `heylook`).
 pub const KEYRING_SERVICE_STORE: &str = "heylook.store";
@@ -38,6 +39,7 @@ pub struct Dirs {
     pub temp_state: PathBuf,
 }
 
+#[cfg(any(windows, test))] // (a package exists on Windows only; the rules are tested everywhere)
 /// Is `name` a package family name (`<name>_<13 characters>`)? It becomes a folder name, so nothing but the characters Windows allows in one passes.
 pub fn is_family_name(name: &str) -> bool {
     let Some((id, publisher)) = name.rsplit_once('_') else { return false };
@@ -48,6 +50,7 @@ pub fn is_family_name(name: &str) -> bool {
         && publisher.chars().all(|c| c.is_ascii_digit() || c.is_ascii_lowercase())
 }
 
+#[cfg(any(windows, test))]
 /// The folders of the package `family` below `local_app_data` (pure).
 pub fn dirs_for(local_app_data: &Path, family: &str) -> Option<Dirs> {
     if !is_family_name(family) || !local_app_data.is_absolute() {
@@ -176,6 +179,7 @@ pub fn autostart_info(state: i32) -> AutostartInfo {
     }
 }
 
+#[cfg(any(windows, test))]
 /// What turning the task on or off ended in (pure): Ok, or the reason it did not work. A task the person disabled in Windows cannot be turned on by
 /// the app (Windows keeps the person's choice), and a policy decides for the organisation.
 pub fn set_outcome(want_enabled: bool, state: i32) -> Result<(), &'static str> {
