@@ -14,6 +14,7 @@ mod drag;
 mod tempstore;
 mod flagguard;
 mod folders;
+mod folderstate;
 mod headerfold;
 mod ical;
 mod i18n;
@@ -760,14 +761,73 @@ fn fmap(db: &Db, account_id: &str) -> HashMap<String, String> {
         .unwrap_or_default()
 }
 
-/// The server folder for a role from the saved list (drafts ...). Save draft and send do not create a folder the server lacks (README, known
-/// limitations): the action that needs one fails with a message that says which folder is missing (QA BUG-M4 / M8). A move (archive,
-/// delete ...) looks at the server and may create Archive / Trash instead: `move_to_role`.
-fn folder_for(db: &Db, acc: &Account, role: &str) -> R<String> {
-    fmap(db, &acc.id).get(role).cloned().ok_or_else(|| match role {
-        "drafts" => "this account has no Drafts folder".to_string(),
-        r => format!("no '{r}' folder on this account"),
-    })
+/// (W6.4) The server's Drafts folder for `acc`, as every writer of drafts needs it (Save draft, autosave, quit save, crash recovery, "Move to Drafts", Discard changes). The saved
+/// name first (a usual save costs nothing extra); when there is none, a fresh LIST (a folder another program made, or renamed, since the last sync: only a sync refreshed the saved
+/// list before, OBS-R8-1), which also replaces the saved list; when the server has none even then and `create`, `Drafts` is created (`INBOX.Drafts` / `INBOX/Drafts` on a server that
+/// keeps its folders in the INBOX namespace, `mail::name_to_create`), subscribed to, and stored as the drafts role. `Ok(None)`: no Drafts folder and `create` is off (a reader asks
+/// like this: nothing is created for a look-up). Same shape as the Sent copy (`store_sent_copy`). A refused CREATE is the coded `DRAFTS_NOT_CREATED`.
+fn resolve_drafts<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s: &mut imap::Session<T>, create: bool) -> R<Option<(String, bool)>> {
+    if let Some(n) = fmap(db, &acc.id).get("drafts").cloned() {
+        return Ok(Some((n, false)));
+    }
+    let listing = mail::list_folders(s)?;
+    save_listing(db, &acc.id, &listing)?;
+    if let Some(n) = listing.map.get("drafts").cloned() {
+        return Ok(Some((n, false)));
+    }
+    if !create {
+        return Ok(None);
+    }
+    let name = mail::name_to_create("drafts", &listing).ok_or_else(|| drafts_not_created("no name for it"))?;
+    mail::create_folder(s, &name).map_err(|why| drafts_not_created(&why))?;
+    let mut map = listing.map.clone();
+    map.insert("drafts".to_string(), name.clone());
+    save_fmap(db, &acc.id, &map)?;
+    startup::line("draft", &format!("account {}: the server had no Drafts folder: created it", acc.id));
+    Ok(Some((name, true)))
+}
+
+/// `resolve_drafts` for a reader: the folder if the server has one, else nothing (and nothing is created).
+fn find_drafts<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s: &mut imap::Session<T>) -> R<Option<String>> {
+    Ok(resolve_drafts(db, acc, s, false)?.map(|f| f.0))
+}
+
+/// APPEND a draft to the account's Drafts folder and return the folder it went into (W6.4). The folder is found or created as `resolve_drafts` says, and only when a draft is
+/// really written (an empty message never gets here, W2.3 / W13.5). A saved name the server refuses (the folder was renamed or removed since the last sync) is looked up again
+/// with a fresh LIST before the APPEND is given up. An APPEND into a folder made just now that is refused is `DRAFTS_NOT_CREATED` too: nothing else changes, the caller keeps
+/// the message.
+fn append_draft<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s: &mut imap::Session<T>, raw: &[u8]) -> R<String> {
+    let saved = fmap(db, &acc.id).get("drafts").cloned();
+    if let Some(name) = &saved {
+        match mail::append(s, name, raw, true) {
+            Ok(()) => return Ok(name.clone()),
+            Err(first) => {
+                // refused: ask the server what it has now
+                let listing = mail::list_folders(s)?;
+                save_listing(db, &acc.id, &listing)?;
+                match listing.map.get("drafts") {
+                    Some(n) if n != name => {
+                        mail::append(s, n, raw, true)?;
+                        return Ok(n.clone());
+                    }
+                    // the server has the folder we tried: the APPEND failed for another reason
+                    Some(_) => return Err(first),
+                    None => {}
+                }
+            }
+        }
+    }
+    let (name, created) = resolve_drafts(db, acc, s, true)?.ok_or_else(|| drafts_not_created("no Drafts folder"))?;
+    match mail::append(s, &name, raw, true) {
+        Ok(()) => Ok(name),
+        Err(why) if created => Err(drafts_not_created(&why)),
+        Err(e) => Err(e),
+    }
+}
+
+fn drafts_not_created(why: &str) -> String {
+    let why: String = why.chars().take(120).collect();
+    i18n::coded("DRAFTS_NOT_CREATED", &[("why", &why)], &format!("Couldn’t find or create the Drafts folder on this account ({why})."))
 }
 
 /// The conversation a message belongs to: its first reference, else its own Message-ID, else (no ID at all) its place in the folder.
@@ -866,6 +926,9 @@ struct SyncResult {
     /// (W13.2) the new mail of this sync per folder (key, thread id): the side menu marks those folders (`mail-arrived`)
     #[serde(skip)]
     arrivals: Vec<(String, String)>,
+    /// (W6.1) the roles whose folder the server renumbered: their stored mail was dropped and read again (`folder-reset`)
+    #[serde(skip)]
+    resets: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -951,7 +1014,7 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
     custom.sort();
     roles.extend(custom);
 
-    let mut result = SyncResult { added: 0, new_inbox: vec![], arrivals: vec![] };
+    let mut result = SyncResult { added: 0, new_inbox: vec![], arrivals: vec![], resets: vec![] };
     // (W13.2) the mail of the person's own mailboxes is not new mail; neither is mail that only moved between folders
     let own = newmail::own_set(db::list_accounts(&lock(db)).unwrap_or_default().iter().map(|a| a.email.as_str()));
     let mut tally = newmail::Tally::default();
@@ -959,22 +1022,35 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
     let mut to_rule: Vec<(String, String, String, String)> = vec![]; // thread, from, to, subject
     for role in roles {
         let Some(name) = map.get(&role) else { continue };
-        let (max_uid, min_uid): (u32, u32) = lock(db)
-            .query_row(
-                "SELECT COALESCE(MAX(uid),0), COALESCE(MIN(uid),0) FROM messages WHERE account_id=?1 AND folder=?2",
-                params![account_id, role],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .map_err(err)?;
+        let (max_uid, min_uid, known): (u32, u32, folderstate::Known) = {
+            let c = lock(db);
+            let (max_uid, min_uid) = c
+                .query_row(
+                    "SELECT COALESCE(MAX(uid),0), COALESCE(MIN(uid),0) FROM messages WHERE account_id=?1 AND folder=?2",
+                    params![account_id, role],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .map_err(err)?;
+            (max_uid, min_uid, folderstate::known(folderstate::get(&c, account_id, &role).as_ref(), name))
+        };
         // (F-16/F-17) flags of messages an action changes while this fetch runs are not written back: see `flagguard`
         let flags_started = flagguard::GUARD.epoch();
         // the first sync of a folder is only a taste (the newest page, so the UI has mail at once); `backfill_run` brings the rest
-        let ff = match mail::fetch_folder(&mut s, name, max_uid, min_uid, PAGE) {
+        let ff = match mail::fetch_folder(&mut s, name, &known, max_uid, min_uid, PAGE) {
             Ok(f) => f,
             Err(_) => continue,
         };
+        // (W6.1) the server renumbered the folder: what is stored of it is dropped below and the folder is read like a first sync
+        let (max_uid, min_uid) = if ff.reset { (0, 0) } else { (max_uid, min_uid) };
         let c = lock(db);
         c.execute_batch("BEGIN").map_err(err)?;
+        if ff.reset {
+            if let Err(e) = reset_folder(&c, account_id, &role, name, &known, ff.validity) {
+                let _ = c.execute_batch("ROLLBACK");
+                return Err(e);
+            }
+            result.resets.push(role.clone());
+        }
         for p in &ff.new {
             // (before the row is written) was this message stored in another folder already, or moved by the app, or removed from another folder by this sync?
             let moved = p.message_id.as_deref().map_or(false, |mid| {
@@ -1038,6 +1114,10 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
                 }
             }
         }
+        // (W6.1) what the folder is numbered under, for the writes on its UIDs
+        if let Some(v) = ff.validity {
+            folderstate::set(&c, account_id, &role, name, v)?;
+        }
         c.execute_batch("COMMIT").map_err(err)?;
     }
     let _ = s.logout();
@@ -1086,6 +1166,30 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
         }
     }
     Ok(result)
+}
+
+/// (W6.1) The server renumbered the folder of `role`: the rows stored of it are dropped (straight from the account's own table, as `prune_oldest` does, never through the `messages`
+/// view), its "downloaded to the oldest message" mark and its cached raw messages go, and the caller reads it like a first sync. Pins and snoozes live in `thread_meta`, keyed by
+/// threads that come from Message-IDs, and stay. Runs inside the caller's transaction.
+fn reset_folder(c: &Connection, account_id: &str, role: &str, name: &str, known: &folderstate::Known, now: Option<u32>) -> R<()> {
+    let table = shard::messages_table(c, account_id)?;
+    if role == "drafts" {
+        // (the ids an open compose may still hold as `m:<id>`: see folderstate::retire)
+        let mut st = c.prepare(&format!("SELECT id, message_id FROM {table} WHERE folder=?1")).map_err(err)?;
+        let rows: Vec<(String, Option<String>)> =
+            st.query_map(params![role], |r| Ok((r.get(0)?, r.get(1)?))).map_err(err)?.filter_map(|r| r.ok()).collect();
+        drop(st);
+        folderstate::retire(c, account_id, &rows)?;
+    }
+    c.execute(&format!("DELETE FROM {table} WHERE folder=?1"), params![role]).map_err(err)?;
+    c.execute("DELETE FROM settings WHERE key=?1", params![exhausted_key(account_id, role)]).map_err(err)?;
+    rawcache::forget_prefix(&format!("{account_id}:{role}:"));
+    let was = match known {
+        folderstate::Known::Validity(v) => format!("UIDVALIDITY {v} -> {}", now.map_or("none".to_string(), |n| n.to_string())),
+        _ => format!("the role now names the server folder {name}"),
+    };
+    startup::line("sync", &format!("account {account_id} folder {role}: the server renumbered this folder ({was}): reading it again"));
+    Ok(())
 }
 
 /// What running the filters over new mail came to: the threads that left the inbox, and one message per failed filter run.
@@ -1180,6 +1284,10 @@ fn run_sync(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<SyncResult> 
 fn run_sync_inner(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<SyncResult> {
     let _guard = SYNC_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let r = sync_impl(db, account_id)?;
+    // (W6.1) every window drops a selection or an open conversation of a folder that was read again, and re-reads its list
+    for role in &r.resets {
+        let _ = app.emit("folder-reset", serde_json::json!({ "accountId": account_id, "role": role }));
+    }
     for why in take_rule_errors_to_tell() {
         let _ = app.emit_to("main", "filter-failed", why);
     }
@@ -1539,6 +1647,21 @@ fn pending_worker(app: tauri::AppHandle) {
     loop {
         std::thread::sleep(std::time::Duration::from_secs(1));
         commit_due(&app);
+        resync_refused(&app);
+    }
+}
+
+/// (W6.1) A write that was refused because its folder changed on the server (`FOLDER_CHANGED`) asked for a sync of the account: it reads the folder again (a thread of its own, this
+/// worker commits the Undo times).
+fn resync_refused(app: &tauri::AppHandle) {
+    for account_id in folderstate::take_resync() {
+        let (app, db) = (app.clone(), app.state::<AppState>().db.clone());
+        let _ = std::thread::Builder::new().name("resync".into()).spawn(move || {
+            startup::line("sync", &format!("account {account_id}: a write was refused because a folder changed on the server: syncing"));
+            if run_sync(&app, &db, &account_id).is_ok() {
+                let _ = app.emit("mail-synced", ());
+            }
+        });
     }
 }
 
@@ -1729,8 +1852,13 @@ fn load_older_impl(db: &Db, account_id: &str, role: &str, limit: u32) -> R<LoadO
     if min_uid == 0 {
         return Ok(LoadOlder { added: 0, exhausted: true, limited: false }); // nothing stored: there is no "older" to speak of
     }
+    let expect = recorded_validity(db, account_id, role, &name);
     let mut s = mail::connect(&acc, &sec)?;
-    let (found, exhausted) = mail::fetch_older(&mut s, &name, min_uid, clamp_chunk(limit, total, cap) as usize)?;
+    let (found, exhausted) = mail::fetch_older(&mut s, &name, expect, min_uid, clamp_chunk(limit, total, cap) as usize).inspect_err(|e| {
+        if mail::is_folder_changed(e) {
+            folderstate::want_resync(account_id);
+        }
+    })?;
     let _ = s.logout();
     store_page(db, &acc, role, &found)?;
     if exhausted {
@@ -1738,6 +1866,11 @@ fn load_older_impl(db: &Db, account_id: &str, role: &str, limit: u32) -> R<LoadO
     }
     let added = found.len() as u32;
     Ok(LoadOlder { added, exhausted, limited: !exhausted && total + added >= cap })
+}
+
+/// The UIDVALIDITY recorded for the folder of `role` when it is the server folder `name` (W6.1): the lowest stored UID is checked against it before older mail is paged in.
+fn recorded_validity(db: &Db, account_id: &str, role: &str, name: &str) -> Option<u32> {
+    folderstate::get(&lock(db), account_id, role).filter(|s| s.name == name).map(|s| s.validity)
 }
 
 /// Fetch the next page (default and maximum 50) of older messages for a folder. An IMAP failure is an error, never "nothing
@@ -1826,15 +1959,18 @@ fn backfill_run(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<()> {
         db,
         account_id,
         BACKFILL_PAUSE,
-        &mut |acc, name, below, count| {
+        &mut |acc, name, expect, below, count| {
             let step = (|| -> R<(Vec<mail::Parsed>, bool)> {
                 if sess.is_none() {
                     sess = Some(mail::connect(acc, &secret(db, acc)?)?);
                 }
-                mail::fetch_older(sess.as_mut().ok_or("no session")?, name, below, count)
+                mail::fetch_older(sess.as_mut().ok_or("no session")?, name, expect, below, count)
             })();
-            if step.is_err() {
+            if let Err(e) = &step {
                 sess = None; // a failed session is not reused
+                if mail::is_folder_changed(e) {
+                    folderstate::want_resync(&acc.id); // (W6.1) the folder was renumbered: a sync reads it again
+                }
             }
             step
         },
@@ -1858,7 +1994,7 @@ fn backfill_loop(
     db: &Db,
     account_id: &str,
     pause: std::time::Duration,
-    fetch: &mut dyn FnMut(&Account, &str, u32, usize) -> R<(Vec<mail::Parsed>, bool)>,
+    fetch: &mut dyn FnMut(&Account, &str, Option<u32>, u32, usize) -> R<(Vec<mail::Parsed>, bool)>,
     emit: &mut dyn FnMut(serde_json::Value),
 ) -> R<()> {
     let mut open: Option<(String, u32, u32)> = None; // the last progress event, unless it ended its folder
@@ -1873,7 +2009,7 @@ fn backfill_chunks(
     db: &Db,
     account_id: &str,
     pause: std::time::Duration,
-    fetch: &mut dyn FnMut(&Account, &str, u32, usize) -> R<(Vec<mail::Parsed>, bool)>,
+    fetch: &mut dyn FnMut(&Account, &str, Option<u32>, u32, usize) -> R<(Vec<mail::Parsed>, bool)>,
     emit: &mut dyn FnMut(serde_json::Value),
     open: &mut Option<(String, u32, u32)>,
 ) -> R<()> {
@@ -1885,7 +2021,7 @@ fn backfill_chunks(
         let Some((role, name, have, target)) = next_backfill(db, account_id, &skip, max_download(db)) else { break };
         let (_, below) = folder_state(db, account_id, &role)?;
         let step = (|| -> R<(usize, bool)> {
-            let (found, exhausted) = fetch(&acc, &name, below, (target - have).min(PAGE) as usize)?;
+            let (found, exhausted) = fetch(&acc, &name, recorded_validity(db, account_id, &role, &name), below, (target - have).min(PAGE) as usize)?;
             store_page(db, &acc, &role, &found)?;
             Ok((found.len(), exhausted))
         })();
@@ -2856,22 +2992,58 @@ struct MsgRef {
     role: String,
     uid: u32,
     id: String,
+    /// (W6.1) the numbering of the folder (server name, UIDVALIDITY) at the moment this ref was taken: a write is sent only when the server still has it. `None`: no numbering
+    /// was recorded then (an install from before 1.0.7); the write checks `mid` instead.
+    state: Option<folderstate::State>,
+    /// the Message-ID the local row had
+    mid: Option<String>,
+}
+
+/// The columns `MsgRef::from_row` reads, in this order.
+const MSG_REF_COLS: &str = "account_id,folder,uid,id,message_id";
+
+/// A row of `MSG_REF_COLS` (the numbering is added by `with_numbering`).
+fn msg_ref_row(r: &rusqlite::Row) -> rusqlite::Result<MsgRef> {
+    Ok(MsgRef { account_id: r.get(0)?, role: r.get(1)?, uid: r.get(2)?, id: r.get(3)?, mid: r.get(4)?, state: None })
+}
+
+/// Give every ref the recorded numbering of its folder, as it is right now (W6.1).
+fn with_numbering(c: &Connection, mut refs: Vec<MsgRef>) -> Vec<MsgRef> {
+    let mut cache: HashMap<(String, String), Option<folderstate::State>> = HashMap::new();
+    for m in refs.iter_mut() {
+        m.state = cache.entry((m.account_id.clone(), m.role.clone())).or_insert_with(|| folderstate::get(c, &m.account_id, &m.role)).clone();
+    }
+    refs
 }
 
 fn thread_msgs(c: &Connection, thread_ids: &[String]) -> R<Vec<MsgRef>> {
     let mut out = vec![];
     for t in thread_ids {
-        let mut st = c
-            .prepare("SELECT account_id,folder,uid,id FROM messages WHERE thread_id=?1")
-            .map_err(err)?;
-        let rows = st
-            .query_map([t], |r| Ok(MsgRef { account_id: r.get(0)?, role: r.get(1)?, uid: r.get(2)?, id: r.get(3)? }))
-            .map_err(err)?;
+        let mut st = c.prepare(&format!("SELECT {MSG_REF_COLS} FROM messages WHERE thread_id=?1")).map_err(err)?;
+        let rows = st.query_map([t], msg_ref_row).map_err(err)?;
         for r in rows {
             out.push(r.map_err(err)?);
         }
     }
-    Ok(out)
+    Ok(with_numbering(c, out))
+}
+
+/// What a write on these messages of one folder is checked against (W6.1): the numbering all of them were taken under, else their Message-IDs.
+fn expect_of(group: &[&MsgRef]) -> mail::Expect {
+    if let Some(st) = group.first().and_then(|m| m.state.clone()) {
+        if group.iter().all(|m| m.state.as_ref() == Some(&st)) {
+            return mail::Expect::State { name: st.name, validity: st.validity };
+        }
+    }
+    mail::Expect::MessageIds(group.iter().map(|m| (m.uid, m.mid.clone())).collect())
+}
+
+/// A refused write (`FOLDER_CHANGED`) also asks for a sync of the account, which reads the folder again (the one-second worker starts it).
+fn refused(acc: &Account, e: String) -> String {
+    if mail::is_folder_changed(&e) {
+        folderstate::want_resync(&acc.id);
+    }
+    e
 }
 
 /// `scope`: the folder the user is acting from. Moves only touch messages in that folder
@@ -2982,6 +3154,8 @@ fn act_on_session<T: std::io::Read + std::io::Write>(
         let group: Vec<&MsgRef> = list.iter().filter(|m| m.role == role).collect();
         let uids: Vec<u32> = group.iter().map(|m| m.uid).collect();
         let src = folders.map.get(&role).cloned().ok_or("source folder unknown")?;
+        // (W6.1) the UIDs are sent only when the folder still has the numbering they were taken under
+        let expect = expect_of(&group);
         let is_move = dst_role.is_some() || action == "delete_forever";
         if is_move {
             let allowed = match scope {
@@ -2996,7 +3170,7 @@ fn act_on_session<T: std::io::Read + std::io::Write>(
             "read" | "unread" => {
                 // (F-16/F-17) a sync that read the old flags must not write them over this change: see `flagguard`
                 let _writing = flagguard::GUARD.writing(group.iter().map(|m| (acc.id.clone(), role.clone(), m.uid)));
-                mail::store_flag(s, &src, &uids, "\\Seen", action == "read")?;
+                mail::store_flag(s, &src, &expect, &uids, "\\Seen", action == "read").map_err(|e| refused(acc, e))?;
                 let c = lock(db);
                 for m in &group {
                     c.execute("UPDATE messages SET seen=?1 WHERE id=?2", params![(action == "read") as i64, m.id])
@@ -3005,7 +3179,7 @@ fn act_on_session<T: std::io::Read + std::io::Write>(
             }
             "star" | "unstar" => {
                 let _writing = flagguard::GUARD.writing(group.iter().map(|m| (acc.id.clone(), role.clone(), m.uid)));
-                mail::store_flag(s, &src, &uids, "\\Flagged", action == "star")?;
+                mail::store_flag(s, &src, &expect, &uids, "\\Flagged", action == "star").map_err(|e| refused(acc, e))?;
                 let c = lock(db);
                 for m in &group {
                     c.execute("UPDATE messages SET flagged=?1 WHERE id=?2", params![(action == "star") as i64, m.id])
@@ -3013,7 +3187,7 @@ fn act_on_session<T: std::io::Read + std::io::Write>(
                 }
             }
             "delete_forever" => {
-                mail::delete_forever(s, &src, &uids)?;
+                mail::delete_forever(s, &src, &expect, &uids).map_err(|e| refused(acc, e))?;
                 let c = lock(db);
                 for m in &group {
                     c.execute("DELETE FROM messages WHERE id=?1", [&m.id]).map_err(err)?;
@@ -3027,7 +3201,7 @@ fn act_on_session<T: std::io::Read + std::io::Write>(
                 if dst == "trash" && role == "trash" {
                     continue;
                 }
-                move_to_role(db, acc, s, &mut folders, &src, &uids, dst, create_missing)?;
+                move_to_role(db, acc, s, &mut folders, &src, &expect, &uids, dst, create_missing).map_err(|e| refused(acc, e))?;
                 let c = lock(db);
                 for m in &group {
                     // (W13.2) the copy in the target folder, which a later sync finds, is moved mail, not new mail
@@ -3061,6 +3235,7 @@ fn move_to_role<T: std::io::Read + std::io::Write>(
     s: &mut imap::Session<T>,
     folders: &mut Folders,
     src: &str,
+    expect: &mail::Expect,
     uids: &[u32],
     dst: &str,
     create_missing: bool,
@@ -3068,8 +3243,10 @@ fn move_to_role<T: std::io::Read + std::io::Write>(
     let tried = folders.map.get(dst).cloned();
     let mut first_error = None;
     if let Some(name) = &tried {
-        match mail::move_to(s, src, uids, name) {
+        match mail::move_to(s, src, expect, uids, name) {
             Ok(()) => return Ok(()),
+            // (W6.1) a folder that changed is not "a destination that failed": nothing is tried again
+            Err(e) if mail::is_folder_changed(&e) => return Err(e),
             Err(e) => first_error = Some(e),
         }
     }
@@ -3078,7 +3255,7 @@ fn move_to_role<T: std::io::Read + std::io::Write>(
         // the server has the folder we tried: the move failed for another reason
         return Err(first_error.unwrap_or_else(|| folder_missing(dst)));
     }
-    mail::move_to(s, src, uids, &name)
+    mail::move_to(s, src, expect, uids, &name)
 }
 
 /// The server folder for a role, looked up on the server: the saved list is replaced by a fresh LIST (once per action), and a standard
@@ -3100,7 +3277,8 @@ fn resolve_folder<T: std::io::Read + std::io::Write>(
     if let Some(n) = folders.map.get(dst).cloned() {
         return Ok((n, false));
     }
-    let create = if create_missing { folders.listing.as_ref().and_then(|l| mail::name_to_create(dst, l)) } else { None };
+    // (a move never makes the Drafts folder: that is for a draft that is saved, `resolve_drafts`)
+    let create = if create_missing && dst != "drafts" { folders.listing.as_ref().and_then(|l| mail::name_to_create(dst, l)) } else { None };
     let Some(create) = create else {
         return Err(if create_missing { folder_missing(dst) } else { format!("no '{dst}' folder on this account") });
     };
@@ -4004,7 +4182,14 @@ fn flag_on_session<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s:
     let (role, uid) = original_found(found)?;
     let folder = fmap(db, &acc.id).get(&role).cloned().ok_or("the folder of the original is unknown")?;
     let flag = if a.kind == "forwarded" { "$Forwarded" } else { "\\Answered" };
-    mail::store_flag(s, &folder, &[uid], flag, true)
+    // (W6.1) the UID of the local row is only used under the numbering it was read under
+    let expect = {
+        let c = lock(db);
+        let mid: Option<String> = c.query_row("SELECT message_id FROM messages WHERE account_id=?1 AND folder=?2 AND uid=?3", params![acc.id, role, uid], |r| r.get(0)).ok().flatten();
+        let one = with_numbering(&c, vec![MsgRef { account_id: acc.id.clone(), role: role.clone(), uid, id: String::new(), state: None, mid }]);
+        expect_of(&one.iter().collect::<Vec<_>>())
+    };
+    mail::store_flag(s, &folder, &expect, &[uid], flag, true).map_err(|e| refused(acc, e))
 }
 
 /// Put the copy of a sent message into the account's Sent folder, with the F-14 rule for a missing folder: the saved name first; when
@@ -4327,7 +4512,6 @@ async fn save_draft(state: tauri::State<'_, AppState>, draft: smtp::Draft, repla
 /// The part of `save_draft` that talks to the server: append the draft, keep the version that was opened (the first save of an opened draft,
 /// see draftmail.rs "The version of a draft as it was opened"), and remove the draft this one replaces.
 fn save_draft_on<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s: &mut imap::Session<T>, raw: &[u8], replaces: Option<String>) -> R<SavedDraft> {
-    let folder = folder_for(db, acc, "drafts")?;
     let target = replaces.as_deref().map(draftmail::Target::parse);
     // read before the append: the opened message is the one this save is about to replace. The bytes remembered when the draft was opened come first (the
     // local row may be gone by now); the row is the fallback.
@@ -4350,7 +4534,7 @@ fn save_draft_on<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s: &
     };
     // the draft being replaced is not in the local store any more (a sync removed it, another save replaced it): it is found on the server by its own Message-ID
     let opened_row_gone = opened_id.as_deref().is_some_and(|id| !draftmail::local_draft_exists(db, &acc.id, id));
-    mail::append(s, &folder, raw, true)?;
+    let folder = append_draft(db, acc, s, raw)?;
     let draft_ref = draftmail::draft_ref(&acc.id, raw);
     if let Some(t) = replaces {
         // never remove the draft that was just appended (a reference to its own Message-ID)
@@ -4366,8 +4550,17 @@ fn save_draft_on<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s: &
                 // the opened draft by its local row (its UID), then ALWAYS by its own Message-ID (from the bytes that were remembered or read): no local row, a UID that
                 // no longer fits (UIDVALIDITY, a move) or a removal that did not take leaves the opened version on the server next to the saved copy (Mac QA D-016/D-020)
                 Some(target @ draftmail::Target::Local(_)) => {
-                    let by_uid = if opened_row_gone { Ok(()) } else { draftmail::drop_on_session(db, acc, s, target) };
-                    let by_mid = match opened.as_deref().and_then(draftmail::message_id_of).filter(|m| Some(format!("mid:{}|{m}", acc.id)) != draft_ref) {
+                    // (W6.1) the row's UID is used only when the row is the message that was opened: after the folder was read again the same id can name another draft
+                    let opened_mid = opened.as_deref().and_then(draftmail::message_id_of);
+                    let row_is_other = match (&opened_mid, &opened_id) {
+                        (Some(om), Some(id)) => draftmail::local_message_id(db, &acc.id, id).is_some_and(|rm| &rm != om),
+                        _ => false,
+                    };
+                    if row_is_other {
+                        startup::line("draft", &format!("account {}: the row of the opened draft is another message now: it is removed by its Message-ID only", acc.id));
+                    }
+                    let by_uid = if opened_row_gone || row_is_other { Ok(()) } else { draftmail::drop_on_session(db, acc, s, target) };
+                    let by_mid = match opened_mid.filter(|m| Some(format!("mid:{}|{m}", acc.id)) != draft_ref) {
                         Some(mid) => draftmail::delete_by_message_id(s, &folder, &mid).map(|_| ()),
                         None => Ok(()),
                     };
@@ -4618,13 +4811,18 @@ fn save_recovered(db: &Db, id: &str, draft: &mut smtp::Draft, replaces: Option<S
         return Err("an encrypted message is not saved from a snapshot".into());
     }
     let acc = db::get_account(&lock(db), &draft.account_id)?;
-    let folder = folder_for(db, &acc, "drafts")?;
     let sec = secret(db, &acc)?;
     let mut s = mail::connect(&acc, &sec)?;
     let done: R<RecoveredDraft> = (|| {
-        let found = draftmail::find_by_recovery_id(&mut s, &folder, id)?;
+        // (W6.4) a server without Drafts has no draft of this snapshot; the folder is made only when the draft is written below
+        let folder = find_drafts(db, &acc, &mut s)?;
+        let found = match &folder {
+            Some(f) => draftmail::find_by_recovery_id(&mut s, f, id)?,
+            None => vec![],
+        };
         match recover::verdict(&found, id, snap.saved_at) {
             recover::Verdict::Covered(uid) => {
+                let folder = folder.ok_or("no Drafts folder")?;
                 let raw = mail::fetch_raw(&mut s, &folder, uid)?;
                 Ok(RecoveredDraft { status: "covered", thread_id: draft_thread_id(&acc.id, &raw), draft_ref: draftmail::draft_ref(&acc.id, &raw) })
             }
@@ -4632,11 +4830,11 @@ fn save_recovered(db: &Db, id: &str, draft: &mut smtp::Draft, replaces: Option<S
                 ensure_draft_has_content(draft)?; // (a snapshot of recipients only stays on this computer, W13.5)
                 draft.recovery_id = Some(id.to_string());
                 let raw = draft_bytes(db, &acc, draft)?;
-                mail::append(&mut s, &folder, &raw, true)?;
+                let folder = append_draft(db, &acc, &mut s, &raw)?;
                 remember_draft_meeting(db, &acc, &raw, draft);
                 // the draft is on the server: what it replaces goes (a failure here is only logged, like Save draft). The older drafts of this
                 // very message are removed by the uids that were checked against their headers, on this session.
-                if let Err(e) = mail::delete_forever(&mut s, &folder, &replace) {
+                if let Err(e) = mail::delete_forever(&mut s, &folder, &mail::Expect::Verified, &replace) {
                     startup::line("draft", &format!("account {}: an older draft of this message could not be removed: {e}", acc.id));
                 }
                 if let Some(t) = replaces {
@@ -4945,9 +5143,9 @@ async fn outbox_to_draft(app: tauri::AppHandle, state: tauri::State<'_, AppState
         let sec = secret(&db, &acc)?;
         let raw = draft_bytes(&db, &acc, &d)?;
         let mut s = mail::connect(&acc, &sec)?;
-        let folder = folder_for(&db, &acc, "drafts")?;
-        mail::append(&mut s, &folder, &raw, true)?;
+        let appended = append_draft(&db, &acc, &mut s, &raw);
         let _ = s.logout();
+        appended?;
         remember_draft_meeting(&db, &acc, &raw, &d);
         let c = lock(&db);
         c.execute("DELETE FROM outbox WHERE id=?1", [&id]).map_err(err)?;
@@ -6582,22 +6780,6 @@ mod quit_tests {
         assert_eq!(spam.name, "Spam");
     }
 
-    /// QA BUG-M4 / M8: a folder the server lacks is named in the error; one it has is used.
-    #[test]
-    fn a_missing_folder_is_named_in_the_error() {
-        let db = test_db("folders");
-        let acc = Account {
-            id: "a1".into(), email: "me@example.com".into(), display_name: "Me".into(), imap_host: "h".into(), imap_port: 993, imap_ssl: true,
-            smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
-            smtp_username: String::new(), tls_insecure: false, reply_to: String::new(),
-        };
-        db::set_setting(&lock(&db), "fmap:a1", r#"{"inbox":"INBOX","drafts":"Entwürfe"}"#).unwrap();
-        assert_eq!(folder_for(&db, &acc, "drafts").unwrap(), "Entwürfe");
-        assert_eq!(folder_for(&db, &acc, "archive").unwrap_err(), "no 'archive' folder on this account");
-        let acc2 = Account { id: "a2".into(), ..acc };
-        assert_eq!(folder_for(&db, &acc2, "drafts").unwrap_err(), "this account has no Drafts folder");
-    }
-
     /// QA BUG-M6: every way out of the app has to pass the flush. The window can no longer be reached once it is destroyed, so the
     /// close button must stop the close and go through `request_quit`, and an exit nobody here asked for is stopped and redone.
     #[test]
@@ -7159,8 +7341,8 @@ mod backfill_tests {
     }
 
     /// A server holding uids 1..=`total`: the `count` highest below `below`, like `mail::fetch_older`.
-    fn server(total: u32) -> impl FnMut(&Account, &str, u32, usize) -> R<(Vec<mail::Parsed>, bool)> {
-        move |_, _, below, count| {
+    fn server(total: u32) -> impl FnMut(&Account, &str, Option<u32>, u32, usize) -> R<(Vec<mail::Parsed>, bool)> {
+        move |_, _, _, below, count| {
             let (pick, exhausted) = mail::pick_older((1..=total).filter(|u| *u < below), below, count);
             Ok((pick.into_iter().map(parsed).collect(), exhausted))
         }
@@ -7169,7 +7351,7 @@ mod backfill_tests {
     /// (role, have, target, done) of the events a run emitted.
     type Ev = (String, u64, u64, bool);
 
-    fn run(db: &Db, fetch: &mut dyn FnMut(&Account, &str, u32, usize) -> R<(Vec<mail::Parsed>, bool)>, between: &mut dyn FnMut(&Db, usize)) -> (R<()>, Vec<Ev>) {
+    fn run(db: &Db, fetch: &mut dyn FnMut(&Account, &str, Option<u32>, u32, usize) -> R<(Vec<mail::Parsed>, bool)>, between: &mut dyn FnMut(&Db, usize)) -> (R<()>, Vec<Ev>) {
         let mut events: Vec<Ev> = vec![];
         let r = backfill_loop(db, ACC, std::time::Duration::ZERO, fetch, &mut |ev| {
             assert_eq!(ev["accountId"], ACC);
@@ -7243,9 +7425,9 @@ mod backfill_tests {
         let mut calls = 0;
         let (r, ev) = run(
             &db,
-            &mut |a, n, b, c| {
+            &mut |a, n, e, b, c| {
                 calls += 1;
-                if calls == 1 { good(a, n, b, c) } else { Err("connection reset".to_string()) }
+                if calls == 1 { good(a, n, e, b, c) } else { Err("connection reset".to_string()) }
             },
             &mut |_, _| {},
         );
@@ -7257,7 +7439,7 @@ mod backfill_tests {
         let db = first_sync(120, 50);
         let mut good = server(120);
         let mut calls = 0;
-        let (r, ev) = run(&db, &mut |a, n, b, c| { calls += 1; if calls == 1 { Err("hiccup".to_string()) } else { good(a, n, b, c) } }, &mut |_, _| {});
+        let (r, ev) = run(&db, &mut |a, n, e, b, c| { calls += 1; if calls == 1 { Err("hiccup".to_string()) } else { good(a, n, e, b, c) } }, &mut |_, _| {});
         assert!(r.is_ok());
         assert_eq!(ev.last(), Some(&("inbox".into(), 120, 500, true)));
     }
@@ -7942,6 +8124,8 @@ mod testutil;
 mod fakeimap;
 #[cfg(test)]
 mod foldermove_tests;
+#[cfg(test)]
+mod uidvalidity_tests;
 #[cfg(test)]
 mod readrace_tests;
 #[cfg(test)]

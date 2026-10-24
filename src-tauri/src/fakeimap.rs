@@ -32,6 +32,10 @@ pub struct State {
     /// a server whose SEARCH does not look at HEADER: it answers with every message of the folder
     pub search_ignores_header: bool,
     pub deleted: BTreeSet<(String, u32)>,
+    /// UIDVALIDITY per folder (1 when a folder has none here); `Fake::renumber` raises it
+    pub validity: BTreeMap<String, u32>,
+    /// CAPABILITY lists UIDPLUS and `UID EXPUNGE <set>` works (W6.1); without it only a plain `EXPUNGE` does
+    pub uidplus: bool,
     /// folders LIST shows with `\Noinferiors` (they cannot have children)
     pub noinferiors: Vec<String>,
     /// folders that exist but LIST leaves out (another client made them a moment ago, or a server that lists late)
@@ -63,6 +67,8 @@ impl Fake {
             messages: BTreeMap::new(),
             search_ignores_header: false,
             deleted: BTreeSet::new(),
+            validity: BTreeMap::new(),
+            uidplus: false,
             noinferiors: vec![],
             hide_from_list: vec![],
             subscribed: BTreeSet::new(),
@@ -119,6 +125,41 @@ impl Fake {
         self.state.lock().unwrap().deleted.insert((folder.to_string(), uid));
     }
 
+    /// The server renumbered the folder (a provider migration, the folder deleted and made again): a new UIDVALIDITY, and the messages get the UIDs 1..n in the
+    /// reverse of their old order, so an old UID names another message. Returns the new UIDVALIDITY.
+    pub fn renumber(&self, folder: &str) -> u32 {
+        let mut st = self.state.lock().unwrap();
+        let v = st.validity.get(folder).copied().unwrap_or(1) + 1;
+        st.validity.insert(folder.to_string(), v);
+        let mut old: Vec<u32> = st.folders.get(folder).cloned().unwrap_or_default();
+        old.sort_unstable();
+        let n = old.len() as u32;
+        // old[i] becomes n - i
+        let map: BTreeMap<u32, u32> = old.iter().enumerate().map(|(i, u)| (*u, n - i as u32)).collect();
+        let msgs: Vec<((String, u32), Vec<u8>)> = st.messages.iter().filter(|((f, _), _)| f == folder).map(|(k, v)| (k.clone(), v.clone())).collect();
+        for (k, _) in &msgs {
+            st.messages.remove(k);
+        }
+        for ((f, u), bytes) in msgs {
+            if let Some(nu) = map.get(&u) {
+                st.messages.insert((f, *nu), bytes);
+            }
+        }
+        let dels: Vec<(String, u32)> = st.deleted.iter().filter(|(f, _)| f == folder).cloned().collect();
+        for d in &dels {
+            st.deleted.remove(d);
+        }
+        for (f, u) in dels {
+            if let Some(nu) = map.get(&u) {
+                st.deleted.insert((f, *nu));
+            }
+        }
+        let mut renumbered: Vec<u32> = map.values().copied().collect();
+        renumbered.sort_unstable();
+        st.folders.insert(folder.to_string(), renumbered);
+        v
+    }
+
     /// The message is gone from the server (expunged by another program).
     pub fn remove_message(&self, folder: &str, uid: u32) {
         let mut st = self.state.lock().unwrap();
@@ -149,16 +190,29 @@ fn arg(s: &str) -> (String, &str) {
     (s[..end].to_string(), &s[end..])
 }
 
-/// `10:12,500` -> [10, 11, 12, 500]
-fn uid_list(set: &str) -> Vec<u32> {
+/// A set of numbers as IMAP writes it: `10:12,500`, `7:*` (`*` is the largest number there is).
+struct UidSet(Vec<(u32, u32)>);
+
+impl UidSet {
+    fn contains(&self, n: &u32) -> bool {
+        self.0.iter().any(|(a, b)| a <= n && n <= b)
+    }
+}
+
+fn uid_list(set: &str) -> UidSet {
+    let num = |t: &str| if t == "*" { Some(u32::MAX) } else { t.parse::<u32>().ok() };
     let mut out = vec![];
     for part in set.split(',') {
         match part.split_once(':') {
-            Some((a, b)) => out.extend(a.parse::<u32>().unwrap_or(0)..=b.parse::<u32>().unwrap_or(0)),
-            None => out.extend(part.parse::<u32>().ok()),
+            Some((a, b)) => {
+                if let (Some(a), Some(b)) = (num(a), num(b)) {
+                    out.push((a.min(b), a.max(b)));
+                }
+            }
+            None => out.extend(num(part).map(|n| (n, n))),
         }
     }
-    out
+    UidSet(out)
 }
 
 fn serve(c: TcpStream, shared: Arc<Mutex<State>>) {
@@ -178,12 +232,12 @@ fn serve(c: TcpStream, shared: Arc<Mutex<State>>) {
         let mut st = shared.lock().unwrap();
         st.log.push(cmd.to_string());
         let mut out = String::new();
-        if st.fail_fetch && upper.starts_with("UID FETCH") {
+        if st.fail_fetch && (upper.starts_with("UID FETCH") || upper.starts_with("FETCH")) {
             out += &format!("{tag} NO [SERVERBUG] fetch failed\r\n");
         } else if upper.starts_with("LOGIN") {
             out += &format!("{tag} OK logged in\r\n");
         } else if upper.starts_with("CAPABILITY") {
-            out += &format!("* CAPABILITY IMAP4rev1{}\r\n{tag} OK done\r\n", if st.no_move { "" } else { " MOVE" });
+            out += &format!("* CAPABILITY IMAP4rev1{}{}\r\n{tag} OK done\r\n", if st.no_move { "" } else { " MOVE" }, if st.uidplus { " UIDPLUS" } else { "" });
         } else if upper.starts_with("LIST") {
             for name in st.folders.keys().filter(|n| !st.hide_from_list.contains(n)) {
                 let special = st.special.get(name).map(|s| format!(" {s}")).unwrap_or_default();
@@ -195,7 +249,7 @@ fn serve(c: TcpStream, shared: Arc<Mutex<State>>) {
             let (name, _) = arg(&cmd[6..]);
             match st.folders.get(&name) {
                 Some(uids) => {
-                    out += &format!("* FLAGS (\\Seen \\Deleted)\r\n* {} EXISTS\r\n* 0 RECENT\r\n* OK [UIDVALIDITY 1] ok\r\n{tag} OK [READ-WRITE] selected\r\n", uids.len());
+                    out += &format!("* FLAGS (\\Seen \\Deleted)\r\n* {} EXISTS\r\n* 0 RECENT\r\n* OK [UIDVALIDITY {}] ok\r\n{tag} OK [READ-WRITE] selected\r\n", uids.len(), st.validity.get(&name).copied().unwrap_or(1));
                     selected = Some(name);
                 }
                 None => out += &format!("{tag} NO [NONEXISTENT] no such mailbox\r\n"),
@@ -237,13 +291,18 @@ fn serve(c: TcpStream, shared: Arc<Mutex<State>>) {
                 st.appended.push((name, bytes));
                 out += &format!("{tag} OK [APPENDUID 1 {n}] APPEND done\r\n");
             }
-        } else if upper.starts_with("UID FETCH") {
-            let (set, rest) = arg(&cmd[9..]);
+        } else if upper.starts_with("UID FETCH") || upper.starts_with("FETCH") {
+            // (FETCH names messages by their place in the folder, UID FETCH by UID)
+            let by_uid = upper.starts_with("UID FETCH");
+            let (set, rest) = arg(&cmd[if by_uid { 9 } else { 5 }..]);
             let want = uid_list(&set);
             let whole = rest.to_uppercase().contains("BODY.PEEK[]") || rest.to_uppercase().contains("BODY[]");
             if let Some(src) = selected.clone() {
-                for (i, u) in st.folders[&src].iter().enumerate() {
-                    let Some(raw) = st.messages.get(&(src.clone(), *u)).filter(|_| want.contains(u)) else { continue };
+                let mut in_order = st.folders[&src].clone();
+                in_order.sort_unstable();
+                for (i, u) in in_order.iter().enumerate() {
+                    let key = if by_uid { *u } else { i as u32 + 1 };
+                    let Some(raw) = st.messages.get(&(src.clone(), *u)).filter(|_| want.contains(&key)) else { continue };
                     let head_end = raw.windows(4).position(|w| w == b"\r\n\r\n").map(|p| p + 4).unwrap_or(raw.len());
                     let (section, bytes) = if whole { ("BODY[]", &raw[..]) } else { ("BODY[HEADER]", &raw[..head_end]) };
                     out += &format!("* {} FETCH (UID {u} {section} {{{}}}\r\n", i + 1, bytes.len());
@@ -262,6 +321,11 @@ fn serve(c: TcpStream, shared: Arc<Mutex<State>>) {
                 _ => None,
             };
             let mut uids = st.search_hits.clone().or(looked).unwrap_or(in_folder);
+            if upper.contains("DELETED") && !upper.contains("UNDELETED") {
+                if let Some(f) = &selected {
+                    uids.retain(|u| st.deleted.contains(&(f.clone(), *u)));
+                }
+            }
             if upper.contains("UNDELETED") {
                 if let Some(f) = &selected {
                     uids.retain(|u| !st.deleted.contains(&(f.clone(), *u)));
@@ -294,27 +358,55 @@ fn serve(c: TcpStream, shared: Arc<Mutex<State>>) {
                 out += &format!("{tag} BAD no mailbox selected\r\n");
             }
         } else if upper.starts_with("UID STORE") {
-            let (set, _) = arg(&cmd[9..]);
+            let (set, rest) = arg(&cmd[9..]);
+            let rest_u = rest.to_uppercase();
+            let silent = rest_u.contains(".SILENT");
+            let adds = !rest_u.trim_start().starts_with("-FLAGS");
+            let about_deleted = rest_u.contains("\\DELETED");
             if let Some(src) = selected.clone() {
                 let want = uid_list(&set);
                 for (i, u) in st.folders[&src].clone().iter().enumerate() {
                     if want.contains(u) {
-                        st.deleted.insert((src.clone(), *u));
-                        out += &format!("* {} FETCH (UID {u} FLAGS (\\Deleted))\r\n", i + 1);
+                        if about_deleted {
+                            if adds {
+                                st.deleted.insert((src.clone(), *u));
+                            } else {
+                                st.deleted.remove(&(src.clone(), *u));
+                            }
+                        }
+                        if !silent {
+                            let flags = if st.deleted.contains(&(src.clone(), *u)) { "\\Deleted" } else { "" };
+                            out += &format!("* {} FETCH (UID {u} FLAGS ({flags}))\r\n", i + 1);
+                        }
                     }
                 }
             }
             out += &format!("{tag} OK STORE done\r\n");
-        } else if upper.starts_with("EXPUNGE") {
-            if let Some(src) = selected.clone() {
-                let gone: Vec<(usize, u32)> = st.folders[&src].iter().copied().enumerate().filter(|(_, u)| st.deleted.contains(&(src.clone(), *u))).collect();
+        } else if upper.starts_with("EXPUNGE") || upper.starts_with("UID EXPUNGE") {
+            // UID EXPUNGE <set> removes only the \Deleted messages inside the set (UIDPLUS); a plain EXPUNGE removes every \Deleted message of the folder
+            let only: Option<UidSet> = upper.starts_with("UID EXPUNGE").then(|| uid_list(arg(&cmd[11..]).0.as_str()));
+            if only.is_some() && !st.uidplus {
+                out += &format!("{tag} BAD unknown command\r\n");
+            } else if let Some(src) = selected.clone() {
+                let gone: Vec<(usize, u32)> = st.folders[&src]
+                    .iter()
+                    .copied()
+                    .enumerate()
+                    .filter(|(_, u)| st.deleted.contains(&(src.clone(), *u)) && only.as_ref().is_none_or(|o| o.contains(u)))
+                    .collect();
                 for (i, _) in gone.iter().rev() {
                     out += &format!("* {} EXPUNGE\r\n", i + 1);
                 }
                 let uids: Vec<u32> = gone.iter().map(|g| g.1).collect();
                 st.folders.get_mut(&src).unwrap().retain(|u| !uids.contains(u));
+                for u in &uids {
+                    st.deleted.remove(&(src.clone(), *u));
+                    st.messages.remove(&(src.clone(), *u));
+                }
+                out += &format!("{tag} OK EXPUNGE done\r\n");
+            } else {
+                out += &format!("{tag} OK EXPUNGE done\r\n");
             }
-            out += &format!("{tag} OK EXPUNGE done\r\n");
         } else if upper.starts_with("LOGOUT") {
             let _ = w.write_all(format!("* BYE bye\r\n{tag} OK LOGOUT done\r\n").as_bytes());
             return;
