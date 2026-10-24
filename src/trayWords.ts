@@ -17,8 +17,8 @@ export const welcomeKeepKey = (os: Os, tray = true) => (os === "macos" ? "app.we
 /** Settings > Filters intro. */
 export const filtersIntroKey = (tray = true) => (tray ? "settings.filters.intro" : "settings.filters.introNoTray");
 
-/** The title of the Settings tab that holds notifications and the tray (the entry of the navigation and the heading). */
-export const trayTabTitleKey = (tray = true) => (tray ? "settings.tray.title" : "settings.tray.titleNoTray");
+/** The title of the Settings tab that holds notifications and the tray (the entry of the navigation, the heading, the search page entry). No tray = startup; on a Mac the tray is the menu bar (D-019). */
+export const trayTabTitleKey = (tray = true, os?: Os) => (!tray ? "settings.tray.titleNoTray" : os === "macos" ? "settings.tray.titleMenuBar" : "settings.tray.title");
 
 // Settings > Notifications: three labels name the tray icon. On a Mac that icon lives in the menu bar, so the Mac texts say so (D-019); Windows and Linux keep the tray words.
 

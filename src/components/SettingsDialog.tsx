@@ -1883,7 +1883,7 @@ function TrayTab() {
   };
   return (
     <div>
-      <h3 id="set-pg-tray">{t(trayTabTitleKey(tray))}</h3>
+      <h3 id="set-pg-tray">{t(trayTabTitleKey(tray, os))}</h3>
       <div className="muted small">{os === "windows" ? t("settings.tray.introWindows") : t("settings.tray.intro")}</div>
       <Row id="testNotify" label={t("settings.tray.test")}><button className="btn" onClick={() => void test()}>{t("settings.tray.sendTest")}</button></Row>
       {os === "macos" && perm === "denied" && (
@@ -2524,7 +2524,7 @@ export function Settings({ initial, focus, nonce, section, windowed }: { initial
           ))}
           {item("add-account", t("settings.nav.addAccount"), true)}
           <div className="nav-label">{t("settings.nav.more")}</div>
-          {MORE.map(([k, l]) => item(k, t(k === "tray" ? trayTabTitleKey(trayHost) : l)))}
+          {MORE.map(([k, l]) => item(k, t(k === "tray" ? trayTabTitleKey(trayHost, os) : l)))}
           </>}
           {reorder.overlay}
         </nav>

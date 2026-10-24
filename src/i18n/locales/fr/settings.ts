@@ -390,6 +390,7 @@ export default defineLocale<typeof ns.en>({
   "settings.security.importNever": "Jamais",
   "settings.tray.title": "Notifications et zone de notification",
   "settings.tray.titleNoTray": "Notifications et démarrage",
+  "settings.tray.titleMenuBar": "Notifications et barre des menus",
   "settings.tray.macDenied": "Les notifications de Hey Look! sont désactivées dans macOS : les bannières et la pastille du Dock n’apparaissent donc pas. Activez-les dans Réglages Système > Notifications.",
   "settings.tray.macOpenSettings": "Ouvrir les Réglages Système",
   "settings.tray.introWindows": "Les messages qui déclenchent une notification, ainsi que le son et les boutons de celle-ci, se règlent par boîte aux lettres (Boîtes aux lettres → Notifications).",

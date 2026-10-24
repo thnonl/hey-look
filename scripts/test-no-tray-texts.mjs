@@ -41,6 +41,12 @@ check("Settings: the Filters intro and the tab title", () => {
   assert.equal(filtersIntroKey(), "settings.filters.intro");
   assert.equal(trayTabTitleKey(false), "settings.tray.titleNoTray");
   assert.equal(trayTabTitleKey(true), "settings.tray.title");
+  // D-019 (fix57): on a Mac the tab is Notifications & menu bar; Windows and Linux keep the tray title; no tray still wins (startup)
+  assert.equal(trayTabTitleKey(true, "macos"), "settings.tray.titleMenuBar");
+  assert.equal(trayTabTitleKey(true, "windows"), "settings.tray.title");
+  assert.equal(trayTabTitleKey(true, "linux"), "settings.tray.title");
+  assert.equal(trayTabTitleKey(false, "macos"), "settings.tray.titleNoTray");
+  assert.equal(trayTabTitleKey(false, "linux"), "settings.tray.titleNoTray");
 });
 check("Settings > Notifications (D-019): the three tray labels say menu bar on a Mac and keep the tray words on Windows and Linux", () => {
   assert.equal(keepRunningLabelKey("macos"), "settings.tray.keepRunningMenuBar");
@@ -62,13 +68,14 @@ check("the pages use these functions (no key is written in the page any more)", 
   assert.match(sp, /t\("compose\.schedule\.quitWarning"\)/, "the warning sentence stays");
   const sd = read("src/components/SettingsDialog.tsx");
   assert.match(sd, /t\(filtersIntroKey\(tray\)\)/);
-  assert.match(sd, /<h3 id="set-pg-tray">\{t\(trayTabTitleKey\(tray\)\)\}<\/h3>/);
-  assert.match(sd, /item\(k, t\(k === "tray" \? trayTabTitleKey\(trayHost\) : l\)\)/);
+  assert.match(sd, /<h3 id="set-pg-tray">\{t\(trayTabTitleKey\(tray, os\)\)\}<\/h3>/);
+  assert.match(sd, /item\(k, t\(k === "tray" \? trayTabTitleKey\(trayHost, os\) : l\)\)/);
+  assert.match(read("src/settingsIndex.ts"), /const trayTitle = t\(trayTabTitleKey\(ctx\.tray, ctx\.os\)\)/, "the search index names the tab like the navigation");
   // the disabled keep-running row keeps its own texts (the one place that names the tray on purpose)
   assert.match(sd, /t\("settings\.tray\.noTray"\)/);
 });
 check("every new key is in all 8 languages", () => {
-  const files = { app: ["app.welcome.point.menuBar", "app.welcome.point.noTray", "app.quit.keepOpen"], settings: ["settings.filters.introNoTray", "settings.tray.titleNoTray", "settings.notify.noButtonsDesktop", "settings.tray.keepRunningMenuBar", "settings.tray.trayBadgeMenuBar", "settings.tray.startsMinimizedMenuBar"] };
+  const files = { app: ["app.welcome.point.menuBar", "app.welcome.point.noTray", "app.quit.keepOpen"], settings: ["settings.filters.introNoTray", "settings.tray.titleNoTray", "settings.notify.noButtonsDesktop", "settings.tray.keepRunningMenuBar", "settings.tray.trayBadgeMenuBar", "settings.tray.startsMinimizedMenuBar", "settings.tray.titleMenuBar"] };
   const langs = ["ns", ...["vi", "fr", "zh-Hans", "es", "ja", "de", "ru"].map((l) => `locales/${l}`)];
   for (const [area, keys] of Object.entries(files)) {
     for (const l of langs) {
@@ -78,10 +85,10 @@ check("every new key is in all 8 languages", () => {
   }
 });
 check("D-019: the Mac labels use each language's standard word for the menu bar, the other labels do not", () => {
-  const term = { ns: "menu bar", vi: "thanh menu", fr: "barre des menus", "zh-Hans": "菜单栏", es: "barra de menús", ja: "メニューバー", de: "Menüleiste", ru: "строке меню|строку меню" };
+  const term = { ns: "menu bar", vi: "thanh menu", fr: "barre des menus", "zh-Hans": "菜单栏", es: "barra de menús", ja: "メニューバー", de: "Menüleiste", ru: "строке меню|строку меню|строка меню" };
   for (const [l, word] of Object.entries(term)) {
     const src = read(`src/i18n/${l === "ns" ? "ns" : `locales/${l}`}/settings.ts`);
-    for (const k of ["keepRunningMenuBar", "trayBadgeMenuBar", "startsMinimizedMenuBar"]) {
+    for (const k of ["keepRunningMenuBar", "trayBadgeMenuBar", "startsMinimizedMenuBar", "titleMenuBar"]) {
       const m = src.match(new RegExp(`"settings\.tray\.${k}": "([^"]+)"`));
       assert.ok(m, `${l}: ${k}`);
       assert.match(m[1], new RegExp(word, "i"), `${l}: ${k}`);

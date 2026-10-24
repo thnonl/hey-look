@@ -390,6 +390,7 @@ export default defineLocale<typeof ns.en>({
   "settings.security.importNever": "Không bao giờ",
   "settings.tray.title": "Thông báo & khay hệ thống",
   "settings.tray.titleNoTray": "Thông báo & khởi động",
+  "settings.tray.titleMenuBar": "Thông báo & thanh menu",
   "settings.tray.macDenied": "Thông báo của Hey Look! đang bị tắt trong macOS, nên biểu ngữ và huy hiệu Dock không xuất hiện. Hãy bật chúng trong Cài đặt hệ thống > Thông báo.",
   "settings.tray.macOpenSettings": "Mở Cài đặt hệ thống",
   "settings.tray.introWindows": "Thư nào kích hoạt thông báo, âm thanh và các nút của thông báo được đặt riêng cho từng hộp thư (Hộp thư → Thông báo).",

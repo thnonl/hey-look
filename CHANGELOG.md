@@ -207,6 +207,7 @@
 - Search in Settings: "AI" (also typed full-width) finds the AI Assistant in German and Russian too
 - A port typed in Add account (IMAP and SMTP port) stays what you typed: the boxes are text boxes with a numeric keypad, so the arrow keys and the mouse wheel no longer add one to the number (an SMTP port 31501 was seen saved as 31502); an emptied box is empty (not "0"), only digits are taken and a number above 65535 is refused
 - macOS: Settings > Notifications says "menu bar" instead of "tray" in "Keep running in the menu bar when the window is closed", "Menu bar icon badge" and "Starts minimized to the menu bar", in all eight languages (Windows and Linux keep the tray words)
+- macOS: the Settings tab (and its place in Settings search) is called "Notifications & menu bar" instead of "Notifications & tray", in all eight languages (Windows and Linux keep the tray title)
 - Linux: Ctrl+Q quits Hey Look!, the same way as Quit in the tray menu (the question about scheduled messages, the message you are writing and the messages still in their Undo time are handled first)
 
 ### Known limitations

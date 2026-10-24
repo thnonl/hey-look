@@ -106,6 +106,52 @@ try {
     const macEn = await seen('lang=en&os=macos');
     for (const l of other.en) assert.ok(!macEn.includes(l), `macos en still shows "${l}"`);
   });
+  await check('D-019 (fix57) the tab title on a Mac: "Notifications & menu bar" (entry and heading, 8 languages), the tray title on Windows and Linux, no clipping at 720 px', async () => {
+    const mac = {
+      en: 'Notifications & menu bar', vi: 'Thông báo & thanh menu', fr: 'Notifications et barre des menus', 'zh-Hans': '通知与菜单栏',
+      es: 'Notificaciones y barra de menús', ja: '通知とメニューバー', de: 'Benachrichtigungen & Menüleiste', ru: 'Уведомления и строка меню',
+    };
+    const other = { en: 'Notifications & tray', de: 'Benachrichtigungen & Infobereich', ja: '通知とトレイ', ru: 'Уведомления и трей' };
+    const trayTitle = { en: 'Notifications & tray', vi: 'Thông báo & khay hệ thống', fr: 'Notifications et zone de notification', 'zh-Hans': '通知与托盘', es: 'Notificaciones y bandeja del sistema', ja: '通知とトレイ', de: 'Benachrichtigungen & Infobereich', ru: 'Уведомления и трей' };
+    // the navigation button of the tab: one line (no wrap), not clipped, inside the nav
+    const fit = (title) => evaluate(`(() => { const b = [...document.querySelectorAll('nav button, .settings-nav button')].find((x) => x.textContent.trim() === ${JSON.stringify(title)}); if (!b) return null;
+      const cs = getComputedStyle(b), lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.3, r = b.getBoundingClientRect(), nav = b.closest('nav, .settings-nav').getBoundingClientRect();
+      return { lines: Math.round((r.height - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)) / lh), clipped: b.scrollWidth > b.clientWidth + 1, inside: r.right <= nav.right + 1 && r.left >= nav.left - 1 }; })()`);
+    // the nav is a fixed 224 px column (the window width does not change it), so a long title wraps like the other tabs do; it must not be clipped, must stay in the column, and may not
+    // be taller than two lines or more than one line taller than the tray title of the same language
+    const navOf = async (hash, title, w) => {
+      await H.openApp(hash, w, 560);
+      await evaluate(`window.__store.getState().setDialog({ type: 'settings', tab: 'tray' }); 1`);
+      assert.ok(await waitFor(`!!document.querySelector('.settings-body h3')`), `${hash}: the tab did not open`);
+      await sleep(250);
+      const s = await evaluate(`({ nav: [...document.querySelectorAll('nav button, .settings-nav button')].map((b) => b.textContent.trim()), heading: document.querySelector('.settings-body h3').textContent.trim() })`);
+      return { ...s, fit: await fit(title) };
+    };
+    for (const [lang, title] of Object.entries(mac)) {
+      for (const w of [720, 1280]) {
+        const s = await navOf(`lang=${lang}&os=macos`, title, w);
+        assert.equal(s.heading, title, `macos ${lang}: heading`);
+        assert.ok(s.nav.includes(title), `macos ${lang}: nav ${JSON.stringify(s.nav)}`);
+        const f = s.fit;
+        assert.ok(f, `macos ${lang} ${w}: no nav button`);
+        const old = (await navOf(`lang=${lang}&os=windows`, trayTitle[lang], w)).fit;
+        console.log(`  fix57 nav ${lang} ${w}px: mac ${JSON.stringify(f)} tray title ${JSON.stringify(old)}`);
+        assert.ok(f.lines <= 2 && f.lines <= old.lines + 1, `macos ${lang} ${w}: ${f.lines} lines (tray title ${old.lines})`);
+        assert.equal(f.clipped, false, `macos ${lang} ${w}: clipped`);
+        assert.ok(f.inside, `macos ${lang} ${w}: outside the nav`);
+      }
+    }
+    for (const os of ['windows', 'linux']) {
+      for (const [lang, title] of Object.entries(other)) {
+        const s = await settingsTray(`lang=${lang}&os=${os}`);
+        assert.equal(s.heading, title, `${os} ${lang}: heading`);
+        assert.ok(s.nav.includes(title), `${os} ${lang}: nav`);
+      }
+    }
+    // the Mac heading no longer says tray (English), and Settings search shows the new name as the page and as the place of the rows
+    await settingsTray('lang=en&os=macos');
+    assert.ok(!(await text()).includes('Notifications & tray'));
+  });
   await check('AC-5.6.1 the quit question: "Keep Hey Look! open" without a tray host, "Keep running in tray" with one, "in the menu bar" on a Mac', async () => {
     for (const [hash, label] of [['lang=en&os=linux&notray', 'Keep Hey Look! open'], ['lang=en&os=linux', 'Keep running in tray'], ['lang=en&os=macos', 'Keep running in the menu bar'], ['lang=de&os=linux&notray', 'Hey Look! geöffnet lassen']]) {
       await H.openApp(hash, 1280, 800);

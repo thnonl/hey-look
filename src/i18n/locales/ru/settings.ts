@@ -390,6 +390,7 @@ export default defineLocale<typeof ns.en>({
   "settings.security.importNever": "Никогда",
   "settings.tray.title": "Уведомления и трей",
   "settings.tray.titleNoTray": "Уведомления и запуск",
+  "settings.tray.titleMenuBar": "Уведомления и строка меню",
   "settings.tray.macDenied": "Уведомления для Hey Look! отключены в macOS, поэтому баннеры и индикатор на значке в Dock не появляются. Включите их в Системных настройках → Уведомления.",
   "settings.tray.macOpenSettings": "Открыть Системные настройки",
   "settings.tray.introWindows": "Какие письма вызывают уведомление, его звук и кнопки настраиваются для каждого ящика отдельно (Почтовые ящики → Уведомления).",

@@ -389,6 +389,7 @@ export default define({
     "settings.security.importNever": "Never",
     "settings.tray.title": "Notifications & tray",
     "settings.tray.titleNoTray": "Notifications & startup",
+    "settings.tray.titleMenuBar": "Notifications & menu bar",
     "settings.tray.macDenied": "Notifications for Hey Look! are turned off in macOS, so banners and the Dock badge don’t appear. Turn them on in System Settings > Notifications.",
     "settings.tray.macOpenSettings": "Open System Settings",
     "settings.tray.introWindows": "Which mail triggers a notification, its sound and its buttons are set per mailbox (Mailboxes → Notifications).",

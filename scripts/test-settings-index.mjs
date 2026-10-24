@@ -171,7 +171,12 @@ for (const lang of LANGUAGES.map((l) => l.code)) {
       eq(ids.has("taskbarBadge"), c.os !== "linux", `${tag}: the Taskbar / Dock badge is not on Linux`);
       eq(idx.find((e) => e.id === "taskbarBadge")?.label, c.os === "macos" ? t("settings.tray.dockBadge") : c.os === "windows" ? t("settings.tray.taskbarBadge") : undefined, `${tag}: Dock badge on a Mac, Taskbar badge on Windows`);
       eq(idx.find((e) => e.id === "autostart").label, c.os === "windows" ? t("settings.tray.autostartWindows") : t("settings.tray.autostart"), `${tag}: the autostart words`);
-      eq(idx.find((e) => e.id === "pg-tray").label, c.tray ? t("settings.tray.title") : t("settings.tray.titleNoTray"), `${tag}: the page without a tray`);
+      eq(idx.find((e) => e.id === "pg-tray").label, !c.tray ? t("settings.tray.titleNoTray") : c.os === "macos" ? t("settings.tray.titleMenuBar") : t("settings.tray.title"), `${tag}: the page without a tray, the Mac title`);
+      if (c.os === "macos") { // fix57: the Mac title names the menu bar, and the menu-bar word of each language finds the tab (the title, the rows' keywords)
+        const word = { en: "menu bar", vi: "thanh menu", fr: "barre des menus", "zh-Hans": "菜单栏", es: "barra de menús", ja: "メニューバー", de: "Menüleiste", ru: "строка меню" }[lang];
+        ok(idx.find((e) => e.id === "pg-tray").label.toLowerCase().includes(word.toLowerCase()), `${tag}: the Mac title has "${word}"`);
+        ok(searchSettings(idx, word).some((h) => h.entry.tab === "tray"), `${tag}: "${word}" finds the Notifications tab`);
+      }
       eq(idx.find((e) => e.id === "keepRunning").hint, !c.tray ? t("settings.tray.noTray") : c.os === "macos" ? t("settings.tray.keepRunningMac") : t("settings.tray.keepRunningHint"), `${tag}: the keep-running hint`);
       eq(idx.filter((e) => e.id === "replyTo").length, accounts.length, `${tag}: one Reply-to row per mailbox`);
       eq(idx.filter((e) => e.id === "calendar").length, accounts.filter((a) => a.cal).length, `${tag}: a Calendar row for the mailboxes that have one`);

@@ -390,6 +390,7 @@ export default defineLocale<typeof ns.en>({
   "settings.security.importNever": "Nunca",
   "settings.tray.title": "Notificaciones y bandeja del sistema",
   "settings.tray.titleNoTray": "Notificaciones e inicio",
+  "settings.tray.titleMenuBar": "Notificaciones y barra de menús",
   "settings.tray.macDenied": "Las notificaciones de Hey Look! están desactivadas en macOS, por lo que no aparecen las tiras ni el globo del Dock. Actívalas en Ajustes del Sistema > Notificaciones.",
   "settings.tray.macOpenSettings": "Abrir Ajustes del Sistema",
   "settings.tray.introWindows": "El correo que activa una notificación, su sonido y sus botones se definen para cada buzón (Buzones → Notificaciones).",

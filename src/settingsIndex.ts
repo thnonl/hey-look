@@ -304,7 +304,7 @@ export function buildIndex(ctx: IndexCtx): Entry[] {
   add({ id: "pg-add-account", tab: "add-account", kind: "page", label: t("settings.nav.addAccount"), lead: nav.mailboxes, quiet, kw: "settings.kw.addAccount" });
 
   // ---- More
-  const trayTitle = t(trayTabTitleKey(ctx.tray));
+  const trayTitle = t(trayTabTitleKey(ctx.tray, ctx.os));
   const Y = (id: string, label: Key, hint?: Key, extra: Partial<Def> = {}) => add({ id, tab: "tray", label: t(label), hint: h(hint), path: [trayTitle], ...extra });
   add({ id: "pg-tray", tab: "tray", kind: "page", label: trayTitle, hint: t(win ? "settings.tray.introWindows" : "settings.tray.intro"), lead: nav.more });
   Y("testNotify", "settings.tray.test");
