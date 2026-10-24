@@ -55,8 +55,10 @@ const banned = [
   [/setTimeout\(\s*["'`]/, "setTimeout(string)"], [/setInterval\(\s*["'`]/, "setInterval(string)"],
 ];
 for (const f of files) {
+  // (the message frame's document is written into the frame by src/mailFrame.ts, fix35: the one `document.write`, checked below)
+  const exempt = f === "src/mailFrame.ts";
   const src = read(f).replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
-  for (const [re, name] of banned) assert.ok(!re.test(src), `${f} uses ${name}: connect-src / script-src would need to change`);
+  for (const [re, name] of banned) assert.ok((exempt && name === "document.write") || !re.test(src), `${f} uses ${name}: connect-src / script-src would need to change`);
 }
 const apis = new Set();
 for (const f of files) for (const m of read(f).matchAll(/from "(@tauri-apps\/[^"]+)"/g)) apis.add(m[1]);
@@ -72,7 +74,12 @@ assert.ok(/img-src data: https: http:/.test(frameCsp[1]) && /style-src 'unsafe-i
 assert.ok(dir["img-src"].includes("https:") && dir["img-src"].includes("http:"), "Load content shows https: / http: pictures in the frame; an srcdoc frame inherits the page's img-src (checked in Chrome: no http: in the page = no picture)");
 assert.ok(dir["style-src"].includes("'unsafe-inline'"), "the srcdoc frame carries an inline <style>; the page's style-src applies to it as well");
 assert.ok(dir["font-src"].includes("data:"));
-assert.ok(/srcDoc=\{srcDoc\}/.test(reading) && !/<iframe[^>]*src=\{/.test(reading), "the message frame is srcdoc only");
+// (fix35) the message frame has no src and no srcdoc attribute: its document is written into it (mailFrame.ts), and only into the frame's own document
+const mf = read("src/mailFrame.ts");
+assert.ok(!/srcDoc=\{/.test(reading) && !/<iframe[^>]*src=\{/.test(reading), "the message frame is written, not navigated");
+assert.equal((mf.match(/doc\.write\(/g) ?? []).length, 1, "one write call");
+assert.ok(/const doc = frame\.contentDocument;[\s\S]*doc\.open\(\);[\s\S]*doc\.write\(p\);[\s\S]*doc\.close\(\);/.test(mf), "it writes into the frame's own document");
+assert.ok(files.includes("src/mailFrame.ts"), "the guard reads mailFrame.ts");
 
 // --- the attachment preview: pictures as data: URIs, PDF in a blob: frame, text as text ---------------------------------------------
 const att = read("src/components/Attachments.tsx");

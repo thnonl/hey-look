@@ -5,6 +5,7 @@ import { openUpdateLink } from "../updates";
 import { guardFrame } from "../contextGuard";
 import { Archive, Clock, ExternalLink, Flag, Forward, MailX, MoreHorizontal, Moon, Pin, Reply, ReplyAll, Sparkles, Sun, Trash2, ChevronsDownUp, ChevronsUpDown, Mail, ShieldAlert, AlertTriangle } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { mailFrameStats, writeMailDocument } from "../mailFrame";
 import { forward, replyTo } from "../actions";
 import { useAnswerBusy } from "../answerBusy";
 import { answerKey } from "../popout/entry";
@@ -348,13 +349,18 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   darkNow.current = dark;
   const lockedNow = useRef(!!m.confidential);
   lockedNow.current = !!m.confidential;
-  const srcDoc = useMemo(
-    () => `<!doctype html><html data-hm-doc${frameRootClass(darkNow.current ? "dark" : "original")}><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><base target="_blank">
+  // The document of the frame in three pieces (head, the mail, tail): it is written into the frame (mailFrame.ts, fix35), never made one string, never an attribute.
+  const docParts = useMemo(
+    () => [
+      `<!doctype html><html data-hm-doc${frameRootClass(darkNow.current ? "dark" : "original")}><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><base target="_blank">
     <style>${frameBaseCss()}
     ${MAIL_FRAME_CSS}
     ${lockedNow.current ? CONFIDENTIAL_FRAME_CSS : ""}
     ${MAIL_FRAME_SPIN_CSS}</style>
-    </head><body>${rewriteMailHtml(html, darkNow.current)}<style>html,body{overflow:hidden!important;height:auto!important;min-height:0!important}</style></body></html>`,
+    </head><body>`,
+      rewriteMailHtml(html, darkNow.current),
+      `<style>html,body{overflow:hidden!important;height:auto!important;min-height:0!important}</style></body></html>`,
+    ],
     [html, csp, m.confidential], // eslint-disable-line react-hooks/exhaustive-deps
   );
   // macOS Print (W5.3) builds its document from the same inputs as the frame: the HTML as shown now, its CSP and the subject
@@ -552,7 +558,25 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   const onLoad = () => hookDoc();
   const hookRef = useRef(hookDoc);
   hookRef.current = hookDoc;
-  // watches for the document the new srcDoc makes (the frame shows the old one until the new one is committed) and hooks it once it is parsed
+  // The mail is written into the frame before the first paint (a layout effect runs before the passive ones below, which hook the document). A written document keeps the frame's
+  // Document object, so what the hooking remembers by identity is forgotten first (and the observers of the document that is replaced are stopped).
+  useLayoutEffect(() => {
+    const frame = frameRef.current;
+    if (!frame) return;
+    hooked.current = null;
+    stopObserve.current();
+    if (!writeMailDocument(frame, docParts)) {
+      frame.srcdoc = docParts.join(""); // (no document to write into: the old way)
+      mailFrameStats.fallbacks++;
+    }
+  }, [docParts, frameRef]);
+  useLayoutEffect(() => {
+    mailFrameStats.created++;
+    return () => {
+      mailFrameStats.removed++;
+    };
+  }, []);
+  // watches for the document the written mail makes and hooks it once it is parsed
   useEffect(() => {
     let timer = 0;
     const t0 = Date.now();
@@ -569,7 +593,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
       window.clearTimeout(timer);
       window.clearTimeout(failsafe);
     };
-  }, [srcDoc, frameRef]);
+  }, [docParts, frameRef]);
 
   return (
     <>
@@ -591,7 +615,6 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
         style={dark ? { background: `rgb(${DARK_CANVAS.join(",")})` } : undefined}
         sandbox={frameSandbox(navigator.userAgent)}
         scrolling="no"
-        srcDoc={srcDoc}
         onLoad={onLoad}
         title={m.subject ? t("reading.body.frameTitleSubject", { subject: m.subject }) : t("reading.body.frameTitle")}
       />

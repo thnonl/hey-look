@@ -85,7 +85,7 @@ check("a mail: <style> blocks and media attributes are rewritten, the text of th
 
 check("the wiring: the frame's document is built with the rewrite, a switch of the background rewrites it again in place, print is light", () => {
   const rp = fs.readFileSync(new URL("../src/components/ReadingPane.tsx", import.meta.url), "utf8");
-  assert.ok(rp.includes("${rewriteMailHtml(html, darkNow.current)}"), "srcDoc");
+  assert.ok(rp.includes("rewriteMailHtml(html, darkNow.current),"), "the written document");
   assert.ok(/setMailDark\(doc, dark, DARK_CANVAS\);\s*[^\n]*\n\s*reapplyColorScheme\(doc, dark\);/.test(rp), "in place on a switch, no reload");
   assert.ok(rp.includes('"beforeprint", beforePrint') && rp.includes("reapplyColorScheme(doc, false)") && rp.includes('"afterprint", afterPrint'), "print is light");
   // compose is unchanged: the editor and the compose preview do not use it
