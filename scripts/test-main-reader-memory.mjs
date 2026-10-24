@@ -7,7 +7,7 @@
 //   counts do not grow, and a changed picture state or language still rebuilds the html
 //   node scripts/test-main-reader-memory.mjs [--require-browser]
 import assert from 'node:assert/strict';
-import { sleep, startHarness } from './cdp-harness.mjs';
+import { languageJs, sleep, startHarness } from './cdp-harness.mjs';
 import { FIXTURES, IDS } from './lib/reply-fixtures.mjs';
 
 const H = await startHarness('test-main-reader-memory', { vitePort0: 6210 });
@@ -65,10 +65,10 @@ try {
   }
   await check('a change of the language rebuilds the html (the picture placeholders carry text) and a second pass with the same inputs does not', async () => {
     await open(IDS.huge, `(document.querySelector('.msg-frame')?.contentDocument?.body?.innerText ?? '').length > 1000`);
-    const before = await evaluate(`document.querySelector('.msg-frame').srcdoc.length`);
+    const before = await evaluate(`document.querySelector('.msg-frame').contentDocument.documentElement.outerHTML.length`);
     await evaluate('window.__pc = 0; 1');
-    await evaluate(`window.__store.getState().setPrefs({ language: 'de' }); 1`);
-    await sleep(2500);
+    await evaluate(languageJs('de')); // (waits until the language pack is loaded and applied)
+    await sleep(1500);
     const parses = await evaluate('window.__pc');
     assert.ok(parses >= 1, 'the language change did not rebuild the picture placeholders');
     assert.ok(before > 100000);

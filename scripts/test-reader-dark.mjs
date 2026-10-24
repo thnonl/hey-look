@@ -87,6 +87,8 @@ async function pixels(tag) {
   }; im.onerror = () => ok(null); im.src = 'data:image/png;base64,${shot.data}'; })`);
 }
 
+/** Is a picture of the open mail still on its way? */
+const PENDING_IMG = `[...(document.querySelector('.msg-frame')?.contentDocument?.images ?? [])].some((i) => !i.complete)`;
 const near = (a, b, tol = 8) => a && a.every((v, i) => Math.abs(v - b[i]) <= tol);
 const sig = (st) => JSON.stringify(st.rows.map((r) => r.slice(0, 3)));
 const BUTTON = 'button[aria-pressed][aria-label="Message background: original / dark"]';
@@ -131,7 +133,8 @@ async function darkConfig(tag, { reader, theme, id = 'dk11', origMin = 4.5 }) {
   check(tag, first.ms !== null, `first open: the mail was not shown within 5 s (${JSON.stringify(st && { cls: st.cls, vis: st.bodyVis, rs: st.rs })})`);
   if (!st) return;
   check(tag, first.ms === null || Date.now() - t0 < 3500, `first open: shown after ${Date.now() - t0} ms (limit 3500)`);
-  check(tag, st.rs !== 'complete', `first open: the document was already complete (${st.rs}), so this run did not exercise a pending picture`);
+  // (since fix35 the mail is written into the frame and its document is "complete" as soon as it is parsed, whatever the pictures do: the pending picture is the image that has not loaded)
+  check(tag, await evaluate(PENDING_IMG), `first open: every picture had already loaded (document ${st.rs}), so this run did not exercise a pending picture`);
   check(tag, st.cls.split(' ').includes('hm-dark') && !st.cls.includes('hm-pend'), `first open: classes "${st.cls}"`);
   check(tag, st.hmAttr > 0 || st.sheets >= 2, `first open: the dark sheet is not in the frame`);
   check(tag, logoRequests >= 1, 'the frame did not ask for the picture (the test does not exercise a pending picture)');
@@ -139,7 +142,10 @@ async function darkConfig(tag, { reader, theme, id = 'dk11', origMin = 4.5 }) {
   await readable(tag, 'first open', DARK, st);
   const S1 = sig(st);
   // 2. the picture arrives: nothing changes
-  const done = await waitFrame(DARK, (s) => s.rs === 'complete', SLOW_MS + 4000);
+  const t1 = Date.now();
+  while (Date.now() - t1 < SLOW_MS + 4000 && await evaluate(PENDING_IMG)) await sleep(60);
+  const done = await waitFrame(DARK, () => true, 2000);
+  if (await evaluate(PENDING_IMG)) done.ms = null;
   check(tag, done.ms !== null, 'the picture never completed');
   if (done.state) { check(tag, sig(done.state) === S1, 'after the picture arrived the colours differ from the first look'); check(tag, !done.state.cls.includes('hm-pend') && done.state.bodyVis === 'visible', 'after the picture arrived the mail is hidden'); }
   // 3. original, then dark again (the button): the dark result is the first look

@@ -345,7 +345,8 @@ export function markDarkLogos(scope: ParentNode): void {
   }
 }
 
-const sheets = new WeakMap<Document, HTMLStyleElement>();
+// (keyed by the root element: a document that is written again (mailFrame.ts) keeps its Document object but gets a new root, and its dark sheet has to be made again)
+const sheets = new WeakMap<Element, HTMLStyleElement>();
 
 /**
  * Puts a mail document on (or takes it off) the dark background, in place: the class switches the base colours of the
@@ -356,18 +357,18 @@ export function setMailDark(doc: Document, dark: boolean, base: RGB): void {
   if (!root || !doc.head) return;
   if (!dark) {
     root.classList.remove("hm-dark", "hm-pend");
-    const s = sheets.get(doc);
+    const s = sheets.get(root);
     if (s) s.disabled = true;
     return;
   }
   root.classList.add("hm-dark");
   try {
-    let s = sheets.get(doc);
+    let s = sheets.get(root);
     if (!s) {
       s = doc.createElement("style");
       s.textContent = buildDarkSheet(doc, base);
       doc.head.appendChild(s);
-      sheets.set(doc, s);
+      sheets.set(root, s);
       markDarkLogos(doc);
     }
     s.disabled = false;

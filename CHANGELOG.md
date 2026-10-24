@@ -59,6 +59,7 @@
 - The window shows the app's own colours and a small logo while it starts, instead of a white window: the window takes the colour of your theme (Light, Dark, or the system's) from the first frame, also in a message window, and a start screen with the logo and a thin spinner (a still logo when the system asks for reduced motion) stays until the app is up
 - Send shows a ring on its button from the press until the Undo toast (or the lock of the message window) is there, and ignores a second press; in the main window a "Sending…" toast with a ring covers a big message while it goes to the outbox and to the server
 - Text on the screen can no longer be selected by accident (a double-click on a message row, a folder, a label or a button used to highlight a word): you can select and copy in text fields, the subject, sender, recipients, date and body of a message, a summary or translation, Show original, key fingerprints, the version in Settings > About and the text of an error message. Dragging over the sender no longer folds the message
+- Pop-out windows open larger: message 960 x 780 (was 760 x 680), reader 1040 x 820, event 760 x 780, settings 1040 x 760, search 960 x 780, scheduled list 860 x 700; on a small screen a window is still cut to 90 % of the work area, the smallest sizes are unchanged, and a window you resized keeps its size
 
 ### Fixed
 
@@ -152,6 +153,7 @@
 - The small buttons of the app (the event preview's Edit, Duplicate, Save .ics, Delete and the answer buttons) are at least 24 px high whatever the font on the computer.
 - Unsubscribe always tells you what happened, on Windows, macOS and Linux: the link shows a small ring at once and cannot be started twice; when the sender accepts the one-click request it says "Unsubscribed"; when the sender's page is opened in your browser (the request failed, the sender has no one-click, or the link was in the message) it says so and that you may have to confirm there; when the unsubscribe address is an e-mail address it opens the message to send and says "Send this message to finish unsubscribing"; when the browser cannot be started it says that and copies the link. The one-click request no longer waits for the system's long network timeout (it gives up after 5 seconds to connect and 10 seconds in all, then opens the page), and `startup.log` has one line per outcome (the sender's host only).
 - Calendar: in the "Also show the calendars of ..." question of the side menu the e-mail address stays on one line (ending in an ellipsis when the menu is narrow, the whole address on hover), so the question no longer needs five lines with a long address or a wide language; the Japanese sentence is shorter.
+- Reading a big mail again and again no longer makes the page of the main window grow on a Mac or Linux: the message frame is no longer given its document as an attribute (a second copy of the whole mail, and a navigation that WebKit keeps in the page's history) but the document is written into a frame of its own, in pieces, one frame for each open mail; the mail is in the frame before the first paint
 
 ## 1.0.6 — 2026-10-18
 

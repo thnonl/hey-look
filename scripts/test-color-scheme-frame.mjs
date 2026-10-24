@@ -94,7 +94,7 @@ try {
   });
   await check('AC-5.5.3 a mail without colour-scheme rules looks the same in both backgrounds (nothing of it is rewritten)', async () => {
     await open('p1', 'dark', 'light', 'original');
-    const srcOriginal = await evaluate(`document.querySelector('.msg-frame').getAttribute('srcdoc')`);
+    const srcOriginal = await evaluate(`document.querySelector('.msg-frame').contentDocument.documentElement.outerHTML`);
     assert.ok(!srcOriginal.includes('data-hm-orig'), 'no element was marked');
     assert.ok(srcOriginal.includes('A plain mail without any colour-scheme rule.'));
     await toggle();
