@@ -22,6 +22,7 @@ import { shiftNow } from "../popout/modifier";
 import { eventKey } from "../popout/windowKinds";
 import { guestsBlock, moveTargets } from "../calendarMove";
 import { MoveDialog } from "./MoveDialog";
+import { copyLock, useContentProtection } from "../protect";
 // =============================================================== calendar module
 
 function useNow(everyMs = 60_000) {
@@ -520,6 +521,8 @@ function EventPopover({ state, tz, color, onClose, onEdit, onMove }: { state: Po
   const ev = state.ev;
   const ref = useRef<HTMLDivElement>(null);
   useOutside(ref, onClose, true);
+  // an event made from Confidential mail: while its details are open the window is out of screen capture (Windows, macOS; Linux has none) and the description can't be copied (1.0.7 W8.8d)
+  useContentProtection(!!ev.confidential);
   const [busy, setBusy] = useState<Rsvp | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
@@ -628,19 +631,19 @@ function EventPopover({ state, tz, color, onClose, onEdit, onMove }: { state: Po
   const repeatText = ev.recurrenceText ?? (ev.hasRdates ? t("calendar.repeat.customFallback") : null);
   // which actions apply to this event (an action that cannot be done is not shown; the note under the details says why Edit is missing)
   const showEdit = canEditEvent(ev);
-  const showCopy = !ev.confidential;
+  const copyOff = ev.confidential ? t("calendar.pop.confidentialOff") : undefined; // Duplicate and Save .ics stay on screen, greyed, with the reason (W8.8d)
   // another calendar to move it to (W7.5): the user's own event, in My events or a synced calendar, with a writable calendar to go to
   const showMove = showEdit && !invite && moveTargets(ev, useStore.getState().calendars).length > 0;
   const showDelete = !(synced && !!ev.readOnly);
   const showMail = invite && !!ev.sourceMessageId;
   const answerRow = canRsvp || !!ev.joinUrl;
   // an action button: icon and label, or the icon alone (with the label as its name and tooltip) in a narrow popover
-  const actionButton = (label: string, icon: ReactNode, onClick: () => void, danger = false) => {
+  const actionButton = (label: string, icon: ReactNode, onClick: () => void, danger = false, off?: string) => {
     const cls = `btn small${danger ? " danger ev-delete" : ""}`;
     return narrow ? (
-      <button type="button" className={`${cls} icon-only`} title={label} aria-label={label} onClick={onClick}>{icon}</button>
+      <button type="button" className={`${cls} icon-only`} title={off ?? label} aria-label={label} disabled={!!off} onClick={onClick}>{icon}</button>
     ) : (
-      <button type="button" className={cls} onClick={onClick}>{icon}<span>{label}</span></button>
+      <button type="button" className={cls} title={off} disabled={!!off} onClick={onClick}>{icon}<span>{label}</span></button>
     );
   };
   return (
@@ -673,38 +676,36 @@ function EventPopover({ state, tz, color, onClose, onEdit, onMove }: { state: Po
         {myStatusLabel(ev.myStatus) && ev.myStatus !== "organizer" && (
           <div className="inv-row"><CircleCheck size={14} aria-hidden /><span>{ev.status === "cancelled" ? t("calendar.pop.cancelledByOrganizer") : myStatusLabel(ev.myStatus)}{ev.respondedAt === null && ev.myStatus !== "needs-action" ? ` (${t("calendar.invite.noResponseSent")})` : ""}</span></div>
         )}
-        {ev.description && <div className="muted small" style={{ whiteSpace: "pre-wrap", maxHeight: 90, overflow: "auto" }}>{ev.description.slice(0, 600)}</div>}
+        {ev.description && (
+          <div className="muted small" style={{ whiteSpace: "pre-wrap", maxHeight: 90, overflow: "auto", ...(ev.confidential ? { userSelect: "none", WebkitUserSelect: "none" } : {}) }} {...(ev.confidential ? copyLock : {})}>{ev.description.slice(0, 600)}</div>
+        )}
         {lockNote && <div className="muted small">{lockNote}</div>}
         {localOnlyNote && <div className="muted small">{localOnlyNote}</div>}
         {err && <div className="inline-err" role="alert"><TriangleAlert size={14} aria-hidden /> {err}</div>}
       </div>
-      {(answerRow || showMail || showEdit || showCopy || showDelete || showMove) && (
-        <div className="ev-foot">
-          {answerRow && (
-            <div className="ev-acts ev-answer">
-              {canRsvp && (
-                <>
-                  <button className={`btn small ${ev.myStatus === "accepted" ? "chosen" : ""}`} disabled={busy !== null} onClick={() => void respond("accepted")}>{busy === "accepted" ? t("calendar.sending") : t("calendar.rsvp.accept")}</button>
-                  <button className={`btn small ${ev.myStatus === "tentative" ? "chosen" : ""}`} disabled={busy !== null} onClick={() => void respond("tentative")}>{busy === "tentative" ? t("calendar.sending") : t("calendar.rsvp.tentative")}</button>
-                  <button className={`btn small ${ev.myStatus === "declined" ? "chosen" : ""}`} disabled={busy !== null} onClick={() => void respond("declined")}>{busy === "declined" ? t("calendar.sending") : t("calendar.rsvp.decline")}</button>
-                </>
-              )}
-              {ev.joinUrl && <button className="btn small primary" onClick={() => void open(ev.joinUrl!)}><Video size={13} /> {t("calendar.pop.join")}</button>}
-            </div>
-          )}
-          {(showMail || showEdit || showCopy || showDelete || showMove) && (
-            <div className="ev-acts ev-actions">
-              {showMail && <button className="icon-btn" title={t("calendar.pop.openEmail")} aria-label={t("calendar.pop.openEmail")} onClick={() => void openMail()}><Mail size={15} /></button>}
-              {showEdit && actionButton(t("common.edit"), <Pencil size={14} aria-hidden />, onEdit)}
-              {showCopy && actionButton(t("calendar.pop.duplicate"), <Copy size={14} aria-hidden />, duplicate)}
-              {/* (icon only, like Open email: its name is long, and a third line of buttons would push the footer out of small windows) */}
-              {showMove && <button type="button" className="btn small icon-only" title={t("calendar.pop.moveTo")} aria-label={t("calendar.pop.moveTo")} onClick={onMove}><FolderInput size={14} aria-hidden /></button>}
-              {showCopy && actionButton(t("calendar.saveIcs"), <Download size={14} aria-hidden />, () => void saveIcs())}
-              {showDelete && actionButton(t("common.delete"), <Trash2 size={14} aria-hidden />, () => void remove(), true)}
-            </div>
-          )}
+      <div className="ev-foot">
+        {answerRow && (
+          <div className="ev-acts ev-answer">
+            {canRsvp && (
+              <>
+                <button className={`btn small ${ev.myStatus === "accepted" ? "chosen" : ""}`} disabled={busy !== null} onClick={() => void respond("accepted")}>{busy === "accepted" ? t("calendar.sending") : t("calendar.rsvp.accept")}</button>
+                <button className={`btn small ${ev.myStatus === "tentative" ? "chosen" : ""}`} disabled={busy !== null} onClick={() => void respond("tentative")}>{busy === "tentative" ? t("calendar.sending") : t("calendar.rsvp.tentative")}</button>
+                <button className={`btn small ${ev.myStatus === "declined" ? "chosen" : ""}`} disabled={busy !== null} onClick={() => void respond("declined")}>{busy === "declined" ? t("calendar.sending") : t("calendar.rsvp.decline")}</button>
+              </>
+            )}
+            {ev.joinUrl && <button className="btn small primary" onClick={() => void open(ev.joinUrl!)}><Video size={13} /> {t("calendar.pop.join")}</button>}
+          </div>
+        )}
+        <div className="ev-acts ev-actions">
+          {showMail && <button className="icon-btn" title={t("calendar.pop.openEmail")} aria-label={t("calendar.pop.openEmail")} onClick={() => void openMail()}><Mail size={15} /></button>}
+          {showEdit && actionButton(t("common.edit"), <Pencil size={14} aria-hidden />, onEdit)}
+          {actionButton(t("calendar.pop.duplicate"), <Copy size={14} aria-hidden />, duplicate, false, copyOff)}
+          {/* (icon only, like Open email: its name is long, and a third line of buttons would push the footer out of small windows) */}
+          {showMove && <button type="button" className="btn small icon-only" title={t("calendar.pop.moveTo")} aria-label={t("calendar.pop.moveTo")} onClick={onMove}><FolderInput size={14} aria-hidden /></button>}
+          {actionButton(t("calendar.saveIcs"), <Download size={14} aria-hidden />, () => void saveIcs(), false, copyOff)}
+          {showDelete && actionButton(t("common.delete"), <Trash2 size={14} aria-hidden />, () => void remove(), true)}
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -936,6 +937,9 @@ export function EventDialog({ eventId, init, draft, windowed, scope, occurrenceS
   const [customRule, setCustomRule] = useState<string | null>(draft?.customRule ?? null);
   const [customText, setCustomText] = useState<string | null>(draft?.customText ?? null);
   const [existing, setExisting] = useState<CalEventDetail | null>(null);
+  // an event made from Confidential mail: the window is out of screen capture while its details are open and the notes can't be copied out (1.0.7 W8.8d)
+  const conf = !!existing?.confidential;
+  useContentProtection(conf);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(draft?.dirty ?? false);
@@ -1221,7 +1225,7 @@ export function EventDialog({ eventId, init, draft, windowed, scope, occurrenceS
         </select>
 
         <label htmlFor="ev-notes">{t("calendar.dialog.notes")}</label>
-        <textarea id="ev-notes" rows={4} value={notes} onChange={(e) => (setNotes(e.target.value), touch())} />
+        <textarea id="ev-notes" rows={4} value={notes} onChange={(e) => (setNotes(e.target.value), touch())} {...(conf ? copyLock : {})} />
       </div>
       {error && <div className="field-err" role="alert" style={{ marginTop: 10 }}>{error}</div>}
       <div className="row-inline" style={{ justifyContent: "flex-end", marginTop: 14 }}>

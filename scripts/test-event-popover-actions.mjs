@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 1.0.7 W7.12 (owner request: "move the buttons out of the dropdown in the event preview panel"): the calendar event popover shows Edit, Duplicate, Save .ics and Delete
 // as visible buttons (icon and label; the icon alone under 300 px inside), no "More actions" menu. Dev preview, real mouse and key events.
-//   - which buttons appear per kind of event (My events, Google primary, a read-only calendar, an invitation with answer buttons, a confidential event, one with nothing to do);
+//   - which buttons appear per kind of event (My events, Google primary, a read-only calendar, an invitation with answer buttons, a confidential event (Duplicate and Save .ics greyed), a read-only confidential one);
 //     Delete is last, red, and a footer row is never empty; the read-only note says why Edit is missing
 //   - every button does what the menu item did (Edit opens the dialog, Duplicate "(copy)", Save .ics calls the backend and toasts, Delete asks, Open email opens the mail)
 //   - the keyboard: Tab walks answer buttons, Join, Open email, Edit, Duplicate, Save .ics, Delete; Space activates; Esc closes with the focus back on the event
@@ -179,8 +179,9 @@ try {
     { tag: 'invitation with answers and a link', text: 'Product sync', want: ['Accept', 'Tentative', 'Decline', 'Join', 'Open invitation email', 'Duplicate', 'Save .ics', 'Delete'] },
     { tag: 'invitation', text: 'Design review', want: ['Accept', 'Tentative', 'Decline', 'Open invitation email', 'Duplicate', 'Save .ics', 'Delete'] },
     { tag: 'invitation with a link and no answer buttons', text: 'Standup', want: ['Join', 'Duplicate', 'Save .ics', 'Delete'] },
-    { tag: 'confidential', text: 'Board secret', want: ['Edit', MOVE, 'Delete'] },
-    { tag: 'nothing to do', text: 'Sealed holiday', want: [], none: true },
+    // (1.0.7 W8.8d: an event from Confidential mail keeps Duplicate and Save .ics on screen, greyed, with the reason as the tooltip: test-conf-ui.mjs checks the greying)
+    { tag: 'confidential', text: 'Board secret', want: ['Edit', 'Duplicate', MOVE, 'Save .ics', 'Delete'] },
+    { tag: 'confidential and read-only', text: 'Sealed holiday', want: ['Duplicate', 'Save .ics'] },
   ];
   for (const c of CASES) {
     if (!(await openPopover('.ag-row', c.text, c.tag))) continue;
