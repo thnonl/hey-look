@@ -7,6 +7,7 @@ import { addRecipients, addressOf, chipLabel, formatRecipient, isImeEvent, openA
 import { keyProblemKey } from "../keyStatus";
 import { useT } from "../i18n/react";
 import { usePinnedBelow, useOutside } from "./ui";
+import { GhostChips } from "./GhostChips";
 
 // The recipient box of the composer and of the event dialog. Kept apart from Compose.tsx (the editor stack, loaded on demand, WP9d) so the Calendar does not pull the editor in.
 
@@ -20,7 +21,7 @@ const CHIP_DRAG = "application/x-heylook-recipient";
 
 /** Recipient input with chips, address validation and keyboard-friendly suggestions. */
 export function RecipientField({
-  label, values, onChange, autoFocus, onTouch, onPending, keys, onKeyAction, hideLabel, field, dragScope, onChipDrop,
+  label, values, onChange, autoFocus, onTouch, onPending, keys, onKeyAction, hideLabel, field, dragScope, onChipDrop, ghosts,
 }: {
   label: string;
   /** the label is only for screen readers (the caller shows its own) */
@@ -39,6 +40,8 @@ export function RecipientField({
   dragScope?: string;
   /** a chip of another field was dropped here (the caller moves it) */
   onChipDrop?: (chip: string, from: RcptField) => void;
+  /** recipients drawn invisibly, only to take their room (the shell of a Reply: the row has the height of the finished message, GhostChips.tsx) */
+  ghosts?: readonly string[];
 }) {
   const t = useT();
   const [keyPop, setKeyPop] = useState<string | null>(null);
@@ -119,6 +122,7 @@ export function RecipientField({
     >
       {!hideLabel && <label>{label}</label>}
       <div className="chips" ref={chipsRef}>
+        <GhostChips values={ghosts} />
         {values.map((v) => {
           const addr = bareAddress(v).toLowerCase();
           const ks = keys?.[addr];
@@ -170,7 +174,7 @@ export function RecipientField({
           aria-expanded={sugg.length > 0}
           aria-controls={listId}
           aria-activedescendant={hi >= 0 && sugg[hi] ? `${listId}-${hi}` : undefined}
-          placeholder={values.length === 0 ? "name@example.com" : undefined}
+          placeholder={values.length === 0 && !ghosts?.length ? "name@example.com" : undefined}
           onChange={(e) => onInput(e.target.value, !!(e.nativeEvent as InputEvent).isComposing)}
           onPaste={(e) => {
             const pasted = e.clipboardData.getData("text");

@@ -2317,7 +2317,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
           <label>{t("compose.from")}</label>
           <AccountPicker value={accountId} accounts={accounts} onChange={changeAccount} label={t("compose.from")} />
         </div>
-        <RecipientField label={t("compose.to")} field="to" dragScope={dragScope} onChipDrop={moveChip("to")} values={to} onChange={changeField("to")} autoFocus={to.length === 0 && !init.replaces && !preparing} onTouch={touch} onPending={pending("to")} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
+        <RecipientField label={t("compose.to")} field="to" dragScope={dragScope} onChipDrop={moveChip("to")} values={to} onChange={changeField("to")} ghosts={preparing?.rcpt?.to} autoFocus={to.length === 0 && !init.replaces && !preparing} onTouch={touch} onPending={pending("to")} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
         {noteShown && replyNote && (
           <div className="note cf-replyto" role="status">
             <Info size={13} aria-hidden />
@@ -2329,7 +2329,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
         )}
         {showCc ? (
           <>
-            <RecipientField label={t("compose.cc")} field="cc" dragScope={dragScope} onChipDrop={moveChip("cc")} values={cc} onChange={changeField("cc")} onTouch={() => ((ccTouched.current = true), touch())} onPending={pending("cc")} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
+            <RecipientField label={t("compose.cc")} field="cc" dragScope={dragScope} onChipDrop={moveChip("cc")} values={cc} onChange={changeField("cc")} ghosts={preparing?.rcpt?.cc} onTouch={() => ((ccTouched.current = true), touch())} onPending={pending("cc")} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
             {!meeting && <RecipientField label={t("compose.bcc")} field="bcc" dragScope={dragScope} onChipDrop={moveChip("bcc")} values={bcc} onChange={changeField("bcc")} onTouch={() => ((ccTouched.current = true), touch())} onPending={pending("bcc")} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />}
           </>
         ) : (

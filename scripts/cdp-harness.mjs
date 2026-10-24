@@ -108,6 +108,9 @@ export async function startHarness(name, { vitePort0 = 5480 } = {}) {
   const cdp = (method, params) => send(method, params, sessionId);
   const evaluate = async (expression) => { const r = await cdp('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }); if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text); return r.result.value; };
   await cdp('Runtime.enable'); await cdp('Page.enable');
+  // HEYLOOK_CPU_SLOWDOWN=4 runs the page 4 times slower (CDP CPU throttling): the way to look for a race that only a slow CI runner meets
+  const slowdown = Number(process.env.HEYLOOK_CPU_SLOWDOWN || 1);
+  if (slowdown > 1) await cdp('Emulation.setCPUThrottlingRate', { rate: slowdown });
   // hermetic: the dev preview talks to its mock, never to the network. A request to any host but this machine is refused and recorded, and the test fails at exit
   // (a page that starts to call out must say so in the test, with a stub, instead of working on a good day and failing on a runner that is rate-limited)
   const net = await installHermeticNet({ cdp, on: (h) => handlers.push(h) });

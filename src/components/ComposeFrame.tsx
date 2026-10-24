@@ -10,6 +10,7 @@ import { useT } from "../i18n/react";
 import { useStore, type ComposeInit } from "../store";
 import { useAppDark } from "../useAppDark";
 import { LazyLoading } from "../lazy";
+import { GhostChips } from "./GhostChips";
 
 /**
  * The compose pane before the editor stack (components/Compose.tsx, a chunk of its own, WP9d) has arrived: the same boxes with the same class names, drawn by the main chunk.
@@ -65,7 +66,7 @@ export function ComposeFrame({ init, late }: { init: ComposeInit; late: boolean 
             <label>{t("compose.to")}</label>
             {/* the boxes of the real field, so the row has its height before the message is filled in (D-067): a reply has a recipient (one invisible chip), a forward has none; the input is the one of RecipientField */}
             <div className="chips">
-              {preparing?.kind === "reply" && hiddenChip}
+              <GhostChips values={preparing?.rcpt?.to} />
               <input readOnly tabIndex={-1} aria-label={t("compose.to")} />
             </div>
           </div>
@@ -75,7 +76,7 @@ export function ComposeFrame({ init, late }: { init: ComposeInit; late: boolean 
           )}
           {rows.showCc && (
             <>
-              <div className="cf-field rcpt"><label>{t("compose.cc")}</label><div className="chips">{rows.cc.length > 0 && hiddenChip}<input readOnly tabIndex={-1} aria-label={t("compose.cc")} /></div></div>
+              <div className="cf-field rcpt"><label>{t("compose.cc")}</label><div className="chips"><GhostChips values={preparing?.rcpt?.cc} />{rows.cc.length > 0 && hiddenChip}<input readOnly tabIndex={-1} aria-label={t("compose.cc")} /></div></div>
               <div className="cf-field rcpt"><label>{t("compose.bcc")}</label><div className="chips">{rows.bcc.length > 0 && hiddenChip}<input readOnly tabIndex={-1} aria-label={t("compose.bcc")} /></div></div>
             </>
           )}

@@ -235,12 +235,14 @@ export async function replyTo(m: MessageFull, all: boolean, thread: MessageFull[
         : undefined,
     };
   };
+  // who the answer is expected to go to, as the message is stored (the headers of the server change names, not who): the shell has the Cc and Bcc rows when there is a Cc, and draws the
+  // recipients invisibly so a row that wraps has its height; nothing appears or moves at the fill (REQ-13.13.12)
+  const guess = message(fallbackHeaders(m, thread), "");
   await answers.open({
     kind: "reply",
     key,
     o: { ...o, shift, key },
-    // Reply all with Cc recipients (as the message is stored; the headers of the server change names, not who): the Cc and Bcc rows are in the shell, nothing appears at the fill (REQ-13.13.12)
-    cc: all && (message(fallbackHeaders(m, thread), "").cc?.length ?? 0) > 0,
+    rcpt: { to: guess.to ?? [], cc: guess.cc ?? [] },
     shell: { accountId: fromAccountFor(st.accounts, m.accountId, st.prefs.defaultAccount), subject: reSubject, isReply: true, confidential: m.confidential },
     prepare: async (painted) => {
       // the three slow steps start together (REQ-13.13.3); the quote is cleaned when the pictures are in it and the shell was painted
