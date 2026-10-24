@@ -19,6 +19,7 @@ import { useLang, useT } from "../i18n/react";
 import { fmtNumber } from "../i18n/format";
 import { tx } from "../i18n/rich";
 import { DARK_CANVAS, frameBaseCss, frameRootClass, toggleMailCanvas } from "../mailCanvas";
+import { reapply as reapplyColorScheme, rewriteMailHtml } from "../colorSchemeMedia";
 import { eff } from "../prefs";
 import { CONFIDENTIAL_FRAME_CSS, lockDocument, useContentProtection } from "../protect";
 import { accountsOf, canMoveToJunk } from "../junk";
@@ -314,13 +315,17 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     .hl-bp-ico{flex:none;width:20px;height:20px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235b6470' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='18' height='18' rx='2'/%3E%3Ccircle cx='9' cy='9' r='2'/%3E%3Cpath d='m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21'/%3E%3C/svg%3E") center/contain no-repeat}.hl-bp-alt{max-width:100%;box-sizing:border-box;padding:0 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#5b6470}
     ${lockedNow.current ? CONFIDENTIAL_FRAME_CSS : ""}
     .hl-spin{width:14px;height:14px;border:2px solid #9aa3af;border-top-color:transparent;border-radius:50%;animation:hlspin 1s linear infinite;flex:none}@keyframes hlspin{to{transform:rotate(360deg)}}</style>
-    </head><body>${html}<style>html,body{overflow:hidden!important;height:auto!important;min-height:0!important}</style></body></html>`,
+    </head><body>${rewriteMailHtml(html, darkNow.current)}<style>html,body{overflow:hidden!important;height:auto!important;min-height:0!important}</style></body></html>`,
     [html, csp, m.confidential], // eslint-disable-line react-hooks/exhaustive-deps
   );
   // theme change or toggle on a loaded mail: recolour in place (a freshly loaded mail is handled in onLoad)
   useEffect(() => {
     const doc = frameRef.current?.contentDocument;
-    if (doc?.documentElement?.hasAttribute("data-hm-doc")) setMailDark(doc, dark, DARK_CANVAS);
+    if (doc?.documentElement?.hasAttribute("data-hm-doc")) {
+      setMailDark(doc, dark, DARK_CANVAS);
+      // what the mail's own prefers-color-scheme rules mean follows the background (W5.5), in place: the frame is not reloaded
+      reapplyColorScheme(doc, dark);
+    }
   }, [dark, frameRef]);
 
   // Frame height follows the content, never below the free height of the pane (see fillHeight). The content is
@@ -469,6 +474,12 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     };
     doc.addEventListener("click", onClick);
     doc.addEventListener("auxclick", onClick); // middle click on a link opens it in the browser too (REQ-50)
+    // print is always light (W5.5): the rules of the mail that follow the dark background are put back to the light ones while the page is printed
+    const win = doc.defaultView;
+    const beforePrint = () => void reapplyColorScheme(doc, false);
+    const afterPrint = () => void reapplyColorScheme(doc, darkNow.current);
+    win?.addEventListener("beforeprint", beforePrint);
+    win?.addEventListener("afterprint", afterPrint);
     const unlock = lockedNow.current ? lockDocument(doc) : undefined;
     // no native webview menu in the mail either: Copy on selected text, Open link / Copy link address on a link (confidential mail has no menu at all)
     const unguard = lockedNow.current ? undefined : guardFrame(frame, doc);
@@ -484,6 +495,8 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
       window.removeEventListener("resize", measure);
       doc.removeEventListener("click", onClick);
       doc.removeEventListener("auxclick", onClick);
+      win?.removeEventListener("beforeprint", beforePrint);
+      win?.removeEventListener("afterprint", afterPrint);
     };
   };
 
