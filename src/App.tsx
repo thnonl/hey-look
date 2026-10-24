@@ -235,8 +235,10 @@ function App() {
       }),
       // The rest of a quit (REQ-48 b, c): a message being written is saved to Drafts (and the person is asked when that fails), then every
       // message still in its Undo time goes out now, for at most 20 s. The answer tells the backend whether the quit goes on.
-      listen("flush-sends", () => {
+      listen<{ due?: number } | null>("flush-sends", (ev) => {
         const swallow = () => undefined;
+        // the scheduled messages that are due now go out after this part of the quit (the backend sends them, W6.12): the toast counts them with the messages in their Undo time
+        const due = Math.max(0, Math.floor(Number(ev.payload?.due ?? 0)) || 0);
         const ask = (kind: "scheduledEdit" | "notSaved") =>
           kind === "scheduledEdit"
             ? useStore.getState().choose({
@@ -278,7 +280,7 @@ function App() {
             await useStore.getState().composeEnd?.();
             useStore.setState({ composeDirty: false });
           },
-          inFlight: () => useStore.getState().sendsInFlight,
+          inFlight: () => useStore.getState().sendsInFlight + due,
           tell: (n) => useStore.getState().showToast(t("app.quit.sending", { n }), undefined, "info"),
           flush: flushSends,
         });

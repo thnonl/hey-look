@@ -4111,18 +4111,19 @@ async fn inline_image(state: tauri::State<'_, AppState>, message_id: String, cid
 
 // ---------- send / drafts / outbox ----------
 
-fn send_now(db: &Db, d: &smtp::Draft) -> R<()> {
+/// Send a message and store its Sent copy. `on_accepted` is called with the bytes of the Sent copy at the moment the SMTP server has accepted the message (before the copy is
+/// stored): a queued message writes its marker then (`mark_accepted`, W6.5), so a process that ends in the seconds the copy takes never sends it a second time.
+fn send_now(db: &Db, d: &smtp::Draft, on_accepted: &dyn Fn(&[u8])) -> R<()> {
     let acc = db::get_account(&lock(db), &d.account_id)?;
     let sec = secret(db, &acc)?;
     let (raw, env) = finished_message(db, &acc, d)?;
     // the Sent copy is byte for byte the DATA the server received (smtp::as_data)
     let (wire, raw) = smtp::as_data(&raw);
     smtp::send_raw(&acc, &smtp_secret(db, &acc)?, &env, wire)?;
+    on_accepted(&raw);
     // the message is out: the one it answers or forwards gets its flag on its own server (in the background; a failure is a line in the log, never the send's)
     flag_original(db, d);
-    let h = acc.smtp_host.to_lowercase();
-    let auto_saves = h.contains("gmail") || h.contains("googlemail") || h.contains("office365") || h.contains("outlook");
-    if !auto_saves {
+    if !server_stores_sent_copy(&acc) {
         // best effort, after the send went through: a copy that cannot be stored is a line in the log, never an error of the send
         match mail::connect(&acc, &sec) {
             Ok(mut s) => {
@@ -4135,6 +4136,12 @@ fn send_now(db: &Db, d: &smtp::Draft) -> R<()> {
         }
     }
     Ok(())
+}
+
+/// Gmail and Outlook keep a copy of what is sent through their SMTP servers themselves: the app stores none.
+fn server_stores_sent_copy(acc: &Account) -> bool {
+    let h = acc.smtp_host.to_lowercase();
+    h.contains("gmail") || h.contains("googlemail") || h.contains("office365") || h.contains("outlook")
 }
 
 /// W2.22 CF-18: after an answer or a forward went out, the original gets `\Answered` / `$Forwarded` on the server it is on. Best effort and off the send's
@@ -4318,6 +4325,26 @@ fn remember_draft_meeting(db: &Db, acc: &Account, raw: &[u8], d: &smtp::Draft) {
     }
 }
 
+/// (W6.5) The Message-ID a queued message goes out with is given when its row is made and kept in the payload: every build of the row, also the one after a crash, carries it.
+fn with_message_id(db: &Db, mut d: smtp::Draft) -> R<smtp::Draft> {
+    if d.message_id.is_none() {
+        let acc = db::get_account(&lock(db), &d.account_id)?;
+        d.message_id = Some(smtp::fresh_message_id(&acc)?);
+    }
+    Ok(d)
+}
+
+/// The SMTP server accepted the message of the outbox row `id` (W6.5): the row is marked, and keeps the bytes of the Sent copy, until the copy is stored and the row goes. A
+/// row with the marker is never sent again (`outbox_startup`); the next start stores its Sent copy (`finish_accepted`).
+fn mark_accepted<'a>(db: &'a Db, id: &'a str) -> impl Fn(&[u8]) + 'a {
+    move |sent: &[u8]| {
+        match lock(db).execute("UPDATE outbox SET smtp_done_at=?2, sent_raw=?3 WHERE id=?1", params![id, now(), sent]) {
+            Ok(_) => startup::line("send", &format!("{id}: accepted by the SMTP server")),
+            Err(e) => startup::line("send", &format!("{id}: accepted by the SMTP server, but the marker could not be written: {e}")),
+        }
+    }
+}
+
 /// Queue a finished message (MIME is built at send time from the stored draft) for `send_at`.
 fn insert_outbox(db: &Db, draft: &smtp::Draft, send_at: i64) -> R<String> {
     let id = uuid::Uuid::new_v4().to_string();
@@ -4357,6 +4384,7 @@ async fn outbox_hold(app: tauri::AppHandle, state: tauri::State<'_, AppState>, d
     }
     blocking(move || {
         let acc = db::get_account(&lock(&db), &draft.account_id)?;
+        let draft = with_message_id(&db, draft)?;
         let draft = pgpstore::seal_for_outbox(&db, &acc, &draft)?;
         insert_outbox_hold(&db, &draft, due_at, replaces.as_deref())
     })
@@ -4382,7 +4410,7 @@ async fn outbox_hold_send(app: tauri::AppHandle, state: tauri::State<'_, AppStat
     blocking(move || {
         let (payload, _attempts) = claim_outbox(&db, &id, &["undo"])?.ok_or("OUTBOX_GONE: This message is no longer waiting to be sent.")?;
         let replaces: Option<String> = lock(&db).query_row("SELECT replaces FROM outbox WHERE id=?1", [&id], |r| r.get(0)).ok().flatten();
-        let res = serde_json::from_str::<smtp::Draft>(&payload).map_err(err).and_then(|d| send_now(&db, &d));
+        let res = serde_json::from_str::<smtp::Draft>(&payload).map_err(err).and_then(|d| send_now(&db, &d, &mark_accepted(&db, &id)));
         match res {
             Ok(()) => {
                 let _ = lock(&db).execute("DELETE FROM outbox WHERE id=?1", [&id]);
@@ -4433,6 +4461,7 @@ async fn send_message(
         let id = blocking(move || {
             // encrypt / sign now (decision: the key is only needed at schedule time) and keep just the result
             let acc = db::get_account(&lock(&db), &draft.account_id)?;
+            let draft = with_message_id(&db, draft)?;
             let draft = pgpstore::seal_for_outbox(&db, &acc, &draft)?;
             let id = insert_outbox(&db, &draft, at)?;
             drop_replaced_draft(&db, replaces);
@@ -4443,7 +4472,7 @@ async fn send_message(
         return Ok(format!("scheduled:{id}"));
     }
     blocking(move || {
-        if let Err(e) = send_now(&db, &draft) {
+        if let Err(e) = send_now(&db, &draft, &|_| ()) {
             // the invitation never went out: do not leave its event behind (Compose reopens and can send again)
             if draft.meeting.is_some() {
                 if let Ok(p) = serde_json::to_string(&draft) {
@@ -4972,17 +5001,57 @@ fn cancel_outbox(app: tauri::AppHandle, state: tauri::State<AppState>, id: Strin
     Ok(())
 }
 
-/// Counts for the quit guard: everything that will not go out unless the app keeps running.
+/// Counts for the quit question: the scheduled messages that WAIT - a time still to come, a message being edited (`held`), one that waits for the person's decision (`overdue`).
+/// What is due now goes out in the quit itself (`send_due_at_quit`) and a row being sent is finished by it, so neither is counted (W6.12). `next` = the earliest time still to come.
 fn outbox_counts(db: &Db) -> (i64, Option<i64>) {
+    outbox_counts_at(db, now())
+}
+
+fn outbox_counts_at(db: &Db, at: i64) -> (i64, Option<i64>) {
     let c = lock(db);
     let count = c
-        .query_row("SELECT COUNT(*) FROM outbox WHERE status IN ('pending','held','sending','overdue') AND undo!=1", [], |r| r.get(0))
+        .query_row("SELECT COUNT(*) FROM outbox WHERE ((status='pending' AND send_at>?1) OR status IN ('held','overdue')) AND undo!=1", [at], |r| r.get(0))
         .unwrap_or(0);
     let next = c
-        .query_row("SELECT MIN(send_at) FROM outbox WHERE status='pending'", [], |r| r.get::<_, Option<i64>>(0))
+        .query_row("SELECT MIN(send_at) FROM outbox WHERE status='pending' AND send_at>?1 AND undo!=1", [at], |r| r.get::<_, Option<i64>>(0))
         .ok()
         .flatten();
     (count, next)
+}
+
+/// How many scheduled messages are due now: `pending`, their time is here, not in their Undo time (a quit sends them, W6.12).
+fn outbox_due_count(db: &Db, at: i64) -> i64 {
+    lock(db).query_row("SELECT COUNT(*) FROM outbox WHERE status='pending' AND send_at<=?1 AND undo!=1", [at], |r| r.get(0)).unwrap_or(0)
+}
+
+/// W6.12: the scheduled messages whose time has come are sent before the app ends, one after the other, for at most `budget` in all (a row not reached, or one that fails, stays
+/// `pending` for the next start; `overdue` rows wait for the person's decision and are not touched). A row the worker is sending right now is waited for first. `send` sends one
+/// claimed row (the app's: `deliver`). Returns (rows sent, rows left behind that were due).
+fn send_due_at_quit(db: &Db, at: i64, budget: std::time::Duration, send: &mut dyn FnMut(&str, &str, i64, i64) -> R<()>) -> (usize, usize) {
+    let t0 = std::time::Instant::now();
+    // the worker may be in the middle of a row: it finishes it (its marker), the quit waits within the budget
+    while t0.elapsed() < budget && lock(db).query_row("SELECT COUNT(*) FROM outbox WHERE status='sending' AND undo!=1", [], |r| r.get::<_, i64>(0)).unwrap_or(0) > 0 {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let due: Vec<(String, i64)> = {
+        let c = lock(db);
+        let Ok(mut st) = c.prepare("SELECT id,send_at FROM outbox WHERE status='pending' AND send_at<=?1 AND undo!=1 ORDER BY send_at") else { return (0, 0) };
+        let Ok(rows) = st.query_map([at], |r| Ok((r.get(0)?, r.get(1)?))) else { return (0, 0) };
+        rows.filter_map(|r| r.ok()).collect()
+    };
+    let (mut sent, mut left) = (0, 0);
+    for (id, due_at) in due {
+        if t0.elapsed() >= budget {
+            left += 1;
+            continue;
+        }
+        let Ok(Some((payload, attempts))) = claim_outbox(db, &id, &["pending"]) else { continue };
+        match send(&id, &payload, attempts, due_at) {
+            Ok(()) => sent += 1,
+            Err(_) => left += 1,
+        }
+    }
+    (sent, left)
 }
 
 #[derive(Serialize)]
@@ -5080,6 +5149,7 @@ async fn outbox_update(app: tauri::AppHandle, state: tauri::State<'_, AppState>,
         };
         // encrypting / signing a message with big pictures takes seconds: not under the lock (the folder list waits for it on the main thread, D-025).
         // The sender could claim the row meanwhile; the UPDATE below says so (`status!='sending'`), as it always did.
+        let draft = with_message_id(&db, draft)?;
         let sealed = match pgpstore::seal_for_outbox(&db, &acc, &draft) {
             Ok(d) => d,
             Err(e) => {
@@ -5191,7 +5261,7 @@ fn retry_enabled(db: &Db) -> bool {
 
 /// Send a claimed item and record the outcome: delete on success, retry later or mark failed on error.
 fn deliver(app: &tauri::AppHandle, db: &Db, id: &str, payload: &str, attempts: i64, late: &mut i64, left: &mut i64, due_at: i64) -> R<()> {
-    let res = serde_json::from_str::<smtp::Draft>(payload).map_err(err).and_then(|d| send_now(db, &d));
+    let res = serde_json::from_str::<smtp::Draft>(payload).map_err(err).and_then(|d| send_now(db, &d, &mark_accepted(db, id)));
     // 2 = left behind by an earlier run (REQ-49 d): told apart from a scheduled message that came due while the app was closed
     let (undo, replaces): (i64, Option<String>) =
         lock(db).query_row("SELECT undo, replaces FROM outbox WHERE id=?1", [id], |r| Ok((r.get(0)?, r.get(1)?))).unwrap_or((0, None));
@@ -5241,9 +5311,11 @@ async fn outbox_send_now(app: tauri::AppHandle, state: tauri::State<'_, AppState
 /// app was closed waits as Overdue instead of going out without a word.
 fn outbox_startup(db: &Db) {
     let c = lock(db);
-    let _ = c.execute("UPDATE outbox SET status='pending' WHERE status='sending'", []);
+    // (W6.5) a row the SMTP server accepted before the last run ended (`smtp_done_at`) is NOT sent again, whatever its state: `finish_accepted` stores its Sent copy. A row that
+    // was in the middle of the SMTP exchange with no answer is sent again (losing a message is worse than a second one that carries the same Message-ID).
+    let _ = c.execute("UPDATE outbox SET status='pending' WHERE status='sending' AND smtp_done_at IS NULL", []);
     // messages that were in their Undo time when the last run ended (REQ-49 d): they go out like a scheduled message that came due
-    let _ = c.execute("UPDATE outbox SET status='pending', undo=2 WHERE undo=1", []);
+    let _ = c.execute("UPDATE outbox SET status='pending', undo=2 WHERE undo=1 AND smtp_done_at IS NULL", []);
     if setting_in(&c, "scheduled_catchup").as_deref() == Some("ask") {
         let _ = c.execute("UPDATE outbox SET status='overdue' WHERE status='pending' AND send_at < ?1", [now() - schedule::GRACE_SECS]);
     }
@@ -5251,13 +5323,68 @@ fn outbox_startup(db: &Db) {
     let _ = c.execute("UPDATE outbox SET undo=0 WHERE undo=2 AND status='overdue'", []);
 }
 
+/// (W6.5) The rows the SMTP server accepted before the last run ended: they are not sent again; their Sent copy is stored from the bytes the row kept (best effort, the rule of
+/// `store_sent_copy`), the draft the message was written from goes, and the row goes. `store` stores a copy (a test hands in its own). Returns how many rows were finished.
+fn finish_accepted(db: &Db, store: &mut dyn FnMut(&Account, &[u8]) -> R<()>) -> i64 {
+    type Row = (String, String, Option<Vec<u8>>, Option<String>);
+    let rows: Vec<Row> = {
+        let c = lock(db);
+        let Ok(mut st) = c.prepare("SELECT id,payload,sent_raw,replaces FROM outbox WHERE smtp_done_at IS NOT NULL") else { return 0 };
+        let Ok(found) = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))) else { return 0 };
+        found.filter_map(|r| r.ok()).collect()
+    };
+    let mut n = 0;
+    for (id, payload, raw, replaces) in rows {
+        startup::line("send", &format!("{id} was accepted before the app ended: not sent again"));
+        let acc = serde_json::from_str::<smtp::Draft>(&payload).ok().and_then(|d| db::get_account(&lock(db), &d.account_id).ok());
+        if let (Some(acc), Some(raw)) = (&acc, &raw) {
+            if !server_stores_sent_copy(acc) {
+                if let Err(e) = store(acc, raw) {
+                    startup::line("send", &format!("account {}: the message {id} was sent before the app ended, but no copy was stored in a Sent folder: {e}", acc.id));
+                }
+            }
+        }
+        let _ = lock(db).execute("DELETE FROM outbox WHERE id=?1", [&id]);
+        drop_replaced_draft(db, replaces);
+        n += 1;
+    }
+    n
+}
+
+/// `finish_accepted` for the app: the copy goes into the Sent folder over a connection of its own.
+fn store_accepted_copy(db: &Db, acc: &Account, raw: &[u8]) -> R<()> {
+    let sec = secret(db, acc)?;
+    let mut s = mail::connect(acc, &sec)?;
+    let done = store_sent_copy(db, acc, &mut s, raw);
+    let _ = s.logout();
+    done
+}
+
 fn setting_in(c: &Connection, key: &str) -> Option<String> {
     db::get_setting(c, key)
 }
 
+/// The pause between two rounds of the outbox worker: 15 s. A debug build can shorten or lengthen it (`HEYLOOK_TEST_OUTBOX_TICK_S`, 1 to 600): QA of a scheduled message that comes due
+/// at a quit before the worker has seen it (1.0.7 W6.12). Never in a release build.
+fn outbox_tick() -> std::time::Duration {
+    let secs = if cfg!(debug_assertions) { std::env::var("HEYLOOK_TEST_OUTBOX_TICK_S").ok().and_then(|v| v.trim().parse::<u64>().ok()).map(|s| s.clamp(1, 600)) } else { None };
+    std::time::Duration::from_secs(secs.unwrap_or(15))
+}
+
+/// The worker takes no new row once a quit has started (W6.12): what is due goes out in the quit's own step, what is not waits for the next start.
+fn worker_may_claim() -> bool {
+    !QUIT_BUSY.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 fn outbox_worker(app: tauri::AppHandle, db: Db) {
+    let mut earlier_run_done = false;
     loop {
-        std::thread::sleep(std::time::Duration::from_secs(15));
+        std::thread::sleep(outbox_tick());
+        let (mut late, mut left) = (0, 0);
+        if !earlier_run_done {
+            earlier_run_done = true;
+            left += finish_accepted(&db, &mut |acc, raw| store_accepted_copy(&db, acc, raw));
+        }
         let due: Vec<(String, i64)> = {
             let c = lock(&db);
             let Ok(mut st) = c.prepare("SELECT id,send_at FROM outbox WHERE status='pending' AND send_at<=?1 ORDER BY send_at") else {
@@ -5266,8 +5393,10 @@ fn outbox_worker(app: tauri::AppHandle, db: Db) {
             let Ok(rows) = st.query_map([now()], |r| Ok((r.get(0)?, r.get(1)?))) else { continue };
             rows.filter_map(|r| r.ok()).collect()
         };
-        let (mut late, mut left) = (0, 0);
         for (id, due_at) in due {
+            if !worker_may_claim() {
+                break;
+            }
             let Ok(Some((payload, attempts))) = claim_outbox(&db, &id, &["pending"]) else { continue };
             let _ = deliver(&app, &db, &id, &payload, attempts, &mut late, &mut left, due_at);
         }
@@ -5309,7 +5438,42 @@ fn flush_event(label: &str) -> &'static str {
 /// What the request carries: nothing for the main page; a secondary window is told why it is asked (`quit` or `update`), because the question
 /// it may have to put to the person says "quit" or "restart".
 fn flush_payload(label: &str, why: &str) -> serde_json::Value {
-    if label == "main" { serde_json::Value::Null } else { serde_json::json!({ "why": why }) }
+    // the main page is also told how many scheduled messages are due now: the backend sends them after the page's part, and the toast "Sending your messages before Hey Look! quits…"
+    // counts them with the messages in their Undo time (W6.12)
+    if label == "main" { serde_json::json!({ "due": QUIT_DUE.load(std::sync::atomic::Ordering::SeqCst) }) } else { serde_json::json!({ "why": why }) }
+}
+
+/// The scheduled messages that were due when the quit began (`flush_payload`).
+static QUIT_DUE: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+
+/// How long a quit spends sending the scheduled messages that are due (W6.12).
+const QUIT_DUE_BUDGET: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// W6.12: the scheduled messages whose time has come go out before the app ends, a message that waits for a time to come stays. Runs after the pages' part of the quit and before the
+/// exit. The outbox worker takes nothing new from the moment the quit began (`worker_may_claim`). Logs the two numbers; a row not reached in the budget, or one that fails, stays for
+/// the next start.
+fn send_due_before_exit(app: &tauri::AppHandle) {
+    let db = app.state::<AppState>().db.clone();
+    let at = now();
+    let due = outbox_due_count(&db, at);
+    let (waiting, _) = outbox_counts_at(&db, at);
+    startup::stage(Some(app), &format!("quit: {due} scheduled message(s) due now are sent before the app ends; {waiting} wait for the next start"));
+    if due == 0 {
+        return;
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    let (app2, db2) = (app.clone(), db.clone());
+    std::thread::spawn(move || {
+        let r = send_due_at_quit(&db2, at, QUIT_DUE_BUDGET, &mut |id, payload, attempts, due_at| {
+            let (mut late, mut left) = (0, 0);
+            deliver(&app2, &db2, id, payload, attempts, &mut late, &mut left, due_at)
+        });
+        let _ = tx.send(r);
+    });
+    match rx.recv_timeout(QUIT_DUE_BUDGET + std::time::Duration::from_secs(2)) {
+        Ok((sent, left)) => startup::stage(Some(app), &format!("quit: {sent} scheduled message(s) sent, {left} left for the next start")),
+        Err(_) => startup::stage(Some(app), "quit: a scheduled message is still being sent after the budget: the quit goes on"),
+    }
 }
 
 /// Test seam for QA (`HEYLOOK_TEST_QUIT_PAGE=silent`): the page is not asked, so for the quit it is a page that never answers (a hung or dead
@@ -5385,8 +5549,9 @@ fn finish_sends_then(app: &tauri::AppHandle, then: impl FnOnce(&tauri::AppHandle
         return;
     }
     let targets = flush_targets(app);
+    QUIT_DUE.store(outbox_due_count(&app.state::<AppState>().db, now()), std::sync::atomic::Ordering::SeqCst);
     if !targets.is_empty() {
-        startup::stage(Some(app), &format!("quit: asking the page to save its draft and send what is waiting (window visible: {}; windows asked: {})", window_shown(app), targets.join(", ")));
+        startup::stage(Some(app), &format!("quit: asking the page to save its draft and send the messages in their Undo time (window visible: {}; windows asked: {})", window_shown(app), targets.join(", ")));
     }
     let app = app.clone();
     std::thread::spawn(move || {
@@ -5400,6 +5565,7 @@ fn finish_sends_then(app: &tauri::AppHandle, then: impl FnOnce(&tauri::AppHandle
             startup::stage(Some(&app), &verdict.text(&limits));
         }
         if matches!(verdict, quitwait::Verdict::Go(_)) {
+            send_due_before_exit(&app);
             then(&app);
         }
         QUIT_BUSY.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -6590,14 +6756,15 @@ mod quit_tests {
         assert!(ask.contains("quitwait::drive(") && fin.contains("quitwait::Limits::default()"), "{ask}");
         assert!(fin.contains("quitwait::run_steps(&quitwait::steps(&targets)") && fin.contains("ask_windows(&app, labels, limits, \"quit\")"), "{fin}");
         assert!(!fin.contains("USER_DIALOG") && !lib.contains("static USER_DIALOG"), "a flag that stops the clock lets a quit hang for ever");
-        assert!(fin.contains("quit: asking the page to save its draft and send what is waiting"));
+        assert!(fin.contains("quit: asking the page to save its draft and send the messages in their Undo time"));
+        assert!(lib.contains("quit: {due} scheduled message(s) due now are sent before the app ends; {waiting} wait for the next start"));
         // which windows must answer is decided in one place
         assert!(fin.contains("flush_targets(app)") && lib.contains("fn flush_targets(app: &tauri::AppHandle) -> Vec<String>"));
         assert!(ask.contains("test_silent_page()") && lib.contains("HEYLOOK_TEST_QUIT_PAGE"));
         // every window gets a wait of its own (a thread each), so one person's question does not use up another window's time
         assert!(ask.contains("std::thread::scope") && ask.contains("scope.spawn"), "{ask}");
         // every "go on" runs the rest of the sequence (queued actions, exit); only the person's "keep the window" does not
-        assert!(fin.contains("if matches!(verdict, quitwait::Verdict::Go(_)) {\n            then(&app);"), "{fin}");
+        assert!(fin.contains("if matches!(verdict, quitwait::Verdict::Go(_)) {\n            send_due_before_exit(&app);\n            then(&app);"), "{fin}");
         let q = crate::test_guard::non_test_code(include_str!("quitwait.rs"));
         assert!(q.contains("FIRST_SIGN_WAIT: Duration = Duration::from_secs(8)") && q.contains("DIALOG_WAIT: Duration = Duration::from_secs(60)"));
         assert!(q.contains("the page did not answer in {} s, quitting"));
@@ -6692,7 +6859,7 @@ mod quit_tests {
         // the flush request goes to the window that is asked (main: flush-sends, the others: popout-flush)
         assert!(code.contains("app.emit_to(label.as_str(), flush_event(label), flush_payload(label, why))"));
         // the main page gets no payload; a secondary window is told whether the app quits or restarts for an update
-        assert_eq!(flush_payload("main", "quit"), serde_json::Value::Null);
+        assert!(flush_payload("main", "quit").get("due").is_some(), "the main page is told how many scheduled messages are due");
         assert_eq!(flush_payload("compose-2", "update"), serde_json::json!({ "why": "update" }));
         // these are for every window: the data they show changed
         for ev in ["mail-synced", "outbox-changed", "calendar-changed", "idle-state"] {
@@ -7877,7 +8044,7 @@ mod importance_tests {
         let d = smtp::Draft {
             account_id: "a1".into(), to: vec!["ann@example.com".into()], cc: vec![], bcc: vec![], subject: "Ship it".into(), html: "<p>x</p>".into(), text: "x".into(),
             in_reply_to: None, references: vec![], attachments: vec![], inline: vec![], security: None, prebuilt: None, meeting: None, calendar: None,
-            confidential: false, importance: High, recovery_id: None, meeting_form: None, answers: None,
+            confidential: false, importance: High, recovery_id: None, meeting_form: None, answers: None, message_id: None,
         };
         let sent = smtp::build(&acc, &d).unwrap().formatted();
         let p = mail::parse(1, &sent, true, false, 0).unwrap();
@@ -7898,7 +8065,7 @@ mod importance_tests {
         let d = smtp::Draft {
             account_id: "a1".into(), to: vec!["ann@example.com".into()], cc: vec![], bcc: vec![], subject: "Hi".into(), html: "<p>x</p>".into(), text: "x".into(),
             in_reply_to: None, references: vec![], attachments: vec![], inline: vec![], security: None, prebuilt: None, meeting: None, calendar: None,
-            confidential: false, importance: Default::default(), recovery_id: None, meeting_form: None, answers: None,
+            confidential: false, importance: Default::default(), recovery_id: None, meeting_form: None, answers: None, message_id: None,
         };
         let reply_to = |c: &Connection| {
             let acc = db::get_account(c, "a1").unwrap();
@@ -8143,6 +8310,8 @@ mod uidvalidity_tests;
 #[cfg(test)]
 mod drafts_tests;
 #[cfg(test)]
+mod sendonce_tests;
+#[cfg(test)]
 mod readrace_tests;
 #[cfg(test)]
 mod testbridge_guard;
@@ -8157,7 +8326,7 @@ mod empty_draft_tests {
         smtp::Draft {
             account_id: "a1".into(), to: vec!["ann@example.com".into()], cc: vec![], bcc: vec![], subject: String::new(), html: String::new(), text: String::new(),
             in_reply_to: None, references: vec![], attachments: vec![], inline: vec![], security: None, prebuilt: None, meeting: None, calendar: None,
-            confidential: false, importance: importance::Importance::Normal, recovery_id: None, meeting_form: None, answers: None,
+            confidential: false, importance: importance::Importance::Normal, recovery_id: None, meeting_form: None, answers: None, message_id: None,
         }
     }
 

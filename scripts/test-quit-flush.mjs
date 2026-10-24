@@ -184,4 +184,24 @@ function popout(handlers) {
   for (const main of ["api.sendsFlushed", "api.quitPageAlive", "api.quitDialog", '"flush-sends"']) assert.ok(!root.includes(main), `a pop-out must not use ${main}`);
 }
 
+// W6.12: the main page is told how many scheduled messages are due (they go out after its part) and the toast counts them with the messages in their Undo time
+{
+  const { readFileSync } = await import("node:fs");
+  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  assert.ok(app.includes('listen<{ due?: number } | null>("flush-sends"'), "the request carries { due }");
+  assert.ok(app.includes("inFlight: () => useStore.getState().sendsInFlight + due,"), "the toast counts the due scheduled messages too");
+  // a page that gets no number (an older backend, null) counts none
+  const n = (p) => Math.max(0, Math.floor(Number(p?.due ?? 0)) || 0);
+  assert.deepEqual([n(null), n(undefined), n({}), n({ due: 3 }), n({ due: "x" }), n({ due: -2 })], [0, 0, 0, 3, 0, 0]);
+  // the toast of a quit with only scheduled messages due: the flush says "go" and tells the count
+  const log = [];
+  const go = await runQuitFlush({
+    alive() {}, showWindow() {}, dialog() {}, done: (g) => log.push("done:" + g),
+    unsaved: () => null, ask: async () => "quit", saved: async () => {}, emptied: async () => {}, discarded: async () => {},
+    inFlight: () => 0 + 2, tell: (k) => log.push("tell:" + k), flush: async () => {},
+  });
+  assert.equal(go, true);
+  assert.deepEqual(log, ["tell:2", "done:true"]);
+}
+
 console.log("quit flush ok");

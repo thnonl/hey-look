@@ -1074,7 +1074,7 @@ mod tests {
             confidential: false,
             importance: Default::default(),
             recovery_id: None,
-            meeting_form: None, answers: None,
+            meeting_form: None, answers: None, message_id: None,
         }
     }
 
