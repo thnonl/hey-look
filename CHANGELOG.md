@@ -209,6 +209,8 @@
 - macOS: Settings > Notifications says "menu bar" instead of "tray" in "Keep running in the menu bar when the window is closed", "Menu bar icon badge" and "Starts minimized to the menu bar", in all eight languages (Windows and Linux keep the tray words)
 - macOS: the Settings tab (and its place in Settings search) is called "Notifications & menu bar" instead of "Notifications & tray", in all eight languages (Windows and Linux keep the tray title)
 - Linux: Ctrl+Q quits Hey Look!, the same way as Quit in the tray menu (the question about scheduled messages, the message you are writing and the messages still in their Undo time are handled first)
+- Linux: Ctrl+Q also works while the focus is inside a Confidential message (it did nothing there, in the reading pane and in a message window)
+- Search in Settings: typing "tray" (or "system tray") lists the Notifications tab and its keep-running, starts-minimized and tray-badge rows on every system, also on a Mac where they say "menu bar", in all eight languages
 
 ### Known limitations
 

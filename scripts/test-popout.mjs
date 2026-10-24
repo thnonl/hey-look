@@ -435,7 +435,7 @@ assert.equal(popoutTitle(readerTitleText("", "(no subject)")), "(no subject) –
   assert.ok(!reader.includes("<iframe"), "the reader draws its frames only through the reading-pane components");
   assert.ok(reader.includes("<MessageCard"), "the message body is the reading pane's MessageBody");
   // those components guard their frames: the message body, and the attachment preview (PDF / text)
-  assert.ok(read("src/components/ReadingPane.tsx").includes("lockedNow.current ? undefined : guardFrame(frame, doc, { search: true })"), "message frame guarded (confidential mail has no menu at all: lockDocument)");
+  assert.ok(read("src/components/ReadingPane.tsx").includes("lockedNow.current ? guardFrameQuitKey(doc) : guardFrame(frame, doc, { search: true })"), "message frame guarded (confidential mail has no menu at all: lockDocument, and only the Ctrl+Q handler of guardFrameQuitKey, D-112)");
   assert.ok(read("src/components/ReadingPane.tsx").includes("lockDocument(doc)"));
   assert.ok(read("src/components/Attachments.tsx").includes("guardFrame(f, f.contentDocument)"), "attachment preview frame guarded");
   const html = read("src/components/ReadingPane.tsx") + read("src/components/Attachments.tsx");

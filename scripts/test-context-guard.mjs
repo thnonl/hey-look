@@ -169,7 +169,7 @@ assert.match(guard, /closest\("\.confidential, \[data-no-copy\]"\)/, "confidenti
 assert.match(guard, /e\.preventDefault\(\);\s*\n\s*if \(p\.own \|\| policy === "block" \|\| isKeyEcho\(keyAt, Date\.now\(\)\)\) return;/, "swallowed first, then the app's menu if there is one (and not twice for one key press)");
 assert.match(guard, /if \(policy === "native" \|\| p\.own\) return;/, "a field answers its own key, the mail list answers its own");
 // the screens
-assert.match(read("src/components/ReadingPane.tsx"), /lockedNow\.current \? undefined : guardFrame\(frame, doc, \{ search: true \}\)/, "the message frame has it (and its selection can be searched for), confidential mail has no menu at all");
+assert.match(read("src/components/ReadingPane.tsx"), /lockedNow\.current \? guardFrameQuitKey\(doc\) : guardFrame\(frame, doc, \{ search: true \}\)/, "the message frame has it (and its selection can be searched for), confidential mail has no menu at all (only the Ctrl+Q handler, D-112)");
 // W8.1: Copy subject and Search mail for the selection - in the reading areas only, never for locked content, never in an attachment preview
 assert.match(read("src/components/ReadingPane.tsx"), /<h2 data-subject=\{subjectText\(summ\.subject\)\}>/, "the subject heading of the reading pane is marked");
 assert.match(read("src/popout/ReaderView.tsx"), /data-subject=\{title\}/, "and the one of a reader window");
