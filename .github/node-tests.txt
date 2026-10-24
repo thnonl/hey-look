@@ -448,3 +448,7 @@ static | node --experimental-strip-types scripts/test-selection-search.mjs
 static | node --experimental-strip-types scripts/test-mailto-link.mjs
 # W8.1 and W8.10 in the real page: the text menu with a selection (Search mail for ..., the box, the list, the recent searches, the scope), Copy subject, Shift+F10, no search entry in Settings or the list, a reader window's request; a click (left, middle, Shift) on a mailto link starts a message with the fields of the link and never the system opener
 ui-a | node --experimental-strip-types scripts/test-ctx-search.mjs --require-browser
+# 1.0.7 W8.2 (and W8.11): Settings > AI Assistant asks for the model list only when the request changed - the rule (Base URL without trailing slash, the key used: typed or saved, Save moves the typed key to the saved one), the sequences of the acceptance criteria, and the wiring of AiTab
+static | node --experimental-strip-types scripts/test-ai-models-key.mjs
+# 1.0.7 W8.2 in the real page (the preview counts every ai_list_models): open 1, a typed key 2, Save and a second Save 2, a trailing / added and taken back nothing, another Base URL +1, letter by letter 1, Remove the saved key +1 without a key, the tab opened again +1
+ui-a | node --experimental-strip-types scripts/test-ai-models-once.mjs --require-browser

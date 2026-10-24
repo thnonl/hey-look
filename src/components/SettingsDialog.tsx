@@ -16,6 +16,7 @@ import { CalColorChoice } from "./CalColorChoice";
 import { NewCalendarDialog } from "./NewCalendarDialog";
 import { ACCENT_PRESETS, ACCOUNT_PALETTE, accountColor, DEFAULT_PREFS, eff, folderLabel, folderTitle, isOverridden, MAX_DOWNLOAD_PRESETS, NOTIFY_ACTIONS, Overridable, Prefs, staleAccountPrefs, validHex } from "../prefs";
 import { aiSettingsSaved } from "../aiGuide";
+import { keyTag, modelsFetchKey, NO_LIST } from "../aiModelsKey";
 import { normalizeSidebar } from "../sidebarState";
 import { folderVisible, ruleTargetProblem } from "../junk";
 import { cutAtWord, friendlyError, useStore } from "../store";
@@ -2005,9 +2006,14 @@ function AiTab() {
   const { showToast, refreshAi } = useStore();
   // model ids offered by {Base URL}/models (fetched by the backend: no CORS, Bearer key); refetched when URL or key change
   const [models, setModels] = useState<string[]>([]);
-  const [modelsState, setModelsState] = useState<"idle" | "loading" | "error">("idle");
+  const [fetchState, setFetchState] = useState<"idle" | "loading" | "error">("idle");
   const [modelsErr, setModelsErr] = useState("");
   const [ready, setReady] = useState(false);
+  // the saved key, for the rule "ask only when the request changed" (aiModelsKey.ts): which one it is ("s" = the one that was saved before this tab opened; a key saved here keeps the tag of the text typed)
+  const [savedTag, setSavedTag] = useState("s");
+  // what the list was last asked for (after the 600 ms the typing has to rest): Save moves the typed key to the saved key, which is the same request, so it asks nothing
+  const [asked, setAsked] = useState<{ k: string; endpoint: string; key: string } | null>(null);
+  const fetchKey = modelsFetchKey(v.ai_endpoint, key, { has: hasKey, tag: savedTag });
   // Save (or Remove the saved key) failed: said in the slot under Save, in place of the model list's text, until something is typed or tried again
   const [saveErr, setSaveErr] = useState("");
   // the Model control is a list when the endpoint listed models and a text box otherwise. It is never swapped under the user's hands: while
@@ -2016,34 +2022,40 @@ function AiTab() {
   const [heldList, setHeldList] = useState(false);
   const asList = modelFocused ? heldList : models.length > 0;
   const keyRef = useRef<HTMLInputElement>(null);
+  // the request that is due: when the typing rests for 600 ms and it differs from the last one (so typing a letter and taking it back, Save, a second Save, ask nothing)
   useEffect(() => {
-    if (!ready) return;
-    if (!v.ai_endpoint.trim()) {
+    if (!ready || fetchKey === asked?.k) return;
+    if (fetchKey === NO_LIST) return setAsked({ k: fetchKey, endpoint: "", key: "" }); // (an emptied Base URL clears the list at once, as it always did)
+    const timer = setTimeout(() => setAsked({ k: fetchKey, endpoint: v.ai_endpoint.trim(), key: key.trim() }), 600);
+    return () => clearTimeout(timer);
+  }, [ready, fetchKey, asked]); // eslint-disable-line react-hooks/exhaustive-deps
+  // while the typing waits for its 600 ms the slot already says Loading (a change that is taken back before it ends leaves nothing behind)
+  const modelsState = ready && fetchKey !== NO_LIST && fetchKey !== asked?.k ? "loading" : fetchState;
+  useEffect(() => {
+    if (!asked) return;
+    if (asked.k === NO_LIST) {
       setModels([]);
-      setModelsState("idle");
+      setFetchState("idle");
       return;
     }
     let stale = false;
-    setModelsState("loading");
-    const timer = setTimeout(() => {
-      api.aiListModels(v.ai_endpoint.trim(), key.trim() || undefined)
-        .then((ids) => {
-          if (stale) return;
-          setModels(ids);
-          setModelsState("idle");
-        })
-        .catch((e) => {
-          if (stale) return;
-          setModels([]);
-          setModelsErr(cutAtWord(friendlyError(e), 70)); // the status line below Save has two lines: a longer reason would push its second sentence out
-          setModelsState("error");
-        });
-    }, 600);
+    setFetchState("loading");
+    api.aiListModels(asked.endpoint, asked.key || undefined)
+      .then((ids) => {
+        if (stale) return;
+        setModels(ids);
+        setFetchState("idle");
+      })
+      .catch((e) => {
+        if (stale) return;
+        setModels([]);
+        setModelsErr(cutAtWord(friendlyError(e), 70)); // the status line below Save has two lines: a longer reason would push its second sentence out
+        setFetchState("error");
+      });
     return () => {
       stale = true;
-      clearTimeout(timer);
     };
-  }, [ready, v.ai_endpoint, key, hasKey]);
+  }, [asked]);
   useEffect(() => {
     void Promise.all([api.getSetting("ai_endpoint"), api.getSetting("ai_model"), api.hasSecret("ai_key")]).then(([a, c, h]) => {
       setV({ ai_endpoint: a ?? "", ai_model: c ?? "" });
@@ -2059,6 +2071,7 @@ function AiTab() {
       await Promise.all([api.setSetting("ai_endpoint", v.ai_endpoint), api.setSetting("ai_model", v.ai_model)]);
       if (key.trim()) {
         await api.setSecret("ai_key", key.trim());
+        setSavedTag(keyTag(key)); // (the typed key is now the saved one: the same key, so the list is not asked again)
         setHasKey(true);
         setKey("");
       }

@@ -260,6 +260,8 @@
   "node --experimental-strip-types scripts/test-webmail.mjs": 0,
   "node --experimental-strip-types scripts/test-selection-search.mjs": 0,
   "node --experimental-strip-types scripts/test-mailto-link.mjs": 0,
-  "node --experimental-strip-types scripts/test-ctx-search.mjs --require-browser": 45
+  "node --experimental-strip-types scripts/test-ctx-search.mjs --require-browser": 45,
+  "node --experimental-strip-types scripts/test-ai-models-key.mjs": 0,
+  "node --experimental-strip-types scripts/test-ai-models-once.mjs --require-browser": 40
  }
 }

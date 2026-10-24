@@ -2341,6 +2341,7 @@ export function installMock() {
         // like the real command: a key typed in Settings but not saved yet wins over the saved one; `#modelsms=N` sets the answer time (500 ms default)
         const endpoint = String(a.endpoint);
         const key = String(a.key ?? "") || mockSecrets.get("ai_key") || "";
+        ((window as unknown as { __aiModelsCalls?: { endpoint: string; keySent: boolean }[] }).__aiModelsCalls ??= []).push({ endpoint, keySent: !!key }); // (W8.2: how many times the tab asked, and whether a key went with it)
         if (endpoint.includes("bad")) throw "Models request failed (404 Not Found)"; // lets the error state be tried in the browser
         // a half-typed address cannot be reached; a "keyed" address needs a key (typed or saved); an "empty" one lists nothing
         if (!/^https?:\/\/[^/\s]+\.[a-z]{2,}(\/|$)/i.test(endpoint)) throw `error sending request for url (${endpoint}/models): error trying to connect: dns error: failed to lookup address information`;
