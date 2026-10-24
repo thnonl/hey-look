@@ -746,26 +746,101 @@ fn addrs(a: Option<&Address>) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Words in a sensitivity label name that make a message confidential.
-const LABEL_WORDS: [&str; 3] = ["confidential", "secret", "restricted"];
+/// One language's words for a sensitivity label that calls the mail confidential (1.0.7 W8.8a). The label name is written by the sender's admin, in any language, so
+/// the table has the forms the language specialists were sure of and no others: a false match locks a normal mail (annoying, safe), a missed one leaves a
+/// confidential mail open. Spaced languages match whole tokens or token sequences ("Secretariat", "Mật khẩu", "Sans restriction" are no match); Japanese and Chinese
+/// have no spaces and match substrings (see `CJK_WORDS`). `not` are the tokens right before a match that turn it off ("Non confidentiel", "Nicht vertraulich").
+struct LabelWords {
+    /// whole tokens
+    words: &'static [&'static str],
+    /// tokens that start with one of these (Russian: конфиденциальный, конфиденциальная, ...)
+    stems: &'static [&'static str],
+    /// token sequences ("совершенно секретно")
+    seqs: &'static [&'static [&'static str]],
+    /// a label that is exactly these tokens ("thư mật"; the single word "mật" is too common inside other labels)
+    whole: &'static [&'static [&'static str]],
+    not: &'static [&'static str],
+}
 
-/// The words of a label name, lower case: split at anything that is not an ASCII letter or digit and between camelCase words
-/// ("HighlyConfidential" -> highly, confidential).
+const LABEL_WORDS: [LabelWords; 6] = [
+    // en (unchanged rule: a word of its own, not negated by the word before it)
+    LabelWords { words: &["confidential", "secret", "restricted"], stems: &[], seqs: &[], whole: &[], not: &["non", "not", "no", "un"] },
+    LabelWords {
+        words: &[
+            "confidentiel", "confidentielle", "confidentiels", "confidentielles", "secret", "secrète", "secrete", "secrets", "restreint", "restreinte", "restreints", "restreintes",
+        ],
+        stems: &[],
+        seqs: &[],
+        whole: &[],
+        not: &["non", "pas", "sans"],
+    },
+    LabelWords {
+        words: &[
+            "vertraulich", "vertrauliche", "vertraulicher", "vertrauliches", "vertraulichen", "geheim", "geheime", "geheimer", "geheimes", "geheimen", "eingeschränkt", "eingeschränkte",
+            "verschlusssache",
+        ],
+        stems: &[],
+        seqs: &[],
+        whole: &[],
+        not: &["nicht", "kein", "keine", "keinen"],
+    },
+    LabelWords {
+        words: &["confidencial", "confidenciales", "secreto", "secreta", "secretos", "secretas", "restringido", "restringida", "restringidos", "restringidas"],
+        stems: &[],
+        seqs: &[],
+        whole: &[],
+        not: &["no", "sin"],
+    },
+    LabelWords {
+        words: &[],
+        stems: &[],
+        seqs: &[
+            &["bí", "mật"], &["tối", "mật"], &["tuyệt", "mật"], &["bảo", "mật", "cao"], &["hạn", "chế"],
+            // without diacritics
+            &["bi", "mat"], &["toi", "mat"], &["tuyet", "mat"],
+        ],
+        whole: &[&["mật"], &["thư", "mật"], &["bảo", "mật"]],
+        not: &["không", "phi"],
+    },
+    LabelWords {
+        words: &["секретно", "дсп"],
+        stems: &["конфиденциальн", "секретн"],
+        seqs: &[&["совершенно", "секретно"], &["ограниченного", "доступа"], &["для", "служебного", "пользования"]],
+        whole: &[],
+        not: &["не"],
+    },
+];
+
+/// Japanese and Chinese label words: no spaces, so they match inside the name. `JA` and `ZH` share 機密 and 秘密, so a match is off when either language's
+/// negation applies. The whole label `秘`, `マル秘` or `㊙` also counts (alone, 秘 is inside 秘書, 神秘 and 便秘).
+const CJK_WORDS: [&str; 10] = ["機密", "極秘", "秘密", "社外秘", "部外秘", "コンフィデンシャル", "シークレット", "机密", "绝密", "絕密"];
+const CJK_WHOLE: [&str; 3] = ["秘", "マル秘", "㊙"];
+
+/// The text in Unicode normalisation form C (a Vietnamese label typed with combining marks is the precomposed one) and lower case.
+fn label_fold(name: &str) -> String {
+    let nfc = icu_normalizer::ComposingNormalizer::new_nfc().normalize(name);
+    nfc.chars().flat_map(|c| c.to_lowercase()).collect()
+}
+
+/// The words of a label name, lower case and NFC: split at anything that is not a Unicode letter or digit and between camelCase words ("HighlyConfidential" ->
+/// highly, confidential; "éConfidential"; "日本Confidential" - a capital after a lower-case letter, a digit or a letter without case).
 fn label_tokens(name: &str) -> Vec<String> {
+    let nfc = icu_normalizer::ComposingNormalizer::new_nfc().normalize(name);
     let (mut out, mut cur, mut prev_lower) = (vec![], String::new(), false);
-    for c in name.chars() {
-        if !c.is_ascii_alphanumeric() {
+    for c in nfc.chars() {
+        let mark = ('\u{300}'..='\u{36f}').contains(&c) && !cur.is_empty(); // a combining mark that has no precomposed form stays with its letter
+        if !c.is_alphanumeric() && !mark {
             if !cur.is_empty() {
                 out.push(std::mem::take(&mut cur));
             }
             prev_lower = false;
             continue;
         }
-        if c.is_ascii_uppercase() && prev_lower {
+        if c.is_uppercase() && prev_lower {
             out.push(std::mem::take(&mut cur));
         }
-        cur.push(c.to_ascii_lowercase());
-        prev_lower = c.is_ascii_lowercase() || c.is_ascii_digit();
+        cur.extend(c.to_lowercase());
+        prev_lower = mark || !c.is_uppercase();
     }
     if !cur.is_empty() {
         out.push(cur);
@@ -773,12 +848,78 @@ fn label_tokens(name: &str) -> Vec<String> {
     out
 }
 
-/// Does a label name call the mail confidential: one of LABEL_WORDS as a word of its own (so "Secretariat" and "Unrestricted"
-/// are not), and not negated by the word before it ("Non-Confidential", "Not_Secret", "NotConfidential").
+/// Is the CJK word at `chars[at..end]` negated: 非 / 无 / 不 right before it, `でない` / `ではない` / `以外` right after it, or 機密性 followed by 低 or 中 ("機密性：低").
+fn cjk_negated(chars: &[char], at: usize, end: usize) -> bool {
+    if at > 0 && matches!(chars[at - 1], '非' | '无' | '不') {
+        return true;
+    }
+    let after: String = chars[end..chars.len().min(end + 4)].iter().collect();
+    if after.starts_with("でない") || after.starts_with("ではない") || after.starts_with("以外") {
+        return true;
+    }
+    if chars[at..end].iter().collect::<String>() == "機密" && chars.get(end) == Some(&'性') {
+        let mut i = end + 1;
+        if matches!(chars.get(i), Some('：') | Some(':')) {
+            i += 1;
+        }
+        return matches!(chars.get(i), Some('低') | Some('中'));
+    }
+    false
+}
+
+/// Does a label name call the mail confidential: a word of the table as a word of its own (so "Secretariat" and "Unrestricted" are not), and not negated by the
+/// word before it ("Non-Confidential", "Not_Secret", "NotConfidential", "Nicht vertraulich", "Không bí mật", "非機密"). A word that two languages share ("secret")
+/// is off when either language negates it ("Pas secret", "Not secret").
 fn label_is_confidential(name: &str) -> bool {
-    const NOT: [&str; 4] = ["non", "not", "no", "un"];
     let tokens = label_tokens(name);
-    tokens.iter().enumerate().any(|(i, t)| LABEL_WORDS.contains(&t.as_str()) && !(i > 0 && NOT.contains(&tokens[i - 1].as_str())))
+    let at = |i: usize, g: &LabelWords| -> usize {
+        let t = tokens[i].as_str();
+        let mut best = 0;
+        if g.words.contains(&t) || g.stems.iter().any(|s| t.starts_with(s)) {
+            best = 1;
+        }
+        for s in g.seqs {
+            if tokens.len() - i >= s.len() && s.iter().zip(&tokens[i..]).all(|(a, b)| a == b) {
+                best = best.max(s.len());
+            }
+        }
+        best
+    };
+    for i in 0..tokens.len() {
+        let (mut hit, mut off) = (false, false);
+        for g in &LABEL_WORDS {
+            if at(i, g) > 0 {
+                hit = true;
+                if i > 0 && g.not.contains(&tokens[i - 1].as_str()) {
+                    off = true;
+                }
+            }
+        }
+        if hit && !off {
+            return true;
+        }
+    }
+    if LABEL_WORDS.iter().any(|g| g.whole.iter().any(|w| w.len() == tokens.len() && w.iter().zip(&tokens).all(|(a, b)| a == b))) {
+        return true;
+    }
+    // Japanese and Chinese: substrings of the folded name
+    let folded = label_fold(name);
+    let chars: Vec<char> = folded.chars().collect();
+    if CJK_WHOLE.contains(&folded.trim()) {
+        return true;
+    }
+    for w in CJK_WORDS {
+        let w: Vec<char> = w.chars().collect();
+        if w.len() > chars.len() {
+            continue;
+        }
+        for at in 0..=chars.len() - w.len() {
+            if chars[at..at + w.len()] == w[..] && !cjk_negated(&chars, at, at + w.len()) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Did the sender mark this message confidential? Outlook's Sensitivity option sends `Sensitivity: Company-Confidential`
@@ -1906,6 +2047,92 @@ Content-Type: text/html; charset=utf-8
         assert!(is_confidential(&msg(&format!("MSIP_Label_1f2e_Name: {} Confidential\r\n", "\u{e9}".repeat(5000)))));
         // a header-looking line in the body is not a header
         assert!(!is_confidential(b"From: a@example.com\r\n\r\nSensitivity: Confidential\r\n"));
+    }
+
+    /// 1.0.7 W8.8a: every cell of the label table of the spec (match, negation, never a match), each in NFC and in NFD, as a bare label name and inside a Purview header.
+    #[test]
+    fn labels_in_other_languages_are_recognised() {
+        let nfd = |s: &str| icu_normalizer::DecomposingNormalizer::new_nfd().normalize(s).into_owned();
+        let msg = |name: &str| format!("From: a@example.com\r\nTo: b@example.com\r\nSubject: s\r\nmsip_labels: MSIP_Label_1f2e_Enabled=true; MSIP_Label_1f2e_Name={name}; MSIP_Label_1f2e_Method=Standard\r\n\r\nbody\r\n").into_bytes();
+        let yes = [
+            // the eight fixtures of AC-8.8a.1
+            "Confidentiel", "Très confidentiel", "Streng vertraulich", "Altamente confidencial", "Tuyệt mật", "Конфиденциально", "社外秘", "机密",
+            // en (unchanged)
+            "Confidential", "Highly Confidential", "SECRET", "Restricted",
+            // fr
+            "confidentielle", "Confidentiels", "CONFIDENTIELLES", "Secret", "Secrète", "secrete", "Secrets", "Restreint", "restreinte", "Restreints", "Restreintes", "Document Confidentiel – Ne pas diffuser",
+            // de
+            "Vertraulich", "Vertrauliche Informationen", "vertraulicher", "Vertrauliches", "vertraulichen", "Geheim", "GEHEIME", "Geheimer", "Geheimes", "Geheimen", "Eingeschränkt", "Eingeschränkte", "Verschlusssache", "Nur für den Dienstgebrauch – Verschlusssache",
+            // es
+            "Confidencial", "Confidenciales", "Secreto", "Secreta", "Secretos", "Secretas", "Restringido", "Restringida", "Restringidos", "Restringidas", "Uso Interno – Confidencial",
+            // vi
+            "Bí mật", "Tối mật", "Tuyệt mật", "Bảo mật cao", "Hạn chế", "bi mat", "Toi mat", "TUYET MAT", "Mật", "Thư mật", "Bảo mật", "Nhãn: Bí mật công ty",
+            // ru
+            "Конфиденциально", "Конфиденциальная информация", "Конфиденциальный", "СЕКРЕТНО", "Секретная", "Секретный", "ДСП", "Совершенно секретно", "Ограниченного доступа", "Для служебного пользования",
+            // ja
+            "機密", "機密文書", "極秘", "秘密", "社外秘", "部外秘", "コンフィデンシャル", "シークレット", "秘", "マル秘", "㊙", "機密性：高", "機密性3", "社外秘 – 取扱注意",
+            // zh-Hans
+            "机密", "绝密", "秘密", "機密", "絕密", "公司机密", "内部资料：绝密",
+        ];
+        for name in yes {
+            for form in [name.to_string(), nfd(name)] {
+                assert!(label_is_confidential(&form), "{name} should be confidential (NFD: {})", form != name);
+                assert!(is_confidential(&msg(&form)), "{name} in a Purview header");
+            }
+        }
+        let no = [
+            // the ten fixtures of AC-8.8a.2
+            "Non confidentiel", "Nicht vertraulich", "No confidencial", "Không bí mật", "Несекретно", "非機密", "非机密", "Secrétariat", "Mật khẩu", "秘書",
+            // en (unchanged)
+            "Non-Confidential", "Not Secret", "Unrestricted", "Secretariat", "NotConfidential",
+            // fr
+            "Pas confidentiel", "Sans restriction", "Non secret", "Sans confidentialité", "Secrétaire", "Confidentialité", "Restriction",
+            // de
+            "Nicht geheim", "Kein Geheimnis", "Keine Verschlusssache", "Keinen vertraulichen Inhalt", "Unvertraulich", "Nichtvertraulich", "Geheimnis", "Geheimdienst", "Vertrauen", "Vertrauenswürdig", "Sekretariat", "Nicht eingeschränkt",
+            // es
+            "No secreto", "Sin restricciones", "Sin restringido", "Secretaría", "Secretaria", "Secretario", "Reservado", "Confidencialidad", "No confidenciales",
+            // vi
+            "Phi bí mật", "Không tuyệt mật", "Không hạn chế", "Mật khẩu", "Mật độ", "Mật mã", "Thư ký", "Bí thư", "Không bảo mật cao",
+            // ru
+            "Не секретно", "Не конфиденциально", "Несекретно", "Неконфиденциально", "Секретариат", "Секретарь", "Ограниченный", "Не для служебного пользования",
+            // ja
+            "神秘", "便秘", "公開", "一般", "非社外秘", "機密ではない", "機密でない", "機密以外", "機密性：低", "機密性中", "非秘密", "社外秘以外",
+            // zh-Hans
+            "非机密", "无机密", "不绝密", "保密协议", "秘书", "公开", "非秘密",
+            // nothing
+            "", "Public", "Internal", "General", "Personal", "   ",
+        ];
+        for name in no {
+            for form in [name.to_string(), nfd(name)] {
+                assert!(!label_is_confidential(&form), "{name} should be normal mail (NFD: {})", form != name);
+                assert!(!is_confidential(&msg(&form)), "{name} in a Purview header");
+            }
+        }
+        // a name with one negated and one plain word is confidential: "Not secret, Vertraulich"
+        assert!(label_is_confidential("Not secret, Vertraulich"));
+        assert!(label_is_confidential("非機密 / 機密"));
+        // a word two languages share is off when either negates it
+        assert!(!label_is_confidential("Pas secret"));
+        assert!(!label_is_confidential("Not secret"));
+        // the table holds NFC text and lower-case tokens, so the comparison above cannot miss on form
+        let nfc = |s: &str| icu_normalizer::ComposingNormalizer::new_nfc().normalize(s).into_owned();
+        for g in &LABEL_WORDS {
+            let all = g.words.iter().chain(g.stems).chain(g.not).copied().chain(g.seqs.iter().chain(g.whole).flat_map(|s| s.iter().copied()));
+            for w in all {
+                assert_eq!(nfc(w), w, "{w} is not NFC");
+                assert_eq!(w, w.to_lowercase(), "{w} is not lower case");
+            }
+        }
+        for w in CJK_WORDS.iter().chain(&CJK_WHOLE) {
+            assert_eq!(&nfc(w), w, "{w} is not NFC");
+        }
+        // 5,000 characters of every script: neither slow nor a panic
+        for unit in ["秘", "я", "ậ", "ß"] {
+            let long = unit.repeat(5000);
+            assert!(!label_is_confidential(&long));
+            assert!(label_is_confidential(&format!("{long} Confidential")));
+        }
+        assert!(label_is_confidential(&format!("{}機密", "あ".repeat(5000))));
     }
 }
 #[cfg(test)]
