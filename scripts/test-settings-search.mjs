@@ -457,7 +457,7 @@ async function small(c) {
   await waitFor(`!!document.querySelector(${JSON.stringify(BOX)}) && !!window.__settingsIndex`);
   const m = await evaluate(`(() => {
     const b = document.querySelector(${JSON.stringify(BOX)}), cs = getComputedStyle(b);
-    const cv = document.createElement('canvas').getContext('2d'); cv.font = cs.fontStyle + ' ' + cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily;
+    const cv = document.createElement('canvas').getContext('2d'); const ph = getComputedStyle(b, '::placeholder'); cv.font = cs.fontStyle + ' ' + cs.fontWeight + ' ' + ph.fontSize + ' ' + cs.fontFamily; // (the placeholder has its own size)
     const room = b.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
     const modal = document.querySelector('.modal').getBoundingClientRect(), nav = document.querySelector('.settings-nav').getBoundingClientRect();
     return { text: cv.measureText(b.placeholder).width, room, fits: modal.bottom <= innerHeight + 1 && modal.right <= innerWidth + 1, navScrollW: document.querySelector('.settings-nav').scrollWidth, navW: nav.width };
