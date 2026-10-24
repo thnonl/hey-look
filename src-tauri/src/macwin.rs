@@ -132,8 +132,11 @@ pub fn windows_summary() -> String {
     }
 }
 
-/// Everything the app side can undo on a window that is about to be closed, as one deterministic step before its end (D-093, round 10b). Main thread. Returns the line for the log, `None`
-/// when no window is held under `label`. Nothing here releases a reference that is not ours: it clears what points at the window and what the window points at.
+/// Everything the app side can undo on a window that has ended, as the first part of `sweep` (D-093, round 10b). Main thread, on the window that was held at creation. Nothing here releases a
+/// reference that is not ours: it clears what points at the window and what the window points at.
+///
+/// NOT before the window ends (fix24 did, and no window could be closed any more, round 11a): AppKit delivers `windowWillClose:` to the delegate through an observer that the window registers itself when
+/// it gets the delegate, and tao's `Destroyed` event, and with it the end of the label in tauri's manager, comes from that method. Taking that observer (or the delegate) away first stops the event.
 ///
 /// In this order:
 /// 1. the first responder (`makeFirstResponder:nil`: the window's strong `_firstResponder` is a web view otherwise, and the focus ring view of AppKit points at it);
@@ -141,17 +144,11 @@ pub fn windows_summary() -> String {
 /// 3. every notification observer of the window, its delegate and its views, on the default and on the distributed centre (tao registers its delegate for the appearance change);
 /// 4. the web view: its navigation and UI delegate cleared, loading stopped, taken out of the window (the web view and the window must not keep each other);
 /// 5. the title bar accessories and the toolbar (what hangs on the window's own frame view), and the content view is replaced by an empty one (the views of tao, wry and the web view go).
-/// The window stays alive and in its place until tauri closes it; the page is gone from the screen at once, which is what a window that is closing is anyway.
-pub fn teardown(label: &str) -> Option<String> {
-    let (w, delegate) = {
-        let g = lock();
-        let h = g.get(label)?;
-        (h.window.clone(), h.delegate.clone())
-    };
-    let ptr = Retained::as_ptr(&w) as *mut AnyObject;
-    // SAFETY: `w` (and `delegate`) are retained copies, so every pointer below stays valid for the whole function; the messages are the ones NSWindow / NSView / WKWebView answer (asked with
+/// The window is closed already (it is called from `sweep`, a second after `Destroyed`), so nothing the person sees changes.
+unsafe fn teardown_views(ptr: *mut AnyObject, delegate: Option<&Retained<AnyObject>>) -> String {
+    // SAFETY (caller): `ptr` is a live NSWindow and `delegate` its delegate, both kept alive by the caller for the whole call; the messages are the ones NSWindow / NSView / WKWebView answer (asked with
     // `answers` where a class may not know one); main thread (caller).
-    let line = unsafe {
+    unsafe {
         let nil: *mut AnyObject = std::ptr::null_mut();
         let responder: *mut AnyObject = msg_send![ptr, firstResponder];
         let responder_class = if responder.is_null() { "none".to_string() } else { text(msg_send![responder, className]) };
@@ -181,7 +178,7 @@ pub fn teardown(label: &str) -> Option<String> {
             .filter(|c: &*mut AnyObject| !c.is_null())
             .collect();
         let mut targets: Vec<*mut AnyObject> = vec![ptr];
-        if let Some(d) = delegate.as_ref() {
+        if let Some(d) = delegate {
             targets.push(Retained::as_ptr(d) as *mut AnyObject);
         }
         targets.extend(views.iter().copied());
@@ -226,8 +223,7 @@ pub fn teardown(label: &str) -> Option<String> {
             cleared.as_bool(),
             views.len()
         )
-    };
-    Some(line)
+    }
 }
 
 /// `view` and every view below it (depth first, at most 200, 12 levels): the pointers are valid while the window is held.
@@ -286,6 +282,8 @@ pub fn sweep(label: &str) -> Option<String> {
         let before: Bool = msg_send![ptr, isVisible];
         let retains: usize = msg_send![ptr, retainCount];
         let nil: *mut AnyObject = std::ptr::null_mut();
+        // everything that points at the window or that it points at, undone (the window has ended: its `Destroyed` came before this runs)
+        let torn = teardown_views(ptr, delegate.as_ref());
         // tao's delegate: nothing may call it any more, and the centres that were told to call it are told to stop (tao registers it for the appearance change and never removes it)
         let _: () = msg_send![ptr, setDelegate: nil];
         let delegate_retains = delegate.as_ref().map(|d| {
@@ -321,7 +319,7 @@ pub fn sweep(label: &str) -> Option<String> {
         let after: Bool = msg_send![ptr, isVisible];
         let retains_after: usize = msg_send![ptr, retainCount];
         let text = format!(
-            "native window {number}: visible {} then {}, retain count {retains} then {retains_after} (this log's own reference is one of them), delegate retain count {}; {}",
+            "native window {number}: teardown done ({torn}); visible {} then {}, retain count {retains} then {retains_after} (this log's own reference is one of them), delegate retain count {}; {}",
             before.as_bool(),
             after.as_bool(),
             delegate_retains.map_or("none".to_string(), |n| n.to_string()),
