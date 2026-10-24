@@ -16,11 +16,13 @@ pub fn wanted(args: &[String]) -> bool {
     args.iter().skip(1).any(|a| a == FLAG)
 }
 
+#[cfg(any(windows, test))] // (the removal itself is Windows; the rules are compiled for the tests everywhere)
 /// Is the credential `target` (`<user>.<service>`) one of the service `service`, with a user in front of it (pure)?
 pub fn is_ours(target: &str, service: &str) -> bool {
     target.len() > service.len() + 1 && target.ends_with(&format!(".{service}"))
 }
 
+#[cfg(any(windows, test))]
 /// What a run did, for the exit code and the tests: the targets found and how many were removed.
 #[derive(Debug, PartialEq)]
 pub struct Outcome {
@@ -28,6 +30,7 @@ pub struct Outcome {
     pub removed: usize,
 }
 
+#[cfg(any(windows, test))]
 /// The removal itself against any store (the real one on Windows, a list in the test): every target of the service is deleted, one that cannot be
 /// deleted is counted and skipped.
 pub fn remove_all(targets: &[String], service: &str, delete: &mut dyn FnMut(&str) -> bool) -> Outcome {
@@ -36,6 +39,7 @@ pub fn remove_all(targets: &[String], service: &str, delete: &mut dyn FnMut(&str
     Outcome { found: ours.len(), removed }
 }
 
+#[cfg(any(windows, test))]
 /// The exit code of a run: 0 when everything that was found is gone (also when nothing was found), 1 otherwise.
 pub fn exit_code(o: &Outcome) -> i32 {
     if o.removed == o.found { 0 } else { 1 }

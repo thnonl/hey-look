@@ -402,8 +402,6 @@ pub fn remove_old_notification_id() {
     let _ = crate::winproc::hidden("reg").args(["delete", &format!(r"HKCU\Software\Classes\AppUserModelId\{OLD_AUMID}"), "/f"]).output();
 }
 
-#[cfg(not(windows))]
-pub fn remove_old_notification_id() {}
 
 #[cfg(test)]
 mod tests {

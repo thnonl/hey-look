@@ -182,6 +182,7 @@
 - A failed secure connection (SSL/TLS or STARTTLS on a plain port) is explained in the language of the app, with the host and port, for IMAP and SMTP; the library's own words (such as "The token supplied to the function is invalid") are written to the log only
 - Notification and list previews no longer start with "Xem thư này trên trình duyệt" typed with combining marks (NFD Vietnamese), Korean jamo or similar, and the "view in browser", "click here" and "unsubscribe" lines of Portuguese, Italian, Dutch, Polish, Turkish, Korean, Indonesian and Traditional Chinese newsletters are left out too
 - Linux: the file pickers for PGP keys and calendar files list upper-case extensions too (`KEY.ASC`, `INVITE.ICS`)
+- Security: updated the HTML sanitiser (DOMPurify) to 3.4.17, which fixes three advisories of 3.4.16 and older (a template-expression bypass in shadow-root output, event handlers left armed by an in-place hook, and an SVG animation guard skipped in XHTML mode); Hey Look! sanitises received and pasted mail with it
 
 ### Known limitations
 
