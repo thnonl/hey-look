@@ -136,7 +136,11 @@ function shift(slot: number, oldStart: number, newStart: number, allDay: boolean
 // ---- expanding rows for the views
 const isSeries = (r: Row) => !!r.rrule || !!r.recurrenceId;
 
-/** The entries of one row in a window: a series row gives its occurrences (not the excluded slots), any other row itself. */
+/**
+ * The entries of one row in a window: a series row gives its occurrences (not the excluded slots), any other row itself. Every occurrence carries `series`, `occurrenceStart` and
+ * `instanceStart` (= its slot) and `firstOccurrence`, as `calendar_list_events` does (calendar.rs `list_range`; D-109 was that one leaving `occurrenceStart` empty, pinned by the
+ * Rust tests `chip_tests`, which the mock cannot see: change both together).
+ */
 export function expandRow(r: Row, from: number, to: number): Row[] {
   const base = (x: Row, extra: Record<string, unknown>): Row => ({ ...x, series: isSeries(x) || undefined, ...extra });
   if (r.recurrenceId) return r.end > from && r.start < to ? [base(r, { occurrenceStart: Number(r.recurrenceId), changedOccurrence: true })] : [];

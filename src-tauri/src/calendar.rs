@@ -557,6 +557,8 @@ pub fn list_range(c: &Connection, from: i64, to: i64) -> R<Vec<CalEvent>> {
                 i.end = en;
                 i.instance_start = Some(s);
                 i.first_occurrence = s == e.start;
+                // (`derive` again: `occurrence_start` follows `instance_start`, which only now is set; without it the chip has no slot and "This occurrence" finds no event, D-109)
+                let i = i.derive();
                 if touches(&i) && !synced.hides_instance(&i) {
                     out.push(i);
                 }
@@ -1489,25 +1491,27 @@ pub fn calendar_list_events(state: tauri::State<crate::AppState>, from: i64, to:
 #[tauri::command]
 pub async fn calendar_get_event(state: tauri::State<'_, crate::AppState>, id: String, scope: Option<String>, occurrence_start: Option<i64>) -> R<CalEventDetail> {
     let db = state.db.clone();
-    crate::blocking(move || {
-        let scope = crate::calseries::Scope::parse(scope.as_deref())?;
-        let mut d = {
-            let c = lock(&db);
-            let e = get_event(&c, &id)?;
-            match scope {
-                None => CalEventDetail { event: e, changed_count: 0, pattern_unsupported: false },
-                Some(sc) if crate::calsync::is_remote_calendar_id(&e.calendar_id) => {
-                    drop(c);
-                    crate::calsync::series::get(&db, &crate::calsync::cmds::AppFactory { db: db.clone() }, &id, sc, occurrence_start)?
-                }
-                Some(sc) => crate::calseries::get(&c, &id, sc, occurrence_start)?,
+    crate::blocking(move || event_detail(&db, &id, scope.as_deref(), occurrence_start)).await
+}
+
+/// The body of `calendar_get_event` (a function of its own so that the tests run the same path against a real database).
+pub(crate) fn event_detail(db: &crate::Db, id: &str, scope: Option<&str>, occurrence_start: Option<i64>) -> R<CalEventDetail> {
+    let scope = crate::calseries::Scope::parse(scope)?;
+    let mut d = {
+        let c = lock(db);
+        let e = get_event(&c, id)?;
+        match scope {
+            None => CalEventDetail { event: e, changed_count: 0, pattern_unsupported: false },
+            Some(sc) if crate::calsync::is_remote_calendar_id(&e.calendar_id) => {
+                drop(c);
+                crate::calsync::series::get(db, &crate::calsync::cmds::AppFactory { db: db.clone() }, id, sc, occurrence_start)?
             }
-        };
-        let mine = account_emails(&lock(&db));
-        mark_you(&mut d.event, &mine);
-        Ok(d)
-    })
-    .await
+            Some(sc) => crate::calseries::get(&c, id, sc, occurrence_start)?,
+        }
+    };
+    let mine = account_emails(&lock(db));
+    mark_you(&mut d.event, &mine);
+    Ok(d)
 }
 
 /// The synced calendar an event input is for: the calendar of the event being edited, or the one chosen for a new event.
@@ -3239,5 +3243,144 @@ ATTENDEE;CN=Nam Hoang;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:nam@example.com\r\n
         assert_eq!(event_of(&c).start, utc(2026, 10, 14, 8, 0));
         let got = ingest_checked(&c, &a, "m2", "eve@evil.example", &v1, false, Auth::Fail, false).unwrap();
         assert!(!got.changed && !got.held, "a change nobody may make is not shown as held either");
+    }
+}
+
+/// D-109: what the form gets for the chip of a repeating event, worked out the way the frontend does it (`openEventForEdit`: the chip's `id`, its scope
+/// answer and `slotOf(chip)` = `occurrenceStart`, all read from the JSON `calendar_list_events` sends) against a real database, no mock.
+#[cfg(test)]
+mod chip_tests {
+    use super::*;
+    use chrono::NaiveDate;
+    use std::sync::{Arc, Mutex};
+
+    fn utc(y: i32, m: u32, d: u32, h: u32, mi: u32) -> i64 {
+        NaiveDate::from_ymd_opt(y, m, d).unwrap().and_hms_opt(h, mi, 0).unwrap().and_utc().timestamp()
+    }
+
+    fn db() -> Db {
+        let c = Connection::open_in_memory().unwrap();
+        db::migrate(&c).unwrap();
+        Arc::new(Mutex::new(c))
+    }
+
+    fn input(title: &str, start: i64, rrule: Option<&str>, tzid: Option<&str>) -> CalEventInput {
+        CalEventInput {
+            id: None,
+            account_id: None,
+            summary: title.into(),
+            start,
+            end: start + 3600,
+            all_day: false,
+            tzid: tzid.map(String::from),
+            location: None,
+            description: None,
+            attendees: vec![],
+            rrule: rrule.map(String::from),
+            reminder_min: None,
+            calendar_id: None,
+            scope: None,
+            occurrence_start: None,
+        }
+    }
+
+    /// The chips of a window as the webview gets them.
+    fn chips(db: &Db, from: i64, to: i64) -> Vec<serde_json::Value> {
+        let list = list_range(&lock(db), from, to).unwrap();
+        serde_json::from_str(&serde_json::to_string(&list).unwrap()).unwrap()
+    }
+
+    /// Open every chip of the window with every answer of the question (the first occurrence has no "following"), as the frontend would; returns how many opens ran.
+    fn open_all(db: &Db, from: i64, to: i64, series_id: &str) -> usize {
+        let mut n = 0;
+        for chip in chips(db, from, to) {
+            let id = chip["id"].as_str().unwrap();
+            assert_eq!(chip["series"], true, "a chip of a repeating event says so: {chip}");
+            let slot = chip["occurrenceStart"].as_i64();
+            assert!(slot.is_some(), "the chip carries its slot (occurrenceStart): {chip}");
+            for scope in ["occurrence", "following", "series"] {
+                if scope == "following" && chip["firstOccurrence"] == true {
+                    continue;
+                }
+                let d = event_detail(db, id, Some(scope), slot).unwrap_or_else(|e| panic!("{scope} of {chip}: {e}"));
+                n += 1;
+                match scope {
+                    "series" => assert_eq!(d.event.id, series_id, "the whole series is the series row"),
+                    _ => {
+                        assert_eq!((d.event.start, d.event.end), (chip["start"].as_i64().unwrap(), chip["end"].as_i64().unwrap()), "{scope}: the occurrence's own time");
+                        assert_eq!(d.event.occurrence_start, slot);
+                        assert!(d.event.series, "{scope}: still part of its series");
+                    }
+                }
+            }
+        }
+        n
+    }
+
+    #[test]
+    fn ui_created_weekly_saturday_series_opens_in_every_scope() {
+        for tz in [None, Some("UTC"), Some("Europe/Berlin"), Some("Asia/Ho_Chi_Minh"), Some("America/New_York")] {
+            let d = db();
+            let s = save_local(&lock(&d), &input("Sat", utc(2026, 10, 24, 13, 0), Some("FREQ=WEEKLY;BYDAY=SA"), tz)).unwrap().0;
+            // the week of the event and three weeks later (a later week is a different expansion window)
+            let n = open_all(&d, utc(2026, 10, 19, 0, 0), utc(2026, 10, 26, 0, 0), &s.id) + open_all(&d, utc(2026, 11, 9, 0, 0), utc(2026, 11, 16, 0, 0), &s.id);
+            assert_eq!(n, 2 + 3, "{tz:?}: the first occurrence has two answers, the later one three");
+        }
+    }
+
+    #[test]
+    fn count_series_opens_in_every_scope() {
+        let d = db();
+        let s = save_local(&lock(&d), &input("Six", utc(2026, 10, 24, 13, 0), Some("FREQ=WEEKLY;COUNT=6"), Some("Europe/Berlin"))).unwrap().0;
+        assert_eq!(open_all(&d, utc(2026, 10, 1, 0, 0), utc(2027, 1, 1, 0, 0), &s.id), 2 + 5 * 3);
+    }
+
+    #[test]
+    fn changed_occurrence_chip_opens_in_every_scope() {
+        let d = db();
+        let s = save_local(&lock(&d), &input("Sat", utc(2026, 10, 24, 13, 0), Some("FREQ=WEEKLY;BYDAY=SA;COUNT=4"), Some("Europe/Berlin"))).unwrap().0;
+        // the slot is a wall-clock instant of the series zone (15:00 CEST before 25 Oct, 14:00 CET after): take it from the chip, not from arithmetic
+        let chip = chips(&d, utc(2026, 10, 26, 0, 0), utc(2026, 11, 2, 0, 0)).remove(0);
+        let slot = chip["start"].as_i64().unwrap();
+        assert_eq!(chip["occurrenceStart"].as_i64(), Some(slot));
+        let mut inp = input("Sat moved", slot + 7200, None, Some("Europe/Berlin"));
+        inp.id = Some(s.id.clone());
+        inp.occurrence_start = Some(slot);
+        crate::calseries::save(&lock(&d), &inp, crate::calseries::Scope::Occurrence).unwrap();
+        // the changed occurrence is its own row: its chip has its own id and slot; every answer opens it
+        let moved = chips(&d, utc(2026, 10, 26, 0, 0), utc(2026, 11, 2, 0, 0));
+        assert_eq!(moved.len(), 1);
+        let (id, got_slot) = (moved[0]["id"].as_str().unwrap(), moved[0]["occurrenceStart"].as_i64());
+        assert_eq!((moved[0]["changedOccurrence"].clone(), got_slot), (serde_json::json!(true), Some(slot)));
+        for scope in ["occurrence", "following"] {
+            let o = event_detail(&d, id, Some(scope), got_slot).unwrap();
+            assert_eq!((o.event.summary.as_str(), o.event.start), ("Sat moved", slot + 7200));
+        }
+        let all = event_detail(&d, id, Some("series"), got_slot).unwrap();
+        assert_eq!((all.event.id.as_str(), all.changed_count), (s.id.as_str(), 1));
+        // the other chips still open
+        assert_eq!(open_all(&d, utc(2026, 11, 2, 0, 0), utc(2027, 1, 1, 0, 0), &s.id), 2 * 3);
+    }
+
+    /// Delete and edit from a chip use the same slot: the chip's `occurrenceStart` (delete of "This occurrence" had the same D-109 failure).
+    #[test]
+    fn chip_slot_drives_delete_and_edit_of_one_occurrence() {
+        let d = db();
+        let s = save_local(&lock(&d), &input("Sat", utc(2026, 10, 24, 13, 0), Some("FREQ=WEEKLY;BYDAY=SA"), Some("Europe/Berlin"))).unwrap().0;
+        let week = |from: i64| chips(&d, from, from + 7 * 86400);
+        let (from1, from2) = (utc(2026, 10, 26, 0, 0), utc(2026, 11, 2, 0, 0));
+        let a = week(from1).remove(0);
+        crate::calseries::delete(&lock(&d), a["id"].as_str().unwrap(), crate::calseries::Scope::Occurrence, a["occurrenceStart"].as_i64(), false).unwrap();
+        assert!(week(from1).is_empty(), "the deleted occurrence is gone");
+        let b = week(from2).remove(0);
+        let slot = b["occurrenceStart"].as_i64().unwrap();
+        let mut inp = input("Sat later", slot + 3600, None, Some("Europe/Berlin"));
+        inp.id = Some(b["id"].as_str().unwrap().into());
+        inp.occurrence_start = Some(slot);
+        crate::calseries::save(&lock(&d), &inp, crate::calseries::Scope::Occurrence).unwrap();
+        let after = week(from2);
+        assert_eq!((after.len(), after[0]["summary"].as_str(), after[0]["start"].as_i64()), (1, Some("Sat later"), Some(slot + 3600)));
+        assert_eq!(chips(&d, from1, from1 + 7 * 86400).len(), 0);
+        assert_eq!(event_detail(&d, &s.id, Some("series"), None).unwrap().changed_count, 1);
     }
 }
