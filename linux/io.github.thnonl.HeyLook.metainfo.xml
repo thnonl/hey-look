@@ -239,14 +239,13 @@
   <content_rating type="oars-1.1"/>
   <releases>
     <!-- The version-bump commit of a release adds its entry FIRST (the newest release is the snap's version and the one the release
-         workflow checks against the tag). Ready for 1.0.7:
-    <release version="1.0.7" date="2026-10-xx">
+         workflow checks against the tag). -->
+    <release version="1.0.7" date="2026-10-25">
       <description>
-        <p>Unread counts on the Focused and Other tabs, emoji search, merged table cells, pictures in signatures, and many fixes.</p>
+        <p>Settings search, calendar series and CalDAV sync, Confidential mail handling, more AI Assistant settings, and many fixes.</p>
       </description>
       <url>https://github.com/thnonl/hey-look/releases/tag/v1.0.7</url>
     </release>
-    -->
     <release version="1.0.6" date="2026-10-18">
       <description>
         <p>Pop-out windows for writing and reading, a much richer editor, autosave with crash recovery, and many fixes.</p>

@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.7 (unreleased)
+## 1.0.7 — 2026-10-25
 
 ### Added
 
@@ -207,12 +207,18 @@
 
 ### Known limitations
 
+- APT repository, Microsoft Store and Snap Store: not available in this release (download Hey Look! from GitHub or the website; it updates itself)
+- Not tested by the project's QA with real accounts or real hardware; the owner checks these after the release and what he finds goes into the next version:
+  - Google and Microsoft sign-in (mail and calendar) was tested with simulated sign-in servers, not with real Google or Microsoft accounts
+  - Calendar: CalDAV sync was tested against simulated servers, not against real servers (iCloud, Fastmail, Baikal, Nextcloud, Radicale)
+  - Confidential mail: hiding the window from screen capture (Windows Print Screen and Snipping Tool, macOS screenshots and screen recording) was not tested end to end with the real tools
+  - Hey Look! was tested on Windows 11 (x64), on a MacBook with Apple silicon and on a KDE desktop in an ARM virtual machine; Windows 10, Intel Macs and macOS 11 and 12 are supported but were not tested
 - macOS: each pop-out window you close keeps a small empty system window (about 0.2 MB) until Hey Look! quits
 - macOS: the first time you print, macOS may ask whether Hey Look! may find devices on your local network; the system print window asks it, to find your printers, and Hey Look! uses the local network for nothing else
 - Confidential mail: Linux has no screenshot blocking (the window is hidden from screen capture and recording on Windows and macOS only)
 - Linux: notification buttons need a desktop whose notification service draws them, and the tray icon has no click action (use Open Hey Look! in its menu)
 - Linux: the x86_64 release packages (AppImage, .deb, .rpm) were not installed or tested; the tests ran on an ARM virtual machine
-- Calendar: some work or school organisations only let an administrator approve the Microsoft calendar permission; CalDAV sync was tested against simulated servers, and a check with real iCloud and Fastmail accounts is still to be done
+- Calendar: some work or school organisations only let an administrator approve the Microsoft calendar permission
 - There is no plain-text-only mode when writing a message
 - Folders can be created but not renamed or deleted in Hey Look!
 
