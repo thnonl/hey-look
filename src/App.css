@@ -204,6 +204,7 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .pane-bottom .reading-region { grid-column: 3; border-top: 1px solid var(--border); }
 .workspace { transition: grid-template-columns .2s var(--ease); } /* the side menu folds / opens: the columns glide to their new widths (a window resize changes no computed value, so it never glides) */
 .workspace.list-hidden { grid-template-columns: var(--fw, 248px) 6px 0 0 1fr; } /* (W2.26) a message written in a window narrower than 1100 px takes the width of the list: the same glide as the side menu, the list keeps its saved width (--lw) */
+.workspace.list-hidden { transition: none; } /* (D-067) a message that opens in the pane is already where it stays: the list does not glide away under the shell and the filled message; the glide back (a base-rule transition) stays */
 .workspace.list-hidden > .msg-list, .workspace.list-hidden > .splitter[data-which="list"] { min-width: 0; overflow: hidden; visibility: hidden; transition: visibility 0s .2s; } /* (hidden once the columns have glided: no Tab stop, no reading; back at once when the list returns) */
 .workspace.dragging { transition: none; } /* a splitter being dragged follows the pointer at once */
 .splitter.off { cursor: default; pointer-events: none; }
@@ -252,7 +253,8 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .topbar .lang-btn:focus-visible { outline: 2px solid var(--top-fg); outline-offset: -2px; }
 
 /* search panel */
-.sb-panel { position: absolute; top: calc(100% + 8px); left: 0; right: 0; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow); padding: 4px 16px 12px; z-index: 80; max-height: 76vh; overflow-y: auto; animation: pop .14s var(--ease); }
+.sb-panel { position: absolute; top: calc(100% + 8px); left: 0; right: 0; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow); padding: 4px 16px 12px; z-index: 80; max-height: 76vh; overflow-y: auto; animation: sb-pop .14s var(--ease); }
+@keyframes sb-pop { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } } /* (D-068) no scale: `pop` scales to .985, so for 140 ms the panel was 8 px narrower than the box it hangs on (532 -> 524) wherever the width is read in that time */
 .sb-section { padding: 10px 0; border-bottom: 1px solid var(--border); }
 .sb-section:last-of-type { border-bottom: 0; }
 .sb-title { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 600; margin-bottom: 7px; }

@@ -352,3 +352,5 @@ static | node --experimental-strip-types scripts/test-drag-drop.mjs
 ui-d | node scripts/test-popout-kinds.mjs --require-browser
 # 1.0.7 W4.2 / W4.6 / W4.9: the windows in a real debug build (skipped here: it needs --exe=<debug build with its own identifier>; QA and the coder run it): every kind opens with its title and kind, the cap of 8 counts all kinds, the ACL refuses what a kind may not call, set_setting(prefs) is main's alone, GET /native, and (Windows) a crashed page process reloads the window once and the second crash ends it
 static | node scripts/test-popout-real.mjs
+# 1.0.7 D-067: Reply / Reply all / Forward - from the press to 500 ms after the fill, on every animation frame, the pane, the head, the To row, the Subject row, the formatting row, the body and Send stay within 1 px of where they end (the list column no longer glides away under the shell in a window under 1100 px; the shell has the recipient row of the real field), in the pane and in the compose window at 960 x 560 and 1280 x 800
+ui-d | node scripts/test-answer-geometry.mjs --require-browser

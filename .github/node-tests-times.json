@@ -219,6 +219,7 @@
   "node scripts/test-popout-real.mjs": 0,
   "node --experimental-strip-types scripts/test-store-texts.mjs": 2,
   "node scripts/test-installer-identity.mjs": 1,
-  "node --experimental-strip-types scripts/test-about-store.mjs --quick --require-browser": 40
+  "node --experimental-strip-types scripts/test-about-store.mjs --quick --require-browser": 40,
+  "node scripts/test-answer-geometry.mjs --require-browser": 60
  }
 }
