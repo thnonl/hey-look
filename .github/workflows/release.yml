@@ -17,6 +17,10 @@ name: Release
 # `msix-check` installs that copy on the disposable runner, starts it and removes it. Neither reads a secret or has an Environment, and neither is needed
 # by `publish`: a problem with the Store package never holds back the GitHub release (re-run the failed job). The artifact `msix-store` of a tag run is what the
 # owner uploads to Partner Center; it is named `msix-store-NOT-READY` until the app has its packaged mode (src-tauri/msix/readiness.json, WP14 part 2).
+# The signed APT repository (job `apt-repo`, Environment `release`, APT_SIGNING_KEY) is OFF as well (DEC-028): it runs only on a tag run with the repository
+# variable APT_PUBLISH = true, exactly (the plan job, output apt_publish). Unset, the job is skipped, not red, a tag run does not wait for the signing key,
+# and the placeholder-key check of the node tests (DEC-020) is a notice instead of a failure, because nothing is published with that key; with APT_PUBLISH = true
+# that check fails a tag run while docs/apt holds the throw-away key. The same holds for the snap in linux-stores.yml (SNAP_PUBLISH = true uploads it).
 # Everything that publishes is OFF unless a repository variable says so (DEC-005): `store-submit` (STORE_SUBMIT=true, Environment `store`) sends the MSIX to
 # Partner Center; option B (STORE_EXE=true) builds the signed offline installer (`store-exe`), serves it from the website (`store-url`, pages.yml) and
 # `store-submit-exe` (both variables) gives Partner Center its address. Without the variables none of these jobs exists in the run, no asset is added and no
@@ -101,6 +105,7 @@ jobs:
       wintests: ${{ steps.plan.outputs.wintests }}
       store_exe: ${{ steps.plan.outputs.store_exe }}
       store_submit: ${{ steps.plan.outputs.store_submit }}
+      apt_publish: ${{ steps.plan.outputs.apt_publish }}
     steps:
       - id: plan
         shell: bash
@@ -117,6 +122,7 @@ jobs:
           REQUIRE_WIN: ${{ vars.REQUIRE_WIN_SIGNING }}
           STORE_EXE: ${{ vars.STORE_EXE }}
           STORE_SUBMIT: ${{ vars.STORE_SUBMIT }}
+          APT_PUBLISH: ${{ vars.APT_PUBLISH }}
         run: |
           set -euo pipefail
           want="all"
@@ -198,6 +204,12 @@ jobs:
           echo "store_exe=$store_exe" >> "$GITHUB_OUTPUT"
           echo "store_submit=$store_submit" >> "$GITHUB_OUTPUT"
           echo "Microsoft Store: MSIX package $msix, EXE installer (STORE_EXE) $store_exe, submission (STORE_SUBMIT) $store_submit"
+          # The signed APT repository (DEC-028) is OFF: only a tag run with the repository variable APT_PUBLISH=true, exactly, makes and publishes it.
+          # The job apt-repo and the strictness of the placeholder-key check in node-tests both follow this one output.
+          apt_publish=false
+          if [ "$EVENT" = "push" ] && [ "$APT_PUBLISH" = "true" ]; then apt_publish=true; fi
+          echo "apt_publish=$apt_publish" >> "$GITHUB_OUTPUT"
+          echo "APT repository (APT_PUBLISH): $apt_publish"
 
   create-release:
     # Tag runs only. Creates the one draft release that all build jobs upload into.
@@ -247,10 +259,12 @@ jobs:
     permissions:
       contents: read
     env:
-      # DEC-020: until the owner's real APT signing key is committed (docs/apt), scripts/test-site-apt.mjs fails on the throw-away key. A run that is not
-      # a tag push may go on with a warning (dry runs and branch runs stay green); a tag run never does, and publish needs this job. Set here and
-      # nowhere else (scripts/test-apt-placeholder-guard.mjs): not in pages.yml, not in .github/node-tests.txt.
-      APT_ALLOW_PLACEHOLDER_KEY: ${{ (github.event_name == 'push' && github.ref_type == 'tag') && '0' || '1' }}
+      # DEC-020, DEC-028: until the owner's real APT signing key is committed (docs/apt), scripts/test-site-apt.mjs fails on the throw-away key. It may go on
+      # with a notice whenever no APT repository is published by this run (every run but a tag run with APT_PUBLISH=true: dry runs, branch runs and the tag
+      # run of a release without APT stay green); a run that publishes the repository never does, and publish needs this job. Set here and nowhere else
+      # (scripts/test-apt-placeholder-guard.mjs): not in pages.yml, not in .github/node-tests.txt. (The value is written so that a falsy-looking '0'
+      # never has to be the result of an && chain.)
+      APT_ALLOW_PLACEHOLDER_KEY: ${{ needs.plan.outputs.apt_publish != 'true' && '1' || '0' }}
     strategy:
       fail-fast: false
       matrix:
@@ -1250,8 +1264,10 @@ jobs:
     # (.github/scripts/apt-install-test.sh), commits the signed metadata (text only, no .deb) to the branch `apt` and starts pages.yml on main,
     # which assembles the site and checks it again. A failure here leaves the release published; fix the cause and "Re-run failed jobs": the
     # job is idempotent (no new commit when nothing changed). A dry run has its own job, apt-repo-dryrun, with a throw-away key and no secret.
+    # OFF (DEC-028): the job exists only with the repository variable APT_PUBLISH=true (plan output apt_publish); without it the job is skipped and the
+    # tag run needs neither the signing key nor anyone to wait for.
     needs: [plan, publish]
-    if: ${{ !cancelled() && github.event_name == 'push' && needs.publish.result == 'success' }}
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.plan.outputs.apt_publish == 'true' && needs.publish.result == 'success' }}
     name: APT repository
     runs-on: ubuntu-22.04
     timeout-minutes: 30

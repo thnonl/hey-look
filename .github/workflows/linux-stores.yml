@@ -4,11 +4,12 @@ name: Linux stores
 # - metainfo: validates the AppStream file every Linux package ships and the desktop files, and that the version in the repo files and
 #   the first <release> of the metainfo agree (every run; on a tag run also with the tag)
 # - snap: builds the snap with snapcraft (every run, as a workflow artifact); a TAG PUSH uploads it to the Snap Store's `candidate`
-#   channel, nothing else ever uploads (promote to `stable` by hand, see PACKAGING.md)
+#   channel only when the repository variable SNAP_PUBLISH is `true` (DEC-028: OFF by default, so a tag run without the store login secret is not red);
+#   nothing else ever uploads (promote to `stable` by hand, see PACKAGING.md)
 # What runs where:
 #   tag push (v1.2.3)   metainfo + snap build, in the GitHub Environment `release`: the four OAuth client ids are written into `.env` for
-#                       the build only (src-tauri/build.rs embeds them, the file is removed afterwards), then the upload with the
-#                       store login of that Environment
+#                       the build only (src-tauri/build.rs embeds them, the file is removed afterwards), then, with SNAP_PUBLISH=true only,
+#                       the upload with the store login of that Environment
 #   pull request        metainfo + snap build, no Environment, no secrets, no upload (also from forks)
 #   manual run          the same as a pull request on the chosen ref, also when that ref is a tag (event_name is not push)
 on:
@@ -121,7 +122,7 @@ jobs:
           path: ${{ steps.build.outputs.snap }}
           if-no-files-found: error
       - name: Upload to the Snap Store (candidate)
-        if: github.event_name == 'push' && github.ref_type == 'tag'
+        if: github.event_name == 'push' && github.ref_type == 'tag' && vars.SNAP_PUBLISH == 'true'
         uses: snapcore/action-publish@214b86e5ca036ead1668c79afb81e550e6c54d40 # v1.2.0
         env:
           SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}

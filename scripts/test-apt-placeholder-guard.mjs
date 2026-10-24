@@ -1,9 +1,13 @@
-// Source guard for the throw-away APT key gate (DEC-020, DEC-001). Run: node scripts/test-apt-placeholder-guard.mjs
+// Source guard for the throw-away APT key gate (DEC-020, DEC-001, DEC-028). Run: node scripts/test-apt-placeholder-guard.mjs
 // Until the owner's real signing key is committed, docs/apt holds a throw-away key and scripts/test-site-apt.mjs fails on it. Exactly one place may turn
-// that one check into a warning: the node-tests job of release.yml, and only on runs that are not a tag push. This test keeps it that way:
+// that one check into a notice: the node-tests job of release.yml, and only on runs that do not publish the APT repository. DEC-028: the APT repository is
+// OFF unless the repository variable APT_PUBLISH is exactly true (read in the plan job only, and only on a tag push); "APT is not enabled for this
+// release" is a valid, passing state, a run that WOULD publish the repository (a tag run with APT_PUBLISH=true) stays strict. This test keeps it that way:
 //   - pages.yml does not contain APT_ALLOW_PLACEHOLDER_KEY at all (a Pages deploy is always strict, the site never goes live with the throw-away key)
 //   - .github/node-tests.txt does not contain it (no command line carries it inline)
-//   - release.yml contains it exactly once, as the env of the job node-tests, with exactly the agreed expression ('0' on a tag push, '1' otherwise)
+//   - release.yml contains it exactly once, as the env of the job node-tests, with exactly the agreed expression ('0' when the plan job says apt_publish, '1' otherwise)
+//   - APT_PUBLISH: vars.APT_PUBLISH is read once, in the env of the plan job; the plan script sets apt_publish=true only for push and exactly "true"; the job apt-repo
+//     runs only with needs.plan.outputs.apt_publish == 'true'; no other file of .github/ reads the variable
 //   - no other file of .github/ (workflows, scripts, actions) sets it, and no repository variable or secret of that name is read
 //   - scripts/test-site-apt.mjs honours only the exact value "1"
 //   - the run of test-site-apt.mjs ends the same with "0", "true", "yes" and an empty value as without the variable (none of them downgrades the check)
@@ -21,7 +25,18 @@ import { fileURLToPath } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const NAME = "APT_ALLOW_PLACEHOLDER_KEY";
-const EXPR = "${{ (github.event_name == 'push' && github.ref_type == 'tag') && '0' || '1' }}";
+const EXPR = "${{ needs.plan.outputs.apt_publish != 'true' && '1' || '0' }}";
+const PLAN_ENV = "APT_PUBLISH: ${{ vars.APT_PUBLISH }}";
+const PLAN_OUT = "apt_publish: ${{ steps.plan.outputs.apt_publish }}";
+const PLAN_SET = 'if [ "$EVENT" = "push" ] && [ "$APT_PUBLISH" = "true" ]; then apt_publish=true; fi';
+const APT_IF = "needs.plan.outputs.apt_publish == 'true'";
+const jobBlock = (text, name) => {
+  const head = `\n  ${name}:\n`;
+  const at = text.indexOf(head);
+  if (at < 0) return null;
+  const next = text.slice(at + head.length).search(/\n  [a-z][\w-]*:\n/);
+  return text.slice(at, next < 0 ? undefined : at + head.length + next);
+};
 
 /** The problems of a set of file texts { pages, nodeTests, release, siteApt, others: {path: text} }. */
 export function problems({ pages, nodeTests, release, siteApt, siteBuild = "", others = {} }) {
@@ -59,6 +74,19 @@ export function problems({ pages, nodeTests, release, siteApt, siteBuild = "", o
     while (k >= 0 && /^\s*#/.test(lines[k])) k--;
     if (!/^    env:\s*$/.test(lines[k] ?? "")) out.push("release.yml: the variable is not directly under the job-level 'env:' of node-tests (a step-level or a repository-wide setting is not allowed)");
   }
+  // ---- APT_PUBLISH (DEC-028)
+  const relCode = code(release);
+  const plan = jobBlock(release, "plan");
+  const aptJob = jobBlock(release, "apt-repo");
+  const readers = relCode.filter((l) => /\bvars\.APT_PUBLISH\b/.test(l));
+  if (readers.length !== 1 || readers[0].trim() !== PLAN_ENV) out.push(`release.yml reads vars.APT_PUBLISH ${readers.length} times (${readers.map((l) => l.trim()).join(" | ")}), expected once, as '${PLAN_ENV}'`);
+  if (!plan || !plan.includes(`\n          ${PLAN_ENV}\n`)) out.push("release.yml: the plan job does not read vars.APT_PUBLISH into the env of its step");
+  if (!plan || !plan.includes(`\n      ${PLAN_OUT}\n`)) out.push(`release.yml: the plan job has no output '${PLAN_OUT}'`);
+  if (!plan || !plan.includes(`\n          ${PLAN_SET}\n`) || (plan.match(/apt_publish=true/g) ?? []).length !== 1) out.push(`release.yml: the plan job must set apt_publish=true only through '${PLAN_SET}'`);
+  const aptIf = /^    if: (.*)$/m.exec(aptJob ?? "")?.[1] ?? "";
+  if (!aptIf.includes(APT_IF) || !aptIf.includes("github.event_name == 'push'") || !aptIf.includes("needs.publish.result == 'success'")) out.push(`release.yml: the job apt-repo must run only with ${APT_IF}, on push, after a successful publish (its if: is '${aptIf}')`);
+  if (!/^    needs: \[plan, publish\]$/m.test(aptJob ?? "")) out.push("release.yml: the job apt-repo must need plan and publish");
+  for (const [file, text] of Object.entries({ "pages.yml": pages, ...others })) if (code(text).some((l) => /\bAPT_PUBLISH\b/.test(l))) out.push(`${file} reads APT_PUBLISH: only the plan job of release.yml may`);
   if (!/process\.env\.APT_ALLOW_PLACEHOLDER_KEY === "1"/.test(siteApt)) out.push('test-site-apt.mjs does not compare the variable with the exact value "1"');
   if (/process\.env\.APT_ALLOW_PLACEHOLDER_KEY\s*(!==|!=|==)[^=]/.test(siteApt) || /Boolean\(process\.env\.APT_ALLOW/.test(siteApt)) out.push("test-site-apt.mjs reads the variable loosely");
   return out;
@@ -98,6 +126,16 @@ const mutations = [
   ["release.yml with the variable in a second job", { ...real, release: real.release + `\n    env:\n      ${NAME}: "1"\n` }],
   ["release.yml without the variable", { ...real, release: real.release.replace(new RegExp(`.*${NAME}.*\\n`), "") }],
   ["release.yml with the variable in a step", { ...real, release: real.release.replace("    env:\n      # DEC-020", "    # DEC-020").replace(`      ${NAME}:`, `        ${NAME}:`) }],
+  // DEC-028: the repository variable APT_PUBLISH decides about the APT repository and nothing else may
+  ["apt-repo without the APT_PUBLISH condition", { ...real, release: real.release.replace(" && needs.plan.outputs.apt_publish == 'true' && needs.publish.result", " && needs.publish.result") }],
+  ["apt-repo that no longer needs plan", { ...real, release: real.release.replace("    needs: [plan, publish]\n    if: ${{ !cancelled() && github.event_name == 'push' && needs.plan.outputs.apt_publish", "    needs: [publish]\n    if: ${{ !cancelled() && github.event_name == 'push' && needs.plan.outputs.apt_publish") }],
+  ["plan that turns APT on for a dry run too", { ...real, release: real.release.replace(PLAN_SET, 'if [ "$APT_PUBLISH" = "true" ]; then apt_publish=true; fi') }],
+  ["plan that turns APT on for any non-empty value", { ...real, release: real.release.replace(PLAN_SET, 'if [ "$EVENT" = "push" ] && [ -n "$APT_PUBLISH" ]; then apt_publish=true; fi') }],
+  ["plan that always turns APT on", { ...real, release: real.release.replace("apt_publish=false\n", "apt_publish=true\n") }],
+  ["a second reader of vars.APT_PUBLISH", { ...real, release: real.release.replace("      APT_ALLOW_PLACEHOLDER_KEY: ${{", "      APT_X: ${{ vars.APT_PUBLISH }}\n      APT_ALLOW_PLACEHOLDER_KEY: ${{") }],
+  ["pages.yml that reads APT_PUBLISH", { ...real, pages: real.pages + "\n        APT_PUBLISH: ${{ vars.APT_PUBLISH }}\n" }],
+  ["a script that reads APT_PUBLISH", { ...real, others: { ...real.others, ".github/scripts/z.sh": 'if [ "$APT_PUBLISH" = true ]; then echo on; fi\n' } }],
+  ["the placeholder allowed on a tag run with APT on", { ...real, release: real.release.replace(EXPR, "${{ needs.plan.outputs.apt_publish == 'true' && '1' || '1' }}") }],
   ["pages.yml with APT_SITE always on", { ...real, pages: real.pages.replace("APT_SITE: ${{ steps.aptbranch.outputs.present == 'true' && 'on' || 'off' }}", "APT_SITE: on") }],
   ["pages.yml with APT_SITE from an input", { ...real, pages: real.pages.replace("APT_SITE: ${{ steps.aptbranch.outputs.present == 'true' && 'on' || 'off' }}", "APT_SITE: ${{ github.event.inputs.apt || 'off' }}") }],
   ["pages.yml with a workflow_dispatch input", { ...real, pages: real.pages.replace("  workflow_dispatch:\n", "  workflow_dispatch:\n    inputs:\n      apt:\n        default: off\n") }],
@@ -137,9 +175,19 @@ const onAllowed = runOn("1");
 if (onAllowed.status !== onBase.status) errors.push(`APT_SITE=on: the run ends differently with ${NAME}=1 (${onAllowed.status}) than without (${onBase.status}): it must be ignored in this mode`);
 if (base !== 0 && onBase.status === 0) errors.push("APT_SITE=on passes although the run without it fails (the throw-away key must fail hard in this mode)");
 
+// DEC-028, "APT is not enabled for this release" is a passing state: with the exact value 1 (what the workflow gives every run that does not publish the repository)
+// the sources check ends 0 and says so as a notice, never a failure, whatever the key is; with the variable absent the strict result stays (checked above).
+{
+  const env = { ...process.env, [NAME]: "1" };
+  delete env.APT_SITE;
+  const r = spawnSync(process.execPath, [path.join(root, "scripts/test-site-apt.mjs")], { env, encoding: "utf8" });
+  if (r.status !== 0) errors.push(`test-site-apt.mjs with ${NAME}=1 (APT not enabled) ends with ${r.status}: ${(r.stderr || r.stdout).trim().split("\n").slice(0, 3).join(" | ")}`);
+  if (base !== 0 && !/::notice::.*APT_PUBLISH/.test(r.stdout)) errors.push("test-site-apt.mjs with the throw-away key and the allowance prints no notice that names APT_PUBLISH");
+}
+
 if (errors.length) {
   console.error(`test-apt-placeholder-guard: ${errors.length} problem(s)`);
   for (const e of errors) console.error(`  ${e}`);
   process.exit(1);
 }
-console.log(`ok - test-apt-placeholder-guard (pages.yml, node-tests.txt and ${Object.keys(real.others).length} other .github files do not set ${NAME}; release.yml sets it once, in node-tests, '0' on a tag push; ${mutations.length} mutations noticed; 6 other values behave like no variable)`);
+console.log(`ok - test-apt-placeholder-guard (pages.yml, node-tests.txt and ${Object.keys(real.others).length} other .github files do not set ${NAME}; release.yml sets it once, in node-tests, '0' only when the plan job says apt_publish; ${mutations.length} mutations noticed; 6 other values behave like no variable)`);

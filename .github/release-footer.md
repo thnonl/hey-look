@@ -6,7 +6,7 @@
 | Windows (MSI, for managed installs; needs WebView2) | `....msi` |
 | macOS 11+ (Apple silicon and Intel) | `....dmg` |
 | Linux, any distro | `....AppImage` |
-| Debian / Ubuntu | `....deb` (or install and update with APT: see the download page) |
+| Debian / Ubuntu | `....deb` |
 | Fedora / openSUSE | `....rpm` |
 
 The `.sig` files, `latest.json` and the `.app.tar.gz` are used by the app’s updater; you don’t need them.
