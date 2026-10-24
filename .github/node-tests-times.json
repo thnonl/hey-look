@@ -215,6 +215,9 @@
   "node scripts/test-autoformat-ui.mjs --require-browser": 70,
   "node --experimental-strip-types scripts/test-format-painter.mjs": 0,
   "node scripts/test-painter-mini.mjs --require-browser": 80,
-  "node --experimental-strip-types scripts/test-mini-toolbar.mjs": 0
+  "node --experimental-strip-types scripts/test-mini-toolbar.mjs": 0,
+  "node --experimental-strip-types scripts/test-store-texts.mjs": 2,
+  "node scripts/test-installer-identity.mjs": 1,
+  "node --experimental-strip-types scripts/test-about-store.mjs --quick --require-browser": 40
  }
 }

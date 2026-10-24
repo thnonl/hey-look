@@ -1302,8 +1302,10 @@ jobs:
     # one of the Windows build job (artifact windows-exe), byte for byte; the package is made by scripts/msix-build.mjs with the Windows SDK of the runner
     # (makeappx, makepri, signtool). The package for Partner Center is NOT signed (the Store signs it after certification, MSIX-REQ); a copy signed with a
     # throw-away certificate (subject = Publisher, key deleted at once) is the artifact msix-test, for msix-check and for a Windows Sandbox.
-    # No Environment, no secret: the identity values are public repository variables (Partner Center > Product identity). A tag run fails without them;
-    # a dry run uses a placeholder identity and its package is never named msix-store. The job is not a need of `publish`.
+    # No Environment, no secret: the identity values are PUBLIC (Partner Center > Product identity). They are written here as defaults, and the repository
+    # variables MSIX_IDENTITY_NAME, MSIX_PUBLISHER, MSIX_PUBLISHER_DISPLAY_NAME override them (for example when the publisher name is changed in Partner
+    # Center), so a tag run never fails for a missing variable; scripts/test-msix-build.mjs pins the three values. A dry run's package is never named
+    # msix-store. The job is not a need of `publish`.
     needs: [plan, build]
     if: ${{ !cancelled() && needs.plan.outputs.msix == 'true' && needs.build.result == 'success' }}
     name: MSIX package (Microsoft Store)
@@ -1338,9 +1340,9 @@ jobs:
         id: build
         shell: bash
         env:
-          MSIX_IDENTITY_NAME: ${{ vars.MSIX_IDENTITY_NAME }}
-          MSIX_PUBLISHER: ${{ vars.MSIX_PUBLISHER }}
-          MSIX_PUBLISHER_DISPLAY_NAME: ${{ vars.MSIX_PUBLISHER_DISPLAY_NAME }}
+          MSIX_IDENTITY_NAME: ${{ vars.MSIX_IDENTITY_NAME || '40278Noamo.651773BC9C4C7' }}
+          MSIX_PUBLISHER: ${{ vars.MSIX_PUBLISHER || 'CN=FE739770-637C-437D-B2B9-DAA2E2EA56F1' }}
+          MSIX_PUBLISHER_DISPLAY_NAME: ${{ vars.MSIX_PUBLISHER_DISPLAY_NAME || 'Noamo' }}
           EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail

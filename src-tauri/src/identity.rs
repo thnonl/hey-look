@@ -55,9 +55,16 @@ pub fn isolated() -> bool {
     *ISOLATED.get_or_init(|| is_isolated_for(identifier(), crate::legacy_names::data_dir_overridden()))
 }
 
-/// Credential store service for a copy (pure).
-pub fn keyring_service_for(isolated: bool) -> &'static str {
-    if isolated { KEYRING_SERVICE_QA } else { KEYRING_SERVICE_RELEASE }
+/// Credential store service for a copy (pure): an isolated (test) copy has its own, the Microsoft Store version (a package, pkg.rs) has its own so that it
+/// shares nothing with a GitHub install on the same PC, every other copy uses the shipped one. A test copy that happens to run packaged stays isolated.
+pub fn keyring_service_for(isolated: bool, packaged: bool) -> &'static str {
+    if isolated {
+        KEYRING_SERVICE_QA
+    } else if packaged {
+        crate::pkg::KEYRING_SERVICE_STORE
+    } else {
+        KEYRING_SERVICE_RELEASE
+    }
 }
 
 /// AppUserModelID for a copy (pure): the identifier itself when it is not the shipped one, the shipped one plus `.qa` for a
@@ -74,13 +81,21 @@ pub fn aumid_for(identifier: &str, data_dir_overridden: bool) -> String {
 
 /// The credential store service of this process.
 pub fn keyring_service() -> &'static str {
-    keyring_service_for(isolated())
+    keyring_service_for(isolated(), crate::pkg::packaged())
 }
 
 /// The AppUserModelID of this process (registered in the registry and used by the toasts).
 #[cfg_attr(not(windows), allow(dead_code))]
 pub fn aumid() -> &'static str {
-    AUMID.get_or_init(|| aumid_for(identifier(), crate::legacy_names::data_dir_overridden())).as_str()
+    AUMID.get_or_init(|| aumid_choice(identifier(), crate::legacy_names::data_dir_overridden(), crate::pkg::process_aumid().as_deref())).as_str()
+}
+
+/// The AppUserModelID of a process (pure): the package's own (`<family>!App`) when it runs in a package and is not an isolated copy, else the derived one.
+pub fn aumid_choice(identifier: &str, data_dir_overridden: bool, process_aumid: Option<&str>) -> String {
+    match process_aumid {
+        Some(own) if !is_isolated_for(identifier, data_dir_overridden) => own.to_string(),
+        _ => aumid_for(identifier, data_dir_overridden),
+    }
 }
 
 /// The credential store entry `user` of this process. The one function in the app that builds a `keyring::Entry`.
@@ -109,7 +124,7 @@ mod tests {
     #[test]
     fn released_app_keeps_its_names() {
         assert_eq!(KEYRING_SERVICE_RELEASE, "heylook");
-        assert_eq!(keyring_service_for(false), "heylook");
+        assert_eq!(keyring_service_for(false, false), "heylook");
         assert_eq!(SHIPPED_ID, "thnonl.heylook");
         assert_eq!(aumid_for("thnonl.heylook", false), "thnonl.heylook");
         assert!(!is_isolated_for("thnonl.heylook", false));
@@ -117,8 +132,8 @@ mod tests {
 
     #[test]
     fn test_copies_get_other_names() {
-        assert_eq!(keyring_service_for(true), "heylook.qa");
-        assert_ne!(keyring_service_for(true), keyring_service_for(false));
+        assert_eq!(keyring_service_for(true, false), "heylook.qa");
+        assert_ne!(keyring_service_for(true, false), keyring_service_for(false, false));
         assert!(is_isolated_for("thnonl.heylook", true));
         assert!(is_isolated_for("thnonl.heylook.qa", false));
         assert_eq!(aumid_for("thnonl.heylook", true), "thnonl.heylook.qa");
@@ -133,6 +148,28 @@ mod tests {
         assert!(service_allowed(true, "heylook.qa"));
         assert!(!service_allowed(true, "heylook"));
         assert!(!service_allowed(true, "hey-mail"));
+    }
+
+    /// WP14 WA.2.3 / A-16: the Store version keeps its passwords and tokens apart from a GitHub install on the same PC; nothing else changes.
+    #[test]
+    fn the_store_version_has_its_own_credential_service() {
+        assert_eq!(keyring_service_for(false, true), "heylook.store");
+        assert_eq!(crate::pkg::KEYRING_SERVICE_STORE, "heylook.store");
+        assert_eq!(keyring_service_for(false, false), "heylook", "unpackaged copies are as before");
+        assert_eq!(keyring_service_for(true, false), "heylook.qa");
+        assert_eq!(keyring_service_for(true, true), "heylook.qa", "a test copy never touches real credentials, packaged or not");
+        // the three services are three different names
+        let names = [keyring_service_for(false, false), keyring_service_for(false, true), keyring_service_for(true, false)];
+        assert_eq!(names.iter().collect::<std::collections::HashSet<_>>().len(), 3);
+    }
+
+    /// WP14 WA.2.4 / A-13: a packaged process shows its toasts under its package AppUserModelID; an unpackaged or an isolated copy keeps the derived one.
+    #[test]
+    fn the_toasts_of_a_package_use_the_package_id() {
+        assert_eq!(aumid_choice("thnonl.heylook", false, Some("40278Noamo.651773BC9C4C7_p3yr7tk4wrq2g!App")), "40278Noamo.651773BC9C4C7_p3yr7tk4wrq2g!App");
+        assert_eq!(aumid_choice("thnonl.heylook", false, None), "thnonl.heylook", "unpackaged: as before");
+        assert_eq!(aumid_choice("thnonl.heylook", true, Some("x_p3yr7tk4wrq2g!App")), "thnonl.heylook.qa", "a test copy keeps its own id");
+        assert_eq!(aumid_choice("thnonl.heylook.qa", false, Some("x_p3yr7tk4wrq2g!App")), "thnonl.heylook.qa");
     }
 
     /// Strip comments and everything from the first `#[cfg(test)]` on.

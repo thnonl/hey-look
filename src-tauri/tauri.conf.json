@@ -29,11 +29,12 @@
     "active": true,
     "targets": "all",
     "publisher": "thnonl",
+    "copyright": "© 2026 thnonl",
     "homepage": "https://heylook.namthai.site/",
     "license": "MIT",
     "category": "Productivity",
-    "shortDescription": "Free, open-source desktop mail client",
-    "longDescription": "A free, open-source desktop mail client with no ads, no analytics code and no account to create.",
+    "shortDescription": "Fast, private desktop mail client",
+    "longDescription": "Hey Look! is a free, open-source desktop mail client for Google, Microsoft, iCloud, Yahoo and any IMAP/SMTP mailbox.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -56,6 +57,11 @@
         "files": {
           "/usr/share/metainfo/io.github.thnonl.HeyLook.metainfo.xml": "../linux/io.github.thnonl.HeyLook.metainfo.xml"
         }
+      }
+    },
+    "windows": {
+      "nsis": {
+        "installerHooks": "nsis/hooks.nsh"
       }
     },
     "macOS": {

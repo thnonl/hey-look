@@ -343,8 +343,8 @@ export function UpdatesBlock({ privacy, autoSwitch }: { privacy: ReactNode; auto
     );
 
   const version = update?.current || appVersion;
-  // a snap is updated by the Snap Store and an apt copy by apt: the version, who updates it, the privacy statement without its update
-  // sentences, and neither the button nor the switch
+  // a snap is updated by the Snap Store, an apt copy by apt and the Microsoft Store package by the Store: the version, who updates it, the privacy statement without its
+  // update sentences (the Store version has its own text that says the Store updates it), and neither the button nor the switch
   if (managed)
     return (
       <div>
@@ -353,8 +353,8 @@ export function UpdatesBlock({ privacy, autoSwitch }: { privacy: ReactNode; auto
             <b className="selectable">{t("updates.status.version", { version })}</b>
           </span>
         </div>
-        <p className="muted small">{managed === "apt" ? tx("updates.managed.apt", { command: <code>{APT_UPGRADE}</code> }) : t("updates.managed.snap")}</p>
-        <p className="muted small">{t("settings.about.privacyManaged")}</p>
+        <p className="muted small">{managed === "apt" ? tx("updates.managed.apt", { command: <code>{APT_UPGRADE}</code> }) : managed === "msstore" ? t("settings.about.updatesStore") : t("updates.managed.snap")}</p>
+        <p className="muted small">{managed === "msstore" ? t("settings.about.privacyStore") : t("settings.about.privacyManaged")}</p>
       </div>
     );
   return (
