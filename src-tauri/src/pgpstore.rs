@@ -757,7 +757,7 @@ pub async fn pgp_import_from_message(state: tauri::State<'_, AppState>, message_
 #[tauri::command]
 pub async fn pgp_pick_key_file(app: tauri::AppHandle) -> R<Option<String>> {
     blocking(move || {
-        let p = app.dialog().file().set_title(crate::i18n::tr(crate::i18n::K::ChooseKeyFile)).add_filter(crate::i18n::tr(crate::i18n::K::OpenPgpKeys), &["asc", "gpg", "pgp", "key", "txt"]).blocking_pick_file();
+        let p = crate::attach::with_filter(app.dialog().file().set_title(crate::i18n::tr(crate::i18n::K::ChooseKeyFile)), crate::i18n::tr(crate::i18n::K::OpenPgpKeys), &["asc", "gpg", "pgp", "key", "txt"]).blocking_pick_file();
         match p {
             Some(f) => Ok(Some(f.into_path().map_err(err)?.to_string_lossy().into_owned())),
             None => Ok(None),
