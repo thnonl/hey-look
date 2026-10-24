@@ -29,7 +29,8 @@ imap = "2.4.1"
 # the types of a BODYSTRUCTURE (serversearch.rs); the version imap already uses
 imap-proto = "0.10.2"
 native-tls = "0.2.18"
-mail-parser = "0.11.9"
+# full_encoding: the CJK charsets (Shift_JIS, EUC-JP, GBK / GB2312 / GB18030, Big5, ISO-2022-JP, EUC-KR) of a Subject, a body and an encoded label name (fix52); encoding_rs is already in the lock file through reqwest
+mail-parser = { version = "0.11.9", features = ["full_encoding"] }
 lettre = "0.11.23"
 # smtp.rs `text_body`: the transfer encoding of a text part is chosen as lettre chooses it; already in the lock file through lettre (same version)
 email-encoding = "0.4.2"
