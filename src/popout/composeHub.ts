@@ -110,7 +110,8 @@ export function handleComposeRequest(env: Envelope): boolean {
 
 /** A window was ended because its page process died twice (W4.2): say so, and save what a compose window held. */
 export function handlePopoutCrashed(p: { label?: unknown; kind?: unknown; recoveryId?: unknown }): void {
-  useStore.getState().showToast(() => t("app.popout.crashed"), undefined, "error");
+  // (it stays until it is closed: the person may be in another window, or the main window hidden in the tray, when it comes; D-095: an 8 s toast was gone before it was seen)
+  useStore.getState().setStickyToast("popout-crashed", { text: () => t("app.popout.crashed"), kind: "error" });
   if (p.kind === "compose" && typeof p.recoveryId === "string" && p.recoveryId) void recoverOne(p.recoveryId).catch(() => undefined);
 }
 
