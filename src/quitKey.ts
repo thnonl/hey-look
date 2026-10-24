@@ -12,11 +12,11 @@ type KeyInfo = Pick<KeyboardEvent, "ctrlKey" | "shiftKey" | "altKey" | "metaKey"
  * Is this Ctrl+Q on Linux? Plain Ctrl+Q only (no Shift / Alt / Super). The letter is the one the layout makes: on a Latin layout the key is "q" whatever the code
  * is (AZERTY has Q where QWERTY has A), a layout without Latin letters (Russian, Greek) is told by its physical Q key like GTK's accelerators do. A held key is one press.
  */
-export const isQuitKey = (e: KeyInfo, os: Os): boolean =>
+const isQuitKey = (e: KeyInfo, os: Os): boolean =>
   os === "linux" && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && !e.isComposing && !e.repeat && (e.key.toLowerCase() === "q" || (!/^[a-z]$/i.test(e.key) && e.code === "KeyQ"));
 
 /** The key handler of one document (the window's, or the document of a message frame). */
-export function quitKeyHandler(os: () => Os = osNow): (e: KeyboardEvent) => void {
+function quitKeyHandler(os: () => Os = osNow): (e: KeyboardEvent) => void {
   return (e) => {
     if (!isQuitKey(e, os())) return;
     e.preventDefault();
