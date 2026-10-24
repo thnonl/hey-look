@@ -13,7 +13,8 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROOT, sleep, startHarness } from './cdp-harness.mjs';
+import { ROOT, arg, sleep, startHarness } from './cdp-harness.mjs';
+import { CALIBRATE } from './lib/reply-open-probe.mjs';
 import { FIXTURES, IDS } from './lib/reply-fixtures.mjs';
 import { PROBE_INSTALL, PROBE_PRESS, PROBE_READ, fill } from './lib/open-mail-probe.mjs';
 
@@ -36,8 +37,16 @@ const open = async (id, thread, settle = 700) => {
   return r;
 };
 
+// How fast this page runs (the median of CALIBRATE, never below 1, at most 8, like scripts/test-reply-feedback.mjs): the status timer (100 ms) and the render that follows it take that much longer on a slow
+// runner, so a read that must be clearly slower than the timer is sized by it. `--throttle=N` tries a slow computer (CDP CPU throttling): only the RULE-2 case sizes itself by the scale (it passes at 4x); the other cases keep their fixed budgets, which are for a normal computer.
+const CPU_REF = 48;
+let scale = 1;
+
 try {
+  if (arg('throttle')) await cdp('Emulation.setCPUThrottlingRate', { rate: Number(arg('throttle')) });
   await H.openApp('lang=en', 1280, 800);
+  scale = Math.min(Math.max(1, (await evaluate(CALIBRATE)).cpu / CPU_REF), 8);
+  console.log(`test-open-loading: scale ${scale.toFixed(2)}`);
   await evaluate(FIXTURES);
   await evaluate(`window.__store.getState().refresh().then(() => 1)`);
   await evaluate(`window.__store.getState().setView('inbox', window.__store.getState().accounts[0].id); 1`);
@@ -57,9 +66,12 @@ try {
   });
 
   await check('the status stays at least 300 ms once shown (RULE-2)', async () => {
-    const r = await open(IDS.small, 150);
-    assert.ok(r.statusMs !== null, 'a 150 ms read shows the status');
-    assert.ok(r.statusGoneMs - r.statusMs >= 290, `shown for ${r.statusGoneMs - r.statusMs} ms`);
+    // a read clearly slower than the 100 ms timer on this machine (not a boundary race: 150 ms against the timer), but quicker than the status's own 300 ms, so that the minimum is what keeps it up
+    const read = Math.round(100 * scale + 160);
+    const r = await open(IDS.small, read, 700 + Math.round(400 * scale));
+    assert.ok(r.statusMs !== null, `a ${read} ms read shows the status (the frame came at ${r.frameMs})`);
+    assert.ok(r.frameMs >= read, `the frame came at ${r.frameMs}, before the ${read} ms read was over`);
+    assert.ok(r.statusGoneMs !== null && r.statusGoneMs - r.statusMs >= 290, `shown from ${r.statusMs} to ${r.statusGoneMs}: ${r.statusGoneMs - r.statusMs} ms (the frame at ${r.frameMs})`);
   });
 
   await check('a quick read never shows it (AC-13.6.1)', async () => {
