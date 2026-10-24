@@ -9,6 +9,10 @@
 //!   lets go of its own reference, so the app is never the one that keeps a window alive.
 //! Only plain Objective-C messages; the window is retained here (`Retained`) so a message never reaches a freed object.
 //!
+//! DEC-024 (fix31): this module never sends `release` / `autorelease` / `CFRelease` to a window or a view and never frees what the framework owns; the only references it lets go of are the ones it took
+//! itself with `Retained` (`hold`: the window and its delegate), dropped in `sweep`. What stays after a close is an empty window shell (about 0.1 to 0.3 MB) until the app quits; the
+//! teardown below removes its views and web content. The source guard is `leakfix.rs`.
+//!
 //! 1.0.7 (D-093): with the tao fix of W4.1 (the over-retain of the window) a closed window was STILL left behind by every compose and reader window, so the holders that are
 //! left are not the one tao fixed. The sweep now takes away what the app side can: the window's delegate and the observers tao registered for it (tao adds the delegate to the
 //! distributed notification centre for the appearance change and never removes it), its entry in the Windows menu, and its content view (so the web view's views and their memory go
@@ -22,8 +26,6 @@ use std::collections::HashMap;
 use std::ffi::{CStr, c_char, c_void};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
-
-use crate::leakfix;
 
 struct Held {
     window: Retained<AnyObject>,
@@ -50,12 +52,10 @@ fn watched() -> &'static Mutex<HashMap<String, Watched>> {
 static SWEPT: AtomicUsize = AtomicUsize::new(0);
 static FREED: AtomicUsize = AtomicUsize::new(0);
 static ALIVE: AtomicUsize = AtomicUsize::new(0);
-/// How many extra references `leak_fix` released in all (D-093, round 12b).
-static RELEASED: AtomicUsize = AtomicUsize::new(0);
 
-/// (swept, freed, still alive, references released by the leak fix) since the start, for `GET /native` of the debug bridge.
-pub fn sweep_stats() -> (usize, usize, usize, usize) {
-    (SWEPT.load(Ordering::Relaxed), FREED.load(Ordering::Relaxed), ALIVE.load(Ordering::Relaxed), RELEASED.load(Ordering::Relaxed))
+/// (swept, freed, still alive) since the start, for `GET /native` of the debug bridge (debug builds count what `check` finds; a release build counts only the sweeps).
+pub fn sweep_stats() -> (usize, usize, usize) {
+    (SWEPT.load(Ordering::Relaxed), FREED.load(Ordering::Relaxed), ALIVE.load(Ordering::Relaxed))
 }
 
 fn held() -> &'static Mutex<HashMap<String, Held>> {
@@ -339,110 +339,22 @@ pub fn sweep(label: &str) -> Option<String> {
     Some(text)
 }
 
-/// A second after `sweep`: was the window freed? A weak reference answers `None` once nothing holds it. Returns the line for the log, `None` when the window was not swept.
-/// Main thread only. In a debug build started with `HEYLOOK_MAC_RELEASE_LEAK=1` (an experiment for the Mac QA, never in a release build): a window that is still alive with exactly one
-/// reference besides the one this check takes is a leak, and those references are released (see the experiment below).
-/// `destroyed`: the window ended by its `Destroyed` event (false for a window that was given up while tauri still lists it): only then the leak fix may run.
-pub fn check(label: &str, destroyed: bool) -> Option<String> {
+/// A second after `sweep` (DEBUG BUILDS ONLY, DEC-024): was the window freed? A weak reference answers `None` once nothing holds it. Returns the line for the log, `None` when the window was not
+/// swept and always in a release build, which reads nothing here. Read-only: it counts, it logs the retain count, and it NEVER releases anything (D-098: a release of references that the
+/// framework owns crashed the app twice in `objc_autoreleasePoolPop`, because the pool holds references that `retainCount` cannot see). Main thread only.
+pub fn check(label: &str) -> Option<String> {
     let Watched(weak, number) = watched().lock().unwrap_or_else(|p| p.into_inner()).remove(label)?;
-    let Some(strong) = weak.load() else {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+    let Some(found) = weak.load() else {
         FREED.fetch_add(1, Ordering::Relaxed);
         return Some(format!("native window {number}: freed ({})", windows_summary()));
     };
     ALIVE.fetch_add(1, Ordering::Relaxed);
-    let ptr = Retained::as_ptr(&strong) as *mut AnyObject;
-    // SAFETY: `strong` keeps the window alive; main thread (caller).
-    let retains: usize = unsafe { msg_send![ptr, retainCount] };
-    let mut text = format!("native window {number}: STILL ALIVE after being finished, retain count {retains} (this check's own reference is one of them); {}", windows_summary());
-    if cfg!(debug_assertions) && std::env::var("HEYLOOK_MAC_RELEASE_LEAK").as_deref() == Ok("1") {
-        // The experiment: the window is closed and the app side has let go of everything it can (`teardown`, `sweep`); every reference that is still there besides this check's own is one that
-        // nothing will ever release. They are released here, one by one, at most 40; `HEYLOOK_MAC_RELEASE_KEEP=<n>` leaves n of them (references of the system itself that the QA found out about).
-        let keep: usize = std::env::var("HEYLOOK_MAC_RELEASE_KEEP").ok().and_then(|v| v.trim().parse().ok()).unwrap_or(0);
-        let extra = retains.saturating_sub(1 + keep).min(40);
-        for _ in 0..extra {
-            // SAFETY: see above; this check's own reference keeps the window alive until `drop(strong)`.
-            unsafe {
-                let _: () = msg_send![ptr, release];
-            }
-        }
-        drop(strong);
-        let gone = weak.load().is_none();
-        text.push_str(&format!("; released {extra} reference(s) (HEYLOOK_MAC_RELEASE_LEAK, keeping {keep}): the window is {}", if gone { "gone" } else { "STILL ALIVE" }));
-        return Some(text);
-    }
-    text.push_str(&leak_fix(strong, &weak, label, destroyed));
-    Some(text)
-}
-
-/// The release of the extra references of a finished window (D-093, round 12b; the reasoning and the numbers are in leakfix.rs). Main thread, after `Destroyed` and `sweep` (the caller is the
-/// check that runs a second after the sweep). OFF by default since fix29 (round 13: fix28 over-released and crashed); `HEYLOOK_MAC_LEAK_FIX=1` turns it on, `HEYLOOK_MAC_NO_LEAK_FIX=1` forces it off. Takes the strong reference that `check` made (it is dropped here, once, on every path).
-///
-/// HOW MANY (fix29, after fix28 released 4 where 3 were safe and crashed in `objc_autoreleasePoolPop`): the count is read FIRST, as the very first message to the window after `check` made the
-/// strong reference (that count includes the one reference this function owns, `strong`: round 13 saw "retain count 4"); then the state questions are asked inside an autorelease pool of
-/// their own, which is emptied before the count is read a second time (a question that returns an autoreleased reference to the window, or a method that retains it for the length of a call, would
-/// otherwise show up as an "extra" reference that belongs to a pool and not to a leak: releasing it is the over-release that crashed). The number released is
-/// `min(first, second) - OWN_REFS` (leakfix::release_plan: 3 for the observed 4, the number the experiment released for 3 minutes 20 seconds without a crash), is FIXED before the first release
-/// (the count is not used to decide again), each release is made only while the count read just before it is above OWN_REFS, and `strong` is dropped exactly once, by this function, after the
-/// last release and never by the loop: the window is freed by that drop or by nobody. The count before and after every release is in the line for the log.
-fn leak_fix(strong: Retained<AnyObject>, weak: &objc2::rc::Weak<AnyObject>, label: &str, destroyed: bool) -> String {
-    const OWN_REFS: usize = 1;
-    let ptr = Retained::as_ptr(&strong) as *mut AnyObject;
-    // SAFETY: `strong` keeps the window alive; the message answers a plain number; main thread (caller).
-    let first: usize = unsafe { msg_send![ptr, retainCount] };
-    // SAFETY: `strong` keeps the window alive; the messages are the ones every NSWindow answers; each returned object is checked for null before it is messaged; main thread (caller). The pool
-    // is emptied when the closure returns, before the second count.
-    let state = objc2::rc::autoreleasepool(|_| unsafe {
-        let visible: Bool = msg_send![ptr, isVisible];
-        let key: Bool = msg_send![ptr, isKeyWindow];
-        let main: Bool = msg_send![ptr, isMainWindow];
-        let sheet: *mut AnyObject = msg_send![ptr, attachedSheet];
-        let children: *mut AnyObject = msg_send![ptr, childWindows];
-        let child_count: usize = if children.is_null() { 0 } else { msg_send![children, count] };
-        let parent: *mut AnyObject = msg_send![ptr, parentWindow];
-        leakfix::WindowState {
-            destroyed,
-            is_main_label: label == "main",
-            quitting: crate::QUITTING.load(Ordering::SeqCst),
-            visible: visible.as_bool(),
-            key: key.as_bool(),
-            main: main.as_bool(),
-            has_sheet: !sheet.is_null(),
-            has_children: child_count > 0,
-            has_parent: !parent.is_null(),
-            switched_off: !leakfix::enabled(std::env::var(leakfix::ENABLE).ok().as_deref(), std::env::var(leakfix::KILL_SWITCH).ok().as_deref()),
-        }
-    });
-    if let Some(why) = leakfix::refusal(&state) {
-        drop(strong);
-        return format!("; leak fix: not applied ({why})");
-    }
-    // SAFETY: as for the first count.
-    let second: usize = unsafe { msg_send![ptr, retainCount] };
-    let planned = leakfix::release_plan(&[first, second], OWN_REFS);
-    let mut released = 0;
-    let mut trace = String::new();
-    for _ in 0..planned {
-        // SAFETY: as for the first count.
-        let before: usize = unsafe { msg_send![ptr, retainCount] };
-        if before <= OWN_REFS {
-            break; // nothing but our own reference is left: never release it
-        }
-        // SAFETY: the count is above our own reference, so this release gives back a reference that is not ours; `strong` is held until after the loop, so the window cannot be freed by it.
-        let after: usize = unsafe {
-            let _: () = msg_send![ptr, release];
-            msg_send![ptr, retainCount]
-        };
-        trace.push_str(&format!(" {before}>{after}"));
-        released += 1;
-    }
-    drop(strong);
-    RELEASED.fetch_add(released, Ordering::Relaxed);
-    let freed = weak.load().is_none();
-    format!(
-        "; leak fix: released {released} extra reference(s) (retain count {first} then {second} before, planned {planned}, one by one:{}), window {}",
-        if trace.is_empty() { " none".to_string() } else { trace },
-        if freed { "freed" } else { "still alive" }
-    )
+    // SAFETY: `found` keeps the window alive for the read; main thread (caller).
+    let retains: usize = unsafe { msg_send![Retained::as_ptr(&found) as *mut AnyObject, retainCount] };
+    Some(format!("native window {number}: STILL ALIVE after being finished, retain count {retains} (this check's own reference is one of them); {}", windows_summary()))
 }
 
 /// What [`apply_appearance`] found and did, for the log (one line per window).
