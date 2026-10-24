@@ -1,0 +1,6 @@
+# cargo-audit settings for the job `audit` of .github/workflows/release.yml (W9.11), read when it runs in src-tauri.
+# A vulnerability found by cargo audit stops the release run. An advisory that has to stay is listed here, never skipped in the workflow, with
+# the advisory id, the reason, the date and who approved it (the BA or the owner), for example:
+#   "RUSTSEC-2099-0001", # reason: the affected function is never called; 2026-10-24; approved by the BA
+[advisories]
+ignore = []

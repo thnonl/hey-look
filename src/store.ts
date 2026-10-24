@@ -563,7 +563,7 @@ const roleOf = (folder: string) => (folder === "unread" ? "inbox" : folder);
 export const exhaustedKey = (accountId: string, folder: string) => `${accountId}|${roleOf(folder)}`;
 
 /** Shown where the "Max emails to download" cap stopped the list (toast of "Load older messages"; the list footer words it the same). */
-export const limitMessage = (n: number) => t("errors.limit", { n: fmtNumber(n) });
+const limitMessage = (n: number) => t("errors.limit", { n: fmtNumber(n) });
 
 const MORE_CHUNKS = 4; // one scroll to the end = up to 4 x 50 = 200 older messages in total, however many mailboxes are open
 const MORE_PAUSE_MS = 700; // between two requests, so the server and the list can breathe
@@ -729,7 +729,7 @@ export async function flushSends(maxMs = 25_000): Promise<boolean> {
   }
 }
 
-export function storeMissingColors(accounts: Account[], accent: string): Account[] {
+function storeMissingColors(accounts: Account[], accent: string): Account[] {
   return accounts.map((a) => {
     if (a.color) return a;
     const color = accountColor(a, accent);

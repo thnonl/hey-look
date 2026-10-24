@@ -3,7 +3,6 @@ import { isThisYear, isThisWeek, isToday, isYesterday, subWeeks, isSameWeek } fr
 import blockedExt from "./blockedExt.json";
 import { fmtNumber, fmtPattern } from "./i18n/format";
 import { intlLocale, t } from "./i18n";
-import { splitRecipients } from "./recipients";
 import type { Prefs } from "./prefs";
 
 let timePat = "HH:mm";
@@ -126,10 +125,6 @@ export function snoozePresets(times: Prefs["snoozeTimes"]): { label: string; ts:
   mon.setDate(mon.getDate() + ((8 - mon.getDay()) % 7 || 7));
   out.push({ label: t("app.snooze.nextWeek", { time: hh(times.nextWeek) }), ts: at(mon, times.nextWeek) });
   return out;
-}
-
-export function splitAddrs(s: string): string[] {
-  return splitRecipients(s);
 }
 
 export function fileToBase64(f: File): Promise<string> {

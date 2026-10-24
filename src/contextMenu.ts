@@ -88,7 +88,7 @@ export function typeAhead(labels: readonly string[], typed: string, from: number
 }
 
 /** Whether the contextmenu event that follows the ContextMenu key / Shift+F10 press is the one the key press already answered (WebView2 sends it on key up). */
-export const KEY_CONTEXT_DEDUPE_MS = 600;
+const KEY_CONTEXT_DEDUPE_MS = 600;
 export function isKeyEcho(openedByKeyAt: number, now: number): boolean {
   return openedByKeyAt > 0 && now - openedByKeyAt >= 0 && now - openedByKeyAt < KEY_CONTEXT_DEDUPE_MS;
 }

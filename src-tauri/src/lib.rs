@@ -3070,6 +3070,7 @@ fn apply_pgp_state(db: &Db, m: &mut MessageFull, pgp: i64) {
     }
 }
 
+#[cfg(test)] // the tests read a message through a bare connection; the app reads it through `message_full_in`
 pub(crate) fn message_full(c: &Connection, message_id: &str) -> R<MessageFull> {
     let (mut m, pgp, raw) = c
         .query_row(&format!("SELECT {MESSAGE_COLS} FROM messages WHERE id=?1"), [message_id], row_message)
@@ -5908,6 +5909,9 @@ pub(crate) fn quit_without_page(app: &tauri::AppHandle) {
 
 /// Steps (d) and (e): queued archive / delete actions are committed, then the app exits (install on quit runs in `ExitRequested`).
 fn quit_final(app: &tauri::AppHandle) {
+    // the test bridge's token file goes now: the watchdog below may end the process with std::process::exit, which skips RunEvent::Exit (W9.4; debug builds only)
+    #[cfg(debug_assertions)]
+    testbridge::remove_info();
     exit_watchdog(app);
     startup::stage(Some(app), "quit: committing the queued actions");
     flush_pending(app);

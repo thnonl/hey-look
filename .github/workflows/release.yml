@@ -339,6 +339,44 @@ jobs:
           [ -e ../dist/index.html ] || echo '<!doctype html><title>stand-in</title>' > ../dist/index.html
           cargo test --locked
 
+  audit:
+    # Dependency audit (W9.11): known vulnerabilities in the npm and Cargo dependencies. A high or critical npm advisory in a production dependency, and
+    # any RustSec vulnerability in src-tauri/Cargo.lock, stop the run (an "unmaintained" or "yanked" notice is printed, it does not). An advisory that must
+    # stay is listed with its reason in src-tauri/.cargo/audit.toml (ignore = [...]), never skipped here. The full npm audit is printed for the record.
+    needs: plan
+    if: ${{ needs.plan.outputs.tests == 'true' }}
+    name: Dependency audit
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci --ignore-scripts
+
+      - name: npm audit (production dependencies, high and critical stop the run)
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: npm audit (everything, for the record)
+        run: npm audit || true
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-audit@0.22.2
+
+      - name: cargo audit
+        working-directory: src-tauri
+        run: cargo audit
+
   rust-tests-windows:
     # `cargo test` on Windows (W11.9): the #[cfg(windows)] tests (webview_health with a real WebView2, winframe, the Windows notification code ...) never ran in CI
     # because the Rust job above is Linux only. Same Rust version and cache rules as the other Rust jobs; runs beside the builds, so the wall time of the run
@@ -958,8 +996,8 @@ jobs:
     # With them: SignPath signs the two Windows installers after the build (it waits for the owner's approval in SignPath), the update
     # signatures are made again from the signed files, checked (verify-update-sigs.cjs, Authenticode = Valid) and replace the unsigned
     # assets of the draft (--clobber). A failure anywhere stops the release: publish needs this job. Owner steps: CONTRIBUTING.md.
-    needs: [plan, create-release, build, node-tests, rust-tests, rust-tests-windows]
-    if: ${{ !cancelled() && needs.plan.outputs.signpath == 'true' && needs.build.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.node-tests.result) && (github.event_name != 'push' || (needs.node-tests.result == 'success' && needs.plan.outputs.ui_tests == 'true')) && contains(fromJSON('["success","skipped"]'), needs.rust-tests.result) && contains(fromJSON('["success","skipped"]'), needs.rust-tests-windows.result) && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped') }}
+    needs: [plan, create-release, build, node-tests, rust-tests, rust-tests-windows, audit]
+    if: ${{ !cancelled() && needs.plan.outputs.signpath == 'true' && needs.build.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.node-tests.result) && (github.event_name != 'push' || (needs.node-tests.result == 'success' && needs.plan.outputs.ui_tests == 'true')) && contains(fromJSON('["success","skipped"]'), needs.rust-tests.result) && contains(fromJSON('["success","skipped"]'), needs.rust-tests-windows.result) && contains(fromJSON('["success","skipped"]'), needs.audit.result) && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped') }}
     runs-on: windows-2025-vs2026
     timeout-minutes: 180
     environment: ${{ github.event_name == 'push' && 'release' || '' }}
@@ -1112,11 +1150,11 @@ jobs:
 
   publish:
     # Runs only when create-release and all three builds succeeded and sign-windows either succeeded or was not wanted (skipped).
-    needs: [plan, create-release, build, sign-windows, store-exe, node-tests, rust-tests, rust-tests-windows]
+    needs: [plan, create-release, build, sign-windows, store-exe, node-tests, rust-tests, rust-tests-windows, audit]
     timeout-minutes: 30
     permissions:
       contents: write # uploads latest.json and publishes the release
-    if: ${{ !cancelled() && github.event_name == 'push' && needs.plan.outputs.ui_tests == 'true' && needs.create-release.result == 'success' && needs.build.result == 'success' && needs.node-tests.result == 'success' && needs.rust-tests.result == 'success' && needs.rust-tests-windows.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.sign-windows.result) && contains(fromJSON('["success","skipped"]'), needs.store-exe.result) }}
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.plan.outputs.ui_tests == 'true' && needs.create-release.result == 'success' && needs.build.result == 'success' && needs.node-tests.result == 'success' && needs.rust-tests.result == 'success' && needs.rust-tests-windows.result == 'success' && needs.audit.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.sign-windows.result) && contains(fromJSON('["success","skipped"]'), needs.store-exe.result) }}
     runs-on: ubuntu-24.04
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

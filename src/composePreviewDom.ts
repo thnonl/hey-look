@@ -9,7 +9,7 @@ import { DARK_CANVAS } from "./mailCanvas";
 const sheets = new WeakMap<Element, HTMLStyleElement>();
 
 /** Takes the dark recolouring off a region: its sheet and the tags the sheet used. */
-export function clearDarkRegion(scope: Element): void {
+function clearDarkRegion(scope: Element): void {
   sheets.get(scope)?.remove();
   sheets.delete(scope);
   scope.querySelectorAll("[data-hm]").forEach((el) => el.removeAttribute("data-hm"));

@@ -45,6 +45,7 @@ pub fn color_of(theme: Theme) -> Color {
 }
 
 /// The theme the OS has, from the value of the global default `AppleInterfaceStyle` (macOS: "Dark" while dark mode is on, no value in Light).
+#[cfg(any(test, target_os = "macos"))] // only macOS reads the style; the tests pin the rule everywhere
 pub fn os_theme_from_style(style: Option<&str>) -> Theme {
     if style.is_some_and(|s| s.eq_ignore_ascii_case("dark")) { Theme::Dark } else { Theme::Light }
 }

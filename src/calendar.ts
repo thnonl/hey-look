@@ -1,7 +1,7 @@
 // Date helpers for the calendar: everything is computed in the chosen calendar time zone ("auto" = this computer's),
 // never in the browser's local zone by accident. Events are epoch seconds (UTC); all-day events are UTC midnights
 // of their dates and are always handled by date.
-import type { CalEvent, CalInvite } from "./api";
+import type { CalEvent } from "./api";
 import type { Prefs } from "./prefs";
 import { intlLocale, t } from "./i18n";
 import { dateFormat, fmtDayRange, fmtPattern } from "./i18n/format";
@@ -42,7 +42,7 @@ export function calTz(p: Pick<Prefs, "calTz">): string {
 }
 
 const tzOk = new Map<string, boolean>();
-export function validTz(tz: string): boolean {
+function validTz(tz: string): boolean {
   let ok = tzOk.get(tz);
   if (ok === undefined) {
     try {
@@ -83,7 +83,7 @@ export function partsOf(ms: number, tz: string): Parts {
 }
 
 /** UTC instant (ms) of a wall-clock time in a zone. Times inside a clock-change gap move forward. */
-export function zonedMs(y: number, m: number, d: number, h: number, mi: number, tz: string): number {
+function zonedMs(y: number, m: number, d: number, h: number, mi: number, tz: string): number {
   const guess = Date.UTC(y, m - 1, d, h, mi);
   const off = (t: number) => {
     const p = partsOf(t, tz);
@@ -111,7 +111,7 @@ export function addMonths(d: Day, n: number): Day {
   const dim = new Date(Date.UTC(y, m, 0)).getUTCDate();
   return { y, m, d: Math.min(d.d, dim) };
 }
-export const weekdayOf = (d: Day) => new Date(Date.UTC(d.y, d.m - 1, d.d)).getUTCDay();
+const weekdayOf = (d: Day) => new Date(Date.UTC(d.y, d.m - 1, d.d)).getUTCDay();
 export const daysBetween = (a: Day, b: Day) => Math.round((Date.UTC(b.y, b.m - 1, b.d) - Date.UTC(a.y, a.m - 1, a.d)) / DAY_MS);
 
 export function today(tz: string): Day {
@@ -275,10 +275,6 @@ export function toInputs(sec: number, tz: string): { date: string; time: string 
   return { date: `${p.y}-${pad(p.m)}-${pad(p.d)}`, time: `${pad(p.h)}:${pad(p.mi)}` };
 }
 
-export function dayToDate(d: Day): string {
-  return dayKey(d);
-}
-
 export function parseDate(v: string): Day | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
   return m ? { y: Number(m[1]), m: Number(m[2]), d: Number(m[3]) } : null;
@@ -371,10 +367,6 @@ export function eventLabel(e: CalEvent, tz: string): string {
   const when = e.allDay ? t("calendar.label.allDay") : t("calendar.label.timed", { from: fmtTime(e.start, tz), to: fmtTime(e.end, tz) });
   const st = e.status === "cancelled" ? t("calendar.label.cancelled") : myStatusLabel(e.myStatus)?.toLowerCase();
   return `${e.summary}, ${when}${st ? `, ${st}` : ""}`;
-}
-
-export function inviteAsEvent(i: CalInvite): Pick<CalEvent, "start" | "end" | "allDay"> {
-  return { start: i.start, end: i.end, allDay: i.allDay };
 }
 
 export interface Placed<T> {

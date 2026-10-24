@@ -12,7 +12,7 @@ import { checkLinkUrl } from "../linkUrl.ts";
 export type PictureAlign = "left" | "center" | "right";
 
 /** What the elements around a picture say: `text-align` of a `div`/`p` that holds only the picture, and the address of a link that does. */
-export function pictureWrap(el: HTMLElement): { align: PictureAlign | null; href: string | null } {
+function pictureWrap(el: HTMLElement): { align: PictureAlign | null; href: string | null } {
   let href: string | null = null;
   let node: HTMLElement | null = el;
   const parent = node.parentElement;

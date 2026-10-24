@@ -14,7 +14,6 @@ import { Plugin } from "@tiptap/pm/state";
 import { normColor } from "./colors.ts";
 
 export type TableBorders = "all" | "outside" | "none";
-export const BORDER_KINDS: readonly TableBorders[] = ["all", "outside", "none"];
 
 const sides = ["Top", "Right", "Bottom", "Left"] as const;
 /** Whether a border side of a cell is drawn (style given and not `none`, width not 0). */
@@ -25,7 +24,7 @@ function sideOn(s: CSSStyleDeclaration, side: (typeof sides)[number]): boolean {
 }
 
 /** The border style of a table element: every cell with all four sides = all; some sides = outside (the edge cells); the `border` attribute of a pasted table = all; else none. */
-export function readBorders(table: HTMLElement): TableBorders {
+function readBorders(table: HTMLElement): TableBorders {
   const cells = Array.from(table.querySelectorAll<HTMLElement>("td, th"));
   if (cells.length) {
     const full = cells.filter((c) => sides.every((s) => sideOn(c.style, s))).length;

@@ -16,7 +16,7 @@ import { Requester, UNREACHABLE, type Reply } from "./request";
 export const requester = new Requester({ send: (id, kind, payload) => api.popoutRequest(id, kind, payload) });
 
 /** The words a failed request is shown in: the main page did not answer, or the reason it gave. */
-export function requestError(e: unknown): string {
+function requestError(e: unknown): string {
   return e instanceof Error && e.message === UNREACHABLE ? t("app.popout.mainUnreachable") : friendlyError(e);
 }
 

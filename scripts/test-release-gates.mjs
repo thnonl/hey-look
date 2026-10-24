@@ -39,7 +39,7 @@ for (let i = jobsAt + 1; i < yml.length; i++) {
   const c = /^    if:\s*(.*)$/.exec(l);
   if (c) cur.cond = c[1].trim().replace(/^\$\{\{\s*/, "").replace(/\s*\}\}$/, "");
 }
-for (const n of ["plan", "create-release", "node-tests", "rust-tests", "rust-tests-windows", "build", "sign-windows", "store-exe", "publish", "apt-repo", "apt-repo-dryrun", "msix", "msix-check", "store-url", "store-submit", "store-submit-exe"]) assert.ok(jobs[n], `job ${n} not found`);
+for (const n of ["plan", "create-release", "node-tests", "rust-tests", "rust-tests-windows", "audit", "build", "sign-windows", "store-exe", "publish", "apt-repo", "apt-repo-dryrun", "msix", "msix-check", "store-url", "store-submit", "store-submit-exe"]) assert.ok(jobs[n], `job ${n} not found`);
 
 const planScript = (() => {
   const at = yml.findIndex((l, i) => i > jobs.plan.start && /^ {8}run: \|\s*$/.test(l));
@@ -111,7 +111,7 @@ const evalCond = (cond, ctx) => {
 const simulate = ({ event, plan, fail = [], testVersion = "", outputs = {} }) => {
   const result = { plan: { result: "success", outputs: plan } };
   const legs = [];
-  const order = ["plan", "create-release", "node-tests", "rust-tests", "rust-tests-windows", "build", "sign-windows", "store-exe", "publish", "apt-repo", "apt-repo-dryrun", "msix", "msix-check", "store-url", "store-submit", "store-submit-exe"];
+  const order = ["plan", "create-release", "node-tests", "rust-tests", "rust-tests-windows", "audit", "build", "sign-windows", "store-exe", "publish", "apt-repo", "apt-repo-dryrun", "msix", "msix-check", "store-url", "store-submit", "store-submit-exe"];
   for (const name of order.slice(1)) {
     const job = jobs[name];
     const needs = {};
@@ -180,7 +180,7 @@ for (const shard of ["static", ...UI]) {
     });
   }
 }
-for (const job of ["rust-tests", "rust-tests-windows", "build", "create-release"]) {
+for (const job of ["rust-tests", "rust-tests-windows", "audit", "build", "create-release"]) {
   check(`(b) tag, ${job} fails`, () => {
     assert.equal(run({ event: "push", fail: [job] }).result.publish, "skipped");
   });
@@ -209,6 +209,7 @@ for (const uiTests of ["", "false"]) {
       "node-tests": "success",
       "rust-tests": "success",
       "rust-tests-windows": "success",
+      audit: "success",
       build: "success",
       "sign-windows": "skipped",
       "store-exe": "skipped",

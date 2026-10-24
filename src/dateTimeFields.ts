@@ -27,7 +27,7 @@ export function readIso(v: string): YMD | null {
   return real(Number(m[1]), Number(m[2]), Number(m[3]));
 }
 
-export const toIso = (x: YMD): string => `${String(x.y).padStart(4, "0")}-${pad(x.m)}-${pad(x.d)}`;
+const toIso = (x: YMD): string => `${String(x.y).padStart(4, "0")}-${pad(x.m)}-${pad(x.d)}`;
 
 function real(y: number, m: number, d: number): YMD | null {
   if (!(y >= 1000 && y <= 9999) || !(m >= 1 && m <= 12) || !(d >= 1 && d <= 31)) return null;

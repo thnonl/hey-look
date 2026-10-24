@@ -195,6 +195,8 @@ static | bash .github/scripts/check-oauth-env.sh --selftest
 static | node scripts/test-publish-manifest.mjs
 # 1.0.7 W11.3, W11.8, W11.9, W11.11, W11.12: the three workflows as text: SHA-pinned actions, secrets only behind the push gate, environments, no -latest runner, the needs of sign-windows and publish, the shards, the signing rehearsal; 12 mutations
 static | node scripts/test-release-workflow.mjs
+# 1.0.7 W9.10: an export of src/ (a value, not a type) that no other file of src/ or scripts/ names is dead code; the scan is proven on a scratch export
+static | node scripts/test-dead-exports.mjs
 # was not run by CI before
 static | node --experimental-strip-types scripts/test-site-top-bar-dark.mjs
 # a press elsewhere closes an open popover: inside a dialog, on the Windows title bar (with a copy of Tauri's drag script) and inside the message text; real mouse presses in the dev preview

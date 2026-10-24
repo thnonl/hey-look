@@ -3,7 +3,7 @@ import { onOsDarkChange, osDark } from "./osTheme";
 import { useStore } from "./store";
 
 /** True while the OS is dark: the engine's media query, or on Linux what the backend resolved (osTheme.ts); follows it live. */
-export function useOsDark(): boolean {
+function useOsDark(): boolean {
   const [os, setOs] = useState(osDark);
   useEffect(() => {
     const on = () => setOs(osDark());

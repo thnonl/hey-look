@@ -139,20 +139,6 @@ impl Comp {
         self.items.insert(at, Item::P(line));
     }
 
-    /// Replace one line (by index among the component's own lines) with another.
-    pub fn replace_prop(&mut self, index: usize, line: Prop) {
-        let mut n = 0;
-        for i in self.items.iter_mut() {
-            if let Item::P(p) = i {
-                if n == index {
-                    *p = line;
-                    return;
-                }
-                n += 1;
-            }
-        }
-    }
-
     /// Remove the nested components for which `drop` says so.
     pub fn drop_comps(&mut self, mut drop: impl FnMut(&Comp) -> bool) {
         self.items.retain(|i| !matches!(i, Item::C(c) if drop(c)));
@@ -405,13 +391,6 @@ impl Zone {
                 _ => Zone::iana(tz),
             },
             None => Zone::Utc,
-        }
-    }
-
-    pub fn tz(&self) -> Option<Tz> {
-        match self {
-            Zone::Utc => None,
-            Zone::Named { tz, .. } => Some(*tz),
         }
     }
 }

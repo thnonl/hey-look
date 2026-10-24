@@ -87,7 +87,7 @@ export function sidebarLayout(i: SidebarInput): SidebarLayout {
 export type OverlayAction = "open" | "close" | "none";
 
 /** Whether the full menu would fit next to the list and the reading pane (the layout of the setting "expanded" is not squeezed). */
-export function sidebarHasRoom(i: SidebarInput): boolean {
+function sidebarHasRoom(i: SidebarInput): boolean {
   return !sidebarLayout({ ...i, mode: "expanded" }).squeezed;
 }
 
