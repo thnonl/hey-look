@@ -469,6 +469,10 @@ pub fn on_os_theme_changed(app: &AppHandle, source: &str) {
 fn native_windows(app: &AppHandle) -> Vec<(String, *mut std::ffi::c_void)> {
     let mut v = Vec::new();
     for (label, w) in app.webview_windows() {
+        // a window on its way out has no handle any more once tauri has let go of it: it is left alone (round 11a: "no native window" every 2 s)
+        if crate::popout::is_retiring(app, &label) {
+            continue;
+        }
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| w.ns_window())) {
             Ok(Ok(p)) => v.push((label, p)),
             Ok(Err(e)) => log(&format!("{label}: no native window: {e}")),
