@@ -54,6 +54,8 @@ rand08 = { package = "rand", version = "0.8" }
 smallvec = "1"
 # snippet.rs cuts preview text on grapheme boundaries (emoji sequences, combining marks); already in the lock file
 unicode-segmentation = "1"
+# NFC for matching the "view in browser" phrases (W6.13); the version is the one already in Cargo.lock (through url / idna)
+icu_normalizer = { version = "2.3", default-features = false, features = ["compiled_data"] }
 semver = "1"
 tokio = { version = "1", features = ["sync", "time", "macros"] }
 

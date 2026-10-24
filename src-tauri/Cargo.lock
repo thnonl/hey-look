@@ -2446,6 +2446,7 @@ dependencies = [
  "fontdue",
  "gtk",
  "hickory-resolver",
+ "icu_normalizer",
  "idna",
  "imap",
  "imap-proto",
