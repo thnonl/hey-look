@@ -283,6 +283,9 @@ async function runConfig(c) {
   await press('ArrowDown', 1);
   await until(`window.__store.getState().accounts.map((a) => a.id).join() === ${JSON.stringify(o0)}`);
   ok((await order()) === o0, 'Alt+Down did not move the mailbox back');
+  // (Alt+Down put the focus back on the mailbox the way a moved row gets it back, which scrolls the icon column into view; the scroll event of that arrives one frame later - after the menu
+  // exists, when the key came at once - and a menu closes on a scroll of the page behind it. Waiting until the page is still lets that event pass first, as a person's key press always does.)
+  await settle();
   await press('ContextMenu');
   ok((await until(`document.querySelectorAll('.ctx-menu [role=menuitem], .ctx-menu .menu-row').length >= 2`, 1500)) >= 0, 'the menu key on a mailbox opened no menu');
   ok(await evaluate(sideIs('peek')), 'the menu of a mailbox closed the peek');

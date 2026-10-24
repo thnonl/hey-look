@@ -42,7 +42,8 @@ const none = { cc: "", bcc: "" };
     assert.equal(got.showCc, want.showCc, `the Cc rows of ${JSON.stringify(init)}`);
   }
   // REQ-13.13.12: the shell of a Reply all that has Cc recipients shows the rows before the message is there; a plain reply's shell does not
-  assert.equal(startRecipients({ isReply: true, preparing: { kind: "reply", id: "s", key: "k", at: 0, cc: true } }, none).showCc, true, "Reply all with Cc: the rows are in the shell");
+  assert.equal(startRecipients({ isReply: true, preparing: { kind: "reply", id: "s", key: "k", at: 0, rcpt: { to: ["a@x.test"], cc: ["c@x.test"] } } }, none).showCc, true, "Reply all with Cc: the rows are in the shell");
+  assert.equal(startRecipients({ isReply: true, preparing: { kind: "reply", id: "s", key: "k", at: 0, rcpt: { to: ["a@x.test"], cc: [] } } }, none).showCc, false, "Reply (no Cc expected): no Cc rows");
   assert.equal(startRecipients({ isReply: true, preparing: { kind: "reply", id: "s", key: "k", at: 0 } }, none).showCc, false, "Reply: no Cc rows");
   assert.equal(startRecipients({ preparing: { kind: "forward", id: "s", key: "k", at: 0 } }, { cc: "", bcc: "audit@x.test" }).showCc, true, "Forward with an Auto Bcc: the Bcc row is in the shell");
   // ... and the finished message (no `preparing`) shows them when it has Cc recipients, which is what the fill adds to the rows the shell had

@@ -238,14 +238,15 @@ const job = (r, over = {}) => ({
   assert.deepEqual(told, [["<q>", 1]]);
 }
 
-// ---- a Reply all that has Cc recipients puts the Cc rows in the shell (REQ-13.13.12); nothing else carries the flag
+// ---- a Reply / Reply all carries the recipients it is expected to have into the shell (REQ-13.13.12: the Cc rows, and the room a wrapping row needs); a Forward carries none
 {
   const r = rig();
-  await createAnswerShell(r.deps).open(job(r, { cc: true }));
-  assert.equal(r.last.preparing.cc, true, "the shell knows that the Cc rows are needed");
+  const rcpt = { to: ["a@x.test", "b@x.test"], cc: ["c@x.test"] };
+  await createAnswerShell(r.deps).open(job(r, { rcpt }));
+  assert.deepEqual(r.last.preparing.rcpt, rcpt, "the shell knows who the answer is expected to go to");
   const r2 = rig();
   await createAnswerShell(r2.deps).open(job(r2));
-  assert.equal(r2.last.preparing.cc, undefined, "a Reply or Forward has no such flag");
+  assert.equal(r2.last.preparing.rcpt, undefined, "a Forward has no such list");
 }
 
 // ---- the hand-over to a window waits for both sides, in either order, and sends once

@@ -46,8 +46,8 @@ export interface AnswerJob<T> {
   shell: ComposeInit;
   /** the attachments of a forward are fetched: the status says so ("Getting the attachments…") */
   fetching?: boolean;
-  /** a Reply all that is known to have Cc recipients (from the message as stored): the Cc and Bcc rows are in the shell (REQ-13.13.12) */
-  cc?: boolean;
+  /** the recipients a Reply / Reply all is expected to have (from the message as stored): the shell draws them invisibly, so the Cc and Bcc rows are there from the first frame and a row that wraps has its height (REQ-13.13.12) */
+  rcpt?: { to: string[]; cc: string[] };
   o: StartOpts;
   /** The slow steps. Called at once, before the shell is open; `painted` resolves when the shell was drawn (heavy work waits for it). Never rejects in practice (each step has its fallback). */
   prepare(painted: Promise<void>): Promise<T>;
@@ -82,7 +82,7 @@ export function createAnswerShell(deps: ShellDeps, safetyMs: number = SAFETY_MS,
       const gate = new Promise<void>((r) => (painted = r));
       // the slow steps start now, side by side, not after the shell (REQ-13.13.3)
       const work: Promise<Outcome<T>> = job.prepare(gate).then((value) => ({ ok: true as const, value }), (error: unknown) => ({ ok: false as const, error }));
-      const shell: ComposeInit = { ...job.shell, preparing: { kind: job.kind, id, key: job.key, at: now(), ...(job.fetching ? { fetching: true } : {}), ...(job.cc ? { cc: true } : {}) } };
+      const shell: ComposeInit = { ...job.shell, preparing: { kind: job.kind, id, key: job.key, at: now(), ...(job.fetching ? { fetching: true } : {}), ...(job.rcpt ? { rcpt: job.rcpt } : {}) } };
       const opening = deps.open(shell, job.o).catch((): ShellStart => ({ ok: false }));
       void opening.then(() => deps.paint()).then(painted, painted);
       const start = await opening;

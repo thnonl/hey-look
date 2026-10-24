@@ -11,7 +11,7 @@ export const isFreshMessage = (init: Pick<ComposeInit, "replaces" | "isReply" | 
 
 /**
  * To, Cc and Bcc as Compose opens them (from a received message, a draft or a link: never a line break in a header), and whether the Cc and Bcc rows are shown. The rows are shown when
- * either has someone, and also when the shell of a Reply all says that Cc recipients are expected (`preparing.cc`, REQ-13.13.12: the row is in the shell, nothing appears at the fill).
+ * either has someone, and also when the shell of a Reply all says that Cc recipients are expected (`preparing.rcpt.cc`, REQ-13.13.12: the row is in the shell, nothing appears at the fill).
  * `auto`: the Auto Cc / Bcc of the From account (used for a fresh message only).
  */
 export function startRecipients(init: ComposeInit, auto: { cc: string; bcc: string }): { to: string[]; cc: string[]; bcc: string[]; showCc: boolean } {
@@ -21,7 +21,7 @@ export function startRecipients(init: ComposeInit, auto: { cc: string; bcc: stri
   const to = (init.to ?? []).map(cleanHeaderText);
   const cc = [...(init.cc ?? []).map(cleanHeaderText), ...(autoCc ? [autoCc] : [])];
   const bcc = [...(init.bcc ?? []).map(cleanHeaderText), ...(autoBcc ? [autoBcc] : [])];
-  return { to, cc, bcc, showCc: cc.length > 0 || bcc.length > 0 || !!init.preparing?.cc };
+  return { to, cc, bcc, showCc: cc.length > 0 || bcc.length > 0 || (init.preparing?.rcpt?.cc.length ?? 0) > 0 };
 }
 
 /** The attachments of an opened draft / forward are shown (and sent) under a clean name: no folder, no hidden characters (O-05). */
