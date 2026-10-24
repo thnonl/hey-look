@@ -1,0 +1,55 @@
+platform darwin; pid 78023
+sw_vers: ProductName:		macOS; ProductVersion:		27.0.1; BuildVersion:		26A434;  chip: arm64
+
+== compose: warm-up 3, then 20 cycles ==
+  5/20
+  10/20
+  15/20
+  20/20
+### compose (20 cycles)
+| measure | baseline | after | delta | delta per cycle |
+|---|---|---|---|---|
+| nsapp.total | 27 | 47 | 20 | 1 |
+| nsapp.titled | 23 | 43 | 20 | 1 |
+| webviewWindows | 2 | 2 | 0 | 0 |
+| footprintMB | 67.08 | 80.13 | 13.05 | 0.65 |
+| rssMB | 150.17 | 144.20 | -5.97 | -0.30 |
+| ws.all | 28 | 48 | 20 | 1 |
+| ws.onScreen | 2 | 2 | 0 | 0 |
+| webContent | 13 | 13 | 0 | 0 |
+
+{"mode":"compose","cycles":20,"nsapp.total":"FAIL (+20)","nsapp.titled":"FAIL (+20)","windowServer":"FAIL (all 20, onScreen 0)","webviewWindows":"PASS","memoryPerCycleMB":0.652,"memory":"FAIL","webContentAfter30s":"FAIL (15 vs 13)"}
+
+== reader: warm-up 3, then 20 cycles ==
+  5/20
+  10/20
+  15/20
+  20/20
+### reader (20 cycles)
+| measure | baseline | after | delta | delta per cycle |
+|---|---|---|---|---|
+| nsapp.total | 50 | 70 | 20 | 1 |
+| nsapp.titled | 46 | 66 | 20 | 1 |
+| webviewWindows | 2 | 2 | 0 | 0 |
+| footprintMB | 82.24 | 103.39 | 21.16 | 1.06 |
+| rssMB | 142.92 | 173.06 | 30.14 | 1.51 |
+| ws.all | 51 | 71 | 20 | 1 |
+| ws.onScreen | 2 | 2 | 0 | 0 |
+| webContent | 14 | 14 | 0 | 0 |
+
+{"mode":"reader","cycles":20,"nsapp.total":"FAIL (+20)","nsapp.titled":"FAIL (+20)","windowServer":"FAIL (all 20, onScreen 0)","webviewWindows":"PASS","memoryPerCycleMB":1.058,"memory":"FAIL","webContentAfter30s":"PASS"}
+
+== mixed: warm-up 3, then 20 cycles ==
+file:///Users/nam/qa-heylook/r18/e2e-v107-wp4/mac-leak-qa.mjs:47
+  if (!res.ok) throw new Error(`${method} ${p}: HTTP ${res.status} ${JSON.stringify(json)}`);
+                     ^
+
+Error: POST /eval: HTTP 404 {"error":"no window 'compose-26' (GET /windows lists them)","ok":false}
+    at call (file:///Users/nam/qa-heylook/r18/e2e-v107-wp4/mac-leak-qa.mjs:47:22)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async evalIn (file:///Users/nam/qa-heylook/r18/e2e-v107-wp4/mac-leak-qa.mjs:54:13)
+    at async composeCycle (file:///Users/nam/qa-heylook/r18/e2e-v107-wp4/mac-leak-qa.mjs:125:5)
+    at async run (file:///Users/nam/qa-heylook/r18/e2e-v107-wp4/mac-leak-qa.mjs:173:36)
+    at async file:///Users/nam/qa-heylook/r18/e2e-v107-wp4/mac-leak-qa.mjs:209:37
+
+Node.js v24.5.0

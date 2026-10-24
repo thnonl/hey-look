@@ -1,0 +1,6 @@
+R9 d0dd41e Linux (debug build dist 09:23:28, binary 09:25), section 35 rows:
+WK-35.06 PASS: reader-1 buttons 'Previous conversation (k)' / 'Next conversation (j)', svg 16x16, box 32x32 inside, Next -> new subject, active H1, scroll 0.
+WK-35.07 PASS: compose-1 'Move to main window', title '(Ctrl+Shift+O)', svg 16x16, box 28x28.
+WK-35.12 PASS: Settings window box [0,0,900,680], no head/back/scrollX. WK-35.13 PASS: Settings window 720x500 in de/ru/en: nav-clip []. WK-35.14 PASS: search window 18 rows, body 760x613, scrolls, title 'Search results – Hey Look!'.
+WK-35.04 PASS (approximation, my loop): 20 compose open/popout_close cycles: windows 1->1, X windows 1->1, RSS 272 -> 275 MB (+0.15/cycle).
+WK-35.05 PASS: kill -9 of a compose window's WebKitWebProcess: log 'render process exited', 'page process died: reloading', window ready again; second kill: 'page process died again: closed', window hidden and destroyed. The toast 'A window stopped working and was closed.' was NOT seen (read 10 s later, toasts []).
