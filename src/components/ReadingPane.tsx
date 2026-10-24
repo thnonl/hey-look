@@ -19,6 +19,7 @@ import { useLang, useT } from "../i18n/react";
 import { fmtNumber } from "../i18n/format";
 import { tx } from "../i18n/rich";
 import { DARK_CANVAS, frameBaseCss, frameRootClass, toggleMailCanvas } from "../mailCanvas";
+import { MAIL_FRAME_CSS, MAIL_FRAME_SPIN_CSS } from "../mailFrameCss";
 import { reapply as reapplyColorScheme, rewriteMailHtml } from "../colorSchemeMedia";
 import { eff } from "../prefs";
 import { CONFIDENTIAL_FRAME_CSS, lockDocument, useContentProtection } from "../protect";
@@ -307,14 +308,9 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   const srcDoc = useMemo(
     () => `<!doctype html><html data-hm-doc${frameRootClass(darkNow.current ? "dark" : "original")}><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><base target="_blank">
     <style>${frameBaseCss()}
-    body{font:14px/1.5 "Segoe UI Variable","Segoe UI",system-ui,sans-serif;margin:0;padding:10px 12px;word-wrap:break-word;background:var(--hm-bg);color:var(--hm-fg)}
-    img{max-width:100%;height:auto;cursor:zoom-in}blockquote{margin:0 0 0 .8ex;border-left:2px solid #999;padding-left:1ex}a{color:var(--hm-link)}table{max-width:100%}
-    .hl-ph{display:flex;align-items:center;gap:10px;max-width:100%;width:360px;padding:12px 14px;border:1px dashed #9aa3af;border-radius:10px;background:#f6f7f9;color:#5b6470;font:13px/1.4 "Segoe UI",sans-serif;cursor:pointer;text-align:left;box-sizing:border-box;flex-wrap:wrap}
-    .hl-ph:hover{background:#eceef2}.hl-ph b{color:#1f2328}.hl-ph.bad{border-color:#c4314b;color:#c4314b}.hl-ph:disabled{cursor:default}
-    .hl-bp{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;max-width:100%;box-sizing:border-box;overflow:hidden;border:1px dashed #9aa3af;border-radius:6px;background:#f6f7f9;color:#5b6470;font:12px/1.3 "Segoe UI",system-ui,sans-serif;vertical-align:middle;cursor:default}
-    .hl-bp-ico{flex:none;width:20px;height:20px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235b6470' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='18' height='18' rx='2'/%3E%3Ccircle cx='9' cy='9' r='2'/%3E%3Cpath d='m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21'/%3E%3C/svg%3E") center/contain no-repeat}.hl-bp-alt{max-width:100%;box-sizing:border-box;padding:0 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#5b6470}
+    ${MAIL_FRAME_CSS}
     ${lockedNow.current ? CONFIDENTIAL_FRAME_CSS : ""}
-    .hl-spin{width:14px;height:14px;border:2px solid #9aa3af;border-top-color:transparent;border-radius:50%;animation:hlspin 1s linear infinite;flex:none}@keyframes hlspin{to{transform:rotate(360deg)}}</style>
+    ${MAIL_FRAME_SPIN_CSS}</style>
     </head><body>${rewriteMailHtml(html, darkNow.current)}<style>html,body{overflow:hidden!important;height:auto!important;min-height:0!important}</style></body></html>`,
     [html, csp, m.confidential], // eslint-disable-line react-hooks/exhaustive-deps
   );
