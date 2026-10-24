@@ -9,10 +9,10 @@ const compose = items("compose");
 const compact = items("compact");
 
 // the spec's priority list (4.1): B, I, U, Bulleted, Numbered, Link, Picture, Font color, Highlight, Font, Size, Styles, Align, Increase indent, Decrease indent,
-// Strikethrough, (Table), Insert, Clear formatting, Undo, Redo
+// Strikethrough, (Table), Insert, Format painter (W3.1), Clear formatting, Undo, Redo
 const byPriority = [...compose].sort((a, b) => a.priority - b.priority).map((i) => i.id);
 assert.deepEqual(byPriority, [
-  "bold", "italic", "underline", "bulleted", "numbered", "link", "picture", "fontColor", "highlight", "font", "size", "styles", "align", "indentMore", "indentLess", "strike", "table", "insert", "clear", "undo", "redo",
+  "bold", "italic", "underline", "bulleted", "numbered", "link", "picture", "fontColor", "highlight", "font", "size", "styles", "align", "indentMore", "indentLess", "strike", "table", "insert", "painter", "clear", "undo", "redo",
 ]);
 assert.equal(new Set(compose.map((i) => i.order)).size, compose.length, "every control has a place of its own");
 assert.equal(new Set(compose.map((i) => i.priority)).size, compose.length, "every control has a priority of its own");
@@ -23,7 +23,10 @@ assert.equal(new Set(compose.map((i) => i.priority)).size, compose.length, "ever
   assert.deepEqual(full.hidden, []);
   assert.deepEqual(full.visible, [...byPriority].sort((a, b) => BAR_META[a].order - BAR_META[b].order));
   // the bar reads as the spec's picture: Undo Redo | Font Size | B I U S | colours | Bulleted Numbered Decrease Increase | Align | Styles | Link Picture Insert | Clear
-  assert.deepEqual(full.visible, ["undo", "redo", "font", "size", "bold", "italic", "underline", "strike", "fontColor", "highlight", "bulleted", "numbered", "indentLess", "indentMore", "align", "styles", "link", "picture", "table", "insert", "clear"]);
+  assert.deepEqual(full.visible, ["undo", "redo", "painter", "font", "size", "bold", "italic", "underline", "strike", "fontColor", "highlight", "bulleted", "numbered", "indentLess", "indentMore", "align", "styles", "link", "picture", "table", "insert", "clear"]);
+  // W3.1: the Format painter has its own group "clipboard" right after Undo / Redo, in both toolbars, and a place in More when it does not fit
+  assert.equal(BAR_META.painter.group, "clipboard");
+  assert.ok(compose.some((i) => i.id === "painter") && compact.some((i) => i.id === "painter"), "in the message body and in the compact toolbar");
   // and exactly as wide as the bar needs
   assert.equal(layoutBar(compose, barWidth(compose)).hidden.length, 0);
   assert.equal(layoutBar(compose, barWidth(compose) - 1).hidden.length, 1, "one pixel less: the least important control (Redo) goes");
@@ -39,6 +42,8 @@ const pane360 = 360 - 2 * 16 - 66;
 {
   const r = layoutBar(compose, pane360);
   for (const id of ["bold", "italic", "underline", "bulleted", "numbered", "link", "picture"]) assert.ok(r.visible.includes(id), `${id} is in the bar at 360 px`);
+  assert.deepEqual(r.visible.filter((id) => !["bold", "italic", "underline", "bulleted", "numbered", "link", "picture"].includes(id)), [], "the visible set of AC-17 is unchanged by the painter (priority 185)");
+  assert.ok(r.hidden.includes("painter"), "the painter is in More at 360 px");
   assert.ok(r.hidden.includes("fontColor") && r.hidden.includes("font"), "the rest is in More");
   // the hidden ones come in priority order, the most important first
   assert.deepEqual(r.hidden, byPriority.filter((id) => r.hidden.includes(id)));

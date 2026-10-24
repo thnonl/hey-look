@@ -174,6 +174,12 @@ pub fn kind_of_label(label: &str) -> Option<Kind> {
     Kind::parse(prefix)
 }
 
+/// Is the window on its way out (its close was asked for or its end is being checked)? A poll that walks the windows (wintheme.rs) leaves such a window alone.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn is_retiring(app: &AppHandle, label: &str) -> bool {
+    reg(app).get(label).is_some_and(|e| e.retiring)
+}
+
 /// Is this window label a secondary window (not `main`)?
 pub fn is_secondary(label: &str) -> bool {
     kind_of_label(label).is_some()
@@ -437,7 +443,9 @@ impl Registry {
                 return Request::Focus { label: e.label.clone() };
             }
         }
-        if self.entries.len() >= MAX_SECONDARY {
+        // a window that is on its way out (its close was asked for, its end is being checked) does not count: the person who closed it and opens another must not be told "too many"
+        // because a window system is slow to let go (D-094: Settings, a search and the Scheduled list did not open after a run of closed windows)
+        if self.entries.iter().filter(|e| !e.retiring).count() >= MAX_SECONDARY {
             return Request::TooMany;
         }
         self.next[kind.index()] += 1;
@@ -766,6 +774,13 @@ fn create(app: &AppHandle, kind: Kind, label: &str, token: &str, cascade: Option
         .visible(false)
         // the colour of the theme from the first frame, not the white of the web view (bgcolor.rs)
         .background_color(crate::bgcolor::for_new_window(app));
+    // macOS (D-097): the page starts BELOW the title bar, never under the three window buttons. tauri's default style (Visible) makes the content view run under the title bar
+    // (NSWindowStyleMaskFullSizeContentView) and D-063 makes the bar transparent, so the page headers lay under the buttons: Transparent keeps the bar transparent (the window's
+    // background colour shows, D-063) without the full-size content view. The main window has the same in tauri.conf.json; macwin.rs `set_one` takes the flag away from any window.
+    #[cfg(target_os = "macos")]
+    {
+        b = b.title_bar_style(tauri::TitleBarStyle::Transparent);
+    }
     // the page handles file drops itself (HTML5 drop in the compose window), like the main window
     b = b.disable_drag_drop_handler();
     // (a QA build has no inspector, see identity.rs devtools_off)
@@ -1013,13 +1028,14 @@ pub fn on_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
                 crate::ai::cancel(&id);
             }
             let entry = reg(app).remove(&label);
+            log(&format!("{label}: destroy done (the Destroyed event came)"));
             if let Some(e) = entry {
                 if let Some(s) = saved_of(&e).filter(|_| e.dirty) {
                     store_saved(app, kind, &s);
                 }
                 log(&format!("{label}: closed"));
                 announce_counts(app);
-                after_destroyed(app, &label);
+                after_destroyed(app, &label, true);
             }
         }
         _ => {}
@@ -1308,7 +1324,7 @@ fn retire_steps(app: &AppHandle, label: &str) {
                 }
                 reg(app).remove(label);
                 announce_counts(app);
-                after_destroyed(app, label);
+                after_destroyed(app, label, false);
                 return;
             }
         }
@@ -1320,8 +1336,11 @@ fn destroy_on_event_loop(app: &AppHandle, label: &str) {
     let (handle, name) = (app.clone(), label.to_string());
     if let Err(e) = app.run_on_main_thread(move || match handle.get_webview_window(&name) {
         Some(w) => {
-            if let Err(e) = w.destroy() {
-                log(&format!("{name}: destroy was refused: {e}"));
+            // (the native window is NOT touched before this: tao's `Destroyed` comes from the window's own `windowWillClose:` notification, which AppKit delivers to the delegate through
+            // an observer that it registers itself; taking observers or the delegate away first, as fix24 did, left the label in the manager for ever, 1.0.7 round 11a)
+            match w.destroy() {
+                Ok(()) => log(&format!("{name}: destroy requested")),
+                Err(e) => log(&format!("{name}: destroy was refused: {e}")),
             }
         }
         None => log(&format!("{name}: destroy: no window object any more")),
@@ -1332,7 +1351,8 @@ fn destroy_on_event_loop(app: &AppHandle, label: &str) {
 
 /// A window is gone (its `Destroyed` event came, or it was given up): say how many windows the app and the window system still list, now and a
 /// little later, and finish its native window by hand (macOS). The lines in the log are the proof that windows are released.
-fn after_destroyed(app: &AppHandle, label: &str) {
+/// `destroyed`: the `Destroyed` event came. A window that was given up while tauri still lists it gets no native step (the teardown is only for a window that has ended, fix26).
+fn after_destroyed(app: &AppHandle, label: &str, destroyed: bool) {
     let mut left: Vec<String> = app.webview_windows().keys().cloned().collect();
     left.sort();
     log(&format!("{label}: {} window(s) left in the app: {}", left.len(), left.join(", ")));
@@ -1341,6 +1361,10 @@ fn after_destroyed(app: &AppHandle, label: &str) {
         std::thread::sleep(SWEEP_AFTER);
         let name = label.clone();
         let _ = app.run_on_main_thread(move || {
+            if !destroyed {
+                log(&format!("{name}: still listed by the app: no native step"));
+                return;
+            }
             if let Some(text) = native_sweep(&name) {
                 log(&format!("{name}: {text}"));
             }
@@ -1348,6 +1372,10 @@ fn after_destroyed(app: &AppHandle, label: &str) {
         std::thread::sleep(COUNT_AFTER);
         let (handle, name) = (app.clone(), label.clone());
         let _ = app.run_on_main_thread(move || {
+            // macOS, debug builds: was the finished window freed? (a weak reference answers, macwin.rs `check`, read-only; the debug bridge counts the answers)
+            if let Some(text) = native_check(&name) {
+                log(&format!("{name}: {text}"));
+            }
             let mut left: Vec<String> = handle.webview_windows().keys().cloned().collect();
             left.sort();
             log(&format!("{name}: {} s after closing: {} window(s) left in the app ({}){}", COUNT_AFTER.as_secs(), left.len(), left.join(", "), native_summary()));
@@ -1376,6 +1404,16 @@ fn native_sweep(label: &str) -> Option<String> {
 }
 #[cfg(not(target_os = "macos"))]
 fn native_sweep(_label: &str) -> Option<String> {
+    None
+}
+
+/// Main thread. The line for the log about whether the native window that was finished was freed (macOS), `None` elsewhere or when none was swept.
+#[cfg(target_os = "macos")]
+fn native_check(label: &str) -> Option<String> {
+    crate::macwin::check(label)
+}
+#[cfg(not(target_os = "macos"))]
+fn native_check(_label: &str) -> Option<String> {
     None
 }
 
@@ -1833,6 +1871,80 @@ mod tests {
         assert_eq!(r.count(Kind::Reader), 0);
     }
 
+    /// D-093: the macOS window code cannot run here; what the sweep does to a finished window, and that the check of the result and the experiment stay in debug builds, is read from the source.
+    #[test]
+    fn the_macos_sweep_takes_away_every_reference_the_app_side_can_and_checks_the_result() {
+        let mac = crate::test_guard::non_test_code(include_str!("macwin.rs"));
+        let sweep = &mac[mac.find("pub fn sweep(").unwrap()..mac.find("pub fn check(").unwrap()];
+        for step in ["setDelegate: nil", "removeObserver: d", "removeObserver: ptr", "removeWindowsItem: ptr", "setContentView: &*empty", "orderOut: nil", "msg_send![ptr, close]", "Weak::from(&w)", "drop(delegate);", "drop(w);"] {
+            assert!(sweep.contains(step), "the sweep lacks {step}");
+        }
+        assert!(sweep.find("setDelegate: nil").unwrap() < sweep.find("msg_send![ptr, close]").unwrap(), "the delegate goes before the window is closed");
+        let check = &mac[mac.find("pub fn check(").unwrap()..mac.find("/// What [`apply_appearance`]").unwrap()];
+        assert!(check.contains("weak.load()") && check.contains("ALIVE.fetch_add") && check.contains("FREED.fetch_add"));
+        assert!(check.contains("if !cfg!(debug_assertions) {") && !check.contains("release]"), "the check is read-only and debug-only (DEC-024)");
+        assert!(!mac.contains("setReleasedWhenClosed"), "nothing here changes who owns the window");
+        // every window of every kind gets the same native ground behind its title bar (D-092)
+        let walk = &mac[mac.find("pub fn apply_appearance(").unwrap()..];
+        assert!(walk.contains("set_ground(w, expected)") && !walk.contains("kind_of_label"), "{walk}");
+        // the check runs after the sweep, in the same closing step, and the bridge shows the counters
+        let pop = crate::test_guard::non_test_code(include_str!("popout.rs"));
+        assert!(pop.contains("native_check(&name)") && pop.find("native_sweep(&name)").unwrap() < pop.find("native_check(&name)").unwrap());
+        assert!(include_str!("testbridge/native.rs").contains("macwin::sweep_stats()"));
+    }
+
+    /// D-093 / round 11a: the Tauri destroy of a window never waits for, or depends on, the native teardown. The teardown (macOS, macwin.rs) runs only after the window is gone
+    /// (`Destroyed`), as the first part of the sweep, on the pointer that was held at creation; the destroy is always requested and its result logged.
+    #[test]
+    fn the_destroy_of_a_window_never_depends_on_the_native_teardown_and_the_teardown_follows_it() {
+        let pop = crate::test_guard::non_test_code(include_str!("popout.rs"));
+        let destroy = &pop[pop.find("fn destroy_on_event_loop(").unwrap()..];
+        let destroy = &destroy[..destroy.find("\n}\n").unwrap()];
+        assert!(destroy.contains("w.destroy()") && !destroy.contains("teardown") && !destroy.contains("macwin"), "nothing native before or around the destroy: {destroy}");
+        assert!(destroy.contains("destroy requested") && destroy.contains("destroy was refused"), "both outcomes are logged");
+        let close = &pop[pop.find("tauri::WindowEvent::CloseRequested { api, .. } =>").unwrap()..];
+        assert!(!close[..close.find("tauri::WindowEvent::Moved").unwrap()].contains("teardown"), "nothing native when a close is only asked for");
+        assert!(!pop.contains("native_teardown"), "no native step is named in the road of a window's end");
+        assert!(pop.contains("destroy done (the Destroyed event came)"), "the log says that the window is gone");
+        let mac = crate::test_guard::non_test_code(include_str!("macwin.rs"));
+        let sweep = &mac[mac.find("pub fn sweep(").unwrap()..mac.find("pub fn check(").unwrap()];
+        assert!(sweep.find("teardown_views(").unwrap() < sweep.find("setDelegate: nil").unwrap(), "the teardown is the first part of the sweep");
+        let td = &mac[mac.find("unsafe fn teardown_views(").unwrap()..mac.find("unsafe fn collect_views(").unwrap()];
+        let steps = ["makeFirstResponder: nil", "unregisterDraggedTypes", "removeObserver: *t", "setNavigationDelegate: nil", "setUIDelegate: nil", "stopLoading", "removeFromSuperview", "removeTitlebarAccessoryViewControllerAtIndex", "setToolbar: nil", "setContentView: &*empty"];
+        let mut at = 0;
+        for step in steps {
+            let i = td.find(step).unwrap_or_else(|| panic!("teardown lacks {step}"));
+            assert!(i >= at, "{step} is out of order");
+            at = i;
+        }
+        assert!(!td.contains("close]") && !td.contains("release]") && !td.contains("setReleasedWhenClosed"), "teardown releases and closes nothing");
+        // the poll of the window system leaves a window that is on its way out alone (no "no native window" every 2 s)
+        let wt = crate::test_guard::non_test_code(include_str!("wintheme.rs"));
+        assert!(wt.contains("crate::popout::is_retiring(app, &label)"), "wintheme skips retiring windows");
+        // the check afterwards is read-only and debug-only (DEC-024; leakfix.rs guards it)
+        let check = &mac[mac.find("pub fn check(").unwrap()..mac.find("/// What [`apply_appearance`]").unwrap()];
+        assert!(check.contains("if !cfg!(debug_assertions) {"));
+    }
+
+    #[test]
+    fn windows_on_their_way_out_do_not_count_against_the_cap_of_eight() {
+        // D-094: after a run of closed windows the next Settings / search / Scheduled window must open, not be refused as "too many"
+        let mut r = Registry::default();
+        let mut labels = vec![];
+        for i in 0..MAX_SECONDARY {
+            let Request::Create { label } = ask(&mut r, Kind::Compose, Some(&format!("draft:{i}"))) else { panic!("{i}") };
+            labels.push(label);
+        }
+        assert_eq!(ask(&mut r, Kind::Settings, Some("settings")), Request::TooMany, "eight open windows: the ninth is refused");
+        // the person closes two of them: they are going, the registry still lists them until the window system has let go
+        r.start_retire(&labels[0]);
+        r.start_retire(&labels[1]);
+        assert_eq!(r.entries.len(), MAX_SECONDARY, "still listed");
+        assert!(matches!(ask(&mut r, Kind::Settings, Some("settings")), Request::Create { .. }), "but they no longer count");
+        assert!(matches!(ask(&mut r, Kind::Search, Some("search:a")), Request::Create { .. }));
+        assert_eq!(ask(&mut r, Kind::Scheduled, Some("scheduled")), Request::TooMany, "back at eight live windows");
+    }
+
     #[test]
     fn a_window_that_is_ended_is_out_of_every_list_at_once() {
         let mut r = Registry::default();
@@ -1970,7 +2082,7 @@ mod tests {
         // no #[cfg(target_os)] around the road itself: the macOS-only parts are the native hold / sweep / summary functions
         let road = &code[code.find("pub fn retire(").unwrap()..code.find("/// macOS: keep a reference to the native window").unwrap()];
         assert!(!road.contains("cfg(target_os") && !road.contains("cfg(windows"), "the end of a window is the same on every system");
-        assert_eq!(code.matches("#[cfg(target_os = \"macos\")]").count(), 3, "native_hold, native_sweep, native_summary");
+        assert_eq!(code.matches("#[cfg(target_os = \"macos\")]").count(), 5, "native_hold, native_sweep, native_check, native_summary, and the title bar style of `create` (D-097)");
         // a window that was ended is never put on screen again: by a second open, by its own page getting ready late, by the wait for the page
         assert!(code.contains("if !reg(app).may_show(label) {"));
         let ready = &code[code.find("pub fn mark_ready(").unwrap()..];

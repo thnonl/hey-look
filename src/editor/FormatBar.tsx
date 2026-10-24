@@ -1,6 +1,6 @@
 import { useEditorState, type Editor } from "@tiptap/react";
 import { Ellipsis } from "lucide-react";
-import { Fragment, Suspense, lazy, useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref, type RefObject } from "react";
+import { Fragment, Suspense, lazy, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref, type RefObject } from "react";
 import { FloatingMenu, type MenuItem } from "../components/ui";
 import { useT } from "../i18n/react";
 import { useStore } from "../store";
@@ -9,6 +9,9 @@ import type { BaseFont } from "./emailHtml";
 import { focusText } from "./commands";
 import { layoutBar } from "./toolbarLayout";
 import { pushRecent } from "./colors";
+import type { PainterMode } from "./formatPainter";
+import type { MiniApi } from "./MiniToolbar";
+import { useMiniShow } from "./useMiniShow";
 
 /** What a host can ask of its toolbar. */
 export interface FormatBarApi {
@@ -26,6 +29,8 @@ export interface BarTrailing {
 }
 
 // the floating tools of the table, the link and the picture (insertUi.tsx) are fetched when the caret first gets into one of them
+// the mini toolbar over a mouse selection (W3.3) is fetched the first time it shows (it is prefetched with the insert tools: kit.ts)
+const MiniToolbar = lazy(() => import("./MiniToolbar"));
 const InsertOverlays = lazy(() => import("./insertUi").then((m) => ({ default: m.InsertOverlays })));
 
 const same = (a: BarState | null, b: BarState | null) => JSON.stringify(a) === JSON.stringify(b);
@@ -52,6 +57,7 @@ export function FormatBar({ editor, base, host, variant, apiRef, trailing }: { e
   const [openVia, setOpenVia] = useState<"key" | null>(null);
 
   const st = useEditorState({ editor, selector: ({ editor: e }) => (e ? readBarState(e, base) : null), equalityFn: same });
+  const painter: PainterMode = st?.painter ?? "off";
 
   const controls = useMemo(() => CONTROLS.filter((c) => c.variants.includes(variant) && (c.id !== "picture" || !!host.insertPicture)), [variant, host.insertPicture]);
   useLayoutEffect(() => {
@@ -74,9 +80,16 @@ export function FormatBar({ editor, base, host, variant, apiRef, trailing }: { e
     if (!visible.includes("link") && moreBtn.current) host.link.btnRef.current = moreBtn.current;
   });
 
+  const focusBar = () => root.current?.querySelector<HTMLElement>(`[data-rove="${CSS.escape(activeId)}"]`)?.focus();
+  const miniApi = useRef<MiniApi | null>(null);
+  const mini = useMiniShow(editor, { enabled: prefs.miniToolbar !== false, painterOn: painter !== "off", blocked: openId !== null || picker !== null || moreOpen || host.link.isOpen });
   const stylesShown = visible.includes("styles");
   useImperativeHandle(apiRef, () => ({
-    focus: () => root.current?.querySelector<HTMLElement>(`[data-rove="${CSS.escape(activeId)}"]`)?.focus(),
+    // Alt+F10: the mini toolbar when it is on screen, else the formatting toolbar
+    focus: () => {
+      if (miniApi.current?.focus()) return;
+      focusBar();
+    },
     openStyles: () => {
       if (stylesShown) {
         setPicker(null);
@@ -88,6 +101,15 @@ export function FormatBar({ editor, base, host, variant, apiRef, trailing }: { e
       }
     },
   }), [activeId, stylesShown]);
+
+  // a screen reader hears the format painter switch on (once or kept on) and off (W3.1: polite live message)
+  const painterWas = useRef<PainterMode>("off");
+  const [live, setLive] = useState("");
+  useEffect(() => {
+    if (painterWas.current === painter) return;
+    painterWas.current = painter;
+    setLive(t(painter === "off" ? "compose.painter.off" : painter === "once" ? "compose.painter.on" : "compose.painter.onSticky"));
+  }, [painter, t]);
 
   if (!editor || !st) return <div className="fmt-tb" role="toolbar" aria-label={t("compose.fmt.toolbar")} ref={root}><div className="fmt-bar" ref={row} /></div>;
 
@@ -146,6 +168,7 @@ export function FormatBar({ editor, base, host, variant, apiRef, trailing }: { e
 
   const pickerControl = picker ? controls.find((c) => c.id === picker) ?? MORE_ITEMS.find((m) => m.id === picker) : undefined;
   return (
+    <>
     <div className="fmt-tb" role="toolbar" aria-label={t("compose.fmt.toolbar")} aria-orientation="horizontal" ref={root} onKeyDown={onKeyDown}>
       <div className="fmt-bar" ref={row}>
       {shown.map((c, i) => (
@@ -178,7 +201,10 @@ export function FormatBar({ editor, base, host, variant, apiRef, trailing }: { e
       {pickerControl?.picker?.(ctx, pickerAt ?? moreBtn, pickerAt ?? moreBtn, () => (setPicker(null), setPickerAt(null)))}
       </div>
       {(st.inTable || st.inLink || st.onPicture) && <Suspense fallback={null}><InsertOverlays editor={editor} st={st} host={host} /></Suspense>}
+      {mini.shown && <Suspense fallback={null}><MiniToolbar editor={editor} ctx={ctx} shown={mini.shown} onHide={mini.hide} onFocusBar={focusBar} apiRef={miniApi} /></Suspense>}
       {trailing?.render(rove)}
     </div>
+    <span className="sr-only" role="status" aria-live="polite">{live}</span>
+    </>
   );
 }

@@ -217,6 +217,11 @@
   "node --experimental-strip-types scripts/test-drag-drop.mjs": 0,
   "node scripts/test-popout-kinds.mjs --require-browser": 23,
   "node scripts/test-popout-real.mjs": 0,
+  "node --experimental-strip-types scripts/test-autoformat.mjs": 0,
+  "node scripts/test-autoformat-ui.mjs --require-browser": 36,
+  "node --experimental-strip-types scripts/test-format-painter.mjs": 0,
+  "node scripts/test-painter-mini.mjs --require-browser": 54,
+  "node --experimental-strip-types scripts/test-mini-toolbar.mjs": 0,
   "node --experimental-strip-types scripts/test-store-texts.mjs": 2,
   "node scripts/test-installer-identity.mjs": 1,
   "node --experimental-strip-types scripts/test-about-store.mjs --quick --require-browser": 40,
@@ -234,6 +239,9 @@
   "node scripts/test-print-ui.mjs --require-browser": 25,
   "node --experimental-strip-types scripts/test-no-tray-texts.mjs": 2,
   "node scripts/test-no-tray-ui.mjs --require-browser": 40,
-  "node scripts/test-notify-buttons-ui.mjs --require-browser": 45
+  "node scripts/test-notify-buttons-ui.mjs --require-browser": 45,
+  "node scripts/test-answer-geometry.mjs --require-browser": 60,
+  "node scripts/test-mac-strip-ui.mjs --require-browser": 40,
+  "node scripts/test-mac-window-top.mjs --require-browser": 25
  }
 }

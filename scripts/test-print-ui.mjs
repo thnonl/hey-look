@@ -23,6 +23,7 @@ const openPane = async (query, theme = 'light', canvas = 'original') => {
   await sleep(500);
 };
 const clickPrint = async () => {
+  assert.ok(await waitFor(`!!document.querySelector('button[aria-label="More actions"]')`, 10000), 'no More actions button');
   await evaluate(`document.querySelector('button[aria-label="More actions"]').click(); 1`);
   const row = `[...document.querySelectorAll('.menu-row')].find((b) => b.querySelector('.menu-lbl')?.textContent.trim() === 'Print')`;
   assert.ok(await waitFor(`!!(${row})`), 'no Print entry');

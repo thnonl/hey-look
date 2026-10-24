@@ -47,6 +47,9 @@ mod macdock;
 #[cfg(target_os = "macos")]
 mod macquit;
 // the native window of a pop-out, finished by hand once it is gone (popout.rs)
+// the source guard of the macOS window code (DEC-024): no manual release of a window or a view; compiled for the tests only
+#[cfg(test)]
+mod leakfix;
 #[cfg(target_os = "macos")]
 mod macwin;
 // the macOS title bar repaint strategies (HEYLOOK_TITLEBAR_MODE); pure, so compiled and tested everywhere

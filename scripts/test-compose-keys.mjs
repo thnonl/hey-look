@@ -40,6 +40,16 @@ assert.equal(keyAction(ev("k", "s"), body), "pass", "Shift+K is a capital letter
 assert.equal(keyAction(ev("k", "c"), body), "insert-link", "Ctrl+K keeps its two meanings: the link in an editor ...");
 assert.equal(keyAction(ev("k", "c"), other), "command-bar", "... the command bar elsewhere (the To field too)");
 
+// --- W3.1: Ctrl/Cmd+Shift+D is the format painter: the editor's own key map gets it ("pass"), AltGr+Shift+D types its character ------------------
+for (const m of ["cs", "ms"]) {
+  assert.equal(keyAction(ev("D", m), body), "pass", `${m}+D in the body reaches the editor's key map`);
+  assert.equal(keyAction(ev("d", m), body), "pass", `${m}+d (Caps Lock off)`);
+}
+assert.equal(keyAction(ev("D", "cas"), body), "editor-skip", "Ctrl+Alt+Shift+D is AltGr+Shift+D: it types its character");
+assert.equal(keyAction(ev("D", "cas", true), body), "editor-skip", "AltGr+Shift+D (German / Polish layouts) never switches the painter on");
+assert.equal(keyAction(ev("D", "mas"), body), "editor-skip", "Cmd+Option+Shift+D on a Mac");
+assert.equal(keyAction(ev("D", "cs"), other), "pass", "outside an editor the key does nothing: no app handler");
+
 // --- D-1: Ctrl/Cmd+Shift+B is the app's Show Bcc; the editor's block quote shortcut must not run ----------------------------------
 assert.equal(keyAction(ev("B", "cs"), body), "editor-skip");
 assert.equal(keyAction(ev("b", "cs"), body), "editor-skip");
@@ -131,8 +141,8 @@ const rich = read("src/components/RichEditor.tsx");
 const app = read("src/App.tsx");
 assert.match(compose, /handleDOMEvents: editorKeyHandlers\(/, "the compose body installs the key guard");
 assert.match(rich, /handleDOMEvents: editorKeyHandlers\(/, "the signature / template editor installs the key guard");
-assert.match(compose, /link: \{ open: \(\) => linkRef\.current\(\)/, "the toolbar link button and Ctrl+K share one link UI");
-assert.match(rich, /link: \{ open: \(\) => linkRef\.current\(\)/, "the signature / template editor too");
+assert.match(compose, /link: \{ open: \(at\) => linkRef\.current\(at\)/, "the toolbar link button and Ctrl+K share one link UI");
+assert.match(rich, /link: \{ open: \(at\) => linkRef\.current\(at\)/, "the signature / template editor too");
 assert.match(compose, /if \(isAltGraph\(e\)\) return;/, "the compose pane shortcuts ignore AltGr");
 assert.match(app, /keyAction\(e, \{ inEditor: inEditable\(e\.target\) \}\)/, "the global Ctrl+K decision knows if an editor has the focus");
 assert.doesNotMatch(app, /e\.key\.toLowerCase\(\) === "k"\) \{\s*e\.preventDefault\(\);\s*st\.setCommandOpen/, "no unconditional Ctrl+K command bar");
@@ -157,9 +167,11 @@ for (const [keys, label] of [
   ["Ctrl+Shift+G", "settings.keys.sign"],
   ["Ctrl+Shift+O", "settings.keys.popOutCompose"],
   ["Alt+F10", "settings.keys.focusToolbar"],
+  ["Ctrl+Shift+D", "compose.fmt.painter"],                        // W3.1: Format painter
 ]) assert.ok(rows.includes(`["${keys}", "${label}"]`), `Settings > Shortcuts has no row ${keys} / ${label}`);
 assert.ok(rows.indexOf('"settings.keys.sign"') < rows.indexOf('"settings.keys.addCcBcc"') && rows.indexOf('"settings.keys.addCcBcc"') - rows.indexOf('"settings.keys.sign"') < 80, "the Cc / Bcc row follows the Sign row");
 assert.ok(rows.indexOf('"settings.keys.commandBar"') < rows.indexOf('"settings.keys.commandBarAnywhere"') && rows.indexOf('"settings.keys.commandBarAnywhere"') - rows.indexOf('"settings.keys.commandBar"') < 80, "the Ctrl+Shift+K row is next to the Ctrl+K command bar row");
+assert.ok(rows.indexOf('["Shift+F3", "compose.fmt.case"], ["Ctrl+Shift+D", "compose.fmt.painter"]') > 0, "the Format painter row is right after the Shift+F3 row");
 // the keys the compose pane handler acts on are the ones with rows above
 for (const re of [/key\.toLowerCase\(\) === "c" \|\| \(e\.key\.toLowerCase\(\) === "b"/, /e\.key\.toLowerCase\(\) === "g"/, /e\.key\.toLowerCase\(\) === "o"/]) assert.match(compose, re);
 for (const l of ["en", "vi", "fr", "de", "es", "ja", "ru", "zh-Hans"]) {

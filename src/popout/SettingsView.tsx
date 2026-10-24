@@ -10,9 +10,8 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
-import { Settings, type MbTab } from "../components/SettingsDialog";
 import { PassphraseHost } from "../components/Pgp";
-import { LazyGenerateKeyDialog, LazyImportKeyDialog, LazyKeyDetailsDialog } from "../lazyViews";
+import { LazyGenerateKeyDialog, LazyImportKeyDialog, LazyKeyDetailsDialog, LazySettingsWindowForm } from "../lazyViews";
 import { t as tNow } from "../i18n";
 import { useLang } from "../i18n/react";
 import { applyPrefs, useStore } from "../store";
@@ -21,6 +20,9 @@ import { askMain } from "./readerBridge";
 import { popoutTitle } from "./route";
 import { refocusOf } from "./windowKinds";
 import type { PopoutViewProps } from "./views";
+
+// (the type of a tab; the page itself is loaded by lazyViews.tsx like every big part: test-lazy-load)
+type MbTab = import("../components/SettingsDialog").MbTab;
 
 const quiet = () => undefined;
 
@@ -108,7 +110,7 @@ export default function SettingsView({ init, label }: PopoutViewProps) {
 
   return (
     <div data-popout="settings">
-      <Settings initial={nav.tab} focus={nav.focus} nonce={nav.nonce} section={first.section} windowed />
+      <LazySettingsWindowForm initial={nav.tab} focus={nav.focus} nonce={nav.nonce} section={first.section} windowed />
       {/* the dialogs of Settings open on top of the page, inside this window */}
       {dialog?.type === "pgp-generate" && <LazyGenerateKeyDialog accountId={dialog.accountId} back={dialog.back} />}
       {dialog?.type === "pgp-import" && <LazyImportKeyDialog armored={dialog.armored} paste={dialog.paste} back={dialog.back} />}

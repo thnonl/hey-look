@@ -135,6 +135,9 @@ export const LazySettings = lazyView<SettingsModule, React.ComponentProps<Settin
   failed: closeDialog,
 });
 
+/** The Settings page as the page of the Settings window (W4.6): nothing is drawn but the loading look while it loads. */
+export const LazySettingsWindowForm = lazyView<SettingsModule, React.ComponentProps<SettingsModule["Settings"]>>({ key: "settings", kind: "settings", load: settingsModule, pick: (m) => m.Settings });
+
 type CalendarModule = Awaited<ReturnType<typeof calendarModule>>;
 const calendarOpts = { key: "calendar", kind: "calendar", load: calendarModule } as const;
 /** The Calendar pane. */
@@ -167,6 +170,9 @@ export const LazyEventDialog = lazyView<CalendarModule, EventProps>({
   frame: (p, late) => <DialogFrame title={p.eventId ? "calendar.dialog.editTitle" : "calendar.newEvent"} late={late} width={560} onClose={closeDialog} />,
   failed: closeDialog,
 });
+
+/** The event form as the page of an event window (W4.6): nothing is drawn but the loading look while it loads; a failure is told by a toast and the window can be closed as usual. */
+export const LazyEventWindowForm = lazyView<CalendarModule, EventProps>({ ...calendarOpts, pick: (m) => m.EventDialog });
 
 type PgpModule = Awaited<ReturnType<typeof pgpModule>>;
 const pgpOpts = { key: "pgp", kind: "pgp", load: pgpModule, dialog: true, failed: closeDialog } as const;

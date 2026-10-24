@@ -545,6 +545,8 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
       <iframe
         ref={frameRef}
         className="msg-frame"
+        // a dark mail sits on the dark surface even before its document has painted: the frame never shows the (light) pane through it for a frame (D-052)
+        style={dark ? { background: `rgb(${DARK_CANVAS.join(",")})` } : undefined}
         sandbox={frameSandbox(navigator.userAgent)}
         scrolling="no"
         srcDoc={srcDoc}

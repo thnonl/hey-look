@@ -905,7 +905,7 @@ for (const [view, folder] of [["inbox", "inbox"], ["unread", "inbox"], ["pinned"
   const root = read("src/popout/PopoutRoot.tsx");
   assert.ok(root.includes("reloaded: !!info.reloaded") && root.includes("recoveryId={known.recoveryId}"), "the view gets the reloaded flag and the snapshot id");
   const hub = read("src/popout/composeHub.ts");
-  assert.ok(hub.includes('listen<{ label?: unknown; kind?: unknown; recoveryId?: unknown }>("popout-crashed"') && hub.includes('t("app.popout.crashed")') && hub.includes("recoverOne(p.recoveryId)"), "main says so and saves the message at once (the start-up recovery road)");
+  assert.ok(hub.includes('listen<{ label?: unknown; kind?: unknown; recoveryId?: unknown }>("popout-crashed"') && hub.includes('t("app.popout.crashed")') && hub.includes('setStickyToast("popout-crashed"') && hub.includes("recoverOne(p.recoveryId)"), "main says so and saves the message at once (the start-up recovery road)");
   assert.ok(hub.includes('p.kind === "compose"'), "only a compose window has a message to save");
   const rec = read("src/composeRecovery.ts");
   assert.ok(rec.includes("export async function recoverOne(") && rec.includes("(await api.recoveryList()).filter(pick)"), "one snapshot goes through the same settle road");

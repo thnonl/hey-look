@@ -45,23 +45,44 @@ export interface Placed {
   up: boolean;
 }
 
+export interface PlaceOptions {
+  edge?: number;
+  gap?: number;
+  inset?: number;
+  /** "left" / "right": the edge of the anchor the popover is lined up with; "center": centred on the anchor (the mini toolbar) */
+  align?: "left" | "right" | "center";
+  toasts?: ToastBox | null;
+  minRoom?: number;
+  /** with `cover: false`: which side is tried first (default below) */
+  prefer?: "above" | "below";
+  /** the least y the popover may reach on its way up: a popover above a selection stays below this line (the mini toolbar must not cover the formatting toolbar over the first line); default: `edge` */
+  roof?: number;
+  /** `false`: the popover never overlaps the anchor box: it goes where it fits in full, else `null` (a selection that fills the room has no place for a toolbar) */
+  cover?: boolean;
+}
+
 /**
  * `anchor`: the button; `size`: the popover as it is when nothing limits it (width and full height); `win`: the window. `edge`: space kept to the window,
  * `gap`: to the button; `inset`: px from the button's left; `minRoom`: the least room it is given (a window that is lower than this is not worth a
- * popover of 40 px).
+ * popover of 40 px). `cover: false` (the mini toolbar over a selection): the popover is centred on the anchor with `align: "center"`, goes on the `prefer` side
+ * (above by default there) when it fits there in full, else on the other side, else the answer is null; it is never made smaller and never overlaps the anchor.
  */
-export function placePopover(
-  anchor: PlaceBox,
-  size: { w: number; h: number },
-  win: { w: number; h: number },
-  o: { edge?: number; gap?: number; inset?: number; align?: "left" | "right"; toasts?: ToastBox | null; minRoom?: number } = {},
-): Placed {
-  const { edge = 8, gap = 4, inset = 0, align = "left", toasts = null, minRoom = 0 } = o;
-  const want = align === "right" ? anchor.right - size.w : anchor.left + inset;
+export function placePopover(anchor: PlaceBox, size: { w: number; h: number }, win: { w: number; h: number }, o: PlaceOptions & { cover: false }): Placed | null;
+export function placePopover(anchor: PlaceBox, size: { w: number; h: number }, win: { w: number; h: number }, o?: PlaceOptions): Placed;
+export function placePopover(anchor: PlaceBox, size: { w: number; h: number }, win: { w: number; h: number }, o: PlaceOptions = {}): Placed | null {
+  const { edge = 8, gap = 4, inset = 0, align = "left", toasts = null, minRoom = 0, prefer = "below", cover = true, roof = 0 } = o;
+  const want = align === "right" ? anchor.right - size.w : align === "center" ? (anchor.left + anchor.right) / 2 - size.w / 2 : anchor.left + inset;
   const left = Math.max(edge, Math.min(want, win.w - size.w - edge));
   const floor = popoverFloor(win.h, edge, left, left + size.w, toasts);
   const below = floor - (anchor.bottom + gap);
-  const above = anchor.top - gap - edge;
+  const above = anchor.top - gap - Math.max(edge, roof);
+  if (!cover) {
+    const fitsAbove = above >= size.h;
+    const fitsBelow = below >= size.h;
+    const up = prefer === "above" ? fitsAbove || !fitsBelow : !fitsBelow && fitsAbove;
+    if (!(up ? fitsAbove : fitsBelow)) return null;
+    return { top: up ? anchor.top - gap - size.h : anchor.bottom + gap, left, max: size.h, up };
+  }
   const up = size.h > below && above > below;
   const max = Math.max(up ? above : below, minRoom);
   const h = Math.min(size.h, max);

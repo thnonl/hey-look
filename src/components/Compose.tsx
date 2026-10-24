@@ -535,7 +535,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   };
 
   // Ctrl/Cmd+K in the body and the toolbar button open the same link UI (set after the editor exists)
-  const linkRef = useRef<() => void>(() => undefined);
+  const linkRef = useRef<(at?: unknown) => void>(() => undefined);
   const picToolsRef = useRef<PictureTools | null>(null); // (Alt+F10 with a picture selected: the picture toolbar takes the focus, else the formatting bar)
   const pasteNote = useRef(false); // the "pictures from the web are not pasted" notice is shown once per message
   const startContent = useRef<string | null>(null); // the editor's first content, made once (a big quote is not scanned again at every render)
@@ -2295,7 +2295,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
 
       <div className="cp-fmt" inert={preparing ? true : undefined}>
         <FormatBar
-          editor={editor} base={base} variant="compose" apiRef={barApi} host={{ link: { open: () => linkRef.current(), isOpen: link.isOpen, btnRef: linkBtnRef }, insertPicture: () => picRef.current?.click(), zoom: { value: zoom, set: setZoom }, find: (mode) => openFindRef.current(mode) }}
+          editor={editor} base={base} variant="compose" apiRef={barApi} host={{ link: { open: (at) => linkRef.current(at), isOpen: link.isOpen, btnRef: linkBtnRef }, insertPicture: () => picRef.current?.click(), zoom: { value: zoom, set: setZoom }, find: (mode) => openFindRef.current(mode) }}
           trailing={{ ids: ["pv:light", "pv:dark"], render: (rove) => <PreviewSwitch pv={pv} onChoose={choosePreview} rove={rove} /> }}
         />
         {link.node}
