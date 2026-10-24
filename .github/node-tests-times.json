@@ -229,6 +229,8 @@
   "node --experimental-strip-types scripts/test-color-scheme-media.mjs": 2,
   "node scripts/test-color-scheme-frame.mjs --require-browser": 25,
   "node --experimental-strip-types scripts/test-os-theme.mjs": 2,
-  "node scripts/test-os-theme-ui.mjs --require-browser": 25
+  "node scripts/test-os-theme-ui.mjs --require-browser": 25,
+  "node --experimental-strip-types scripts/test-print-doc.mjs": 2,
+  "node scripts/test-print-ui.mjs --require-browser": 25
  }
 }

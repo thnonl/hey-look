@@ -86,6 +86,7 @@ export default defineLocale<typeof ns.en>({
   "reading.msg.moreActions": "Weitere Aktionen",
   "reading.msg.showOriginal": "Original anzeigen",
   "reading.msg.print": "Drucken",
+  "reading.msg.printFailed": "Diese Nachricht konnte nicht gedruckt werden.",
   "reading.msg.createEvent": "Termin aus dieser E-Mail erstellen…",
   "reading.msg.copySender": "E-Mail-Adresse des Absenders kopieren",
   "reading.msg.copied": "Kopiert",

@@ -69,6 +69,7 @@ mod native {
     use objc2::rc::Retained;
     use objc2::MainThreadMarker;
     use objc2::MainThreadOnly;
+    use objc2::runtime::NSObjectProtocol;
     use objc2_app_kit::{NSPrintInfo, NSPrintOperation, NSWindow};
     use objc2_core_foundation::{CGPoint, CGRect, CGSize};
     use objc2_foundation::NSString;
@@ -109,17 +110,24 @@ mod native {
     }
 
     /// The view that is in no window: JavaScript off, no base URL, the document loading. Main thread.
-    fn make_view(mtm: MainThreadMarker, html: &str) -> Retained<WKWebView> {
+    fn make_view(mtm: MainThreadMarker, html: &str) -> Result<Retained<WKWebView>, String> {
         // SAFETY: plain WebKit calls on the main thread with objects made here.
         unsafe {
             let config = WKWebViewConfiguration::new(mtm);
+            // macOS 11 and later (the print operation of a web view is too): an older system answers an error and the page shows its toast
+            if !config.respondsToSelector(objc2::sel!(defaultWebpagePreferences)) {
+                return Err("this macOS cannot print a web page (macOS 11 or later is needed)".to_string());
+            }
             // no script in the print view, whatever the document says (its CSP says it too)
             config.defaultWebpagePreferences().setAllowsContentJavaScript(false);
             // the size of a Letter page in points: the view is laid out at this width, the print operation paginates for the paper itself
             let frame = CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(612.0, 792.0));
             let view = WKWebView::initWithFrame_configuration(mtm.alloc(), frame, &config);
+            if !view.respondsToSelector(objc2::sel!(printOperationWithPrintInfo:)) {
+                return Err("this macOS cannot print a web page (macOS 11 or later is needed)".to_string());
+            }
             let _ = view.loadHTMLString_baseURL(&NSString::from_str(html), None);
-            view
+            Ok(view)
         }
     }
 
@@ -174,9 +182,11 @@ mod native {
         let started = Instant::now();
         // the view is made and held in the static until the sheet is over (or the print failed)
         let made = on_main(app, move |mtm| {
-            let view = make_view(mtm, &html);
+            let view = make_view(mtm, &html)?;
             *JOB.lock().unwrap_or_else(|p| p.into_inner()) = Some(Job { _view: view, _op: None });
-        });
+            Ok::<(), String>(())
+        })
+        .and_then(|r| r);
         let fail = |why: String| -> Result<(), String> {
             release(app);
             log(&format!("{label}: print failed after {} ms: {why}", started.elapsed().as_millis()));

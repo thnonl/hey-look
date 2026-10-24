@@ -620,6 +620,8 @@ export const api = {
   playNotifySound: () => invoke<void>("play_notify_sound"),
   /** a link in the default browser or mail program, with a checked launch (Linux only; see open.ts) */
   openExternal: (url: string) => invoke<void>("open_external", { url }),
+  /** macOS Print (W5.3): the print document (printDoc.ts) and the job title; the system print sheet opens on the calling window. */
+  printHtml: (html: string, title: string) => invoke<void>("print_html", { html, title }),
   /** text on the system clipboard through the backend (Linux only; see open.ts) */
   copyText: (text: string) => invoke<void>("copy_text", { text }),
   /** the text and the HTML on the system clipboard through the backend (macOS only: Cmd+Shift+V in the editors, see editor/pasteOptions.tsx) */

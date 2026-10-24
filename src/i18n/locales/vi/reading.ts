@@ -85,6 +85,7 @@ export default defineLocale<typeof ns.en>({
   "reading.msg.moreActions": "Thao tác khác",
   "reading.msg.showOriginal": "Xem thư gốc",
   "reading.msg.print": "In",
+  "reading.msg.printFailed": "Không thể in thư này.",
   "reading.msg.createEvent": "Tạo sự kiện từ thư này…",
   "reading.msg.copySender": "Sao chép email người gửi",
   "reading.msg.copied": "Đã sao chép",

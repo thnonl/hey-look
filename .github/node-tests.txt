@@ -372,3 +372,7 @@ ui-a | node scripts/test-color-scheme-frame.mjs --require-browser
 static | node --experimental-strip-types scripts/test-os-theme.mjs
 # 1.0.7 W5.2 (AC-5.2.1-5.2.3, AC-5.2.7 page part): the dev preview plays the Linux backend (#osdark, the event os-color-scheme) while the engine's own scheme is emulated the opposite way: System follows the backend in the first page, in five switches within 2 s, in the Settings preview and in a reader window; Light / Dark chosen stay; back to System at once; Windows and macOS set no data-theme for System
 ui-d | node scripts/test-os-theme-ui.mjs --require-browser
+# 1.0.7 W5.3: the document macOS prints, the wiring of Print in the pages, the three places of print_html
+static | node --experimental-strip-types scripts/test-print-doc.mjs
+# 1.0.7 W5.3: Print on macOS in the dev preview (per-message menu, reader Cmd+P, failure toast)
+ui-c | node scripts/test-print-ui.mjs --require-browser

@@ -86,6 +86,7 @@ export default defineLocale<typeof ns.en>({
   "reading.msg.moreActions": "Другие действия",
   "reading.msg.showOriginal": "Показать оригинал",
   "reading.msg.print": "Печать",
+  "reading.msg.printFailed": "Не удалось напечатать это письмо.",
   "reading.msg.createEvent": "Создать событие из этого письма…",
   "reading.msg.copySender": "Копировать адрес отправителя",
   "reading.msg.copied": "Скопировано",

@@ -86,6 +86,7 @@ export default defineLocale<typeof ns.en>({
   "reading.msg.moreActions": "更多操作",
   "reading.msg.showOriginal": "显示原始邮件",
   "reading.msg.print": "打印",
+  "reading.msg.printFailed": "无法打印这封邮件。",
   "reading.msg.createEvent": "根据此邮件创建事件…",
   "reading.msg.copySender": "复制发件人电子邮件地址",
   "reading.msg.copied": "已复制",

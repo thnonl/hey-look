@@ -176,7 +176,7 @@ assert.equal(readerAllowed("scheduled", "outbox"), false);
   assert.equal(readerKey(k("w", { ctrlKey: true }), ctx()), "close");
   assert.equal(readerKey(k("w", { metaKey: true }), ctx({ mac: true })), "close");
   assert.equal(readerKey(k("p", { ctrlKey: true }), ctx()), "print");
-  assert.equal(readerKey(k("p", { metaKey: true }), ctx({ mac: true })), null, "no Print on macOS");
+  assert.equal(readerKey(k("p", { metaKey: true }), ctx({ mac: true })), "print", "Cmd+P prints on macOS (W5.3)");
   assert.equal(readerKey(k("p", { ctrlKey: true, shiftKey: true }), ctx()), null);
   // not while typing, not behind a dialog (Esc closes the dialog first), no other modifier combination
   for (const key of Object.keys(table)) {
@@ -341,7 +341,7 @@ assert.equal(popoutTitle(readerTitleText("", "(no subject)")), "(no subject) –
   const ev = lib.slice(lib.indexOf(".on_window_event("), lib.indexOf(".invoke_handler"));
   assert.ok(ev.indexOf("tauri::WindowEvent::ThemeChanged") < ev.indexOf('window.label() != "main"') && ev.includes("wintheme::on_os_theme_changed"), "an OS theme change reported by any window, before the label is looked at");
   // the second way (macOS safety net): the page of a pop-out asks the backend to apply its own window again; the page never sets a theme itself
-  assert.ok(/windowThemeRefresh\(theme, dark\)/.test(root) && root.includes("(prefers-color-scheme: dark)"), "the pop-out page asks for its frame theme after it changed its own theme class, and when its colour scheme changes");
+  assert.ok(/windowThemeRefresh\(theme, dark\)/.test(root) && root.includes("onOsDarkChange"), "the pop-out page asks for its frame theme after it changed its own theme class, and when its colour scheme changes");
   assert.ok(root.indexOf("applyPrefs(p);") < root.indexOf("askFrameTheme();"), "asked after the page applied its theme class");
   assert.ok(read("src/api.ts").includes('invoke<void>("window_theme_refresh"'), "the api has the command");
   assert.ok(lib.includes("wintheme::window_theme_refresh,") && read("src-tauri/build.rs").includes('"window_theme_refresh"'), "the command is registered and in the manifest");

@@ -6812,6 +6812,8 @@ mod quit_tests {
     /// - startfail.rs: the app could not start (Windows message box, then exit code 1): there is no page and no draft or send yet.
     /// - lib.rs `run`: `--remove-saved-credentials` (the Windows uninstaller's call, credwipe.rs) only talks to the credential store and ends at once; it is the first thing `run` does,
     ///   before any window, page, draft or send exists.
+    /// - lib.rs `leave_on_signal` (Linux, W5.9): a log out or a `kill` (SIGTERM, SIGHUP, SIGINT) leaves by `app.exit(0)`, the exit road that closes the push sessions and commits the queued actions, with the
+    ///   watchdog; a second signal ends the process at once (`process::exit(1)`). There is no one to ask: the session is ending.
     #[test]
     fn every_place_that_ends_the_process_is_known() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -6834,7 +6836,7 @@ mod quit_tests {
         found.sort();
         assert_eq!(
             found,
-            vec![("lib.rs".to_string(), 4, 0), ("startfail.rs".to_string(), 1, 0), ("startup.rs".to_string(), 0, 1), ("update.rs".to_string(), 1, 1)],
+            vec![("lib.rs".to_string(), 6, 0), ("startfail.rs".to_string(), 1, 0), ("startup.rs".to_string(), 0, 1), ("update.rs".to_string(), 1, 1)],
             "a way to end or restart the process was added or removed: make sure it goes through the quit sequence (request_quit) or is justified in the comment above"
         );
     }

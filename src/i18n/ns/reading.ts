@@ -88,6 +88,7 @@ export default define({
     "reading.msg.moreActions": "More actions",
     "reading.msg.showOriginal": "Show original",
     "reading.msg.print": "Print",
+    "reading.msg.printFailed": "Couldn’t print this message.",
     "reading.msg.createEvent": "Create event from this email…",
     "reading.msg.copySender": "Copy sender email",
     "reading.msg.copied": "Copied",

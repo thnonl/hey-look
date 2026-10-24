@@ -86,6 +86,7 @@ export default defineLocale<typeof ns.en>({
   "reading.msg.moreActions": "その他の操作",
   "reading.msg.showOriginal": "元のメッセージを表示",
   "reading.msg.print": "印刷",
+  "reading.msg.printFailed": "このメッセージを印刷できませんでした。",
   "reading.msg.createEvent": "このメールから予定を作成…",
   "reading.msg.copySender": "送信者のメールアドレスをコピー",
   "reading.msg.copied": "コピーしました",

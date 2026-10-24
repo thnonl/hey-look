@@ -40,6 +40,7 @@ import { EmptyState } from "./overlays";
 import { useDelayedFlag } from "../delayedFlag";
 import { hlMark } from "../perfMarks";
 import { printFrame, usePrinting } from "../printStatus";
+import { printFrameNative, setPrintSource } from "../printNative";
 import { pendingToast } from "../pendingToast";
 import { announceFrame, isHeavy, RpBody, useOpeningPending } from "../openStatus";
 import { ImportanceMark } from "./Importance";
@@ -314,6 +315,16 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     </head><body>${rewriteMailHtml(html, darkNow.current)}<style>html,body{overflow:hidden!important;height:auto!important;min-height:0!important}</style></body></html>`,
     [html, csp, m.confidential], // eslint-disable-line react-hooks/exhaustive-deps
   );
+  // macOS Print (W5.3) builds its document from the same inputs as the frame: the HTML as shown now, its CSP and the subject
+  const printHtmlRef = useRef(html);
+  printHtmlRef.current = html;
+  const printSubject = useRef(m.subject);
+  printSubject.current = m.subject;
+  const printCspRef = useRef(csp);
+  printCspRef.current = csp;
+  useEffect(() => {
+    setPrintSource(frameRef.current, () => ({ html: printHtmlRef.current, csp: printCspRef.current, subject: printSubject.current }));
+  }, [frameRef]);
   // theme change or toggle on a loaded mail: recolour in place (a freshly loaded mail is handled in onLoad)
   useEffect(() => {
     const doc = frameRef.current?.contentDocument;
@@ -792,8 +803,8 @@ export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boole
               title={t("reading.msg.moreActions")}
               items={[
                 { label: t("reading.msg.showOriginal"), disabled: conf, onClick: () => setDialog({ type: "original", messageId: m.id }) },
-                // WKWebView cannot print a message frame from the app: no Print entry on macOS
-                ...(osNow() === "macos" ? [] : [{ label: t("reading.msg.print"), disabled: conf || printing, onClick: () => void printFrame(frameRef.current) }]),
+                // macOS: WKWebView cannot print the frame itself, the backend prints a document made from it (printNative.ts, W5.3)
+                { label: t("reading.msg.print"), disabled: conf || printing, onClick: () => void (osNow() === "macos" ? printFrameNative(frameRef.current, (text) => useStore.getState().showToast(text, undefined, "error")) : printFrame(frameRef.current)) },
                 {
                   label: t("reading.msg.createEvent"),
                   onClick: () => setDialog({ type: "event", init: { summary: m.subject.replace(/^((re|fwd?):\s*)+/i, ""), description: conf ? "" : (m.text ?? "").trim().slice(0, 1500) } }),

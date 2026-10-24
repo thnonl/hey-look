@@ -1607,6 +1607,11 @@ export function installMock() {
           return { added, exhausted, limited: !exhausted && have + added >= cap };
         });
       }
+      case "print_html": { // (macOS Print, W5.3) `#printfail` makes it fail; the documents are kept in window.__printed for a check
+        (((window as unknown as { __printed?: { html: string; title: string }[] }).__printed ??= [])).push({ html: String(a.html), title: String(a.title) });
+        if (hashTokens().has("printfail")) throw "mock: print failed";
+        return null;
+      }
       case "plugin:opener|open_url": // (Linux asks the backend: open_external)
       case "open_external":
         if (hashTokens().has("openfail")) throw "mock: no default browser"; // `#openfail` makes opening links fail (update check: copy-link path)
