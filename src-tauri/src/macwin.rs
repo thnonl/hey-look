@@ -8,19 +8,51 @@
 //! - it finishes the job from the outside: `orderOut:` and `close` on the window once more (both are harmless on a closed window) and then
 //!   lets go of its own reference, so the app is never the one that keeps a window alive.
 //! Only plain Objective-C messages; the window is retained here (`Retained`) so a message never reaches a freed object.
+//!
+//! 1.0.7 (D-093): with the tao fix of W4.1 (the over-retain of the window) a closed window was STILL left behind by every compose and reader window, so the holders that are
+//! left are not the one tao fixed. The sweep now takes away what the app side can: the window's delegate and the observers tao registered for it (tao adds the delegate to the
+//! distributed notification centre for the appearance change and never removes it), its entry in the Windows menu, and its content view (so the web view's views and their memory go
+//! even if something still holds the window shell). Then `check` asks again a second later, with a weak reference, whether the window was freed, and the answers are counted for
+//! `GET /native`, so the next Mac log says which of the two it was and how many references were left.
 
 use objc2::msg_send;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, AnyObject, Bool};
 use std::collections::HashMap;
 use std::ffi::{CStr, c_char, c_void};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
-struct Held(Retained<AnyObject>);
+struct Held {
+    window: Retained<AnyObject>,
+    /// the window's delegate (tao's), kept to take the observers it registered away when the window is finished
+    delegate: Option<Retained<AnyObject>>,
+}
 
 // SAFETY: the window is only messaged on the main thread (`sweep`, `windows_summary` are called from a main-thread task); the other thing done
 // to it from another thread is the release when the value is dropped, which Objective-C allows from any thread.
 unsafe impl Send for Held {}
+
+/// A weak reference to a window that was swept, and its window number, until `check` says whether it was freed.
+struct Watched(objc2::rc::Weak<AnyObject>, isize);
+
+// SAFETY: only ever touched on the main thread (`sweep` stores it, `check` reads it, both main-thread tasks).
+unsafe impl Send for Watched {}
+
+fn watched() -> &'static Mutex<HashMap<String, Watched>> {
+    static WATCHED: OnceLock<Mutex<HashMap<String, Watched>>> = OnceLock::new();
+    WATCHED.get_or_init(Default::default)
+}
+
+/// How many windows were finished by hand, and what `check` found a second later: freed, or still alive (a leak).
+static SWEPT: AtomicUsize = AtomicUsize::new(0);
+static FREED: AtomicUsize = AtomicUsize::new(0);
+static ALIVE: AtomicUsize = AtomicUsize::new(0);
+
+/// (swept, freed, still alive) since the start, for `GET /native` of the debug bridge.
+pub fn sweep_stats() -> (usize, usize, usize) {
+    (SWEPT.load(Ordering::Relaxed), FREED.load(Ordering::Relaxed), ALIVE.load(Ordering::Relaxed))
+}
 
 fn held() -> &'static Mutex<HashMap<String, Held>> {
     static HELD: OnceLock<Mutex<HashMap<String, Held>>> = OnceLock::new();
@@ -35,7 +67,12 @@ fn lock() -> std::sync::MutexGuard<'static, HashMap<String, Held>> {
 pub fn hold(label: &str, ns_window: *mut c_void) -> bool {
     // SAFETY: `ns_window` is the live NSWindow that tauri just built; `Retained::retain` adds our own reference (null is refused by the Option).
     let Some(w) = (unsafe { Retained::retain(ns_window as *mut AnyObject) }) else { return false };
-    lock().insert(label.to_string(), Held(w));
+    // SAFETY: `w` is a live NSWindow; `delegate` answers null or a live object (kept with its own reference).
+    let delegate = unsafe {
+        let d: *mut AnyObject = msg_send![Retained::as_ptr(&w) as *mut AnyObject, delegate];
+        Retained::retain(d)
+    };
+    lock().insert(label.to_string(), Held { window: w, delegate });
     true
 }
 
@@ -95,28 +132,90 @@ pub fn windows_summary() -> String {
     }
 }
 
-/// Finish the native window of `label` and let go of the reference held here. Returns the line for the log, `None` when no window is held.
-/// Main thread only.
+/// Finish the native window of `label` and let go of the references held here. Returns the line for the log, `None` when no window is held.
+/// Main thread only. Every step is a message that is harmless on a window that is closed already; none of them releases anything that is not ours.
 pub fn sweep(label: &str) -> Option<String> {
-    let Held(w) = lock().remove(label)?;
+    let Held { window: w, delegate } = lock().remove(label)?;
     let ptr = Retained::as_ptr(&w) as *mut AnyObject;
-    // SAFETY: `w` keeps the window alive for the whole function; the messages are the ones every NSWindow answers; main thread (caller).
-    let text = unsafe {
+    // SAFETY: `w` keeps the window alive for the whole function (and `delegate` the delegate); the messages are the ones every NSWindow answers; main thread (caller).
+    let (text, number) = unsafe {
         let number: isize = msg_send![ptr, windowNumber];
         let before: Bool = msg_send![ptr, isVisible];
         let retains: usize = msg_send![ptr, retainCount];
         let nil: *mut AnyObject = std::ptr::null_mut();
+        // tao's delegate: nothing may call it any more, and the centres that were told to call it are told to stop (tao registers it for the appearance change and never removes it)
+        let _: () = msg_send![ptr, setDelegate: nil];
+        let delegate_retains = delegate.as_ref().map(|d| {
+            let d = Retained::as_ptr(d) as *mut AnyObject;
+            for class in [AnyClass::get(c"NSDistributedNotificationCenter"), AnyClass::get(c"NSNotificationCenter")].into_iter().flatten() {
+                let c: *mut AnyObject = msg_send![class, defaultCenter];
+                if !c.is_null() {
+                    let _: () = msg_send![c, removeObserver: d];
+                }
+            }
+            let n: usize = msg_send![d, retainCount];
+            n
+        });
+        if let Some(class) = AnyClass::get(c"NSNotificationCenter") {
+            let c: *mut AnyObject = msg_send![class, defaultCenter];
+            if !c.is_null() {
+                let _: () = msg_send![c, removeObserver: ptr];
+            }
+        }
+        // the Windows menu lists the window (and holds it) until it is told to forget it
+        let app = shared_app();
+        if !app.is_null() {
+            let _: () = msg_send![app, removeWindowsItem: ptr];
+        }
+        // the views of the window (tao's view, wry's web view and parent view) go with the content view: an empty one takes its place, so that even a window shell that something
+        // still holds costs no more than its own few kilobytes
+        if let Some(view) = AnyClass::get(c"NSView") {
+            let empty: Retained<AnyObject> = msg_send![view, new];
+            let _: () = msg_send![ptr, setContentView: &*empty];
+        }
         let _: () = msg_send![ptr, orderOut: nil];
         let _: () = msg_send![ptr, close];
         let after: Bool = msg_send![ptr, isVisible];
-        format!(
-            "native window {number}: visible {} then {}, retain count {retains} (this log's own reference is one of them); {}",
+        let retains_after: usize = msg_send![ptr, retainCount];
+        let text = format!(
+            "native window {number}: visible {} then {}, retain count {retains} then {retains_after} (this log's own reference is one of them), delegate retain count {}; {}",
             before.as_bool(),
             after.as_bool(),
+            delegate_retains.map_or("none".to_string(), |n| n.to_string()),
             windows_summary()
-        )
+        );
+        (text, number)
     };
-    drop(w); // our reference goes: from here on the app holds nothing of this window
+    SWEPT.fetch_add(1, Ordering::Relaxed);
+    // from here on the app holds nothing of this window: a weak reference tells in a moment whether anything else does
+    watched().lock().unwrap_or_else(|p| p.into_inner()).insert(label.to_string(), Watched(objc2::rc::Weak::from(&w), number));
+    drop(delegate);
+    drop(w);
+    Some(text)
+}
+
+/// A second after `sweep`: was the window freed? A weak reference answers `None` once nothing holds it. Returns the line for the log, `None` when the window was not swept.
+/// Main thread only. In a debug build started with `HEYLOOK_MAC_RELEASE_LEAK=1` (an experiment for the Mac QA, never in a release build): a window that is still alive with exactly one
+/// reference besides the one this check takes is a leak of exactly one reference, and it is released once.
+pub fn check(label: &str) -> Option<String> {
+    let Watched(weak, number) = watched().lock().unwrap_or_else(|p| p.into_inner()).remove(label)?;
+    let Some(strong) = weak.load() else {
+        FREED.fetch_add(1, Ordering::Relaxed);
+        return Some(format!("native window {number}: freed ({})", windows_summary()));
+    };
+    ALIVE.fetch_add(1, Ordering::Relaxed);
+    let ptr = Retained::as_ptr(&strong) as *mut AnyObject;
+    // SAFETY: `strong` keeps the window alive; main thread (caller).
+    let retains: usize = unsafe { msg_send![ptr, retainCount] };
+    let mut text = format!("native window {number}: STILL ALIVE after being finished, retain count {retains} (this check's own reference is one of them); {}", windows_summary());
+    if cfg!(debug_assertions) && std::env::var("HEYLOOK_MAC_RELEASE_LEAK").as_deref() == Ok("1") && retains == 2 {
+        // SAFETY: the window is closed, nothing of the app holds it, and one reference more than ours is the leak itself (experiment, see above).
+        unsafe {
+            let _: () = msg_send![ptr, release];
+        }
+        text.push_str("; released the leaked reference once (HEYLOOK_MAC_RELEASE_LEAK)");
+    }
+    drop(strong);
     Some(text)
 }
 
@@ -245,6 +344,23 @@ unsafe fn set_one(w: *mut AnyObject, dark: Option<bool>) {
     }
 }
 
+/// The background colour of the window (what shows through its transparent title bar): the app's own ground (`--bg`, bgcolor.rs) of the theme the window shows. `dark` None = the
+/// window follows the OS: its own colour is left as it is (bgcolor.rs resolves System to the OS theme).
+///
+/// SAFETY (caller): `w` is a live NSWindow on the main thread.
+unsafe fn set_ground(w: *mut AnyObject, dark: Option<bool>) {
+    let Some(dark) = dark else { return };
+    let (r, g, b) = if dark { crate::bgcolor::DARK } else { crate::bgcolor::LIGHT };
+    let Some(class) = AnyClass::get(c"NSColor") else { return };
+    // SAFETY: a class message that returns an autoreleased colour; the window retains the colour it is given.
+    unsafe {
+        let color: *mut AnyObject = msg_send![class, colorWithSRGBRed: f64::from(r) / 255.0, green: f64::from(g) / 255.0, blue: f64::from(b) / 255.0, alpha: 1.0f64];
+        if !color.is_null() {
+            let _: () = msg_send![w, setBackgroundColor: color];
+        }
+    }
+}
+
 /// The window's own appearance name ("nil" = none of its own), the one it shows, and whether that is a dark one.
 unsafe fn read_back(w: *mut AnyObject) -> (String, String, Option<bool>) {
     // SAFETY: `w` is a live NSWindow on the main thread.
@@ -318,6 +434,9 @@ pub fn apply_appearance(dark: Option<bool>, known: &[(String, *mut c_void)], onl
             let class = text(msg_send![w, className]);
             let (own0, eff0, _) = read_back(w);
             set_one(w, dark);
+            // D-092: the colour behind the transparent title bar is the window's own background colour: set natively, for every window of every kind the same way, to the ground of the theme it
+            // shows (bgcolor.rs sets the same two values through tauri; a window drawn before that reached it would show the system's grey)
+            set_ground(w, expected);
             let (mut own, mut eff, mut eff_dark) = read_back(w);
             let mut note = String::new();
             if let Some(why) = crate::wintheme::judge(dark, &own, eff_dark, expected) {

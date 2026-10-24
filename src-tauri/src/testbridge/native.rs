@@ -76,7 +76,15 @@ impl Driver for TauriDriver {
     /// GET /native (REQ-4.1.5): the app process only (the web view processes are measured with the OS tools, W4.8).
     fn native(&self) -> serde_json::Value {
         let mem = process_memory();
-        native_json(std::process::id(), mem.rss, mem.footprint, mem.private, native_windows(&self.app), self.app.webview_windows().len())
+        #[allow(unused_mut)]
+        let mut v = native_json(std::process::id(), mem.rss, mem.footprint, mem.private, native_windows(&self.app), self.app.webview_windows().len());
+        // macOS: the windows the app finished by hand, and what was found a second later (D-093): { swept, freed, alive }; alive is the leak
+        #[cfg(target_os = "macos")]
+        {
+            let (swept, freed, alive) = crate::macwin::sweep_stats();
+            v["sweeps"] = serde_json::json!({ "swept": swept, "freed": freed, "alive": alive });
+        }
+        v
     }
 }
 
