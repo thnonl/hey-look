@@ -896,6 +896,7 @@ function ComposingPanel({ scope }: { scope: string | null }) {
       {scope === null && <DefaultFontRow />}
       {scope === null && <PasteDefaultRow />}
       {scope === null && <AutoFormatRow />}
+      {scope === null && <MiniToolbarRow />}
     </>
   );
 }
@@ -948,6 +949,17 @@ function AutoFormatRow() {
   return (
     <Row label={t("settings.composing.autoFormat")} hint={kbd(t("settings.composing.autoFormatHint"), os)} id="autoFormat">
       <Switch checked={prefs.autoFormat} onChange={(v) => setPrefs({ autoFormat: v })} />
+    </Row>
+  );
+}
+
+/** Settings > Composing > Show the mini toolbar when you select text (editor/MiniToolbar.tsx). */
+function MiniToolbarRow() {
+  const t = useT();
+  const { prefs, setPrefs } = useStore();
+  return (
+    <Row label={t("settings.composing.miniToolbar")} hint={t("settings.composing.miniToolbarHint")} id="miniToolbar">
+      <Switch checked={prefs.miniToolbar} onChange={(v) => setPrefs({ miniToolbar: v })} />
     </Row>
   );
 }

@@ -76,6 +76,8 @@ export interface Prefs extends Overridable {
   pasteDefault: "source" | "merge" | "text";
   /** AutoFormat as you type in the rich editors: typographic quotes, dashes, ellipsis, arrows, (c) (r) (tm); Ctrl+Z right after a change undoes it (Settings > Composing, W3.2) */
   autoFormat: boolean;
+  /** the mini toolbar (Bold, Italic, Underline, colours, Link) above text selected with the mouse (Settings > Composing, W3.3) */
+  miniToolbar: boolean;
   /** primary (accent) color, #rrggbb */
   accent: string;
   density: "full" | "medium" | "compact";
@@ -167,6 +169,7 @@ export const DEFAULT_PREFS: Prefs = {
   recentEmoji: [],
   pasteDefault: "source",
   autoFormat: true,
+  miniToolbar: true,
   accent: "#0f6cbd",
   density: "full",
   readingPane: "right",
@@ -303,6 +306,7 @@ export function mergePrefs(raw: string | null): Prefs {
       notifySound: normNotifySound(p.notifySound),
       pasteDefault: p.pasteDefault === "merge" || p.pasteDefault === "text" ? p.pasteDefault : "source",
       autoFormat: typeof p.autoFormat === "boolean" ? p.autoFormat : true,
+      miniToolbar: typeof p.miniToolbar === "boolean" ? p.miniToolbar : true,
       highlightColor: typeof p.highlightColor === "string" && /^#[0-9A-F]{6}$/.test(normColor(p.highlightColor)) ? normColor(p.highlightColor) : DEFAULT_HIGHLIGHT,
       // English unless the person chose another language (an unknown or older value counts as English)
       language: isLang(p.language) || p.language === "en-XA" ? p.language : "en",

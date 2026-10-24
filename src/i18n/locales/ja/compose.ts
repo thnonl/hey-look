@@ -232,6 +232,7 @@ export default defineLocale<typeof ns.en>({
   "compose.fmt.case.upper": "すべて大文字",
   "compose.fmt.case.title": "各単語の先頭文字を大文字にする",
   "compose.fmt.case.toggle": "大文字と小文字を入れ替える",
+  "compose.mini.toolbar": "ミニツールバー",
   "compose.fmt.painter": "書式のコピー/貼り付け",
   "compose.fmt.painterTip": "書式のコピー/貼り付け (Ctrl+Shift+D)：書式をコピーして、次に選択するテキストに適用します。ダブルクリックでオンのままにできます。",
   "compose.painter.on": "書式のコピー/貼り付けをオンにしました。書式を適用するテキストを選択してください。",

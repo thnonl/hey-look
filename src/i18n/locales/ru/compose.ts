@@ -251,6 +251,7 @@ export default defineLocale<typeof ns.en>({
   "compose.fmt.case.upper": "ВСЕ ПРОПИСНЫЕ",
   "compose.fmt.case.title": "Начинать с прописных",
   "compose.fmt.case.toggle": "иЗМЕНИТЬ РЕГИСТР",
+  "compose.mini.toolbar": "Мини-панель инструментов",
   "compose.fmt.painter": "Формат по образцу",
   "compose.fmt.painterTip": "Формат по образцу (Ctrl+Shift+D): скопировать форматирование на следующий выделенный текст. Двойной щелчок — оставить включённым.",
   "compose.painter.on": "Формат по образцу включён. Выделите текст для форматирования.",

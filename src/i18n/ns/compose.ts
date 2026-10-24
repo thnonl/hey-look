@@ -249,6 +249,7 @@ export default define({
     "compose.fmt.case.upper": "UPPERCASE",
     "compose.fmt.case.title": "Capitalize Each Word",
     "compose.fmt.case.toggle": "tOGGLE cASE",
+    "compose.mini.toolbar": "Mini toolbar",
     "compose.fmt.painter": "Format painter",
     "compose.fmt.painterTip": "Format painter (Ctrl+Shift+D): copy the formatting to the next text you select. Double-click to keep it on.",
     "compose.painter.on": "Format painter is on. Select the text to format.",

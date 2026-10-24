@@ -240,6 +240,7 @@ export default defineLocale<typeof ns.en>({
   "compose.fmt.case.upper": "MAYÚSCULAS",
   "compose.fmt.case.title": "Poner en mayúscula cada palabra",
   "compose.fmt.case.toggle": "iNVERTIR MAYÚS/MINÚS",
+  "compose.mini.toolbar": "Minibarra de herramientas",
   "compose.fmt.painter": "Copiar formato",
   "compose.fmt.painterTip": "Copiar formato (Ctrl+Shift+D): copia el formato al siguiente texto que selecciones. Haz doble clic para mantenerlo activado.",
   "compose.painter.on": "Copiar formato activado. Selecciona el texto al que aplicarlo.",

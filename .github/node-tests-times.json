@@ -214,6 +214,7 @@
   "node --experimental-strip-types scripts/test-autoformat.mjs": 0,
   "node scripts/test-autoformat-ui.mjs --require-browser": 70,
   "node --experimental-strip-types scripts/test-format-painter.mjs": 0,
-  "node scripts/test-painter-mini.mjs --require-browser": 80
+  "node scripts/test-painter-mini.mjs --require-browser": 80,
+  "node --experimental-strip-types scripts/test-mini-toolbar.mjs": 0
  }
 }

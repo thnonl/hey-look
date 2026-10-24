@@ -242,6 +242,7 @@ export default defineLocale<typeof ns.en>({
   "compose.fmt.case.upper": "CHỮ HOA",
   "compose.fmt.case.title": "Viết Hoa Mỗi Từ",
   "compose.fmt.case.toggle": "đẢO KIỂU CHỮ",
+  "compose.mini.toolbar": "Thanh công cụ nhỏ",
   "compose.fmt.painter": "Cọ định dạng",
   "compose.fmt.painterTip": "Cọ định dạng (Ctrl+Shift+D): sao chép định dạng sang văn bản bạn chọn tiếp theo. Nhấp đúp để giữ chế độ bật.",
   "compose.painter.on": "Cọ định dạng đang bật. Hãy chọn văn bản cần định dạng.",

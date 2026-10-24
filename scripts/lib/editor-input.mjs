@@ -25,6 +25,13 @@ export function makeInput(cdp, sleep) {
   };
   const keys = {
     enter: () => key('Enter', 'Enter', 13),
+    // Enter on a focused button: the browser clicks it on the character the key makes
+    activate: async (k = 'Enter') => {
+      const code = k === ' ' ? 'Space' : 'Enter';
+      await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: k, code, windowsVirtualKeyCode: k === ' ' ? 32 : 13, text: k === ' ' ? ' ' : String.fromCharCode(13) });
+      await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: k, code, windowsVirtualKeyCode: k === ' ' ? 32 : 13 });
+      await sleep(80);
+    },
     backspace: () => key('Backspace', 'Backspace', 8),
     esc: () => key('Escape', 'Escape', 27),
     left: (mods = 0) => key('ArrowLeft', 'ArrowLeft', 37, mods),

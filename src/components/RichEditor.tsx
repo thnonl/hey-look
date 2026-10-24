@@ -38,7 +38,7 @@ function RichEditorBody({ value, onChange, placeholder, minHeight = 140, label, 
   const base = baseFromPrefs(prefs);
   const baseRef = useRef(base);
   baseRef.current = base;
-  const linkRef = useRef<() => void>(() => undefined);
+  const linkRef = useRef<(at?: unknown) => void>(() => undefined);
   const barApi = useRef<FormatBarApi>(null);
   const picToolsRef = useRef<PictureTools | null>(null); // (Alt+F10 with a picture selected: the picture toolbar takes the focus, else the formatting bar)
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -93,7 +93,7 @@ function RichEditorBody({ value, onChange, placeholder, minHeight = 140, label, 
           base={base}
           variant="compact"
           apiRef={barApi}
-          host={{ link: { open: () => linkRef.current(), isOpen: link.isOpen, btnRef: linkBtnRef }, insertPicture: pictures ? () => fileRef.current?.click() : undefined }}
+          host={{ link: { open: (at) => linkRef.current(at), isOpen: link.isOpen, btnRef: linkBtnRef }, insertPicture: pictures ? () => fileRef.current?.click() : undefined }}
         />
         {link.node}
         {pictures && (

@@ -210,6 +210,8 @@ export default defineLocale<typeof ns.en>({
   "settings.composing.fontHint": "新規メッセージ、返信、転送に使用されます",
   "settings.composing.autoFormat": "入力中のオートフォーマット",
   "settings.composing.autoFormatHint": "入力中に \"引用符\" を “引用符” に、... を … に、-> を →、<- を ←、(c) (r) (tm) を © ® ™ に自動で置き換えます。直後にCtrl+Zを押すと元に戻せます。",
+  "settings.composing.miniToolbar": "テキストを選択したときにミニツールバーを表示する",
+  "settings.composing.miniToolbarHint": "マウスで選択したテキストの上に、太字、斜体、下線、色、リンクを表示します。",
   "settings.composing.paste": "他のアプリから貼り付けるとき",
   "settings.composing.pasteHint": "Ctrl+Shift+Vは常にテキストのみを貼り付けます",
   "settings.keys.fontSize": "フォントサイズの拡大 / 縮小",

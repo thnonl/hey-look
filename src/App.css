@@ -678,6 +678,9 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 .fmt-pop-head { margin-top: 4px; font-size: .82em; color: var(--muted); }
 .fmt-grid { display: grid; grid-template-columns: repeat(10, 18px); gap: 2px; }
 .fmt-grid-hl { grid-template-columns: repeat(5, 18px); }
+/* the mini toolbar over a mouse selection (W3.3): app chrome like .img-tools, above dialogs, below the menus and palettes it opens */
+.mini-tb { position: fixed; z-index: calc(var(--z-menu) - 1); display: flex; align-items: center; gap: 1px; box-sizing: border-box; padding: 3px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow); animation: pop .1s var(--ease); }
+.mini-tb > * { flex: none; }
 .fmt-sw { width: 18px; height: 18px; padding: 0; border: 1px solid var(--border); border-radius: 2px; cursor: pointer; }
 .fmt-sw:hover { outline: 1px solid var(--fg); outline-offset: 1px; }
 .fmt-sw.on { outline: 2px solid var(--accent); outline-offset: 1px; }

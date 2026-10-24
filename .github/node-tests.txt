@@ -342,3 +342,5 @@ ui-d | node scripts/test-autoformat-ui.mjs --require-browser
 static | node --experimental-strip-types scripts/test-format-painter.mjs
 # 1.0.7 W3.1 / W3.3: the format painter and the mini toolbar in the real page with real mouse and key events (the button pressed state, the brush class, a drag paints on release, a double click keeps it on, the click-on-a-word rule, the keyboard-only flow with the live message, it goes off on typing / a field / Bold / Esc before the paste button, the More row in a narrow pane, the signature editor, Ctrl+Shift+C and AltGr+Shift+D) and the mini toolbar cases
 ui-b | node scripts/test-painter-mini.mjs --require-browser
+# 1.0.7 W3.3: the mini toolbar rules - the show matrix (mouse / touch / pen / keyboard, empty, picture and cell selections, inside one link, painter on, composing, a menu open, setting off), the box of a selection and its clip, the keys that keep it, the wiring (preference, Settings row, lazy chunk, no live region, link anchor, mustBeLazy)
+static | node --experimental-strip-types scripts/test-mini-toolbar.mjs

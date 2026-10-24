@@ -103,7 +103,7 @@ export function readBarState(editor: Editor, base: BaseFont): BarState {
 
 /** What the host of the toolbar (Compose, RichEditor) provides: the link UI of its editor and, for a message, the picture button. */
 export interface FormatHost {
-  link: { open: () => void; isOpen: boolean; btnRef: RefObject<HTMLButtonElement | null> };
+  link: { open: (at?: unknown) => void; isOpen: boolean; btnRef: RefObject<HTMLButtonElement | null> };
   /** present when the editor takes pictures (the message body, the signature and the template editor) */
   insertPicture?: () => void;
   /** the message body shows the editor larger or smaller (REQ-49): the percentage and how it changes; not in a signature or template */

@@ -40,4 +40,5 @@ export function useKit(): boolean {
 if (typeof window !== "undefined") {
   setTimeout(() => void loadKit().catch(() => undefined), 800);
   setTimeout(() => void import("./insertUi").catch(() => undefined), 2500);
+  setTimeout(() => void import("./MiniToolbar").catch(() => undefined), 2600); // (the mini toolbar over a mouse selection, W3.3)
 }

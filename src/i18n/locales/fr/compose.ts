@@ -242,6 +242,7 @@ export default defineLocale<typeof ns.en>({
   "compose.fmt.case.upper": "MAJUSCULES",
   "compose.fmt.case.title": "Mettre en majuscule chaque mot",
   "compose.fmt.case.toggle": "iNVERSER LA CASSE",
+  "compose.mini.toolbar": "Mini barre d’outils",
   "compose.fmt.painter": "Pinceau de mise en forme",
   "compose.fmt.painterTip": "Pinceau de mise en forme (Ctrl+Shift+D) : copie la mise en forme sur le prochain texte que vous sélectionnez. Double-cliquez pour le laisser activé.",
   "compose.painter.on": "Le pinceau de mise en forme est activé. Sélectionnez le texte à mettre en forme.",

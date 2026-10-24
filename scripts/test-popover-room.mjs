@@ -54,4 +54,48 @@ const btn = (left, top, w = 30, h = 28) => ({ left, right: left + w, top, bottom
     assert.ok(q.top >= 8 - 0.001 && q.top + Math.min(ph, q.max) <= h - 8 + 0.001 || q.max < 0 || Math.min(ph, q.max) > room, `window ${h}, button ${top}, popover ${ph}: top ${q.top} max ${q.max}`);
   }
 }
+// W3.3: the mini toolbar over a selection (spec-107-wp3.md REQ-3.3.4): centred on the selection box, 8 px from the window, above with an 8 px gap when it fits, else below,
+// else nowhere (null); inside a table below first; it never overlaps the box and is never made smaller; existing callers (no `cover`) behave as before
+{
+  const W = { w: 960, h: 560 };
+  const tb = { w: 210, h: 36 };
+  const box = (left, top, w = 60, h = 20) => ({ left, right: left + w, top, bottom: top + h });
+  const O = { edge: 8, gap: 8, align: 'center', prefer: 'above', cover: false };
+  // above, centred on the box
+  let p = placePopover(box(400, 200), tb, W, O);
+  assert.deepEqual([p.top, p.left, p.up], [200 - 8 - 36, 430 - 105, true]);
+  // sideways: 8 px inside the window at both ends
+  assert.equal(placePopover(box(0, 200, 30), tb, W, O).left, 8);
+  assert.equal(placePopover(box(940, 200, 20), tb, W, O).left, 960 - 210 - 8);
+  // not enough room above (the first line under the toolbar): below with an 8 px gap
+  p = placePopover(box(400, 30), tb, W, O);
+  assert.deepEqual([p.top, p.up], [30 + 20 + 8, false]);
+  assert.equal(placePopover(box(400, 8 + 8 + 36), tb, W, O).up, true, 'exactly enough room above (8 px from the top edge)');
+  assert.equal(placePopover(box(400, 8 + 8 + 36 - 1), tb, W, O).up, false, 'one px less: below');
+  // neither side has the room (a selection that fills the window): null, never a covered selection
+  assert.equal(placePopover(box(100, 30, 800, 500), tb, W, O), null);
+  assert.equal(placePopover(box(100, 20, 800, 530), tb, W, O), null);
+  // a table: below first, then above
+  assert.equal(placePopover(box(400, 200), tb, W, { ...O, prefer: 'below' }).up, false);
+  assert.equal(placePopover(box(400, 200), tb, W, { ...O, prefer: 'below' }).top, 228);
+  assert.equal(placePopover(box(400, 520), tb, W, { ...O, prefer: 'below' }).up, true, 'no room below: above');
+  // the toast stack: the floor moves up, a toast under the toolbar's columns pushes it above the box
+  const toast = { left: 220, right: 740, top: 489 };
+  p = placePopover(box(400, 440), tb, W, { ...O, prefer: 'below', toasts: toast });
+  assert.equal(p.up, true, 'below would reach into the toast: above');
+  assert.equal(placePopover(box(400, 440), tb, W, { ...O, prefer: 'below' }).up, false, 'without the toast it fits below');
+  assert.equal(placePopover(box(400, 500), tb, W, { ...O, toasts: toast }).up, true, 'a word on the last line with a toast: above it, not under the toast');
+  // never overlaps the box, whatever the sizes
+  for (const top of [0, 10, 40, 100, 250, 400, 480, 530]) for (const h of [10, 20, 120, 300]) for (const prefer of ['above', 'below']) {
+    const b = box(300, top, 120, h);
+    const q = placePopover(b, tb, W, { ...O, prefer, toasts: toast });
+    if (!q) continue;
+    assert.ok(q.top + tb.h <= b.top || q.top >= b.bottom, `box at ${top}, ${h} high: the toolbar at ${q.top} covers it`);
+    assert.ok(q.top >= 8 && q.top + tb.h <= 560 - 8, 'inside the window');
+  }
+  // the old callers: no cover option, the same answer as before (a Placed, never null)
+  p = placePopover(box(100, 100, 30, 28), { w: 300, h: 200 }, win, { edge: 8, gap: 4 });
+  assert.deepEqual([p.top, p.left, p.up], [132, 100, false]);
+  assert.ok(placePopover(box(100, 0, 800, 560), tb, W, {}) !== null);
+}
 console.log('ok - test-popover-room');

@@ -240,6 +240,7 @@ export default defineLocale<typeof ns.en>({
   "compose.fmt.case.upper": "GROSSBUCHSTABEN",
   "compose.fmt.case.title": "Jeden Wortanfang groß",
   "compose.fmt.case.toggle": "gROSS-/kLEINSCHREIBUNG UMKEHREN",
+  "compose.mini.toolbar": "Mini-Symbolleiste",
   "compose.fmt.painter": "Format übertragen",
   "compose.fmt.painterTip": "Format übertragen (Ctrl+Shift+D): Überträgt die Formatierung auf den Text, den Sie als Nächstes auswählen. Doppelklicken, um die Funktion eingeschaltet zu lassen.",
   "compose.painter.on": "Format übertragen ist eingeschaltet. Wählen Sie den Text aus, der formatiert werden soll.",

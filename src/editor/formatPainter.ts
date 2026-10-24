@@ -305,8 +305,13 @@ function painterPlugin(): Plugin<PainterState> {
         down = false;
         if (e.button !== 0) return;
         const at = { x: e.clientX, y: e.clientY };
-        // (the editor reads the selection the browser made a moment after the button is released)
-        setTimeout(() => !view.isDestroyed && paintNow(view, at), 0);
+        // (the editor reads the selection the browser made a moment after the button is released; a double or triple click selects on the press and the editor may not have it yet)
+        setTimeout(() => {
+          if (view.isDestroyed) return;
+          const d = doc.getSelection();
+          if (view.state.selection.empty && d && !d.isCollapsed) setTimeout(() => !view.isDestroyed && paintNow(view, at), 60);
+          else paintNow(view, at);
+        }, 0);
       };
       const focusin = (e: FocusEvent) => {
         const t = e.target;
