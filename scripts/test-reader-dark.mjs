@@ -64,6 +64,11 @@ async function waitFrame(base, pred, limit = 8000) {
 // the real pixels of the frame: a screenshot of its rectangle, drawn into a canvas in the page: the most frequent colour (the surface) and how many pixels have
 // text-like contrast (>= 4.5:1) against it
 async function pixels(tag) {
+  // The status block "Opening message…" (.rp-opening, openStatus.tsx, W13.6) is DESIGNED to cover the body area from the selection until the frame is visible, and once it is shown
+  // it stays 300 ms: in the light theme it is a light surface, so a screenshot taken under it shows white, which says nothing about the frame (fix32: every white sample of a
+  // throttled run had the block up, none without it). The frame is sampled once the block is gone, and the block must go.
+  const gone = await evaluate(`new Promise((ok) => { const t0 = performance.now(); const look = () => { if (!document.querySelector('.rp-opening')) return ok(true); if (performance.now() - t0 > 2500) return ok(false); setTimeout(look, 25); }; look(); })`);
+  check(tag, gone, 'the "Opening message…" block still covers the mail 2.5 s after the frame was shown');
   await evaluate(`document.querySelector('.msg-frame').scrollIntoView({ block: 'start' }); new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok)))`); // (two painted frames)
   await sleep(150);
   const r = await evaluate(`(() => { const b = document.querySelector('.msg-frame').getBoundingClientRect(); return [b.left, b.top, b.width, Math.min(b.height, innerHeight - b.top, 420)]; })()`);
@@ -217,14 +222,20 @@ async function otherFixtures(tag) {
   }
 }
 
+// --only=<configuration> --repeat=<n>: one configuration n times in a row (hunting an intermittent failure; the checks are the same)
+const ONLY = arg('only'), REPEAT = Number(arg('repeat') || 1);
+const CONFIGS = [
+  ['main-dark', () => darkConfig('main-dark', { reader: false, theme: 'dark' }), true],
+  ['reader-dark', () => darkConfig('reader-dark', { reader: true, theme: 'dark' }), true],
+  ['main-dark-styled', () => darkConfig('main-dark-styled', { reader: false, theme: 'dark', id: 'dk12', origMin: 4.3 }), true], // (the sender's own grey text on white is 4.4:1)
+  ['main-light', () => lightConfig('main-light'), false],
+  ['main-light-theme-dark-canvas', () => darkConfig('main-light-theme-dark-canvas', { reader: false, theme: 'light' }), false],
+  ['fixtures', () => otherFixtures('fixtures'), false],
+];
 try {
-  await darkConfig('main-dark', { reader: false, theme: 'dark' });
-  await darkConfig('reader-dark', { reader: true, theme: 'dark' });
-  await darkConfig('main-dark-styled', { reader: false, theme: 'dark', id: 'dk12', origMin: 4.3 }); // (the sender's own grey text on white is 4.4:1)
-  if (!QUICK) {
-    await lightConfig('main-light');
-    await darkConfig('main-light-theme-dark-canvas', { reader: false, theme: 'light' });
-    await otherFixtures('fixtures');
+  for (const [name, run, quick] of CONFIGS) {
+    if (ONLY ? name !== ONLY : !quick && QUICK) continue;
+    for (let i = 0; i < (ONLY ? REPEAT : 1); i++) await run();
   }
 } catch (e) {
   fail('run', e && e.stack ? e.stack : String(e));
