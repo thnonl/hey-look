@@ -1,0 +1,60 @@
+[bridge +265 ms] test bridge: listening on 127.0.0.1:53862, token dac27a8178e96ab7afd713f89df336f9c579153f05d00d8180f95a0b87ab7c57
+[wintheme +26315 ms]   window: ns#11373 [#11373] title 'New message – Hey Look!': styleMask 0x800f (titled true, fullSizeContentView true), titlebarAppearsTransparent true, titleVisibility 0, backgroundColor sRGB IEC61966-2.1 colorspace 0.105882 0.109804 0.12549 1 (opaque true), key false, visible false, documentEdited false, sharingType 1, level 0, hasShadow true; window frame {{200, 609}, {960, 480}}, contentLayoutRect {{0, 0}, {960, 448}}; contentView NSView {{0, 0}, {960, 480}} with subviews []; frame view NSThemeFrame with subviews [NSView {{0, 0}, {960, 480}}, NSTitlebarContainerView {{0, 448}, {960, 32}}]
+[popout +26317 ms] reader-1: created hidden (520 x 520 logical)
+[popout +26317 ms] reader-1: reader window created for key cc41a212b011f58a
+[wintheme +26334 ms] compose-1: no native window: the underlying handle is not available
+[wintheme +26396 ms] reader-1: its page asks for the frame theme again (page data-theme 'system', page prefers dark: Some(true)); setting system; window found
+[wintheme +26396 ms] compose-1: no native window: the underlying handle is not available
+[wintheme +26397 ms]   application: appearance nil / effective NSAppearanceNameDarkAqua; windows have to show dark
+[wintheme +26397 ms]   reader-1 [TaoWindow #11376, visible false]: was nil / NSAppearanceNameDarkAqua, now nil / NSAppearanceNameDarkAqua ok
+[wintheme +26397 ms]   native appearance applied (reader-1 page request): 1 window line(s), 0 MISMATCH, macOS shows AppleInterfaceStyle=Dark
+[wintheme +26397 ms]   title bar mode 0 [none] (reader-1 page request)
+[wintheme +26397 ms]   window: reader-1 [#11376] title 'Hey Look!': styleMask 0x800f (titled true, fullSizeContentView true), titlebarAppearsTransparent true, titleVisibility 0, backgroundColor sRGB IEC61966-2.1 colorspace 0.105882 0.109804 0.12549 1 (opaque true), key false, visible false, documentEdited false, sharingType 1, level 0, hasShadow true; window frame {{900, 269}, {520, 520}}, contentLayoutRect {{0, 0}, {520, 488}}; contentView wry::wkwebview::class::wry_web_view_parent::WryWebViewParent0.57.0 {{0, 0}, {520, 520}} with subviews [wry::wkwebview::class::wry_web_view::WryWebView0.57.0 {{0, 0}, {520, 520}}]; frame view NSThemeFrame with subviews [wry::wkwebview::class::wry_web_view_parent::WryWebViewParent0.57.0 {{0, 0}, {520, 520}}, NSTitlebarContainerView {{0, 488}, {520, 32}}]
+[wintheme +26397 ms]   strategy: none (mode 0, the control)
+[popout +26399 ms] reader-1: ready
+[popout +26441 ms] reader-1: page says strip: html bg rgb(27, 28, 32), body bg rgb(27, 28, 32), color-scheme dark, data-theme (none); topmost at y=1: div.reader-bar.part position static bg rgb(27, 28, 32); 0 element(s) stick to the top edge
+[popout +26734 ms] reader-1: close requested (reader window)
+[popout +26736 ms] reader-1: teardown: first responder wry::wkwebview::class::wry_web_view::WryWebView0.57.0 cleared true; 6 drag destination(s) unregistered; 14 observer removal(s); 1 web view(s) detached; 0 title bar accessory(ies) removed; frame view children before: wry::wkwebview::class::wry_web_view_parent::WryWebViewParent0.57.0, NSTitlebarContainerView; 5 view(s) below the content view
+[update +26747 ms] check shown 2026-10-24 03:42:57Z: skipped, not due: the last attempt was 47 s ago and got an answer (an automatic check waits 7200 s, so the next one is in 7153 s); stored answer: up to date (latest 1.0.6)
+[popout +26903 ms] reader-1: page says content: drawn 520 x 520 after 501 ms
+[popout +26904 ms] reader-1: page says strip: view drawn: html bg rgb(27, 28, 32), body bg rgb(27, 28, 32), color-scheme dark, data-theme (none); topmost at y=1: div.reader-bar.part position static bg rgb(27, 28, 32); 0 element(s) stick to the top edge
+[wintheme +28339 ms] reader-1: no native window: the underlying handle is not available
+[wintheme +28340 ms] compose-1: no native window: the underlying handle is not available
+[wintheme +30344 ms] compose-1: no native window: the underlying handle is not available
+[wintheme +30344 ms] reader-1: no native window: the underlying handle is not available
+[filters +30921 ms] account 2f1bc5b2-8b20-44c9-9501-08a4b882e721: 0 new inbox message(s) to check
+[filters +30951 ms] account 92c40999-e837-4b2a-a4c8-3457ac5b4e80: 0 new inbox message(s) to check
+[wintheme +32349 ms] reader-1: no native window: the underlying handle is not available
+[wintheme +32350 ms] compose-1: no native window: the underlying handle is not available
+[wintheme +34351 ms] compose-1: no native window: the underlying handle is not available
+[wintheme +34351 ms] reader-1: no native window: the underlying handle is not available
+[wintheme +36357 ms] reader-1: no native window: the underlying handle is not available
+[wintheme +36357 ms] compose-1: no native window: the underlying handle is not available
+[wintheme +38359 ms] reader-1: no native window: the underlying handle is not available
+[wintheme +38360 ms] compose-1: no native window: the underlying handle is not available
+[wintheme +40361 ms] compose-1: no native window: the underlying handle is not available
+[wintheme +40362 ms] reader-1: no native window: the underlying handle is not available
+[wintheme +42367 ms] compose-1: no native window: the underlying handle is not available
+[wintheme +42368 ms] reader-1: no native window: the underlying handle is not available
+[wintheme +44372 ms] compose-1: no native window: the underlying handle is not available
+[wintheme +44373 ms] reader-1: no native window: the underlying handle is not available
+[wintheme +46377 ms] compose-1: no native window: the underlying handle is not available
+[wintheme +46378 ms] reader-1: no native window: the underlying handle is not available
+[wintheme +48382 ms] compose-1: no native window: the underlying handle is not available
+[wintheme +48383 ms] reader-1: no native window: the underlying handle is not available
+[wintheme +50386 ms] compose-1: no native window: the underlying handle is not available
+[wintheme +50387 ms] reader-1: no native window: the underlying handle is not available
+[wintheme +52392 ms] reader-1: no native window: the underlying handle is not available
+[wintheme +52392 ms] compose-1: no native window: the underlying handle is not available
+[wintheme +54397 ms] compose-1: no native window: the underlying handle is not available
+[wintheme +54397 ms] reader-1: no native window: the underlying handle is not available
+[wintheme +56401 ms] compose-1: no native window: the underlying handle is not available
+[wintheme +56402 ms] reader-1: no native window: the underlying handle is not available
+[wintheme +58406 ms] compose-1: no native window: the underlying handle is not available
+[wintheme +58407 ms] reader-1: no native window: the underlying handle is not available
+[wintheme +60411 ms] compose-1: no native window: the underlying handle is not available
+[wintheme +60412 ms] reader-1: no native window: the underlying handle is not available
+[wintheme +62414 ms] reader-1: no native window: the underlying handle is not available
+[wintheme +62415 ms] compose-1: no native window: the underlying handle is not available
+[wintheme +64420 ms] compose-1: no native window: the underlying handle is not available
+[wintheme +64421 ms] reader-1: no native window: the underlying handle is not available
