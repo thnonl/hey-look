@@ -1,0 +1,11 @@
+[bridge +305 ms] test bridge: listening on 127.0.0.1:49967, token 06515ad9d35293592b273aac1a3822f72292dc09d1c4f3db17258f047128a656
+[popout +146197 ms] reader-21: 3 s after closing: 2 window(s) left in the app (main, reader-23), NSApp lists 51 window(s), 5 visible
+[popout +146211 ms] reader-23: close requested (reader window)
+[popout +146216 ms] reader-23: closed
+[popout +146216 ms] reader-23: 1 window(s) left in the app: main
+[update +146227 ms] check shown 2026-10-24 03:23:01Z: skipped, not due: the last attempt was 341 s ago and got an answer (an automatic check waits 7200 s, so the next one is in 6859 s); stored answer: up to date (latest 1.0.6)
+[popout +146623 ms] reader-23: native window 11336: visible false then false, retain count 4 then 14 (this log's own reference is one of them), delegate retain count 2; NSApp lists 51 window(s), 4 visible
+[popout +147910 ms] reader-22: native window 11335: STILL ALIVE after being finished, retain count 4 (this check's own reference is one of them); NSApp lists 51 window(s), 4 visible
+[popout +147911 ms] reader-22: 3 s after closing: 1 window(s) left in the app (main), NSApp lists 51 window(s), 4 visible
+[popout +149625 ms] reader-23: native window 11336: STILL ALIVE after being finished, retain count 4 (this check's own reference is one of them); NSApp lists 51 window(s), 4 visible
+[popout +149626 ms] reader-23: 3 s after closing: 1 window(s) left in the app (main), NSApp lists 51 window(s), 4 visible
