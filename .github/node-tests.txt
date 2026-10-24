@@ -368,3 +368,5 @@ static | node --experimental-strip-types scripts/test-mini-toolbar.mjs
 ui-c | node scripts/test-mac-strip-ui.mjs --require-browser
 # 1.0.7 D-097: the three macOS window buttons no longer lie over the page headers - with the macOS class forced the page starts at y = 0 of the viewport in the main, reader and compose windows, nothing pads a header for the buttons, the reader bar is the ground colour (the native side is the Rust source guard no_window_has_the_full_size_content_view_on_macos)
 ui-d | node scripts/test-mac-window-top.mjs --require-browser
+# 1.0.7 fix33: the main page does not parse the open mail again for every reader window / refresh (2 MB and 1 MB fixtures)
+ui-c | node scripts/test-main-reader-memory.mjs --require-browser
