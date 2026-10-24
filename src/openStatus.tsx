@@ -2,6 +2,9 @@ import { useEffect, useReducer, useRef, useState } from "react";
 import type { MessageFull } from "./api";
 import { holdState } from "./statusHold";
 import { useT } from "./i18n/react";
+import { effectiveCanvas } from "./mailCanvas";
+import { useStore } from "./store";
+import { useAppDark } from "./useAppDark";
 
 // "Opening message…" (1.0.7 W13.6, REQ-13.6.1 / 13.6.2): from the click that selects a conversation until the frame of its open message is visible (its first measurement) the body area
 // under the subject shows the status block of the reader window. Shown only when the content is not on screen after 100 ms (a quick open never flashes), once shown it stays 300 ms,
@@ -43,6 +46,14 @@ export function useOpeningPending(key: string | null, messages: MessageFull[], h
   return doneFor !== key && waiting;
 }
 
+/** Does the open message show on the dark canvas now: the one rule of the pane, the reader window and the status (WP13g: Light app = original; Dark app = the stored choice; the session choice on top). */
+export function useCanvasDark(): boolean {
+  const themeDark = useAppDark();
+  const stored = useStore((s) => s.prefs.mailCanvas);
+  const session = useStore((s) => s.mailCanvasSession);
+  return effectiveCanvas(themeDark, stored, session) === "dark";
+}
+
 /**
  * The scrolling body area of the reading pane (`.rp-body`) with the status block over it while the open message is on its way: the area does not scroll then (`opening`), the block
  * covers it, and the messages are drawn underneath (they need their layout to measure). Key it by the conversation: a newer selection replaces the block at once.
@@ -74,10 +85,12 @@ export function RpBody({ pending, heavy = false, after = 100, min = 300, printin
     return () => clearTimeout(id);
   }, [hold.leftMs]);
   const covered = hold.show;
+  // the block is ONE surface over the whole body area, in the colour the mail will have there (fix38): it never shows as a small card of the app colour on a pane of the other kind
+  const canvasDark = useCanvasDark();
   return (
     <div className={`rp-body${covered ? " opening" : ""}`} ref={bodyRef}>
       {covered && (
-        <div className="reader-state rp-opening" role="status" aria-busy={on || printing || undefined}>
+        <div className={`reader-state rp-opening ${canvasDark ? "on-dark" : "on-light"}`} role="status" aria-busy={on || printing || undefined}>
           <span className="busy-ring spin" aria-hidden />
           <span className="busy-dots" aria-hidden>···</span>
           <p className="muted">{printing ? t("reading.print.preparing") : t("reading.popout.loading")}</p>

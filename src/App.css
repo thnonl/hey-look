@@ -572,7 +572,14 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
 .rp-body .summary { margin: 10px 0; }
 /* "Opening message…" over the body area while the open message's frame is not visible yet (W13.6, openStatus.tsx): no scrolling, the block covers the area */
 .rp-body.opening { position: relative; overflow: hidden; }
-.rp-opening { position: absolute; top: 0; right: 0; bottom: 0; left: 0; z-index: 2; margin: 0; max-width: none; justify-content: center; background: var(--bg); }
+/* "Opening message…" (W13.6): ONE surface over the whole body area (not the 34em box of .reader-state, which a later rule would otherwise give back), in the colour the mail has there once it is
+   shown (mailCanvas.ts: #fff for the original canvas, DARK_CANVAS for the dark one), the text and the ring in the colours that read on it. Same box as the area, so nothing moves when the mail replaces it. */
+.rp-body > .rp-opening { position: absolute; top: 0; right: 0; bottom: 0; left: 0; z-index: 2; margin: 0; width: auto; max-width: none; box-sizing: border-box; justify-content: center; }
+.rp-body > .rp-opening.on-light { background: #ffffff; color: #5b6470; }
+.rp-body > .rp-opening.on-dark { background: #1b1c20; color: #a2a8b3; }
+.rp-opening p { color: inherit; }
+.rp-opening.on-light .spin { border-color: #d3d7dd; border-top-color: var(--accent); }
+.rp-opening.on-dark .spin { border-color: #3d4048; border-top-color: var(--accent); }
 .tr-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
 /* the sentence keeps a readable width and the time + Cancel drop to their own line when the card is narrow (a long translated sentence used to be squeezed to three lines) */
 .tr-main { display: flex; align-items: center; gap: 8px; flex: 1 1 15em; min-width: 0; }
