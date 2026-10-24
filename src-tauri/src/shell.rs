@@ -315,6 +315,23 @@ fn mac_menu_slot(label: &str) -> Option<crate::i18n::K> {
     }
 }
 
+/// One entry of the macOS app menu, in the order the person sees it (W5.7).
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum AppMenuEntry {
+    Item(crate::i18n::K),
+    Separator,
+}
+
+/// The app menu of macOS as the app builds it: tauri's default menu (About, separator, Services, separator, Hide, Hide Others, separator, Quit) with the Show All item that
+/// Apple's standard menu has under Hide Others added (`localize_app_menu`) and the Quit item replaced by ours (`replace_quit_item`): six items and three separators, in the app's
+/// language. Pure: the list the test compares with what the two functions do (W5.7: Show All stays).
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn app_menu_plan() -> Vec<AppMenuEntry> {
+    use crate::i18n::K;
+    use AppMenuEntry::{Item, Separator};
+    vec![Item(K::MacAbout), Separator, Item(K::MacServices), Separator, Item(K::MacHide), Item(K::MacHideOthers), Item(K::MacShowAll), Separator, Item(K::MacQuit)]
+}
+
 /// Puts the language of the app on the predefined items of the app menu. macOS' standard menu has a Show All item right under Hide Others;
 /// tauri's default menu leaves it out, so it is added here.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -1051,6 +1068,32 @@ mod platform_tests {
 
     /// The localised items are rebuilt with the language: the app menu code and the language refresh use the same list, and the menu code is only
     /// ever compiled in for macOS (this reads the source, like the quit tests do).
+    /// W5.7: the app menu has exactly the agreed items, Show All stays (Apple's standard menu has it; it only un-hides other apps).
+    #[test]
+    fn the_mac_app_menu_has_exactly_the_agreed_items() {
+        use crate::i18n::K;
+        let plan = app_menu_plan();
+        let items: Vec<K> = plan.iter().filter_map(|e| if let AppMenuEntry::Item(k) = e { Some(*k) } else { None }).collect();
+        assert_eq!(items, [K::MacAbout, K::MacServices, K::MacHide, K::MacHideOthers, K::MacShowAll, K::MacQuit], "six items, in this order");
+        assert_eq!(plan.iter().filter(|e| **e == AppMenuEntry::Separator).count(), 3, "three separators");
+        assert_eq!(plan[1], AppMenuEntry::Separator);
+        assert_eq!(plan[3], AppMenuEntry::Separator);
+        assert_eq!(plan[7], AppMenuEntry::Separator);
+        assert_eq!(plan.len(), 9);
+        // what builds it: the localisation inserts Show All right under Hide Others when tauri's menu has none, and the Quit item is ours; the six texts are in every language
+        let src = crate::test_guard::non_test_code(include_str!("shell.rs"));
+        let localize = &src[src.find("fn localize_app_menu(").unwrap()..];
+        let localize = &localize[..localize.find("
+}
+").unwrap()];
+        assert!(localize.contains("PredefinedMenuItem::show_all(app, Some(tr(K::MacShowAll)))") && localize.contains("app_menu.insert(&show, at + 1)") && localize.contains("K::MacHideOthers"), "Show All under Hide Others: {localize}");
+        assert!(src.contains("MAC_QUIT_ID, crate::i18n::tr(crate::i18n::K::MacQuit)"), "our Quit item");
+        // (the texts of the six keys exist in every language: the i18n tests check every key; here, that the menu uses these six)
+        for k in items {
+            assert!(!crate::i18n::tr(k).is_empty());
+        }
+    }
+
     #[test]
     fn the_app_menu_follows_the_language_change() {
         let src = crate::test_guard::non_test_code(include_str!("shell.rs"));

@@ -5368,6 +5368,34 @@ fn quit_final(app: &tauri::AppHandle) {
     app.exit(0);
 }
 
+/// Linux (W5.9): a log out, a shut down or a `kill` reaches the app as SIGTERM, SIGHUP or SIGINT. It leaves by the same road as `RunEvent::Exit` (the push sessions are closed, the queued
+/// actions are committed, an update the person kept is installed), without questions, like a macOS session end; the exit watchdog bounds it, and a second signal ends the process at once.
+/// The signals are handled on the GTK main loop (`glib::unix_signal_add_local`, the glib that gtk brings), so the quit runs on the main thread like any other.
+#[cfg(target_os = "linux")]
+fn install_signal_quit(app: &tauri::AppHandle) {
+    use gtk::glib::{unix_signal_add_local, ControlFlow};
+    for (signal, name) in [(libc::SIGTERM, "SIGTERM"), (libc::SIGHUP, "SIGHUP"), (libc::SIGINT, "SIGINT")] {
+        let app = app.clone();
+        unix_signal_add_local(signal, move || {
+            leave_on_signal(&app, name);
+            ControlFlow::Continue
+        });
+    }
+}
+
+/// What a signal does: the first one starts the exit, the second ends the process now.
+#[cfg(target_os = "linux")]
+fn leave_on_signal(app: &tauri::AppHandle, name: &str) {
+    static SEEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if SEEN.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        startup::stage(Some(app), &format!("quit: signal {name} again: ending the process now"));
+        std::process::exit(1);
+    }
+    startup::stage(Some(app), &format!("quit: signal {name}: leaving without questions"));
+    exit_watchdog(app);
+    app.exit(0);
+}
+
 /// How long the quit sequence may take from `quit_final` to the end of the process (queued actions up to a few seconds, the exit itself).
 const EXIT_LIMIT: std::time::Duration = std::time::Duration::from_secs(40);
 
@@ -5934,6 +5962,9 @@ pub fn run() {
             let handle = app.handle().clone();
             std::thread::spawn(move || sync_worker(handle));
             idle::start(app.handle().clone());
+            // Linux: SIGTERM / SIGHUP / SIGINT leave by the exit road (W5.9)
+            #[cfg(target_os = "linux")]
+            install_signal_quit(app.handle());
 
             // started by "launch at login" => stay in the tray (only when there is a tray to come back from). The window is shown
             // when its page has reported itself (not here: see startup.rs), and the page is reloaded if it never does.
@@ -6678,6 +6709,34 @@ mod quit_tests {
     }
 
     /// QA Mac round 2 (Q3 Cmd+Q, Q4 app menu Quit): on macOS the predefined Quit item, Cmd+Q and the Dock's Quit are `[NSApp terminate:]`,
+
+    /// W5.9: on Linux a signal leaves by the exit road without a question (the Exit body does the rest: idle::shutdown, flush_pending, install_on_exit), with the watchdog, and a second signal
+    /// ends the process; nothing else in the app handles signals.
+    #[test]
+    fn a_signal_on_linux_leaves_by_the_exit_path_without_questions() {
+        let lib = crate::test_guard::non_test_code(include_str!("lib.rs"));
+        let install = &lib[lib.find("fn install_signal_quit(").unwrap()..];
+        let install = &install[..install.find("\n}\n").unwrap()];
+        for sig in ["libc::SIGTERM", "libc::SIGHUP", "libc::SIGINT"] {
+            assert!(install.contains(sig), "{sig}");
+        }
+        assert!(install.contains("unix_signal_add_local(") && install.contains("ControlFlow::Continue"), "on the GTK main loop, kept for the next signal");
+        let leave = &lib[lib.find("fn leave_on_signal(").unwrap()..];
+        let leave = &leave[..leave.find("\n}\n").unwrap()];
+        assert!(leave.contains("quit: signal {name}: leaving without questions") && leave.contains("exit_watchdog(app)") && leave.contains("app.exit(0)"), "{leave}");
+        assert!(!leave.contains("request_quit") && !leave.contains("confirm-quit") && !leave.contains("finish_sends_then"), "no question and no page involved");
+        assert!(leave.find("exit_watchdog(app)").unwrap() < leave.find("app.exit(0)").unwrap());
+        assert!(leave.contains("SEEN.swap(true") && leave.contains("std::process::exit(1)"), "a second signal ends the process");
+        // the call is in the setup, on Linux only, and nothing else installs a signal handler
+        assert!(lib.contains("#[cfg(target_os = \"linux\")]\n            install_signal_quit(app.handle());"));
+        assert_eq!(lib.matches("unix_signal_add").count(), 3, "the doc line, the import and the one call are the only signal handling of the app");
+        // the Exit body that a signal leads to writes the same lines as every other quit path (REQ-5.9.2)
+        let exit = &lib[lib.find("tauri::RunEvent::Exit =>").unwrap()..];
+        for line in ["exit: the event loop ended, closing the push sessions and committing the queued actions", "idle::shutdown();", "flush_pending(app);", "exit: done, the process ends"] {
+            assert!(exit.contains(line), "{line}");
+        }
+    }
+
     /// which tao turns into `RunEvent::Exit` without an `ExitRequested`, so the flush never ran and a message in its Undo time was
     /// sent only after the next start. The macOS routes have to be taken over explicitly; this reads the sources (the macOS code
     /// cannot be compiled on every machine that runs the tests).
