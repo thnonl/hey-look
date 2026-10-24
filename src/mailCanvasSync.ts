@@ -28,10 +28,20 @@ export function onThemeSwitch(fn: () => void): () => void {
 /** True while the theme-switch rule itself is clearing the session choice (read by the broadcast below). */
 let byTheme = false;
 
+/**
+ * What `window.__mailCanvas` answers (D-105; read through the QA bridge `/eval`, scripts/lib/mail-canvas-probe.mjs): the live values of this window, which a release-built page
+ * cannot read any other way (`window.__store` exists only in the dev preview). Read-only; `stored` is the saved choice, `session` the light theme's session choice.
+ */
+function mailCanvasReport(): { theme: string; stored: string; session: string | null; switches: number } {
+  const st = useStore.getState();
+  return { theme: st.prefs.theme, stored: st.prefs.mailCanvas, session: st.mailCanvasSession, switches };
+}
+
 /** Installs the theme watch (every window) and, in the main window, the broadcast of the session choice. Once per page. */
 export function installMailCanvasSync(main: boolean): void {
   if (started) return;
   started = true;
+  if (typeof window !== "undefined") Object.defineProperty(window, "__mailCanvas", { get: mailCanvasReport, configurable: true });
   let last = currentKey();
   const check = () => {
     const next = currentKey();

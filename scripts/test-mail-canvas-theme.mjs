@@ -12,6 +12,7 @@ import path from 'node:path';
 import { arg, inputs, languageJs, sleep, startHarness } from './cdp-harness.mjs';
 import { CALIBRATE } from './lib/reply-open-probe.mjs';
 import { darkFrameProbe } from './lib/dark-frame-probe.mjs';
+import { mailCanvasProbe } from './lib/mail-canvas-probe.mjs';
 
 const SHOTS = arg('shots');
 const H = await startHarness('test-mail-canvas-theme', { vitePort0: 5490 });
@@ -166,6 +167,29 @@ async function paneScenarios() {
     await waitSurface(tag, WHITE, 'after a restart');
     p = await prefsNow();
     check(tag, p.session === null && p.mailCanvas === 'original', `after a restart: ${JSON.stringify(p)}`);
+  });
+
+  // D-105: the QA probe (scripts/lib/mail-canvas-probe.mjs) reads the live values from `window.__mailCanvas`, not from the dev preview's store (a built app has no `window.__store`): hide the store, the fields must still be there
+  await scenario('D-105 the probe reads the live theme, stored choice and session without window.__store', async (tag) => {
+    await boot('lang=en&osdark=0&persist');
+    await evaluate(`localStorage.removeItem('hl-mock-settings'); 1`);
+    await boot('lang=en&osdark=0&persist');
+    await setPrefs({ theme: 'light', mailCanvas: 'original' });
+    await open('dk1');
+    await waitSurface(tag, WHITE, 'Light app');
+    const probe = async () => JSON.parse(await evaluate(`(() => { const hold = window.__store; window.__store = undefined; try { return ${mailCanvasProbe()}; } finally { window.__store = hold; } })()`));
+    let p = await probe();
+    check(tag, p.theme === 'light' && p.mailCanvas === 'original' && p.session === null && p.pressed === 'false', `Light app: ${JSON.stringify(p)}`);
+    await click(BUTTON);
+    await waitSurface(tag, DARK, 'session dark');
+    p = await probe();
+    check(tag, p.theme === 'light' && p.mailCanvas === 'original' && p.session === 'dark' && p.pressed === 'true' && p.frame && p.frame.painted && near(p.frame.painted, DARK), `after the press: ${JSON.stringify(p)}`);
+    await setPrefs({ theme: 'dark', mailCanvas: 'dark' });
+    await waitSurface(tag, DARK, 'Dark app, stored dark');
+    p = await probe();
+    check(tag, p.theme === 'dark' && p.mailCanvas === 'dark' && p.session === null && p.pressed === 'true', `Dark app: ${JSON.stringify(p)}`);
+    const live = await evaluate(`JSON.stringify(window.__mailCanvas)`);
+    check(tag, JSON.parse(live).stored === 'dark', `window.__mailCanvas: ${live}`);
   });
 
   await scenario('AC-13.15.4 Dark app: the button stores; Light shows the original; back to Dark gives the stored choice', async (tag) => {
