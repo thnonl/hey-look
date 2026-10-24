@@ -897,6 +897,8 @@ function ComposingPanel({ scope }: { scope: string | null }) {
       )}
       {scope === null && <DefaultFontRow />}
       {scope === null && <PasteDefaultRow />}
+      {scope === null && <AutoFormatRow />}
+      {scope === null && <MiniToolbarRow />}
     </>
   );
 }
@@ -937,6 +939,29 @@ function PasteDefaultRow() {
         <option value="merge">{t("compose.paste.merge")}</option>
         <option value="text">{t("compose.paste.textOnly")}</option>
       </select>
+    </Row>
+  );
+}
+
+/** Settings > Composing > AutoFormat as you type: typographic quotes, dashes, arrows and symbols in the rich editors (editor/autoFormat.ts); Ctrl+Z right after a change undoes it. */
+function AutoFormatRow() {
+  const t = useT();
+  const { prefs, setPrefs } = useStore();
+  const os = usePlatform((s) => s.os);
+  return (
+    <Row label={t("settings.composing.autoFormat")} hint={kbd(t("settings.composing.autoFormatHint"), os)} id="autoFormat">
+      <Switch checked={prefs.autoFormat} onChange={(v) => setPrefs({ autoFormat: v })} />
+    </Row>
+  );
+}
+
+/** Settings > Composing > Show the mini toolbar when you select text (editor/MiniToolbar.tsx). */
+function MiniToolbarRow() {
+  const t = useT();
+  const { prefs, setPrefs } = useStore();
+  return (
+    <Row label={t("settings.composing.miniToolbar")} hint={t("settings.composing.miniToolbarHint")} id="miniToolbar">
+      <Switch checked={prefs.miniToolbar} onChange={(v) => setPrefs({ miniToolbar: v })} />
     </Row>
   );
 }
@@ -2013,7 +2038,7 @@ function ShortcutsTab() {
     ["Ctrl+1 / Ctrl+2", "settings.keys.mailCalendar"], ["Ctrl+B", "settings.keys.sideMenu"], ["c · t · ← / → · m / w / a", "settings.keys.calendarKeys"], ["Ctrl+Enter", "settings.keys.editEvent"],
     ["Ctrl+] / Ctrl+[", "settings.keys.fontSize"], ["Ctrl+= / Ctrl+Shift+=", "settings.keys.subSuper"], [os === "macos" ? "Ctrl+\\" : "Ctrl+Space / Ctrl+\\", "compose.fmt.clear"], ["Alt+F10", "settings.keys.focusToolbar"],
     ["Ctrl+Shift+L / 8", "compose.fmt.bulleted"], ["Ctrl+Shift+7", "compose.fmt.numbered"], ["Ctrl+L / E / R / Shift+J", "settings.keys.align"], ["Ctrl+T / Ctrl+Shift+T", "settings.keys.indent"],
-    ["Ctrl+Shift+S", "settings.keys.stylesMenu"], ["Ctrl+Shift+N / Ctrl+Alt+1-3", "settings.keys.styleKeys"], [os === "macos" ? "Ctrl+F / Ctrl+Shift+H" : "Ctrl+F / Ctrl+H", "compose.fmt.find"], ["Shift+F3", "compose.fmt.case"],
+    ["Ctrl+Shift+S", "settings.keys.stylesMenu"], ["Ctrl+Shift+N / Ctrl+Alt+1-3", "settings.keys.styleKeys"], [os === "macos" ? "Ctrl+F / Ctrl+Shift+H" : "Ctrl+F / Ctrl+H", "compose.fmt.find"], ["Shift+F3", "compose.fmt.case"], ["Ctrl+Shift+D", "compose.fmt.painter"],
     ["Ctrl+A", "settings.keys.selectAll"], ["Ctrl+K", "settings.keys.commandBar"], ["Ctrl+Shift+K", "settings.keys.commandBarAnywhere"], ["F5", "settings.keys.syncNow"], ["Esc", "settings.keys.closeDeselect"], ["Shift+Enter", "settings.keys.openInWindow"], ["Ctrl+W", "settings.keys.closeWindow"],
     [os === "macos" ? "Ctrl+Shift+V / Ctrl+Option+Shift+V" : "Ctrl+Shift+V", "settings.keys.pasteText"], [os === "macos" ? "Cmd" : "Ctrl", "settings.keys.pasteOptions"],
     ["Ctrl+K", "settings.keys.insertLink"], ["Ctrl+Click", "settings.keys.openLink"], ["Tab / Shift+Tab", "settings.keys.tableCells"],

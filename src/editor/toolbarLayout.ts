@@ -67,6 +67,8 @@ const BOTH: readonly Variant[] = ["compose", "compact"];
  * adds its controls here with the numbers of that list.
  */
 export const BAR_META: Record<string, BarMeta> = {
+  // the clipboard group: Hey Look! has no Paste / Cut / Copy buttons, so it holds the format painter only (W3.1; priority 185: after Insert, before Clear formatting)
+  painter: { group: "clipboard", order: 10, priority: 185, width: 28, variants: BOTH },
   undo: { group: "history", order: 1, priority: 200, width: 28, variants: BOTH },
   redo: { group: "history", order: 2, priority: 210, width: 28, variants: BOTH },
   font: { group: "font", order: 20, priority: 110, width: 120, variants: BOTH },

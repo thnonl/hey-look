@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { checkLinkUrl, planLinkEdit } from "../linkUrl";
 import { useT } from "../i18n/react";
 import { openExternal } from "../open";
-import { placePopover } from "../popoverRoom";
+import { placePopover, type PlaceBox } from "../popoverRoom";
 import { toastBox, useOutside } from "./ui";
 
 // The link UI of the composer and of the signature / template editor: a small popover with the address and (optionally) the text, opened by
@@ -13,6 +13,11 @@ import { toastBox, useOutside } from "./ui";
 // WKWebView). Text to display above Address (the focus is in Address); Insert (a new link) or Save (an edit) with Cancel, and Remove link / Open link when the caret is in a link; Enter is the primary
 // button, Esc is Cancel, the focus goes back to the editor with the selection as it was (W2.16, Outlook's Insert Hyperlink). Only http, https, mailto, tel
 // (linkUrl.ts); a bare domain gets https://.
+
+/** What the link popover hangs under: a button, or (the mini toolbar, which is gone by then) the box it was at. */
+export interface LinkAnchor {
+  getBoundingClientRect(): PlaceBox;
+}
 
 /** The link UI is about this range of the document. */
 export interface LinkTarget {
@@ -81,16 +86,20 @@ export function removeLinkTarget(editor: Editor, target: LinkTarget): void {
  */
 export function useLinkEditor(editor: Editor | null, anchor: React.RefObject<HTMLElement | null>) {
   const [target, setTarget] = useState<LinkTarget | null>(null);
-  const open = useCallback(() => {
+  // `open(at)`: under `at` (the Link button of the mini toolbar, W3.3) instead of the toolbar's Link button. A click handler may hand over its event or a count: only a box counts.
+  const [at, setAt] = useState<LinkAnchor | null>(null);
+  const open = useCallback((at?: unknown) => {
+    setAt(at && typeof (at as LinkAnchor).getBoundingClientRect === "function" ? (at as LinkAnchor) : null);
     if (editor) setTarget(readLinkTarget(editor));
   }, [editor]);
+  const placed = { get current(): LinkAnchor | null { return at ?? anchor.current; } };
   const close = useCallback(() => {
     setTarget(null);
     editor?.commands.focus();
   }, [editor]);
   const node =
     target && editor
-      ? createPortal(<LinkPopover target={target} anchor={anchor} onApply={(href, text) => (applyLinkTarget(editor, target, href, text), setTarget(null))} onRemove={() => (removeLinkTarget(editor, target), setTarget(null))} onClose={close} />, document.body)
+      ? createPortal(<LinkPopover target={target} anchor={placed} onApply={(href, text) => (applyLinkTarget(editor, target, href, text), setTarget(null))} onRemove={() => (removeLinkTarget(editor, target), setTarget(null))} onClose={close} />, document.body)
       : null;
   return { open, node, isOpen: !!target };
 }
@@ -101,7 +110,7 @@ function LinkPopover({
   target, anchor, onApply, onRemove, onClose,
 }: {
   target: LinkTarget;
-  anchor: React.RefObject<HTMLElement | null>;
+  anchor: { current: LinkAnchor | null };
   onApply: (href: string, text: string) => void;
   onRemove: () => void;
   onClose: () => void;

@@ -2,7 +2,7 @@ import { NodeSelection } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
 import {
   AlignCenter, AlignJustify, AlignLeft, AlignRight, ArrowUpDown, Bold, CalendarClock, CaseSensitive, ChevronDown, Highlighter, ImagePlus, IndentDecrease, IndentIncrease, Italic, Link2, List, ListOrdered, Minus,
-  Omega, PilcrowLeft, PilcrowRight, Plus, RemoveFormatting, Redo2, Replace, Search, Smile, Strikethrough, Subscript, Superscript, Table2, Underline as UnderlineIcon, Undo2, ZoomIn,
+  Omega, Paintbrush, PilcrowLeft, PilcrowRight, Plus, RemoveFormatting, Redo2, Replace, Search, Smile, Strikethrough, Subscript, Superscript, Table2, Underline as UnderlineIcon, Undo2, ZoomIn,
 } from "lucide-react";
 import { Suspense, lazy, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { FloatingMenu, type MenuItem } from "../components/ui";
@@ -20,6 +20,7 @@ import {
   setSize, setSpaceAfterParagraph, setSpacing, setTextColor, type Uniform,
 } from "./commands";
 import type { BaseFont } from "./emailHtml";
+import { painterClick, painterMode, type PainterMode } from "./formatPainter";
 import { FONTS, SIZES, familyName, fontOf, normFamily, parseTypedSize } from "./fonts";
 import { BAR_META, type Variant } from "./toolbarLayout";
 
@@ -65,6 +66,8 @@ export interface BarState {
   inTable: boolean;
   inLink: boolean;
   onPicture: boolean;
+  /** the format painter: off, on for one use, or kept on (W3.1) */
+  painter: PainterMode;
 }
 
 export function readBarState(editor: Editor, base: BaseFont): BarState {
@@ -94,12 +97,13 @@ export function readBarState(editor: Editor, base: BaseFont): BarState {
     inTable: editor.isActive("table"),
     inLink: editor.isActive("link"),
     onPicture: editor.state.selection instanceof NodeSelection && editor.state.selection.node.type.name === "image",
+    painter: painterMode(editor.state),
   };
 }
 
 /** What the host of the toolbar (Compose, RichEditor) provides: the link UI of its editor and, for a message, the picture button. */
 export interface FormatHost {
-  link: { open: () => void; isOpen: boolean; btnRef: RefObject<HTMLButtonElement | null> };
+  link: { open: (at?: unknown) => void; isOpen: boolean; btnRef: RefObject<HTMLButtonElement | null> };
   /** present when the editor takes pictures (the message body, the signature and the template editor) */
   insertPicture?: () => void;
   /** the message body shows the editor larger or smaller (REQ-49): the percentage and how it changes; not in a signature or template */
@@ -165,7 +169,7 @@ export interface MoreEntry {
 const keepSelection = (e: React.MouseEvent) => e.preventDefault(); // a click on the toolbar must not take the focus (and the caret) out of the editor
 
 function Tool({ c, id, icon, label, tip, on, disabled, run, btnRef, haspopup, expanded }: {
-  c: Ctx; id: string; icon: ReactNode; label: string; tip: string; on?: boolean; disabled?: boolean; run: () => void;
+  c: Ctx; id: string; icon: ReactNode; label: string; tip: string; on?: boolean; disabled?: boolean; run: (clicks: number) => void;
   btnRef?: RefObject<HTMLButtonElement | null>; haspopup?: "dialog"; expanded?: boolean;
 }) {
   return (
@@ -181,9 +185,9 @@ function Tool({ c, id, icon, label, tip, on, disabled, run, btnRef, haspopup, ex
       aria-haspopup={haspopup}
       aria-expanded={expanded}
       onMouseDown={keepSelection}
-      onClick={() => {
+      onClick={(e) => {
         if (disabled) return;
-        run();
+        run(e.detail); // (the click count: the format painter tells a double click from a click)
         if (!haspopup) focusText(c.editor); // the text keeps the focus (and the caret) after a toolbar button
       }}
     >
@@ -738,7 +742,17 @@ const highlightControl: FormatControl = {
 
 // ---------------------------------------------------------------- the registry (where each control sits and how long it stays: BAR_META in toolbarLayout.ts)
 
+/** The format painter: a click turns it on for one use (or off), a double click keeps it on, Ctrl+Shift+D does the same from the keyboard (formatPainter.ts). */
+const painterControl: FormatControl = {
+  id: "painter", ...BAR_META.painter, rove: ["painter"],
+  bar: (c) => (
+    <Tool c={c} id="painter" icon={<Paintbrush size={IC} />} label={c.t("compose.fmt.painter")} tip={kbd(c.t("compose.fmt.painterTip"))} on={c.st.painter !== "off"} run={(clicks) => painterClick(c.editor, clicks)} />
+  ),
+  more: (c) => [{ label: c.t("compose.fmt.painter"), icon: <Paintbrush size={IC} />, hint: kbd("Ctrl+Shift+D"), kind: "check", checked: c.st.painter !== "off", onClick: () => painterClick(c.editor, 1) }],
+};
+
 export const CONTROLS: readonly FormatControl[] = [
+  painterControl,
   toggle({ id: "undo", label: "compose.fmt.undo", tip: "compose.fmt.undoTip", icon: <Undo2 size={IC} />, off: (s) => !s.canUndo, run: (c) => void c.editor.chain().focus().undo().run() }),
   toggle({ id: "redo", label: "compose.fmt.redo", tip: "compose.fmt.redoTip", icon: <Redo2 size={IC} />, off: (s) => !s.canRedo, run: (c) => void c.editor.chain().focus().redo().run() }),
   fontControl,

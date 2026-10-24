@@ -24,6 +24,9 @@
 - A mailbox or folder that got new mail since you last looked has a dot after its name and a bolder name in the side menu (the mailbox shows it when its Inbox has new mail; in the icon column the avatar gets a ring and a folder icon a small dot; the tooltip and screen readers say "New mail"). It goes when you open the folder, when the window comes forward with that folder in view, or when no unread mail is left in it. Your own sent mail and mail that only moved between folders do not count, and they no longer make a notification either. Nothing is kept after a restart
 - "Opening message…" shows over the reading pane while a message is on its way to the screen (after 100 ms, so a quick open shows nothing, and for at least 300 ms once shown); the message window keeps it until the message is drawn instead of a blank body
 - A big batch (20 conversations or more) archived, deleted, marked or flagged shows "Working on 30 conversations…" with a spinner until it is done; "Preparing to print…" shows while a long message is laid out for the print dialog; Save all attachments from the More menu shows "Loading…"; the list shows a small "Loading…" while a search, a tab or a filter reads, and the Check mail button is marked busy while it syncs
+- Format painter in the formatting toolbar (Ctrl+Shift+D, Cmd+Shift+D on a Mac): click it to copy the formatting of the selection to the next text you select, double-click to keep it on, Esc stops it. In a narrow pane it is a row of the More menu
+- AutoFormat as you type: typographic quotes of the app language, dashes, …, →, ←, ©, ®, ™; Ctrl+Z right after a change undoes it; on by default, Settings > Composing turns it off
+- A mini toolbar (bold, italic, underline, font color, highlight, link) above text you select with the mouse; Alt+F10 reaches it from the keyboard; Settings > Composing turns it off
 
 ### Changed
 
