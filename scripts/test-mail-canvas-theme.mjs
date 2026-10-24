@@ -341,6 +341,12 @@ async function composerScenarios() {
   const startComposer = async () => {
     await evaluate(`window.__store.getState().openCompose({ accountId: 'a1', to: ['alice@fabrikam.com'], subject: 'Hello' }); 1`);
     check('composer', await waitFor(`!!document.querySelector('.cp-editor.cp-pv') && !!document.querySelector('.pv-switch')`, 15000), 'the composer did not open');
+    // the composer still lays itself out after it shows the switch (the recipient chips ~0.2 s, the security strip ~0.4 s later on this machine, 4x slower on a slow one): a click at the place read a moment before would land beside the button. Wait until the Preview switch has stood still for a while.
+    const quiet = Math.round(500 * scale); let still = Date.now(), seen = '';
+    for (const t0 = Date.now(); Date.now() - t0 < 15000 && Date.now() - still < quiet; await sleep(30)) {
+      const r = await evaluate(`(() => { const b = document.querySelector('.pv-switch'); const r = b && b.getBoundingClientRect(); return r ? [r.left, r.top, r.width].map(Math.round).join() + (document.querySelector('.cp-editor .ProseMirror') ? ' editor' : '') : ''; })()`);
+      if (r !== seen) { seen = r; still = Date.now(); }
+    }
   };
 
   await scenario('composer: stored dark follows the theme (AC-13.15.2)', async (tag) => {

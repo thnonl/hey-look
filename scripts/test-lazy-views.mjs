@@ -307,6 +307,8 @@ try {
     const open = async (query, w, h) => {
       await cdp('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: false });
       await cdp('Page.navigate', { url: 'about:blank' });
+      // (the browser keeps the first 250 resource entries and drops the rest: the dev server sends every module of a window on its own, and with more than 250 of them the editor's would be missing from the list, as the reader's "no editor" would pass for the same reason; a bigger buffer, set before the page starts)
+      await cdp('Page.addScriptToEvaluateOnNewDocument', { source: 'performance.setResourceTimingBufferSize(5000)' });
       await cdp('Page.navigate', { url: `${H.base}?${query}#lang=en` });
     };
     const resources = () => evaluate(`performance.getEntriesByType('resource').map((r) => r.name)`);
