@@ -628,7 +628,7 @@ async function mockCheckUpdate(trigger: string, prefsJson?: string) {
 }
 
 // ---- the update flow (`#dl=<mode>`, `#sending`, `#draftfail`, `#afterupdate=ok|draft|fail`): a pretend download with the same events as Rust's channel.
-// Modes: ok (default; 9.8 MB over 6 s), nolength (no total), slow (60 s), stall (stops at 30 %, fails after 10 s), fail (fails at 40 %),
+// Modes: ok (default; 9.8 MB over 6 s), fast (ready after 0.3 s), nolength (no total), slow (60 s), stall (stops at 30 %, fails after 10 s), fail (fails at 40 %),
 // verifyfail, badurl, installfail, offline (fails at once), changed (the first one: GitHub has 1.2.0 now). `update_install` never restarts: it shows a toast and logs the call.
 type UpdateLogEntry = { trigger?: string; cmd?: string; restart?: boolean; draftSaved?: boolean; note?: string; at: number; kind: string | null };
 function logUpdateCall(e: { trigger?: string; cmd?: string; restart?: boolean; draftSaved?: boolean; note?: string }): UpdateLogEntry {
@@ -665,7 +665,7 @@ async function mockDownload(ch: { onmessage: (e: unknown) => void }) {
   const full = 10276044;
   const total = mode === "nolength" ? null : full;
   send({ event: "started", data: { total, version: mode === "changed" ? "1.2.0" : "1.1.0" } });
-  const steps = mode === "slow" ? 600 : 60;
+  const steps = mode === "slow" ? 600 : mode === "fast" ? 2 : 60;
   const tick = 100;
   for (let i = 1; i <= steps; i++) {
     await wait(tick);
@@ -689,7 +689,7 @@ async function mockDownload(ch: { onmessage: (e: unknown) => void }) {
     send({ event: "progress", data: { received: Math.round(full * f) } });
   }
   send({ event: "verifying" });
-  await wait(1000);
+  await wait(mode === "fast" ? 50 : 1000);
   if (mode === "verifyfail") {
     send({ event: "failed", data: { stage: "verify", message: "signature mismatch" } });
     entry.kind = "failed";
@@ -1194,6 +1194,16 @@ export function installMock() {
   Object.assign(window, {
     __mockGone: mockGone,
     __mockEmit: (name: string, payload: unknown) => emit(name, payload),
+    // the update flow of the page (`#update=available&dl=fast`): a check, then "Update" as the announcement toast's button does it; `flow()` is its state
+    __mockUpdates: {
+      start: async () => {
+        const { useUpdates } = await import("./updates");
+        await useUpdates.getState().checkUpdate("manual");
+        await useUpdates.getState().startUpdate("toast");
+      },
+      cancel: async () => (await import("./updates")).useUpdates.getState().cancelUpdate(),
+      flow: async () => (await import("./updates")).useUpdates.getState().flow.state,
+    },
     // an IMAP EXPUNGE of a draft by another program: the server copy is gone, the page does not know yet (D-043: Discard changes before any save puts the opened version back)
     __mockExpungeDraft: (threadId: string) => {
       const ref = `m:a1:drafts:${threadId}`;

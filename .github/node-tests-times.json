@@ -226,6 +226,8 @@
   "node scripts/test-installer-identity.mjs": 1,
   "node --experimental-strip-types scripts/test-about-store.mjs --quick --require-browser": 40,
   "node scripts/test-answer-geometry.mjs --require-browser": 60,
-  "node scripts/test-folder-reset.mjs --require-browser": 20
+  "node scripts/test-folder-reset.mjs --require-browser": 20,
+  "node scripts/test-update-toast.mjs --require-browser": 25,
+  "node scripts/test-prune-limit.mjs --require-browser": 20
  }
 }

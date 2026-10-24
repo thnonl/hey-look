@@ -1303,6 +1303,11 @@ mod tests {
 
     #[test]
     fn what_was_remembered_at_open_time_is_bounded() {
+        // (the memory is process-wide and bounded: filling it evicts what the tests that run side by side have just put there, so this one runs alone)
+        crate::test_guard::alone(bounded_memory_checks);
+    }
+
+    fn bounded_memory_checks() {
         for i in 0..(OPENED_MAX_ENTRIES + 6) {
             remember_opened(&format!("bound-{i}"), b"x");
         }

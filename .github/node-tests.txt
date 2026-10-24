@@ -366,3 +366,7 @@ ui-b | node scripts/test-painter-mini.mjs --require-browser
 static | node --experimental-strip-types scripts/test-mini-toolbar.mjs
 # 1.0.7 W6.1: `folder-reset` (the server renumbered a folder and it was read again): the folder on screen drops the selection, the checked rows and the open conversation and the list is read again; another folder or mailbox changes nothing; the all-mailboxes view follows every mailbox
 ui-b | node scripts/test-folder-reset.mjs --require-browser
+# 1.0.7 W6.17b: the toast "Downloading Hey Look!" is keyed and goes when the download leaves `downloading`: a fast download shows the ready text and no Downloading toast beside it, a slow one keeps it until it is over, a cancel takes it away
+ui-b | node scripts/test-update-toast.mjs --require-browser
+# 1.0.7 W6.3: lowering the download limit asks the backend to prune at once with the open conversation kept, raising it asks nothing, `mail-pruned` shows the limit notice at the end of an unfiltered list without a sync (not under a filter), a sync in progress keeps what it was told
+ui-b | node scripts/test-prune-limit.mjs --require-browser

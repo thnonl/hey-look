@@ -22,4 +22,15 @@ assert.match(src, /prefetch=\{!filtered\}/);
 assert.ok(!/filter === "all" && folder !== "unread"/.test(src), "no second spelling of the rule");
 // The "Downloading mails N / M" line is a running download, not the cap: it does not depend on the filter.
 assert.match(src, /const download = downloadLine\(backfill, \{ inboxish, searching, accountId, accountIds: accounts\.map\(\(a\) => a\.id\) \}\);/);
+// W6.3: the notice follows every prune (a sync, a push, the limit lowered): the backend says so (`mail-pruned`), the store marks every folder of that mailbox, a sync keeps what it was told
+{
+  const store = readFileSync(new URL("../src/store.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+  assert.ok(app.includes('listen<{ accountId: string; removed: number }>("mail-pruned", (e) => useStore.getState().onPruned(e.payload.accountId))'), "App.tsx listens to mail-pruned");
+  assert.ok(store.includes("onPruned: (accountId) => {") && store.includes("limitedKeys(accountId, get().folders)"), "the store marks the folders of the mailbox");
+  assert.ok(store.includes("limited: Object.fromEntries([...prunedDuringSync]"), "a sync keeps the marks it was told about");
+  assert.ok(store.includes("api.pruneToLimit(keep ? [keep] : [])") && store.includes("patch.maxDownload < get().prefs.maxDownload"), "only a LOWER limit asks for a prune, with the open conversation");
+  // an unfiltered list only: the footer rule above is unchanged
+  assert.match(src, /const capped = reachedEnd && !filtered/);
+}
 console.log("list-limit-footer: all checks passed");
