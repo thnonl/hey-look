@@ -10,6 +10,8 @@ export interface ReaderInit {
   /** the view of the main window it was opened from: the scope of a move (Archive, Delete ... act on the mail of that view) */
   view: string;
   subject: string;
+  /** the mailbox the main window had selected when the window was opened (null = all mailboxes): the list of Next / Previous when the main list no longer has the conversation (W4.4) */
+  listAccount?: string | null;
 }
 
 /** Reads the hand-off data defensively: a reader window without a usable conversation id shows the "could not open" state. */
@@ -19,7 +21,39 @@ export function readerInit(raw: unknown): ReaderInit | null {
   const s = (v: unknown, d = "") => (typeof v === "string" ? v : d);
   const threadId = s(r.threadId);
   if (!threadId) return null;
-  return { threadId, accountId: s(r.accountId), folder: s(r.folder), view: s(r.view, s(r.folder)), subject: s(r.subject) };
+  return { threadId, accountId: s(r.accountId), folder: s(r.folder), view: s(r.view, s(r.folder)), subject: s(r.subject), listAccount: typeof r.listAccount === "string" ? r.listAccount : null };
+}
+
+/** A row Next / Previous can go to: what a reader window needs to show it (the main page answers with these, or null at the end of the list). */
+export interface Neighbor {
+  threadId: string;
+  accountId: string;
+  folder: string;
+  subject: string;
+  /** the view of the list the row was found in (the scope of a move from the next conversation) */
+  view: string;
+}
+
+/**
+ * The row after (`dir` 1) or before (`dir` -1) the conversation `threadId` in `rows`, skipping the rows a reader cannot show (`canOpen`: drafts, Scheduled);
+ * no wrap at the ends. `null`: there is none, or `threadId` is not in the list.
+ */
+export function neighborOf<T extends { threadId: string }>(rows: readonly T[], threadId: string, dir: 1 | -1, canOpen: (row: T) => boolean): T | null {
+  const at = rows.findIndex((r) => r.threadId === threadId);
+  if (at < 0) return null;
+  for (let i = at + dir; i >= 0 && i < rows.length; i += dir) if (canOpen(rows[i])) return rows[i];
+  return null;
+}
+
+/** What the main page answers to `neighbors`, read defensively (`null` for a side that has no row or an answer that is not one). */
+export function neighborsOf(raw: unknown): { prev: Neighbor | null; next: Neighbor | null } {
+  const one = (v: unknown): Neighbor | null => {
+    if (!v || typeof v !== "object") return null;
+    const o = v as Record<string, unknown>;
+    return typeof o.threadId === "string" && o.threadId ? { threadId: o.threadId, accountId: typeof o.accountId === "string" ? o.accountId : "", folder: typeof o.folder === "string" ? o.folder : "", subject: typeof o.subject === "string" ? o.subject : "", view: typeof o.view === "string" ? o.view : typeof o.folder === "string" ? o.folder : "" } : null;
+  };
+  const r = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  return { prev: one(r.prev), next: one(r.next) };
 }
 
 /**
@@ -69,7 +103,7 @@ export const MOVE_ACTIONS: ReadonlySet<string> = new Set(["archive", "trash", "j
 /** The yes/no states of a conversation that the main window's intent layer sets (last click wins, one call at a time). */
 export const STATE_ACTIONS: ReadonlySet<string> = new Set(["read", "unread", "star", "unstar", "pin", "unpin", "unsnooze"]);
 
-export type ReaderAction = "reply" | "replyAll" | "forward" | "archive" | "trash" | "junk" | "unread" | "pin" | "flag" | "snooze" | "print" | "close";
+export type ReaderAction = "reply" | "replyAll" | "forward" | "archive" | "trash" | "junk" | "unread" | "pin" | "flag" | "snooze" | "print" | "close" | "prev" | "next";
 
 /** Actions that stay on when the conversation is gone (REQ-R9: only Close and Reply / Forward). */
 export function allowedWhenGone(a: ReaderAction): boolean {
@@ -93,7 +127,7 @@ export interface KeyContext {
 }
 
 /**
- * The key table of the reader (REQ-R13): r, a, f, e, # / Delete (Backspace on macOS), !, u, *, p, s, Ctrl+P (not macOS), Esc, Ctrl+W / Cmd+W.
+ * The key table of the reader (REQ-R13): r, a, f, e, # / Delete (Backspace on macOS), !, u, *, p, s, j / k (next / previous conversation, W4.4), Ctrl+P (not macOS), Esc, Ctrl+W / Cmd+W.
  * `null`: not a reader key. Never while typing in a field; Esc never while something modal is open (it closes that first).
  */
 export function readerKey(e: KeyEvent, ctx: KeyContext): ReaderAction | null {
@@ -117,6 +151,8 @@ export function readerKey(e: KeyEvent, ctx: KeyContext): ReaderAction | null {
     case "p": return "pin";
     case "*": return "flag";
     case "s": return "snooze";
+    case "j": return "next";
+    case "k": return "prev";
     default: return null;
   }
 }

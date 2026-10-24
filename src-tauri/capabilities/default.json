@@ -173,6 +173,11 @@
     "allow-popout-destroy",
     "allow-popout-note",
     "allow-popout-set-key",
+    "allow-popout-show",
+    "allow-drag-begin",
+    "allow-drag-peek",
+    "allow-drag-take",
+    "allow-drag-end",
     "allow-popout-request",
     "allow-popout-reply",
     "allow-thread-meta",
@@ -186,6 +191,7 @@
     "allow-update-startup-ack",
     "allow-outbox-busy",
     "allow-idle-states",
-    "allow-window-theme-refresh"
+    "allow-window-theme-refresh",
+    "allow-window-caption-colors"
   ]
 }

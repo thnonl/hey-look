@@ -71,13 +71,29 @@ pub const PREFS_EVENT: &str = "prefs-changed";
 pub enum Kind {
     Compose,
     Reader,
+    /// A calendar event in a window of its own (W4.6): the key is the event id, a new event has none.
+    Event,
+    /// Settings in a window of its own (W4.6): one at a time.
+    Settings,
+    /// The results of a search in a window of its own (W4.6): the key is the normalised search.
+    Search,
+    /// The Scheduled list in a window of its own (W4.6): one at a time.
+    Scheduled,
 }
+
+/// Every kind of window, in the order of `Kind::index` (the tests walk it).
+#[cfg(test)]
+pub const KINDS: [Kind; 6] = [Kind::Compose, Kind::Reader, Kind::Event, Kind::Settings, Kind::Search, Kind::Scheduled];
 
 impl Kind {
     pub fn parse(s: &str) -> Option<Kind> {
         match s {
             "compose" => Some(Kind::Compose),
             "reader" => Some(Kind::Reader),
+            "event" => Some(Kind::Event),
+            "settings" => Some(Kind::Settings),
+            "search" => Some(Kind::Search),
+            "scheduled" => Some(Kind::Scheduled),
             _ => None,
         }
     }
@@ -86,6 +102,25 @@ impl Kind {
         match self {
             Kind::Compose => "compose",
             Kind::Reader => "reader",
+            Kind::Event => "event",
+            Kind::Settings => "settings",
+            Kind::Search => "search",
+            Kind::Scheduled => "scheduled",
+        }
+    }
+
+    /// Does the PAGE of this kind decide what a close request means (it may ask a question first and ends the window itself)? A compose window with text
+    /// asks Save / Discard; an event window with changes asks the discard question (REQ-4.6.7). The other kinds close at once, like a reader.
+    pub fn page_decides_close(self) -> bool {
+        matches!(self, Kind::Compose | Kind::Event)
+    }
+
+    /// The key of a kind of which only one window exists (Settings, the Scheduled list): asking again focuses it (REQ-4.6.8, 4.6.17).
+    pub fn single_key(self) -> Option<&'static str> {
+        match self {
+            Kind::Settings => Some("settings"),
+            Kind::Scheduled => Some("scheduled"),
+            _ => None,
         }
     }
 
@@ -98,6 +133,10 @@ impl Kind {
         match self {
             Kind::Compose => "window.compose",
             Kind::Reader => "window.reader",
+            Kind::Event => "window.event",
+            Kind::Settings => "window.settings",
+            Kind::Search => "window.search",
+            Kind::Scheduled => "window.scheduled",
         }
     }
 
@@ -106,6 +145,10 @@ impl Kind {
         match self {
             Kind::Compose => (760.0, 680.0),
             Kind::Reader => (820.0, 720.0),
+            Kind::Event => (640.0, 720.0),
+            Kind::Settings => (900.0, 680.0),
+            Kind::Search => (760.0, 720.0),
+            Kind::Scheduled => (720.0, 640.0),
         }
     }
 
@@ -114,6 +157,10 @@ impl Kind {
         match self {
             Kind::Compose => (560.0, 440.0),
             Kind::Reader => (520.0, 400.0),
+            Kind::Event => (480.0, 480.0),
+            Kind::Settings => (720.0, 500.0),
+            Kind::Search => (520.0, 400.0),
+            Kind::Scheduled => (520.0, 400.0),
         }
     }
 }
@@ -339,11 +386,28 @@ pub struct Entry {
     pub retiring: bool,
     /// The page drew its view and said so (`popout_note("content", ..)`). A page that says it is ready but never draws is reloaded once.
     pub content: bool,
+    /// How many times the process of this window's page died (W4.2): the first death reloads the window, the second ends it.
+    pub deaths: u32,
+    /// A compose window: the id of the crash snapshot of the message it holds (the page tells it: `popout_note("recovery", id)`; a message handed over
+    /// with a snapshot id of its own keeps that one). A reloaded window shows the message of this snapshot again, and a window ended for its second
+    /// death has its snapshot saved to Drafts by the main window (W4.2).
+    pub recovery_id: Option<String>,
 }
 
 /// The key of a saved draft (`draft:<conversation>`, made by `draftKey` in `src/popout/entry.ts`): a window holds one of these at a time.
 fn is_draft_key(k: &str) -> bool {
     k.starts_with("draft:")
+}
+
+/// What `show` decided.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Show {
+    /// The window shows the new thing now: its key and its hand-off data are the new ones.
+    Shown,
+    /// Another window of the kind has that key: it is brought forward and this window stays as it is.
+    Focus { label: String },
+    /// No such window, or it is on its way out.
+    Unknown,
 }
 
 /// What `request` decided.
@@ -360,7 +424,7 @@ pub enum Request {
 #[derive(Default)]
 pub struct Registry {
     /// Next number per kind; only ever goes up, so a label is never reused in a run.
-    next: [u32; 2],
+    next: [u32; 6],
     pub entries: Vec<Entry>,
 }
 
@@ -393,6 +457,8 @@ impl Registry {
             dirty: false,
             retiring: false,
             content: false,
+            deaths: 0,
+            recovery_id: None,
         });
         Request::Create { label }
     }
@@ -441,6 +507,21 @@ impl Registry {
     /// The window of `kind` that shows `key`, if any.
     pub fn find_key(&self, kind: Kind, key: &str) -> Option<&Entry> {
         self.entries.iter().find(|e| e.kind == kind && e.keys.iter().any(|x| x == key))
+    }
+
+    /// A reader window goes on to show another conversation (Next / Previous, W4.4): its key and its hand-off data become the new conversation's, so a
+    /// second open of that conversation focuses this window and a reload of the page (W4.2) shows what the window shows now. Refused (`Focus`) when another
+    /// window of the kind has the key: that window is the one to bring forward.
+    pub fn show(&mut self, label: &str, key: &str, init: Value) -> Show {
+        let Some(kind) = self.get(label).filter(|e| !e.retiring).map(|e| e.kind) else { return Show::Unknown };
+        if let Some(other) = self.entries.iter().find(|e| e.kind == kind && e.label != label && !e.retiring && e.keys.iter().any(|x| x == key)) {
+            return Show::Focus { label: other.label.clone() };
+        }
+        if let Some(e) = self.get_mut(label) {
+            e.keys = vec![key.to_string()];
+            e.init = Some(init);
+        }
+        Show::Shown
     }
 
     /// Change what a window shows. `Some(key)`: the window also answers to `key` now (a save made a draft of it). The key it was opened with stays
@@ -612,6 +693,10 @@ pub fn open(app: &AppHandle, from: &str, kind: Kind, key: Option<String>, init: 
             None => Opened { status: "none", label: None },
         });
     }
+    // (a message handed over with the id of its snapshot keeps that id: the reloaded window finds the snapshot under it, W4.2)
+    // (asked for again with new data: Settings is brought to the tab that is asked for, `popout-refocus`)
+    let refocus = if kind == Kind::Settings { init.clone() } else { None };
+    let handed_recovery = init.as_ref().and_then(|i| i.get("recoveryId")).and_then(Value::as_str).filter(|id| is_recovery_id(id)).map(String::from);
     // (the cascade and the placement are decided together with the registration, under one lock)
     let token = new_token();
     let (label, cascade) = {
@@ -621,6 +706,9 @@ pub fn open(app: &AppHandle, from: &str, kind: Kind, key: Option<String>, init: 
                 drop(r);
                 log(&format!("{label}: asked for again, focused"));
                 bring_to_front(app, &label);
+                if let Some(i) = refocus {
+                    let _ = app.emit_to(label.as_str(), REFOCUS_EVENT, i);
+                }
                 return Ok(Opened { status: "focused", label: Some(label) });
             }
             Request::TooMany => {
@@ -630,6 +718,9 @@ pub fn open(app: &AppHandle, from: &str, kind: Kind, key: Option<String>, init: 
             }
             Request::Create { label } => {
                 let before = r.newest_rect(kind, &label);
+                if let Some(e) = r.get_mut(&label) {
+                    e.recovery_id = handed_recovery;
+                }
                 (label, before)
             }
         }
@@ -683,6 +774,8 @@ fn create(app: &AppHandle, kind: Kind, label: &str, token: &str, cascade: Option
     }
     let win = b.build().map_err(|e| e.to_string())?;
     native_hold(&win, label);
+    // a death of the page process of this window is answered here, not by the main window's hook (W4.2)
+    watch_page_process(app, &win, label);
     // the title bar has the theme the setting asks of it (never one fixed here: System = follow the OS), wintheme.rs
     crate::wintheme::apply_all(app, &format!("{label} created"));
     if let Some(r) = placement.rect {
@@ -756,12 +849,109 @@ fn watch_content(app: AppHandle, label: String, reloaded: bool) {
     });
 }
 
+// ---------------------------------------------------------------- a window whose page process dies (W4.2, REQ-W16)
+
+/// Event to `main` only: a window was ended because its page process died twice, `{ label, kind, recoveryId }`. The main page says so in a toast and, for a
+/// compose window, saves the latest snapshot of its message to Drafts at once.
+pub const CRASHED_EVENT: &str = "popout-crashed";
+
+/// What a window does about a failure of a process of its web view (REQ-4.2.2).
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum PageFailure {
+    /// Not this window's business: the browser process of the whole web view is gone, the main window's hook restarts the app (no double handling).
+    Ignore,
+    /// Written to the log only (unresponsive, GPU, utility ... the runtime starts its own helpers again).
+    LogOnly,
+    /// The page process died for the first time in the life of this window: load the page again.
+    Reload,
+    /// It died again: the window is ended and the person is told.
+    Close,
+}
+
+/// The reaction to a failure. `kind` is `COREWEBVIEW2_PROCESS_FAILED_KIND` (Linux maps "web process terminated" to 1, a render process that exited);
+/// `deaths_before` how many times the page process of this window died earlier. Pure; the same on every system.
+pub fn popout_failure(kind: i32, deaths_before: u32) -> PageFailure {
+    match kind {
+        0 => PageFailure::Ignore,
+        1 | 3 if deaths_before == 0 => PageFailure::Reload,
+        1 | 3 => PageFailure::Close,
+        _ => PageFailure::LogOnly,
+    }
+}
+
+/// A crash snapshot id as Compose makes it (a UUID); nothing else is taken as an id from a page.
+fn is_recovery_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+}
+
+/// A process of a secondary window's web view failed (called by the hooks of `webview_health` on Windows and `linuxview` on Linux; macOS has no hook:
+/// wry owns the navigation delegate, `watch_content` is the net there). Every failure is a line of the log; a dead page process reloads the window once and
+/// ends it the second time.
+pub fn page_failed(app: &AppHandle, label: &str, kind: i32, detail: &str) {
+    if crate::startup::is_exiting() {
+        return; // the app is closing: the processes of its web views end on purpose
+    }
+    log(&format!("{label}: web view: {}{}", crate::webview_health::kind_name(kind), if detail.is_empty() { String::new() } else { format!(" ({detail})") }));
+    let (action, kind_of_window, recovery) = {
+        let mut r = reg(app);
+        let Some(e) = r.get_mut(label) else { return };
+        if e.retiring {
+            return; // on its way out: its processes end by themselves
+        }
+        let action = popout_failure(kind, e.deaths);
+        if action == PageFailure::Reload {
+            // the page that is loading is not ready: a quit does not ask it, and it shows nothing yet
+            e.deaths += 1;
+            e.ready = false;
+            e.content = false;
+        }
+        (action, e.kind, e.recovery_id.clone())
+    };
+    match action {
+        PageFailure::Ignore | PageFailure::LogOnly => {}
+        PageFailure::Reload => {
+            log(&format!("{label}: page process died: reloading"));
+            let (app, label) = (app.clone(), label.to_string());
+            // (not inside the callback of the web view that reported it; the runtime needs a moment to start a new page process)
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(250));
+                if let Some(w) = app.get_webview_window(&label) {
+                    let _ = w.reload();
+                }
+                watch_ready(app, label);
+            });
+        }
+        PageFailure::Close => {
+            log(&format!("{label}: page process died again: closed"));
+            let _ = app.emit_to("main", CRASHED_EVENT, serde_json::json!({ "label": label, "kind": kind_of_window.name(), "recoveryId": recovery }));
+            retire(app, label, "page process died again");
+        }
+    }
+}
+
+/// Listen for the process failures of the web view of window `label`, right after it was built (Windows: WebView2 `ProcessFailed`; Linux:
+/// `web-process-terminated`; macOS: nothing, see [`page_failed`]).
+fn watch_page_process(app: &AppHandle, win: &tauri::WebviewWindow, label: &str) {
+    let _ = (app, win, label);
+    #[cfg(windows)]
+    crate::webview_health::watch_window(app, win, label);
+    #[cfg(target_os = "linux")]
+    crate::linuxview::watch_window(app, win, label);
+}
+
 /// A page tells the log something (errors of the page, "content" = it drew its view). Only for secondary windows; the text is cut short.
 pub fn note(app: &AppHandle, label: &str, kind: &str, text: &str) {
     if kind == "content" {
         if let Some(e) = reg(app).get_mut(label) {
             e.content = true;
         }
+    }
+    if kind == "recovery" {
+        // the id of the crash snapshot of the message this compose window holds (W4.2): not a log line of its own, it is bookkeeping
+        if let Some(e) = reg(app).get_mut(label) {
+            e.recovery_id = Some(text.chars().take(64).collect()).filter(|id: &String| is_recovery_id(id));
+        }
+        return;
     }
     let text: String = text.chars().take(600).collect();
     log(&format!("{label}: page says {kind}: {text}"));
@@ -807,8 +997,8 @@ pub fn on_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
             log(&format!("{label}: close requested ({} window)", kind.name()));
             if !on_close_requested(app, &label) {
                 api.prevent_close();
-            } else if kind == Kind::Reader {
-                // a reader window has no page that asks first: its close goes through, so it is on its way out from now on
+            } else if !kind.page_decides_close() {
+                // a window whose page does not ask first (a reader, Settings, a search, the Scheduled list): its close goes through, so it is on its way out from now on
                 // (it stops counting, takes no more shows, frees its key)
                 if reg(app).start_retire(&label) == Some(true) {
                     announce_counts(app);
@@ -927,6 +1117,10 @@ pub struct Init {
     pub label: String,
     pub key: Option<String>,
     pub init: Option<Value>,
+    /// The page of this window was loaded again after its process died (W4.2): a compose window shows the message of `recovery_id` when the
+    /// snapshot exists, else the hand-off data again.
+    pub reloaded: bool,
+    pub recovery_id: Option<String>,
 }
 
 /// Open a secondary window of `kind` ("compose" | "reader"), or focus the one that shows `key`. `init` is kept in the backend for the
@@ -934,7 +1128,9 @@ pub struct Init {
 #[tauri::command]
 pub async fn popout_open(app: AppHandle, window: tauri::Window, kind: String, key: Option<String>, init: Option<Value>, focus_only: Option<bool>) -> R<Opened> {
     let kind = Kind::parse(&kind).ok_or_else(|| format!("unknown window kind: {kind}"))?;
-    open(&app, window.label(), kind, key.filter(|k| !k.is_empty()), init, focus_only.unwrap_or(false))
+    // (Settings and the Scheduled list exist once: whoever asks without a key asks for the one window)
+    let key = key.filter(|k| !k.is_empty()).or_else(|| kind.single_key().map(String::from));
+    open(&app, window.label(), kind, key, init, focus_only.unwrap_or(false))
 }
 
 /// The page of a secondary window asks who it is. The token of its address must be the one this window was made with.
@@ -945,7 +1141,7 @@ pub fn popout_init(app: AppHandle, window: tauri::Window, token: String) -> R<In
     if e.token != token {
         return Err("wrong token".into());
     }
-    Ok(Init { kind: e.kind.name(), label: e.label.clone(), key: e.keys.first().cloned(), init: e.init.clone() })
+    Ok(Init { kind: e.kind.name(), label: e.label.clone(), key: e.keys.first().cloned(), init: e.init.clone(), reloaded: e.deaths > 0, recovery_id: e.recovery_id.clone() })
 }
 
 /// The page of a secondary window is up (it listens to the quit request): show the window.
@@ -979,13 +1175,16 @@ pub fn popout_close(app: AppHandle, label: String) -> bool {
 /// Event to `main`: how many windows of each kind exist now, `{ compose, reader }`. The main page keeps the count (the support reminder does
 /// not appear while a compose window is open, REQ-W15). Sent when a window is created and when one is destroyed.
 pub const COUNT_EVENT: &str = "popout-count";
+/// Event to one window that was asked for again with new data (the Settings window: `{ tab, focus, nonce }` of the dialog that was meant): it goes there (W4.6, REQ-4.6.9).
+pub const REFOCUS_EVENT: &str = "popout-refocus";
 
 fn announce_counts(app: &AppHandle) {
-    let (compose, reader) = {
+    let (compose, reader, settings) = {
         let r = reg(app);
-        (r.count(Kind::Compose), r.count(Kind::Reader))
+        (r.count(Kind::Compose), r.count(Kind::Reader), r.count(Kind::Settings))
     };
-    let _ = app.emit_to("main", COUNT_EVENT, serde_json::json!({ "compose": compose, "reader": reader }));
+    // (`settings`: while the Settings window exists every way of opening Settings goes to it, W4.6)
+    let _ = app.emit_to("main", COUNT_EVENT, serde_json::json!({ "compose": compose, "reader": reader, "settings": settings }));
 }
 
 /// The calling window goes out of sight but stays alive: its page still has work to finish (a message in its Undo time, the send under way)
@@ -1006,7 +1205,7 @@ pub fn popout_park(app: AppHandle, window: tauri::Window) -> bool {
 #[tauri::command]
 pub fn popout_note(app: AppHandle, window: tauri::Window, kind: String, text: String) {
     let label = window.label();
-    if is_secondary(label) && reg(&app).get(label).is_some() && matches!(kind.as_str(), "content" | "error" | "info" | "strip") {
+    if is_secondary(label) && reg(&app).get(label).is_some() && matches!(kind.as_str(), "content" | "error" | "info" | "strip" | "recovery") {
         note(&app, label, &kind, &text);
     }
 }
@@ -1190,6 +1389,38 @@ fn native_summary() -> String {
     String::new()
 }
 
+/// What `popout_show` answers.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Shown {
+    /// "shown" | "focused" (another window has that conversation and was brought forward)
+    pub status: &'static str,
+    pub label: Option<String>,
+}
+
+/// The calling reader window goes on to show another conversation (Next / Previous, W4.4): the registry follows (key and hand-off data), or the window that
+/// already shows it is brought forward and this one stays. Only a reader window.
+#[tauri::command]
+pub fn popout_show(app: AppHandle, window: tauri::Window, key: String, init: Value) -> R<Shown> {
+    let label = window.label().to_string();
+    if kind_of_label(&label) != Some(Kind::Reader) || key.is_empty() {
+        return Err("only a reader window shows another conversation".into());
+    }
+    let decided = reg(&app).show(&label, &key, init);
+    match decided {
+        Show::Shown => {
+            log(&format!("{label}: shows another conversation"));
+            Ok(Shown { status: "shown", label: None })
+        }
+        Show::Focus { label: other } => {
+            log(&format!("{label}: that conversation is open in {other}: brought forward"));
+            bring_to_front(&app, &other);
+            Ok(Shown { status: "focused", label: Some(other) })
+        }
+        Show::Unknown => Err("this window is not known".into()),
+    }
+}
+
 /// The calling window shows another thing now (a draft that a save made is another draft): its key follows, so the lock of a draft keeps
 /// holding. False when another window of the kind has that key.
 #[tauri::command]
@@ -1287,7 +1518,6 @@ pub fn popout_reply(app: AppHandle, window: tauri::Window, to: String, id: Strin
 mod tests {
     use super::*;
 
-    const KINDS: [Kind; 2] = [Kind::Compose, Kind::Reader];
 
     #[test]
     fn the_ai_calls_of_a_window_are_known_until_they_end_or_the_window_goes() {
@@ -1390,6 +1620,49 @@ mod tests {
         assert_ne!(Kind::Compose.setting_key(), Kind::Reader.setting_key());
     }
 
+    /// W4.6 REQ-4.6.1: the four new kinds have a label, the sizes of the spec, a setting key of their own, and the rules of their kind.
+    #[test]
+    fn every_window_kind_has_its_label_size_and_setting_key() {
+        let want = [
+            (Kind::Compose, "compose", "window.compose", (760.0, 680.0), (560.0, 440.0)),
+            (Kind::Reader, "reader", "window.reader", (820.0, 720.0), (520.0, 400.0)),
+            (Kind::Event, "event", "window.event", (640.0, 720.0), (480.0, 480.0)),
+            (Kind::Settings, "settings", "window.settings", (900.0, 680.0), (720.0, 500.0)),
+            (Kind::Search, "search", "window.search", (760.0, 720.0), (520.0, 400.0)),
+            (Kind::Scheduled, "scheduled", "window.scheduled", (720.0, 640.0), (520.0, 400.0)),
+        ];
+        assert_eq!(want.len(), KINDS.len());
+        for (i, (k, name, key, def, min)) in want.into_iter().enumerate() {
+            assert_eq!(KINDS[i], k, "the order of KINDS is the order of index()");
+            assert_eq!(k.index(), i);
+            assert_eq!((k.name(), k.setting_key(), k.default_size(), k.min_size()), (name, key, def, min));
+            assert_eq!(Kind::parse(name), Some(k));
+            assert_eq!(kind_of_label(&format!("{name}-7")), Some(k));
+            assert!(is_secondary(&format!("{name}-1")));
+        }
+        let keys: std::collections::HashSet<_> = KINDS.iter().map(|k| k.setting_key()).collect();
+        assert_eq!(keys.len(), KINDS.len(), "the place of each kind is remembered separately");
+        // who decides what a close means, and who exists once
+        assert!(Kind::Compose.page_decides_close() && Kind::Event.page_decides_close());
+        assert!(!Kind::Reader.page_decides_close() && !Kind::Settings.page_decides_close() && !Kind::Search.page_decides_close() && !Kind::Scheduled.page_decides_close());
+        assert_eq!((Kind::Settings.single_key(), Kind::Scheduled.single_key()), (Some("settings"), Some("scheduled")));
+        assert!([Kind::Compose, Kind::Reader, Kind::Event, Kind::Search].iter().all(|k| k.single_key().is_none()));
+        // Settings and the Scheduled list exist once; an event is one window per event, a search one per search; all of them count for the cap of 8 together
+        let mut r = Registry::default();
+        let Request::Create { label: a } = ask(&mut r, Kind::Settings, Some("settings")) else { panic!() };
+        assert_eq!(ask(&mut r, Kind::Settings, Some("settings")), Request::Focus { label: a });
+        let Request::Create { label: e } = ask(&mut r, Kind::Event, Some("event-id-1")) else { panic!() };
+        assert_eq!(ask(&mut r, Kind::Event, Some("event-id-1")), Request::Focus { label: e });
+        assert!(matches!(ask(&mut r, Kind::Event, Some("event-id-2")), Request::Create { .. }));
+        assert!(matches!(ask(&mut r, Kind::Event, None), Request::Create { .. }), "a new event has no key");
+        assert!(matches!(ask(&mut r, Kind::Event, None), Request::Create { .. }), "and may be opened twice");
+        for _ in 0..3 {
+            assert!(matches!(ask(&mut r, Kind::Search, None), Request::Create { .. }));
+        }
+        assert_eq!(r.entries.len(), 8);
+        assert_eq!(ask(&mut r, Kind::Scheduled, Some("scheduled")), Request::TooMany, "the cap of 8 counts every kind");
+    }
+
     // ---- registry
 
     fn ask(r: &mut Registry, kind: Kind, key: Option<&str>) -> Request {
@@ -1405,6 +1678,10 @@ mod tests {
                 let Request::Create { label } = ask(&mut r, k, None) else { panic!("create {i}") };
                 assert!(seen.insert(label.clone()), "{label} twice");
                 assert_eq!(kind_of_label(&label), Some(k));
+                // (the other kinds end at once: the cap of 8 is for all kinds together)
+                if !matches!(k, Kind::Compose | Kind::Reader) {
+                    r.remove(&label).unwrap();
+                }
             }
         }
         assert_eq!(r.entries.len(), 6);
@@ -1423,10 +1700,13 @@ mod tests {
         for _ in 0..3 {
             for k in KINDS {
                 let Request::Create { label } = ask(&mut r, k, None) else { panic!("create") };
-                labels.push(label);
+                labels.push(label.clone());
+                if !matches!(k, Kind::Compose | Kind::Reader) {
+                    r.remove(&label).unwrap();
+                }
             }
         }
-        assert!(labels.iter().any(|l| l.starts_with("compose-")) && labels.iter().any(|l| l.starts_with("reader-")));
+        assert!(["compose-", "reader-", "event-", "settings-", "search-", "scheduled-"].iter().all(|p| labels.iter().any(|l| l.starts_with(p))), "every kind");
         let themed = crate::wintheme::themed_labels(labels.clone());
         for l in &labels {
             assert!(themed.contains(l), "{l} does not get the frame theme");
@@ -1876,7 +2156,7 @@ mod tests {
     fn what_is_written_down_reads_back() {
         let e = Entry {
             label: t("compose-1"), kind: Kind::Compose, keys: vec![], token: t("x"), ready: true, ready_at: None, init: None,
-            rect: Some(rect(100, 200, 1140, 1020)), scale: 1.5, maximized: false, moves: 1, dirty: true, retiring: false, content: false,
+            rect: Some(rect(100, 200, 1140, 1020)), scale: 1.5, maximized: false, moves: 1, dirty: true, retiring: false, content: false, deaths: 0, recovery_id: None,
         };
         let s = saved_of(&e).unwrap();
         assert_eq!(s, Saved { x: 100, y: 200, w: 760.0, h: 680.0, maximized: false });
@@ -1893,7 +2173,7 @@ mod tests {
     fn entry() -> Entry {
         Entry {
             label: t("compose-1"), kind: Kind::Compose, keys: vec![], token: t("x"), ready: false, ready_at: None, init: None,
-            rect: Some(rect(494, 258, 950, 850)), scale: 1.25, maximized: false, moves: 0, dirty: false, retiring: false, content: false,
+            rect: Some(rect(494, 258, 950, 850)), scale: 1.25, maximized: false, moves: 0, dirty: false, retiring: false, content: false, deaths: 0, recovery_id: None,
         }
     }
 
@@ -1939,6 +2219,149 @@ mod tests {
         // restored: the flag goes, the rectangle is the normal one again
         assert!(apply_geometry(&mut e, Some(rect(494, 258, 950, 850)), 1.25, false, false), "the flag changed");
         assert!(!e.maximized && !saved_of(&e).unwrap().maximized);
+    }
+
+    // ---- W4.2: a window whose page process dies
+
+    /// REQ-4.2.2: the reaction table, kinds 0..8 x deaths 0 / 1 (and more).
+    #[test]
+    fn a_failed_page_process_of_a_window_reloads_it_once_then_closes_it() {
+        for deaths in 0..4u32 {
+            // the browser process of the whole web view: the main window's hook restarts the app, never a window's
+            assert_eq!(popout_failure(0, deaths), PageFailure::Ignore);
+            // unresponsive, utility, sandbox helper, GPU, plugin, plugin broker, unknown: the log only
+            for kind in [2, 4, 5, 6, 7, 8, 9, -1] {
+                assert_eq!(popout_failure(kind, deaths), PageFailure::LogOnly, "kind {kind}");
+            }
+        }
+        for kind in [1, 3] {
+            assert_eq!(popout_failure(kind, 0), PageFailure::Reload, "the first death reloads (kind {kind})");
+            assert_eq!(popout_failure(kind, 1), PageFailure::Close, "the second ends the window (kind {kind})");
+            assert_eq!(popout_failure(kind, 5), PageFailure::Close);
+        }
+    }
+
+    /// REQ-4.2.3: a reloaded window keeps its label, its keys and its place; it is not ready until its page says so; the page gets the snapshot id.
+    #[test]
+    fn a_reloaded_window_keeps_its_label_key_and_place() {
+        let mut r = Registry::default();
+        let Request::Create { label } = r.request(Kind::Compose, Some("draft:t1"), "tok".into(), Some(serde_json::json!({ "to": ["a@b"] }))) else { panic!() };
+        {
+            let e = r.get_mut(&label).unwrap();
+            e.ready = true;
+            e.content = true;
+            e.rect = Some(Rect { x: 10, y: 20, w: 800, h: 600 });
+            e.recovery_id = Some("0f3c-1".into());
+        }
+        // what page_failed does to the entry on a first death
+        let e = r.get_mut(&label).unwrap();
+        assert_eq!(popout_failure(1, e.deaths), PageFailure::Reload);
+        e.deaths += 1;
+        e.ready = false;
+        e.content = false;
+        assert_eq!(r.get(&label).unwrap().label, label);
+        assert_eq!(r.get(&label).unwrap().keys, ["draft:t1"]);
+        assert_eq!(r.get(&label).unwrap().rect, Some(Rect { x: 10, y: 20, w: 800, h: 600 }));
+        assert_eq!(r.get(&label).unwrap().init, Some(serde_json::json!({ "to": ["a@b"] })), "the hand-off data stays");
+        assert_eq!(r.get(&label).unwrap().recovery_id.as_deref(), Some("0f3c-1"));
+        assert!(r.ready_labels().is_empty(), "a quit does not ask a page that is loading (REQ-4.2.5)");
+        assert_eq!(r.request(Kind::Compose, Some("draft:t1"), "t2".into(), None), Request::Focus { label: label.clone() }, "the draft lock holds");
+        assert_eq!(popout_failure(3, r.get(&label).unwrap().deaths), PageFailure::Close);
+        assert!(is_recovery_id("0f3c-1") && is_recovery_id(&"a".repeat(36)) && !is_recovery_id("") && !is_recovery_id("../x") && !is_recovery_id(&"a".repeat(65)));
+    }
+
+    /// REQ-4.2.1: every window kind is watched when it is made, on Windows and Linux; the reaction has no per-system branch.
+    #[test]
+    fn every_secondary_window_is_watched_at_creation() {
+        let src = crate::test_guard::non_test_code(include_str!("popout.rs"));
+        let create = &src[src.find("fn create(").unwrap()..];
+        let create = &create[..create.find("\n}\n").unwrap()];
+        assert!(create.contains("watch_page_process(app, &win, label)"), "{create}");
+        let watch = &src[src.find("fn watch_page_process(").unwrap()..];
+        let watch = &watch[..watch.find("\n}\n").unwrap()];
+        assert!(watch.contains("#[cfg(windows)]\n    crate::webview_health::watch_window(") && watch.contains("#[cfg(target_os = \"linux\")]\n    crate::linuxview::watch_window("), "{watch}");
+        let react = &src[src.find("pub fn popout_failure(").unwrap()..];
+        let react = &react[..react.find("\n}\n").unwrap()];
+        assert!(!react.contains("cfg(") && !react.contains("target_os"), "the reaction is the same on every system");
+        let page = &src[src.find("pub fn page_failed(").unwrap()..];
+        let page = &page[..page.find("\n}\n").unwrap()];
+        assert!(!page.contains("restart_app") && !page.contains("recover_dead_page") && !page.contains("web_view_failed"), "the main window is never reloaded for a window's failure");
+        assert!(page.contains("PageFailure::Close") && page.contains("CRASHED_EVENT") && page.contains("retire(app, label,"), "{page}");
+        // both hooks hand the failure to the window manager
+        let health = include_str!("webview_health.rs");
+        assert!(health.contains("crate::popout::page_failed(&handler_app, &handler_label, kind, &detail)"));
+        let linux = include_str!("linuxview.rs");
+        assert!(linux.contains("crate::popout::page_failed(&on_end, &name, 1,") && linux.contains("crate::popout::page_failed(&on_change, &name, 2,"));
+    }
+
+    // ---- W4.4: a reader goes on to show another conversation
+
+    #[test]
+    fn a_reader_that_shows_another_conversation_takes_its_key_or_is_refused() {
+        let mut r = Registry::default();
+        let Request::Create { label: a } = r.request(Kind::Reader, Some("t-c"), "ta".into(), Some(serde_json::json!({ "threadId": "t-c" }))) else { panic!() };
+        let Request::Create { label: b } = r.request(Kind::Reader, Some("t-e"), "tb".into(), Some(serde_json::json!({ "threadId": "t-e" }))) else { panic!() };
+        // C goes on to D: the key and the hand-off data follow, the old key is free and the new one is held
+        assert_eq!(r.show(&a, "t-d", serde_json::json!({ "threadId": "t-d" })), Show::Shown);
+        assert_eq!(r.get(&a).unwrap().keys, ["t-d"]);
+        assert_eq!(r.get(&a).unwrap().init, Some(serde_json::json!({ "threadId": "t-d" })), "a reload of the page shows D (W4.2)");
+        assert_eq!(r.request(Kind::Reader, Some("t-c"), "t3".into(), None), Request::Create { label: "reader-3".into() }, "C is free again: opening it makes a window");
+        assert_eq!(r.request(Kind::Reader, Some("t-d"), "t4".into(), None), Request::Focus { label: a.clone() }, "opening D focuses this window");
+        // D goes on to E, which window b shows: refused with that window to bring forward; nothing changes here
+        assert_eq!(r.show(&a, "t-e", serde_json::json!({ "threadId": "t-e" })), Show::Focus { label: b.clone() });
+        assert_eq!(r.get(&a).unwrap().keys, ["t-d"]);
+        assert_eq!(r.get(&b).unwrap().keys, ["t-e"]);
+        // to its own key again is no conflict; a window that is not known, or on its way out, is refused
+        assert_eq!(r.show(&a, "t-d", serde_json::json!(null)), Show::Shown);
+        assert_eq!(r.show("reader-99", "t-x", serde_json::json!(null)), Show::Unknown);
+        r.start_retire(&b);
+        assert_eq!(r.show(&b, "t-y", serde_json::json!(null)), Show::Unknown);
+        assert_eq!(r.show(&a, "t-e", serde_json::json!(null)), Show::Shown, "the key of a window on its way out is free");
+    }
+
+    /// The command is a reader's alone, and in the three places.
+    #[test]
+    fn popout_show_is_a_reader_command_in_the_three_places() {
+        let src = crate::test_guard::non_test_code(include_str!("popout.rs"));
+        let f = &src[src.find("pub fn popout_show(").unwrap()..];
+        let f = &f[..f.find("
+}
+").unwrap()];
+        assert!(f.contains("Some(Kind::Reader)"), "{f}");
+        assert!(crate::test_guard::non_test_code(include_str!("lib.rs")).contains("popout::popout_show,"));
+        assert!(include_str!("../build.rs").contains("\"popout_show\""));
+        for cap in [include_str!("../capabilities/default.json"), include_str!("../capabilities/popout.json")] {
+            assert!(cap.contains("\"allow-popout-show\""));
+        }
+    }
+
+    // ---- W4.1: the macOS window release fix (tao PR #1368)
+
+    /// A closed window must be released on macOS (REQ-4.1.1 / 4.1.2): tao 0.37.1 over-retains every window it creates (tao issue #1327). The fix is in tao
+    /// commit 9aa859e (PR #1368), in crates.io from a 0.37.x after 0.37.1 (expected 0.37.2). The lock file has to say one of the two, and Cargo.toml
+    /// has the patch line only in the first case, so that a `cargo update` cannot quietly lose the fix.
+    #[test]
+    fn tao_carries_the_macos_window_release_fix() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let lock = std::fs::read_to_string(root.join("Cargo.lock")).unwrap().replace("
+", "
+");
+        let toml = crate::test_guard::non_test_code(&std::fs::read_to_string(root.join("Cargo.toml")).unwrap());
+        let block = lock.split("
+[[package]]
+").find(|b| b.lines().next() == Some("name = \"tao\"")).expect("the tao package is in Cargo.lock");
+        let version = block.lines().find_map(|l| l.strip_prefix("version = \"")).and_then(|v| v.strip_suffix('"')).expect("a version");
+        let source = block.lines().find_map(|l| l.strip_prefix("source = \"")).and_then(|v| v.strip_suffix('"')).unwrap_or("");
+        let pinned = source.starts_with("git+https://github.com/tauri-apps/tao?rev=9aa859e1fe61d664f8fd33f4593f9fac4a0012d5#");
+        let patch_line = toml.lines().any(|l| l.starts_with("tao = { git = \"https://github.com/tauri-apps/tao\", rev = \"9aa859e1fe61d664f8fd33f4593f9fac4a0012d5\" }"));
+        if pinned {
+            assert!(patch_line, "Cargo.lock pins tao to 9aa859e but Cargo.toml [patch.crates-io] has no tao line");
+        } else {
+            let mut parts = version.split('.').map(|n| n.parse::<u32>().unwrap_or(0));
+            let (major, minor, patch) = (parts.next().unwrap_or(0), parts.next().unwrap_or(0), parts.next().unwrap_or(0));
+            assert!(source.starts_with("registry+") && (major, minor) == (0, 37) && patch >= 2, "tao {version} from {source:?} does not carry PR #1368 (a registry tao >= 0.37.2 or the git pin 9aa859e)");
+            assert!(!patch_line, "the tao patch line is still in Cargo.toml although the registry tao carries the fix: remove it");
+        }
     }
 
     // ---- the window system (source guards)

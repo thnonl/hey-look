@@ -415,6 +415,8 @@ export default defineLocale<typeof ns.en>({
   "compose.popout.newTitle": "新邮件",
   "compose.popout.popOut": "弹出窗口",
   "compose.popout.popOutTip": "在新窗口中打开 (Ctrl+Shift+O)",
+  "compose.popout.popIn": "移回主窗口",
+  "compose.popout.popInTip": "移回主窗口 (Ctrl+Shift+O)",
   "compose.popout.sending": "正在发送…{n}秒",
   "compose.popout.closeTitle": "要保存邮件吗？",
   "compose.popout.closeBody": "这封邮件尚未发送。请保存到草稿，或放弃。",

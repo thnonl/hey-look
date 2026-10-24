@@ -440,6 +440,8 @@ export default defineLocale<typeof ns.en>({
   "compose.popout.newTitle": "Новое письмо",
   "compose.popout.popOut": "В отдельное окно",
   "compose.popout.popOutTip": "Открыть в новом окне (Ctrl+Shift+O)",
+  "compose.popout.popIn": "В главное окно",
+  "compose.popout.popInTip": "Вернуть в главное окно (Ctrl+Shift+O)",
   "compose.popout.sending": "Отправка… {n} с",
   "compose.popout.closeTitle": "Сохранить письмо?",
   "compose.popout.closeBody": "Это письмо не отправлено. Сохраните его в «Черновики» или удалите.",

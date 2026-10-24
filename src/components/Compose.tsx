@@ -1,6 +1,6 @@
 import { EditorContent, Node as TipNode, useEditor, type Editor } from "@tiptap/react";
 import {
-  BadgeCheck, CalendarClock, CalendarPlus, ChevronDown, ExternalLink, FileText, ImagePlus, Info, Lock, LockOpen, MoreHorizontal, Paperclip, Save, Send, ShieldAlert, ShieldCheck, Sparkles, Trash2,
+  BadgeCheck, CalendarClock, CalendarPlus, ChevronDown, ExternalLink, FileText, SquareArrowDownLeft, ImagePlus, Info, Lock, LockOpen, MoreHorizontal, Paperclip, Save, Send, ShieldAlert, ShieldCheck, Sparkles, Trash2,
   TriangleAlert, X,
 } from "lucide-react";
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -51,6 +51,8 @@ import { askUnlock, moveScheduledToDrafts } from "./Pgp";
 import { RecipientField, EMAIL, bareAddress } from "./RecipientField";
 import { noteInlineDraft, openDraftThread, picturesToEditor } from "../draftOpen";
 import { composeSeam } from "../popout/composeSeam";
+import { fileDropOk, tokenIn } from "../dragDrop";
+import { endDrag, peekDrag, startFileDrag, takeDrag } from "../dragWire";
 import { draftKey } from "../popout/entry";
 import { MEDIUM_PICTURE, MESSAGE_PICTURE_SIZES } from "../editor/pictureSizes";
 import { usePictureTools, type PictureSel, type PictureTools } from "../editor/PictureTools";
@@ -288,6 +290,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   const [aiPrompt, setAiPrompt] = useState("");
   const ai = useAiSlot("write");
   const [busy, setBusy] = useState(false);
+  /** Move to main window (W4.5) is under way in a window: the main window may be asking its question; the pane is inert until it has answered */
+  const [movingIn, setMovingIn] = useState(false);
   // In a window of its own the message stays on screen while it is sent (W13.1): locked (inert, "Sending..."), the window shows the Undo toast. Undo or a failed send unlocks
   // this same editor in place (`reopen`), so the text, the caret, the scroll position and the undo history are as they were at Send.
   const [locked, setLocked] = useState(false);
@@ -303,6 +307,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   );
   const [schedOpen, setSchedOpen] = useState(!!init.openSchedule);
   const [dragging, setDragging] = useState(false);
+  /** an attachment chip of another message is over this pane (W4.7) */
+  const [chipOver, setChipOver] = useState(false);
   const [dragImages, setDragImages] = useState(false);
   const [hotZone, setHotZone] = useState<"top" | "bottom" | null>(null);
   const [pics, setPics] = useState({ count: 0, bytes: 0 });
@@ -415,6 +421,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   const writerRef = useRef<RecoveryWriter | null>(null);
   writerRef.current ??= new RecoveryWriter(recoveryId, { save: (s) => api.recoverySave(s), clear: (id, why) => api.recoveryClear(id, why) });
   const writer = writerRef.current;
+  useEffect(() => composeSeam()?.recovery(recoveryId), [recoveryId]); // (a window tells the backend which snapshot is its message's: W4.2)
   const savingRef = useRef(0); // saves that are running (autosave, Save draft, leaving)
   const savedRevRef = useRef(0); // the revision the last successful save covered
   const changedAtRef = useRef(0); // when the first change after that save was made
@@ -879,6 +886,23 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     if (init.outboxId) savedRef.current = true;
     setComposeDirty(false);
     void openCompose(null);
+  };
+
+  /**
+   * Move this message back to the main window (W4.5, the reverse of Pop out): all of it as it is (the same mapping), nothing saved, nothing sent. The window waits for the
+   * main window, which may ask about the message its own pane holds; when the main window shows it this window ends without a question, a toast or a save. A scheduled
+   * message keeps its pause (it is held by the pane now: this window does not release it).
+   */
+  const popIn = async () => {
+    const seam = composeSeam();
+    if (!seam || busy || locked || movingIn || sendingRef.current) return;
+    const moved = { ...initOf(buildDraft(), { replaces: replacesRef() ?? undefined, isReply: !!init.isReply, carried: touched.current || !!savedDraftRef.current }), openSchedule: undefined };
+    setMovingIn(true);
+    try {
+      await seam.popIn(moved as unknown as Record<string, unknown>);
+    } finally {
+      setMovingIn(false);
+    }
   };
 
   /**
@@ -2000,10 +2024,10 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   return (
     <div
       ref={paneRef}
-      inert={locked || undefined}
-      aria-busy={locked || !!preparing || undefined}
+      inert={locked || movingIn || undefined}
+      aria-busy={locked || movingIn || !!preparing || undefined}
       onFocusCapture={preparing ? (e) => { if (!(e.target as HTMLElement).closest(".cp-keep, .cp-prep")) prepRef.current?.focus({ preventScroll: true }); } : undefined} // (an engine without `inert`: a field that took the focus gives it back)
-      className={`compose-pane ${preparing ? "preparing" : init.afterShell ? "after-shell" : ""} ${dragging ? "dragging" : ""} ${compact ? "compact" : ""} ${compact && barWraps ? "bar-wraps" : ""} ${meeting ? "has-meeting" : ""}`}
+      className={`compose-pane ${preparing ? "preparing" : init.afterShell ? "after-shell" : ""} ${dragging ? "dragging" : ""} ${chipOver ? "chip-over" : ""} ${compact ? "compact" : ""} ${compact && barWraps ? "bar-wraps" : ""} ${meeting ? "has-meeting" : ""}`}
       onKeyDown={(e) => {
         if (isImeEvent(e)) return; // a key that belongs to an input method (Subject, To, Cc, Bcc): no app shortcut
         if (isAltGraph(e)) return; // AltGr (Ctrl+Alt) types a character: no app shortcut
@@ -2036,9 +2060,9 @@ function ComposeBody({ init }: { init: ComposeInit }) {
           picRef.current?.click();
           return;
         }
-        if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === "o" && !composeSeam()) {
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === "o") {
           e.preventDefault();
-          void popOut();
+          void (composeSeam() ? popIn() : popOut()); // (in a window the same key moves the message back to the main window, W4.5)
           return;
         }
         if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "e") {
@@ -2054,6 +2078,16 @@ function ComposeBody({ init }: { init: ComposeInit }) {
         picTools.handleKey(e);
       }}
       onDragOver={(e) => {
+        const chip = tokenIn(e.dataTransfer.types, "file");
+        if (chip) {
+          // a chip of another message (its own message is not asked here: a chip dropped on its own message does nothing, judged on the drop)
+          const p = peekDrag(chip, () => undefined);
+          if (p && (p.kind !== "file" || !fileDropOk(p, recoveryId))) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "copy";
+          if (!chipOver) setChipOver(true);
+          return;
+        }
         if (e.dataTransfer.types.includes("Files")) {
           e.preventDefault();
           setDragging(true);
@@ -2061,8 +2095,20 @@ function ComposeBody({ init }: { init: ComposeInit }) {
           setDragImages(hasImg);
         }
       }}
-      onDragLeave={(e) => e.currentTarget === e.target && (setDragging(false), setDragImages(false), setHotZone(null))}
+      onDragLeave={(e) => (setChipOver(false), e.currentTarget === e.target && (setDragging(false), setDragImages(false), setHotZone(null)))}
       onDrop={(e) => {
+        const chip = tokenIn(e.dataTransfer.types, "file");
+        if (chip) {
+          e.preventDefault();
+          setChipOver(false);
+          void takeDrag(chip).then((p) => {
+            if (!p || p.kind !== "file" || !fileDropOk(p, recoveryId)) return;
+            // the same road as a file from the file picker: the size limit, the blocked types and the encryption notice apply
+            const bytes = Uint8Array.from(atob(p.dataBase64), (c) => c.charCodeAt(0));
+            void addFiles([new File([bytes], p.name, { type: p.mime })]);
+          });
+          return;
+        }
         if (!e.dataTransfer.files.length) return;
         e.preventDefault();
         // the drop zones handle drops on the pane; this is the fallback: the setting for pictures decides
@@ -2140,11 +2186,16 @@ function ComposeBody({ init }: { init: ComposeInit }) {
           </Dropdown>
         )}
         <div className="grow" />
-        {!composeSeam() && (
+        {!composeSeam() ? (
           <button className="icon-btn" data-fit="fixed" aria-label={t("compose.popout.popOut")} title={kbd(t("compose.popout.popOutTip"))} onClick={() => void popOut()}>
             <ExternalLink size={16} />
           </button>
-        )}
+        ) : !locked && !movingIn && !busy ? (
+          // not while "Sending…" runs or a send / save is busy (REQ-4.5.1)
+          <button className="icon-btn" data-fit="fixed" aria-label={t("compose.popout.popIn")} title={kbd(t("compose.popout.popInTip"))} onClick={() => void popIn()}>
+            <SquareArrowDownLeft size={16} />
+          </button>
+        ) : null}
       </div>
 
       {init.outboxId && (
@@ -2296,7 +2347,14 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       {atts.length > 0 && (
         <div className="atts cp-atts">
           {atts.map((a, i) => (
-            <span key={i} className={`att-chip ${blockedAttachmentExt(a.filename) ? "blocked" : ""}`} title={blockedAttachmentExt(a.filename) ? t("compose.att.blockedTip") : undefined}>
+            <span
+              key={i}
+              className={`att-chip ${blockedAttachmentExt(a.filename) ? "blocked" : ""}`}
+              // (W4.7) the chip can be dragged into another message, in this window or another: the file is copied there, this message keeps it
+              draggable
+              onDragStart={(e) => startFileDrag(e, a, recoveryId)}
+              onDragEnd={endDrag}
+              title={blockedAttachmentExt(a.filename) ? t("compose.att.blockedTip") : undefined}>
               <Paperclip size={13} /> <span className="ellipsis">{a.filename}</span> <span className="muted small">{fmtSize(approxBytes(a))}</span>
               {a.mime.startsWith("image/") && (
                 <button

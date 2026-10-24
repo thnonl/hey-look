@@ -24,6 +24,12 @@
 //! edge). The compose page was the only root that was `position: fixed` (App.css `.popout-compose`); that is fixed at the source. What remains here
 //! is a documented safety net and an experiment: after every apply the steps of `HEYLOOK_TITLEBAR_MODE` (titlebar.rs, run by [`run_strategy`])
 //! are taken and every window is described in the log (`macwin::describe`), so the next Mac log shows what differs between window kinds.
+//!
+//! Caption colour (Windows 11, W4.3): the native title bar of a secondary window is painted in the colour of the main window's band (the right end of it,
+//! behind the main window's caption buttons), by the caption and text colour of DWM (build 22000 and later), not by an app-drawn frame: the native Snap
+//! Layouts flyout, the system menu, Alt+Space and the caption buttons stay the system's. Only the main page knows the colours (it is the writer of the
+//! preferences and computes the band, src/captionColors.ts); it hands them over with `window_caption_colors`, and [`apply_all`] puts the pair of the
+//! effective theme on every secondary window, at creation and at every change of theme, accent, top bar colour or OS colour mode.
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -164,6 +170,177 @@ fn tell(w: &tauri::WebviewWindow, step: Step) {
     }
 }
 
+// ---------------------------------------------------------------- caption colour (Windows 11, W4.3)
+
+/// A colour, 8 bits per channel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Rgb(pub u8, pub u8, pub u8);
+
+impl Rgb {
+    /// `#rrggbb`; nothing else is a colour.
+    pub fn parse(hex: &str) -> Option<Rgb> {
+        let h = hex.strip_prefix('#')?;
+        if h.len() != 6 || !h.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return None;
+        }
+        let n = |i: usize| u8::from_str_radix(&h[i..i + 2], 16).ok();
+        Some(Rgb(n(0)?, n(2)?, n(4)?))
+    }
+
+    /// The `COLORREF` DWM takes: 0x00BBGGRR.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub fn colorref(self) -> u32 {
+        (self.2 as u32) << 16 | (self.1 as u32) << 8 | self.0 as u32
+    }
+}
+
+/// Background and text colour of the caption in one theme.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CaptionPair {
+    pub bg: Rgb,
+    pub fg: Rgb,
+}
+
+/// The pair for each theme, as the main page computed them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CaptionColors {
+    pub light: CaptionPair,
+    pub dark: CaptionPair,
+}
+
+/// The colours the page handed over (`None` until it did: the caption stays native).
+static CAPTION: Mutex<Option<CaptionColors>> = Mutex::new(None);
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn caption_colors() -> Option<CaptionColors> {
+    *CAPTION.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+/// Is a window's caption coloured at all (REQ-4.3.3, 4.3.5)? Only a secondary window (the main window has its own frame), only on Windows 11 (build
+/// 22000 and later: the attributes do not exist before), and never in high contrast (the system colours rule).
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn caption_applies(build: Option<u32>, high_contrast: bool, secondary_window: bool) -> bool {
+    secondary_window && !high_contrast && build.is_some_and(|b| b >= 22000)
+}
+
+/// The pair for the theme a window shows: the setting pins one, else (System) the window's own report of the OS theme.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn caption_pair(c: &CaptionColors, choice: Option<Theme>, window_theme: Option<Theme>) -> CaptionPair {
+    match choice.or(window_theme) {
+        Some(Theme::Dark) => c.dark,
+        _ => c.light,
+    }
+}
+
+/// `{ light: { bg, fg }, dark: { bg, fg } }` with `#rrggbb` colours, as the main page sends them.
+#[derive(serde::Deserialize)]
+pub struct CaptionArg {
+    light: PairArg,
+    dark: PairArg,
+}
+
+#[derive(serde::Deserialize)]
+struct PairArg {
+    bg: String,
+    fg: String,
+}
+
+impl CaptionArg {
+    fn parse(&self) -> Option<CaptionColors> {
+        let pair = |p: &PairArg| Some(CaptionPair { bg: Rgb::parse(&p.bg)?, fg: Rgb::parse(&p.fg)? });
+        Some(CaptionColors { light: pair(&self.light)?, dark: pair(&self.dark)? })
+    }
+}
+
+/// The main page hands over the colours of the caption of the secondary windows (the colours of its own band in Light and in Dark). Only the main
+/// window may (a window never sets its own); the colours are put on every open secondary window at once.
+#[tauri::command]
+pub fn window_caption_colors(app: AppHandle, window: tauri::Window, colors: CaptionArg) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("only the main window sets the caption colours".into());
+    }
+    let parsed = colors.parse().ok_or("the colours are #rrggbb")?;
+    let changed = {
+        let mut g = CAPTION.lock().unwrap_or_else(|p| p.into_inner());
+        let changed = *g != Some(parsed);
+        *g = Some(parsed);
+        changed
+    };
+    if changed {
+        captions(&app, choice(&app));
+    }
+    Ok(())
+}
+
+/// Put the caption colours on the open secondary windows (nothing off Windows).
+fn captions(app: &AppHandle, choice: Option<Theme>) {
+    #[cfg(windows)]
+    {
+        let Some(colors) = caption_colors() else { return };
+        for (label, w) in app.webview_windows() {
+            let pair = caption_pair(&colors, choice, w.theme().ok());
+            caption::set(&label, &w, pair);
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = (app, choice);
+}
+
+#[cfg(windows)]
+mod caption {
+    use super::*;
+    use std::collections::HashSet;
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWINDOWATTRIBUTE};
+    use windows::Win32::UI::Accessibility::{HCF_HIGHCONTRASTON, HIGHCONTRASTW};
+    use windows::Win32::UI::WindowsAndMessaging::{SystemParametersInfoW, SPI_GETHIGHCONTRAST, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS};
+
+    const CAPTION_COLOR: DWMWINDOWATTRIBUTE = DWMWINDOWATTRIBUTE(35); // DWMWA_CAPTION_COLOR
+    const TEXT_COLOR: DWMWINDOWATTRIBUTE = DWMWINDOWATTRIBUTE(36); // DWMWA_TEXT_COLOR
+
+    fn high_contrast() -> bool {
+        let mut hc = HIGHCONTRASTW { cbSize: std::mem::size_of::<HIGHCONTRASTW>() as u32, ..Default::default() };
+        // SAFETY: SPI_GETHIGHCONTRAST fills the structure we pass, whose size we gave.
+        let ok = unsafe { SystemParametersInfoW(SPI_GETHIGHCONTRAST, hc.cbSize, Some(&mut hc as *mut HIGHCONTRASTW as *mut std::ffi::c_void), SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0)) }.is_ok();
+        ok && (hc.dwFlags & HCF_HIGHCONTRASTON).0 != 0
+    }
+
+    /// Windows that DWM refused (logged once each), and whether the "not Windows 11" line was written in this run.
+    fn failed() -> &'static Mutex<HashSet<String>> {
+        static F: std::sync::OnceLock<Mutex<HashSet<String>>> = std::sync::OnceLock::new();
+        F.get_or_init(Default::default)
+    }
+    static OLD_SYSTEM_LOGGED: AtomicBool = AtomicBool::new(false);
+
+    pub fn set(label: &str, w: &tauri::WebviewWindow, pair: CaptionPair) {
+        let build = windows_version::OsVersion::current().build;
+        let hc = high_contrast();
+        if !caption_applies(Some(build), hc, crate::popout::is_secondary(label)) {
+            if !crate::popout::is_secondary(label) {
+                return;
+            }
+            if hc {
+                log(&format!("{label}: caption stays native (high contrast is on)"));
+            } else if !OLD_SYSTEM_LOGGED.swap(true, Ordering::SeqCst) {
+                log(&format!("caption colour is for Windows 11 (build 22000 and later), this is build {build}: native captions"));
+            }
+            return;
+        }
+        let Ok(hwnd) = w.hwnd() else { return };
+        let hwnd = HWND(hwnd.0);
+        let set_one = |attr: DWMWINDOWATTRIBUTE, c: Rgb| {
+            let value = c.colorref();
+            // SAFETY: a COLORREF (4 bytes) for a window of this process.
+            unsafe { DwmSetWindowAttribute(hwnd, attr, &value as *const u32 as *const std::ffi::c_void, 4) }
+        };
+        if let Err(e) = set_one(CAPTION_COLOR, pair.bg).and_then(|_| set_one(TEXT_COLOR, pair.fg)) {
+            if failed().lock().unwrap_or_else(|p| p.into_inner()).insert(label.to_string()) {
+                log(&format!("{label}: the caption colour was refused ({e}): native caption"));
+            }
+        }
+    }
+}
+
 /// Apply the current theme choice to every open window (visible, hidden or parked). Safe to call from any thread, as often as needed.
 /// `why` goes to the log.
 pub fn apply_all(app: &AppHandle, why: &str) {
@@ -191,6 +368,8 @@ pub fn apply_all(app: &AppHandle, why: &str) {
     // the colour of the window and the web view before the page paints follows the same setting (bgcolor.rs)
     let (shown, n) = crate::bgcolor::apply(app);
     log(&format!("  background colour {} on {n} windows ({why})", setting_name(Some(shown))));
+    // the caption of the secondary windows in the colour of the main window's band (Windows 11, W4.3)
+    captions(app, choice);
     native(app, choice, why.to_string(), None);
 }
 
@@ -676,6 +855,81 @@ mod tests {
         // the variable is named in titlebar.rs, which reads it once; here only in a log line
         assert!(include_str!("titlebar.rs").contains("std::env::var(\"HEYLOOK_TITLEBAR_MODE\")"));
         assert!(!me.contains("env::var"), "wintheme.rs does not read the environment itself");
+    }
+
+    // ---- W4.3: the caption colour
+
+    /// REQ-4.3.3, 4.3.5: only a secondary window, never Windows 10 (build < 22000) and never high contrast.
+    #[test]
+    fn the_caption_colour_is_for_the_secondary_windows_only_and_never_on_windows_10() {
+        assert!(caption_applies(Some(22000), false, true), "the first Windows 11 build");
+        assert!(caption_applies(Some(26300), false, true));
+        assert!(!caption_applies(Some(21999), false, true), "Windows 11 before 22000 has no such attribute");
+        assert!(!caption_applies(Some(19045), false, true), "Windows 10");
+        assert!(!caption_applies(None, false, true), "an unknown system");
+        assert!(!caption_applies(Some(26300), true, true), "high contrast: the system colours");
+        assert!(!caption_applies(Some(26300), false, false), "the main window has its own frame");
+        // by label: the main window never; the windows of every kind a later version adds are secondary windows (popout.rs)
+        assert!(!crate::popout::is_secondary("main") && crate::popout::is_secondary("compose-1") && crate::popout::is_secondary("reader-12"));
+    }
+
+    #[test]
+    fn the_caption_pair_follows_the_theme_the_window_shows() {
+        let c = CaptionColors { light: CaptionPair { bg: Rgb(13, 96, 167), fg: Rgb(255, 255, 255) }, dark: CaptionPair { bg: Rgb(45, 48, 56), fg: Rgb(255, 255, 255) } };
+        assert_eq!(caption_pair(&c, Some(Theme::Dark), Some(Theme::Light)), c.dark, "the setting wins");
+        assert_eq!(caption_pair(&c, Some(Theme::Light), Some(Theme::Dark)), c.light);
+        assert_eq!(caption_pair(&c, None, Some(Theme::Dark)), c.dark, "System: what the OS has");
+        assert_eq!(caption_pair(&c, None, Some(Theme::Light)), c.light);
+        assert_eq!(caption_pair(&c, None, None), c.light, "unknown: light, like the page's own CSS");
+    }
+
+    #[test]
+    fn a_colour_is_hash_rrggbb_and_dwm_takes_it_as_bbggrr() {
+        assert_eq!(Rgb::parse("#0d60a7"), Some(Rgb(13, 96, 167)));
+        assert_eq!(Rgb::parse("#FFFFFF"), Some(Rgb(255, 255, 255)));
+        for bad in ["", "0d60a7", "#0d60a", "#0d60a7f", "#0d60g7", "rgb(1,2,3)", "#+d60a7", "# 0d60a7"] {
+            assert_eq!(Rgb::parse(bad), None, "{bad}");
+        }
+        assert_eq!(Rgb(0x0d, 0x60, 0xa7).colorref(), 0x00a7600d);
+        assert_eq!(Rgb(255, 0, 0).colorref(), 0x0000ff);
+    }
+
+    /// REQ-4.3.2: only the main page hands the colours over (the command is main's alone and a window never sets its own); they are applied by the one
+    /// function every theme change goes through, and nowhere else.
+    #[test]
+    fn only_the_main_page_sets_the_caption_colours_and_apply_all_puts_them_on() {
+        let me = crate::test_guard::non_test_code(include_str!("wintheme.rs"));
+        let cmd = &me[me.find("pub fn window_caption_colors(").unwrap()..];
+        let cmd = &cmd[..cmd.find("
+}
+").unwrap()];
+        assert!(cmd.contains("window.label() != \"main\""), "{cmd}");
+        let all = &me[me.find("pub fn apply_all(").unwrap()..];
+        let all = &all[..all.find("
+}
+").unwrap()];
+        assert!(all.contains("captions(app, choice);"), "{all}");
+        assert!(!include_str!("../capabilities/popout.json").contains("window-caption-colors"), "a window may not set its own caption colour");
+        assert!(include_str!("../capabilities/default.json").contains("allow-window-caption-colors"));
+        // DWM's caption and text colour attributes, and nothing is drawn by the app
+        assert!(me.contains("DWMWINDOWATTRIBUTE(35)") && me.contains("DWMWINDOWATTRIBUTE(36)"));
+    }
+
+    /// D-063: on macOS the title bar is transparent, so it shows the window background colour (bgcolor.rs) instead of a grey of its own.
+    #[test]
+    fn the_macos_title_bar_shows_the_ground_colour() {
+        let mac = crate::test_guard::non_test_code(include_str!("macwin.rs"));
+        let one = &mac[mac.find("unsafe fn set_one(").unwrap()..];
+        let one = &one[..one.find("
+}
+").unwrap()];
+        assert!(one.contains("setTitlebarAppearsTransparent: Bool::YES"), "{one}");
+        let me = crate::test_guard::non_test_code(include_str!("wintheme.rs"));
+        let all = &me[me.find("pub fn apply_all(").unwrap()..];
+        let all = &all[..all.find("
+}
+").unwrap()];
+        assert!(all.find("crate::bgcolor::apply(app)").unwrap() < all.find("native(app, choice").unwrap(), "the ground colour is set before the native part runs: {all}");
     }
 
     /// The flip makes the page's colour scheme change for a moment and the page asks for its window again: that request is held back while a

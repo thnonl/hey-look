@@ -7,7 +7,7 @@ import { api } from "../api";
 import { calTz, today } from "../calendar";
 import { useT } from "../i18n/react";
 import { friendlyError, useStore, scopeOf } from "../store";
-import { newEvent } from "../newEvent";
+import { newEvent, newEventWindow } from "../newEvent";
 import { accountsOf, canMoveToJunk } from "../junk";
 import { moveChoices } from "../rowMenu";
 import { folderTitle } from "../prefs";
@@ -120,7 +120,7 @@ function CalendarHomeTab() {
   return (
     <div className="ribbon-row home">
       <div className="rg">
-        <button className="rb primary" onClick={() => newEvent()} title={t("app.ribbon.newEventTitle")}>
+        <button className="rb primary" onClick={(e) => (e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey ? newEventWindow() : newEvent())} title={t("app.ribbon.newEventTitle")}>
           <CalendarPlus size={18} />
           <span>{t("app.ribbon.newEvent")}</span>
         </button>

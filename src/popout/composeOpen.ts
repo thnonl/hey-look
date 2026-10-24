@@ -7,6 +7,7 @@ import { api } from "../api";
 import { hasMailAccounts } from "../mailControls";
 import { useStore, type ComposeInit } from "../store";
 import { opensInWindow } from "./entry";
+import { inSecondaryWindow } from "./route";
 import { shiftNow } from "./modifier";
 import { openPopout, openPopoutInfo } from "./open";
 import type { ShellStart } from "../answerShell.ts";
@@ -22,7 +23,8 @@ export interface StartOpts {
 
 /** Does a message started now open in a window? (The ribbon uses it to know whether the inline pane will be taken.) */
 export function wantsWindow(o: Pick<StartOpts, "window" | "shift"> = {}): boolean {
-  return o.window ?? opensInWindow(useStore.getState().prefs.popoutCompose, o.shift ?? shiftNow());
+  // (a page that is a window itself - the Scheduled list, a search - starts a message in a window of its own: it has no pane to put it in, W4.6)
+  return o.window ?? (inSecondaryWindow() || opensInWindow(useStore.getState().prefs.popoutCompose, o.shift ?? shiftNow()));
 }
 
 /**

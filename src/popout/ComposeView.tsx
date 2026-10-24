@@ -30,12 +30,18 @@ import { FILL_ID } from "./composeFill";
 import { statusRemaining, shellDone, wait, WINDOW_SAFETY_MS } from "../composeShell";
 import { useDelayedFlag } from "../delayedFlag";
 import { composeFlush, runClose, secondsLeft, START, step, type Ev, type Fx, type WinState } from "./composeWindow";
+import { composeFromSnapshot } from "../recovery";
 import { draftKey } from "./entry";
 import { registerFlushHandler } from "./flush";
+import { Requester, UNREACHABLE } from "./request";
 import { popoutTitle } from "./route";
 import type { PopoutViewProps } from "./views";
 
 const quiet = () => undefined;
+/** The requests of this window that the main window answers (Move to main window, W4.5); the answers come on `popout-reply`. */
+const requester = new Requester({ send: (id, kind, payload) => api.popoutRequest(id, kind, payload) }, "cp");
+/** The main window may be asking its "unsent" question: the window waits for the person's answer for as long as that takes (10 minutes at most). */
+const POP_IN_WAIT_MS = 600_000;
 /** The one toast of a message that is being sent from this window: "Sending... n s" with Undo, then "Sending...". */
 const SEND_TOAST = "compose-send";
 type Level = "info" | "success" | "error";
@@ -45,7 +51,7 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
 /** The loader of this view (lazyViews.tsx) waits for this too: the nodes of the editor kit come with the window's view, so the body is there when the window shows (REQ-9.2.3). */
 export const ready = (): Promise<void> => loadEditorKit();
 
-export default function ComposeView({ label, init }: PopoutViewProps) {
+export default function ComposeView({ label, init, reloaded, recoveryId: handedRecovery }: PopoutViewProps) {
   const prefs = useStore((s) => s.prefs);
   configureDates(prefs);
   configureCalendar(prefs);
@@ -148,6 +154,20 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
       await loadPlatform();
       await loadAccounts();
       void st.getState().refreshAi();
+      // the page process of this window died and the window was loaded again (W4.2): the message comes back as of its latest crash snapshot when there is one
+      // (what was typed after it can be lost, the snapshot interval at most), else as it was handed over
+      if (reloaded && handedRecovery) {
+        try {
+          const l = await api.recoveryLoad(handedRecovery);
+          const c = l ? composeFromSnapshot(l) : null;
+          if (c && alive) {
+            shellId.current = null;
+            setEditor((prev) => ({ init: c, n: (prev?.n ?? 0) + 1 }));
+          }
+        } catch {
+          /* the hand-off data stay */
+        }
+      }
       if (alive) setReady(true);
     })();
 
@@ -176,6 +196,26 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
         void api.popoutSetKey(draftKey(threadId)).catch(quiet); // the lock of a draft follows its saves
       },
       title: setTitle,
+      recovery: (id) => void api.popoutNote("recovery", id).catch(quiet),
+      popIn: async (moved) => {
+        // the main window opens the message in its inline Compose, asking its question first when its pane holds a message with changes (REQ-4.5.3)
+        try {
+          let r = await requester.ask<{ state?: string; opened?: boolean } | null>("cw-pop-in", { init: moved }, 5000);
+          if (r?.state === "asking") r = await requester.ask<{ opened?: boolean } | null>("cw-pop-in-result", {}, POP_IN_WAIT_MS);
+          if (!r?.opened) return false; // the person chose Keep writing: this window is as it was
+        } catch (e) {
+          st.getState().showToast(() => (e instanceof Error && e.message === UNREACHABLE ? tNow("app.popout.mainUnreachable") : friendlyError(e)), undefined, "error");
+          return false;
+        }
+        // the main window shows the message: this window ends without a question, a toast or a save; its snapshot goes (the pane writes its own), the pause of a
+        // scheduled message passes to the pane (REQ-4.5.4)
+        held.current = null;
+        raised.current = [];
+        await st.getState().composeEnd?.();
+        st.setState({ composeDirty: false });
+        dispatchRef.current({ t: "end" });
+        return true;
+      },
     };
     const unseam = setComposeSeam(seam);
 
@@ -317,6 +357,7 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
       }, WINDOW_SAFETY_MS);
     }
     const fillSub = listen<{ id: string; data: unknown }>("popout-reply", (e) => {
+      requester.answer(e.payload as never); // (the answers to Move to main window)
       if (e.payload?.id === FILL_ID && isObj(e.payload.data)) void fillWith(e.payload.data as ComposeInit);
     });
     void fillSub.then(() => shellId.current && notifyMain("fill-ready")).catch(quiet);

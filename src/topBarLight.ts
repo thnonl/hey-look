@@ -36,12 +36,22 @@ export interface TopBarColors { bg: string; fg: string; field: string; fieldHove
  * otherwise the gradient is darkened until white works.
  */
 export function topBar(accent: string): TopBarColors {
+  const { s, e, fg, field, fieldHover, hover } = topBarParts(accent);
+  return { bg: `linear-gradient(135deg, ${s} 0%, ${e} 100%)`, fg, field, fieldHover, hover };
+}
+
+/** The two ends of the light bar's gradient (`start` is the left/top end, `end` the right end: behind the window's caption buttons) and the text colour on it. */
+export function topBarEnds(accent: string): { start: string; end: string; fg: string } {
+  const { s, e, fg } = topBarParts(accent);
+  return { start: s, end: e, fg };
+}
+
+function topBarParts(accent: string): { s: string; e: string; fg: string; field: string; fieldHover: string; hover: string } {
   const WHITE = "#ffffff", INK = "#0b1220";
   let s = blend(accent, "#000000", 0.22), e = accent;
-  const grad = (a: string, b: string) => `linear-gradient(135deg, ${a} 0%, ${b} 100%)`;
   if (ratio(WHITE, e) < 4.5 && ratio(INK, s) >= 4.5) {
-    return { bg: grad(s, e), fg: INK, field: "rgba(255,255,255,.35)", fieldHover: "rgba(255,255,255,.5)", hover: "rgba(0,0,0,.12)" };
+    return { s, e, fg: INK, field: "rgba(255,255,255,.35)", fieldHover: "rgba(255,255,255,.5)", hover: "rgba(0,0,0,.12)" };
   }
   for (let k = 0; ratio(WHITE, e) < 4.5 && k < 1; k += 0.02) { s = blend(accent, "#000000", 0.22 + k); e = blend(accent, "#000000", k); }
-  return { bg: grad(s, e), fg: WHITE, field: "rgba(0,0,0,.2)", fieldHover: "rgba(0,0,0,.3)", hover: "rgba(255,255,255,.18)" };
+  return { s, e, fg: WHITE, field: "rgba(0,0,0,.2)", fieldHover: "rgba(0,0,0,.3)", hover: "rgba(255,255,255,.18)" };
 }

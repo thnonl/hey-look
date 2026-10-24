@@ -2,6 +2,8 @@
 // ask for these things and nothing else. Pure, so scripts/test-popout.mjs runs it. (src/popout/mainRequests.ts does the work.)
 
 /** The envelope the backend sends to the main page (`popout-request`): `from` is stamped by the backend. */
+import { prefsPatchAllowed } from "./windowKinds.ts";
+
 export interface Envelope {
   id: string;
   from: string;
@@ -32,6 +34,16 @@ export interface ThreadActionReq {
   view?: string;
 }
 
+/** Next / Previous of a reader window (W4.4): the conversation it shows and where it was opened from, so the main page can read the list when its own no longer has it. */
+export interface NeighborsReq {
+  threadId: string;
+  view: string;
+  accountId: string;
+  folder: string;
+  /** the mailbox selection of the main window when the window was opened (null: all mailboxes) */
+  listAccount: string | null;
+}
+
 export type ComposeMode = "reply" | "replyAll" | "forward";
 
 export interface ComposeReq {
@@ -55,19 +67,33 @@ export type DialogReq = { type: "settings"; tab?: string; focus?: string } | { t
 
 export type Parsed =
   | { kind: "thread-action"; req: ThreadActionReq }
-  | { kind: "prefs"; patch: { mailCanvas: "dark" | "original" } }
+  | { kind: "prefs"; patch: Record<string, unknown> }
   | { kind: "compose"; req: ComposeReq }
   | { kind: "compose-new"; req: ComposeNewReq }
   | { kind: "import-key"; messageId: string; index: number }
   | { kind: "dialog"; req: DialogReq }
   | { kind: "calendar"; day: { y: number; m: number; d: number } | null }
-  | { kind: "show-main" };
+  | { kind: "show-main" }
+  | { kind: "neighbors"; req: NeighborsReq }
+  /** a toast of an event window that ends (made where the person still looks, W4.6) */
+  | { kind: "toast"; text: string; level: "info" | "success" | "error" }
+  /** the Settings window changed something the lists of the main window show: read them again, sync (W4.6) */
+  | { kind: "refresh" }
+  | { kind: "sync" }
+  /** Settings > About > Restart now, in the Settings window: the main window runs the restart (it saves the compose windows and its pane first, as today) */
+  | { kind: "update-restart" };
+
+/** Who asks, and what the main page knows about the preferences: the keys of `Prefs` (the Settings window may change any of them, REQ-4.6.3). */
+export interface RequestCtx {
+  from: string;
+  prefKeys: readonly string[];
+}
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
 
 /** The request, checked and cut to what is accepted; or why it is not (the reader is told with an error, nothing is done). */
-export function parseRequest(kind: string, payload: unknown): Parsed | { error: string } {
+export function parseRequest(kind: string, payload: unknown, ctx?: RequestCtx): Parsed | { error: string } {
   const p = isObj(payload) ? payload : {};
   switch (kind) {
     case "thread-action": {
@@ -84,11 +110,22 @@ export function parseRequest(kind: string, payload: unknown): Parsed | { error: 
       return { kind: "thread-action", req: { threadId, action, arg, labelKey, labelParams, view: str(p.view) } };
     }
     case "prefs": {
-      // the main page is the only writer of the preferences (REQ-W11): a reader may change the mail background and nothing else
-      const keys = Object.keys(p);
-      if (keys.length !== 1 || keys[0] !== "mailCanvas" || (p.mailCanvas !== "dark" && p.mailCanvas !== "original")) return { error: "prefs: only mailCanvas" };
-      return { kind: "prefs", patch: { mailCanvas: p.mailCanvas } };
+      // the main page is the only writer of the preferences (REQ-W11): a reader may change the mail background and nothing else; the Settings window any key of `Prefs` (REQ-4.6.3)
+      if (!prefsPatchAllowed(ctx?.from ?? "", p, ctx?.prefKeys ?? [])) return { error: "prefs: only mailCanvas" };
+      return { kind: "prefs", patch: ctx?.from?.startsWith("settings-") ? p : { mailCanvas: p.mailCanvas } };
     }
+    case "toast": {
+      // an event window that saved or deleted and ends: the toast is made here (REQ-4.6.7). Only an event window.
+      const text = str(p.text)?.trim();
+      if (!text || !(ctx?.from ?? "").startsWith("event-")) return { error: "toast: not for this window" };
+      return { kind: "toast", text: text.slice(0, 400), level: p.level === "success" || p.level === "error" ? p.level : "info" };
+    }
+    case "refresh":
+      return { kind: "refresh" };
+    case "sync":
+      return { kind: "sync" };
+    case "update-restart":
+      return (ctx?.from ?? "").startsWith("settings-") ? { kind: "update-restart" } : { error: "update-restart: only the Settings window" };
     case "compose": {
       const mode = p.mode;
       if (mode !== "reply" && mode !== "replyAll" && mode !== "forward") return { error: "compose: unknown mode" };
@@ -131,6 +168,11 @@ export function parseRequest(kind: string, payload: unknown): Parsed | { error: 
     }
     case "show-main":
       return { kind: "show-main" };
+    case "neighbors": {
+      const threadId = str(p.threadId);
+      if (!threadId) return { error: "neighbors: no conversation" };
+      return { kind: "neighbors", req: { threadId, view: (str(p.view) ?? "").slice(0, 120), accountId: (str(p.accountId) ?? "").slice(0, 200), folder: (str(p.folder) ?? "").slice(0, 120), listAccount: str(p.listAccount) ?? null } };
+    }
     default:
       return { error: `unknown request: ${kind.slice(0, 40)}` };
   }

@@ -9,13 +9,16 @@ import { api, MessageFull } from "../api";
 import { t, type Key } from "../i18n";
 import { calTz, today } from "../calendar";
 import { friendlyError, useStore, type Dialog } from "../store";
+import { CW_PREFIX } from "./composeRequests";
+import { DEFAULT_PREFS } from "../prefs";
+import { useUpdates } from "../updates";
 import { parseRequest, type Envelope } from "./requestKinds";
 
 /** Show the main window (it may be hidden in the tray) for something that needs it: a dialog, a message being written. */
-const showMain = () => void api.showWindow().catch(() => undefined);
+export const showMain = () => void api.showWindow().catch(() => undefined);
 
 async function run(env: Envelope): Promise<unknown> {
-  const p = parseRequest(env.kind, env.payload);
+  const p = parseRequest(env.kind, env.payload, { from: env.from, prefKeys: Object.keys(DEFAULT_PREFS) });
   if ("error" in p) throw new Error(p.error);
   const st = useStore.getState();
   switch (p.kind) {
@@ -29,7 +32,20 @@ async function run(env: Envelope): Promise<unknown> {
       return null;
     }
     case "prefs":
-      st.setPrefs(p.patch);
+      st.setPrefs(p.patch as Partial<typeof st.prefs>);
+      return null;
+    case "toast":
+      st.showToast(p.text, undefined, p.level); // i18n-ok: made by the event window, in the language in use
+      return null;
+    case "refresh":
+      void st.refresh();
+      return null;
+    case "sync":
+      void st.sync();
+      return null;
+    case "update-restart":
+      showMain();
+      await useUpdates.getState().restartFromWindow();
       return null;
     case "compose": {
       const m = p.req.message as unknown as MessageFull;
@@ -58,11 +74,14 @@ async function run(env: Envelope): Promise<unknown> {
     case "show-main":
       showMain();
       return null;
+    case "neighbors":
+      return (await import("./mainLazy")).neighborsFor(p.req);
   }
 }
 
 /** Handle one request and tell the window how it went. Never throws: a failure is the answer. */
 export async function handlePopoutRequest(env: Envelope): Promise<void> {
+  if (env.kind.startsWith(CW_PREFIX)) return; // a compose window's request: composeHub.ts answers the ones that need an answer
   const from = env.from;
   try {
     const data = await run(env);

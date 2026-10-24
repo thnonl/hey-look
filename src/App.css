@@ -820,6 +820,11 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 .modal.cmd { padding: 8px; width: 560px; }
 .modal.cmd input { width: 100%; margin-bottom: 6px; }
 .modal-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 18px; border-bottom: 1px solid var(--border); }
+.modal-head-acts { display: inline-flex; align-items: center; gap: 4px; }
+/* (W4.6) the dialog as the page of a window of its own: it fills the window, no backdrop, no frame */
+.modal-page { height: 100vh; background: var(--bg); color: var(--fg); display: flex; }
+.modal.windowed { width: 100%; max-width: none; height: 100%; max-height: none; border: 0; border-radius: 0; box-shadow: none; animation: none; }
+.modal.windowed.wide { width: 100%; height: 100%; }
 .modal-body { flex: 1; overflow: auto; padding: 16px 18px; min-height: 0; }
 .ask-back { z-index: var(--z-ask); }
 .ask { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow); width: 440px; max-width: 92vw; padding: 20px 22px; animation: pop .16s var(--ease); }
@@ -1653,6 +1658,17 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 .reader-bar .rb { padding: 7px 8px; gap: 6px; flex: none; }
 .reader-bar .dd { flex: none; }
 .reader-bar .sep { align-self: stretch; width: 1px; margin: 4px 5px; background: var(--border); flex: none; }
+.reader-bar .rb.nav { padding: 8px; }
+/* (W4.7) a folder under a dragged conversation that it accepts shows the selected look; one that does not accept shows nothing (the pointer says "not allowed") */
+.fp-row.drop-hot { background: var(--sel); outline: 2px solid var(--accent); outline-offset: -2px; }
+.ml-tools .ml-newwin { flex: none; }
+.search-win .ml-head { flex: none; }
+.search-win .msg-list { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.search-win .ml-body { flex: 1; min-height: 0; overflow: auto; position: relative; }
+.search-win .sw-query { display: inline-block; max-width: 70%; vertical-align: bottom; font-weight: 600; }
+.sched-win .sw-title { margin: 0; padding: 12px 16px 4px; font-size: 1.15em; }
+.sched-win .sw-body { flex: 1; min-height: 0; overflow: auto; }
+.compose-pane.chip-over { outline: 2px dashed var(--accent); outline-offset: -3px; }
 .reader-bar .rb.grow { margin-left: auto; }
 .reader-bar .ai-btn { color: var(--accent-text); }
 .reader-bar .rb:disabled { opacity: .5; cursor: default; }

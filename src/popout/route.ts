@@ -2,7 +2,10 @@
 // opens a pop-out at `index.html?w=<kind>&t=<token>` (popout.rs), and the main window has no query. The entry file (main.tsx) asks
 // `routeOf` once and mounts either <App /> or <PopoutRoot />. Pure (no browser, no Tauri), so scripts/test-popout.mjs runs it.
 
-export type PopoutKind = "compose" | "reader";
+export type PopoutKind = "compose" | "reader" | "event" | "settings" | "search" | "scheduled";
+
+/** Every kind of secondary window (the same names as src-tauri/src/popout.rs `Kind`). */
+export const POPOUT_KINDS: readonly PopoutKind[] = ["compose", "reader", "event", "settings", "search", "scheduled"];
 
 export type Route =
   /** the main window: the whole app */
@@ -18,12 +21,17 @@ export function routeOf(search: string): Route {
   const q = new URLSearchParams(search);
   const w = q.get("w");
   if (w === null || w === "" || w === "main") return { kind: "main" };
-  if (w === "compose" || w === "reader") return { kind: w, token: q.get("t") ?? "" };
+  if ((POPOUT_KINDS as readonly string[]).includes(w)) return { kind: w as PopoutKind, token: q.get("t") ?? "" };
   return { kind: "invalid", value: w };
 }
 
 export function isPopout(route: Route): route is PopoutRoute {
-  return route.kind === "compose" || route.kind === "reader";
+  return (POPOUT_KINDS as readonly string[]).includes(route.kind);
+}
+
+/** Is this page a secondary window? (The main page has no `?w=`: whatever opens a message, a dialog or a window from a window does it as a window of its own.) */
+export function inSecondaryWindow(search: string = typeof window === "undefined" ? "" : window.location.search): boolean {
+  return isPopout(routeOf(search));
 }
 
 /**

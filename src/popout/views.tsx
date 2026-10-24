@@ -17,7 +17,7 @@
 //   destroyed, so a reload of the page can read it again.
 import type { ComponentType } from "react";
 import { lazyView, LazyLoading } from "../lazy";
-import { loadComposeWindowView, loadReaderWindowView } from "../lazyViews";
+import { loadComposeWindowView, loadEventWindowView, loadReaderWindowView, loadScheduledWindowView, loadSearchWindowView, loadSettingsWindowView } from "../lazyViews";
 import { popoutDevEnabled } from "./route";
 import type { PopoutKind } from "./route";
 
@@ -29,6 +29,10 @@ export interface PopoutViewProps {
   keyOf: string | null;
   /** the hand-off data the opener left in the backend */
   init: unknown;
+  /** the page was loaded again after its process died (W4.2) */
+  reloaded?: boolean;
+  /** a compose window: the id of the crash snapshot of its message, when the window reported one */
+  recoveryId?: string | null;
 }
 
 export const devFlagOn = () => {
@@ -47,4 +51,9 @@ const windowFrame = (_p: PopoutViewProps, late: boolean) => <div className="popo
 export const VIEWS: Record<PopoutKind, ComponentType<PopoutViewProps>> = {
   compose: lazyView({ key: "popout-compose", kind: "popout", load: loadComposeWindowView, pick: (m) => m.default, frame: windowFrame, retry: true }),
   reader: lazyView({ key: "popout-reader", kind: "popout", load: loadReaderWindowView, pick: (m) => m.default, frame: windowFrame, retry: true }),
+  // (W4.6) a calendar event, Settings, the results of a search and the Scheduled list: each a chunk of its own, only in its window
+  event: lazyView({ key: "popout-event", kind: "popout", load: loadEventWindowView, pick: (m) => m.default, frame: windowFrame, retry: true }),
+  settings: lazyView({ key: "popout-settings", kind: "popout", load: loadSettingsWindowView, pick: (m) => m.default, frame: windowFrame, retry: true }),
+  search: lazyView({ key: "popout-search", kind: "popout", load: loadSearchWindowView, pick: (m) => m.default, frame: windowFrame, retry: true }),
+  scheduled: lazyView({ key: "popout-scheduled", kind: "popout", load: loadScheduledWindowView, pick: (m) => m.default, frame: windowFrame, retry: true }),
 };

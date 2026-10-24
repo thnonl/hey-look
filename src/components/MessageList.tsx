@@ -1,4 +1,4 @@
-import { Archive, BadgeCheck, Calendar, CalendarCheck, CalendarX, Check, CheckCheck, ChevronDown, Clock, Flag, FolderOpen, ListFilter, Lock, Mail, MailOpen, Paperclip, Pin, SearchX, ShieldAlert, Trash2 } from "lucide-react";
+import { Archive, BadgeCheck, Calendar, CalendarCheck, CalendarX, Check, CheckCheck, ChevronDown, Clock, ExternalLink, Flag, FolderOpen, ListFilter, Lock, Mail, MailOpen, Paperclip, Pin, SearchX, ShieldAlert, Trash2 } from "lucide-react";
 import { copyToClipboard, openExternal } from "../open";
 import { ReactNode, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { fmtNumber } from "../i18n/format";
@@ -16,9 +16,14 @@ import { wantsWindow } from "../popout/composeOpen";
 import { shiftNow } from "../popout/modifier";
 import { openReader } from "../popout/openReader";
 import { rowWindowTarget } from "../popout/readerLogic";
+import { dragIds, mayDragRow } from "../dragDrop";
+import { endDrag, startMailDrag } from "../dragWire";
 import { ImportanceMark } from "./Importance";
 import { AcctName } from "./AcctName";
 import { useRowContextMenu } from "./ListContextMenu";
+import { openPopout } from "../popout/open";
+import { searchKey, SCHEDULED_KEY, type SearchInit } from "../popout/windowKinds";
+
 import { ScheduledList } from "./ScheduledList";
 import { EmptyState, SkeletonRows } from "./overlays";
 import { Avatar, Dropdown } from "./ui";
@@ -26,6 +31,17 @@ import { downloadLine } from "../backfill";
 import { useDelayedFlag } from "../delayedFlag";
 import { badgeText, tabCounts, tabLabels } from "../focusCounts";
 import { VirtualList, VItem } from "./VirtualList";
+
+/** A drag from a row (W4.7): all the checked conversations when the row is one of them, else the row alone; the drag data is a token (dragDrop.ts). */
+function startRowDrag(e: React.DragEvent, rowId: string) {
+  const st = useStore.getState();
+  const items = dragIds(rowId, st.checked)
+    .map((id) => st.threads.find((x) => x.threadId === id))
+    .filter((x): x is ThreadSummary => !!x && mayDragRow(st.folder, x.folder))
+    .map((x) => ({ threadId: x.threadId, accountId: x.accountId, folder: x.folder }));
+  if (!items.length) return e.preventDefault();
+  startMailDrag(e, items, st.folder);
+}
 
 export interface ThreadRowProps {
   t: ThreadSummary;
@@ -49,10 +65,13 @@ export interface ThreadRowProps {
   inPreview?: boolean;
   /** the draft of this row is being opened (REQ-13.7.1): a small ring takes the place of its date and the row is `aria-busy` */
   opening?: boolean;
+  /** the row can be dragged onto a folder (W4.7): the drag starts here */
+  onDragStart?: (e: React.DragEvent) => void;
+  onDragEnd?: () => void;
 }
 
 /** One conversation in the list. Pure: the real list and the Appearance preview both render it. */
-export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColor, accountLabel, hover, onOpen, onOpenWindow, onToggle, posInSet, setSize, inPreview, opening }: ThreadRowProps) {
+export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColor, accountLabel, hover, onOpen, onOpenWindow, onToggle, posInSet, setSize, inPreview, opening, onDragStart, onDragEnd }: ThreadRowProps) {
   const tr = useT();
   const who = t.participants.join(", ");
   const dense = prefs.density === "compact";
@@ -66,6 +85,9 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
       tabIndex={inPreview ? -1 : 0}
       data-thread={t.threadId}
       className={`ml-row ${selected ? "selected" : ""} ${t.unread ? "unread" : ""} ${checked ? "checked" : ""}`}
+      draggable={onDragStart && !inPreview ? true : undefined}
+      onDragStart={inPreview ? undefined : onDragStart}
+      onDragEnd={inPreview ? undefined : onDragEnd}
       onClick={inPreview ? undefined : onOpen}
       onDoubleClick={(e) => {
         if (!inPreview && onOpenWindow && !(e.target as Element).closest(".ml-lead, .hover-actions")) onOpenWindow();
@@ -129,7 +151,7 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
   );
 }
 
-function HoverActions({ t }: { t: ThreadSummary }) {
+export function HoverActions({ t }: { t: ThreadSummary }) {
   const tr = useT();
   const { act, prefs, folder } = useStore();
   const ids = [t.threadId];
@@ -226,6 +248,11 @@ export function MessageList({ hidden = false }: { hidden?: boolean } = {}) {
   const title = searching ? tr("mail.list.searchResults") : folderLabel(folder);
   const scopeNote = searching ? (searchScope === "all" ? tr("mail.list.scopeAll") : searchScope === "account" ? tr("mail.list.scopeAccount") : tr("mail.list.scopeFolder", { folder: folderLabel(folder) })) : "";
   const showTabs = folder === "inbox" && prefs.focused && !searching;
+  /** The search as it is now, in a window of its own; the main window keeps its own (W4.6, REQ-4.6.13). */
+  const openSearchWindow = () => {
+    const init: SearchInit = { search: search.trim(), scope: searchScope, folder, accountId, filter };
+    void openPopout("search", searchKey(init), init);
+  };
   const multi = checked.size > 0;
   // W13.12: unread conversations of each tab, from the same folder numbers as the side menu (so they change together)
   const tabs = useMemo(() => tabCounts(folders, accountId), [folders, accountId]);
@@ -359,6 +386,8 @@ export function MessageList({ hidden = false }: { hidden?: boolean } = {}) {
         onOpen={() => openThread(it.t)}
         onOpenWindow={rowWindowTarget(folder, it.t.folder) === "draft" ? () => void openDraftInWindow(it.t.threadId) : rowWindowTarget(folder, it.t.folder) === "reader" ? () => void openReader(it.t, folder) : undefined}
         onToggle={() => toggleCheck(it.t.threadId)}
+        onDragStart={mayDragRow(folder, it.t.folder) ? (e) => startRowDrag(e, it.t.threadId) : undefined}
+        onDragEnd={endDrag}
         posInSet={it.pos}
         setSize={threads.length}
       />
@@ -386,6 +415,12 @@ export function MessageList({ hidden = false }: { hidden?: boolean } = {}) {
             <h2 className="ellipsis">{title}</h2>
           )}
           <div className={`ml-tools ${iconFilter ? "icon-only" : ""}`}>
+            {/* (W4.6) the results of this search, or the Scheduled list, in a window of their own */}
+            {(searching || folder === "scheduled") && (
+              <button className="icon-btn ml-newwin" title={tr("app.cmd.openInWindow")} aria-label={tr("app.cmd.openInWindow")} onClick={searching ? openSearchWindow : () => void openPopout("scheduled", SCHEDULED_KEY, {})}>
+                <ExternalLink size={14} />
+              </button>
+            )}
             {showTabs && (
               <>
                 <span className="link-btn ml-filter-probe full" aria-hidden="true">

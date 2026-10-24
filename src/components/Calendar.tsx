@@ -1,4 +1,4 @@
-import { CalendarCheck, CalendarDays, CalendarPlus, Check, ChevronLeft, ChevronRight, CircleCheck, Clock, Copy, Download, MapPin, Mail, Pencil, Repeat, Trash2, TriangleAlert, UserRound, Video, X } from "lucide-react";
+import { CalendarCheck, CalendarDays, CalendarPlus, Check, ChevronLeft, ChevronRight, CircleCheck, Clock, Copy, Download, ExternalLink, MapPin, Mail, Pencil, Repeat, Trash2, TriangleAlert, UserRound, Video, X } from "lucide-react";
 import { ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, CalEvent, errorCode, Rsvp } from "../api";
 import { addDays, addMonths, chipClass, cmpDay, Day, dayKey, dayOfMs, dayStartMs, daysBetween, eventColor, eventDaySpan, eventLabel, eventsOnDay, fmtClock, fmtClockRange, fmtDayLong, fmtDayMonth, fmtDayShort, fmtRange, fmtTime, fromInputs, isUrl, joinLabel, joinShortName, layoutDay, monthGrid, monthTitle, myStatusLabel, partsOf, personName, nextHour, repeatKind, repeatRule, sameDay, today, toInputs, tzOffsetLabel, weekDays, weekStartOf, weekTitle, wdLong, wdNarrow, wdShort, CalView, MY_EVENTS_COLOR } from "../calendar";
@@ -16,6 +16,9 @@ import { EmptyState } from "./overlays";
 import { Modal, Switch, useOutside } from "./ui";
 import { bare, EMAIL, nameOf, useAccountColor, useTz } from "./InviteCard";
 import { newEvent } from "../newEvent";
+import { openPopout } from "../popout/open";
+import { shiftNow } from "../popout/modifier";
+import { eventKey } from "../popout/windowKinds";
 // =============================================================== calendar module
 
 function useNow(everyMs = 60_000) {
@@ -42,6 +45,8 @@ const canEditEvent = (ev: Pick<CalEvent, "calendarId" | "readOnly">) => ev.calen
 
 /** What Edit does: the popover's Edit button, a double-click on an event and Ctrl/Cmd+Enter on it. (A series will ask which part first, W7.1.) */
 function openEventForEdit(ev: CalEvent) {
+  // Shift + double-click or Shift+Enter: the event opens in a window of its own (W4.6); opening it again focuses that window
+  if (shiftNow()) return void openPopout("event", eventKey(ev.id), { eventId: ev.id });
   useStore.getState().setDialog({ type: "event", eventId: ev.id });
 }
 
@@ -138,7 +143,7 @@ export function CalendarView() {
 }
 
 /** Enter with Ctrl (Cmd on a Mac) on a focused event does what a double-click does. */
-const isEditKey = (e: React.KeyboardEvent) => e.key === "Enter" && (e.ctrlKey || e.metaKey);
+const isEditKey = (e: React.KeyboardEvent) => e.key === "Enter" && (e.ctrlKey || e.metaKey || (e.shiftKey && !e.altKey));
 
 type EventAct = (e: CalEvent, el: HTMLElement) => void;
 
@@ -802,37 +807,73 @@ const REMINDERS = [
   [60, "calendar.reminder.h1"], [1440, "calendar.reminder.d1"],
 ] as const;
 
-export function EventDialog({ eventId, init }: { eventId?: string; init?: EventInit }) {
+/** The form of an event as the dialog holds it: what moves into a window of its own with "Open in new window", changes included (W4.6, REQ-4.6.6). */
+export interface EventDraft {
+  title: string;
+  sd: string;
+  st: string;
+  ed: string;
+  et: string;
+  allDay: boolean;
+  where: string;
+  notes: string;
+  invite: string[];
+  accountId: string;
+  reminder: number | null;
+  repeat: string;
+  customRule: string | null;
+  customText: string | null;
+  calId: string;
+  dirty: boolean;
+}
+
+/** What the event window gives the form (EventView.tsx): the form is the page of the window instead of a dialog. */
+export interface EventWindowHooks {
+  /** the window ends: the event was saved or deleted, or the person closed the form */
+  done: () => void;
+  /** the form hands over what the window's close needs: whether it has changes, and its own close (the discard question first when it has) */
+  register: (h: { dirty: () => boolean; close: () => Promise<void> }) => void;
+  /** a toast that is made in the main window, where the person still looks (the window ends) */
+  toast: (text: string, kind: "info" | "success" | "error") => void;
+  /** the title of the window follows the title of the event */
+  title: (text: string) => void;
+}
+
+export function EventDialog({ eventId, init, draft, windowed }: { eventId?: string; init?: EventInit; draft?: EventDraft; windowed?: EventWindowHooks }) {
   const t = useT();
   const { prefs, accounts, calendars, setPrefs, setDialog, showToast, bumpCal } = useStore();
   const tz = useTz();
   const [loaded, setLoaded] = useState(!eventId);
   // the calendar a new event goes to (My events or a synced calendar); fixed when editing
-  const [calId, setCalId] = useState(() => defaultCalendar(calendars, prefs.calDefaultCalendar));
+  const [calId, setCalId] = useState(() => draft?.calId ?? defaultCalendar(calendars, prefs.calDefaultCalendar));
   const calInfo = calendars.find((c) => c.id === calId);
   const remote = isSyncedCalendarId(calId);
   const [loadErr, setLoadErr] = useState<string | null>(null);
-  const [title, setTitle] = useState(init?.summary ?? "");
+  const [title, setTitle] = useState(draft?.title ?? init?.summary ?? "");
   const startSec = init?.start ?? nextHour(tz);
   const endSec = init?.end ?? startSec + 3600;
-  const [allDay, setAllDay] = useState(init?.allDay ?? false);
-  const [sd, setSd] = useState(toInputs(startSec, tz).date);
-  const [st, setSt] = useState(toInputs(startSec, tz).time);
-  const [ed, setEd] = useState(toInputs(allDay ? endSec - 86400 : endSec, tz).date);
-  const [et, setEt] = useState(toInputs(endSec, tz).time);
-  const [where, setWhere] = useState(init?.location ?? "");
-  const [notes, setNotes] = useState(init?.description ?? "");
-  const [invite, setInvite] = useState<string[]>(init?.attendees ?? []);
-  const [accountId, setAccountId] = useState(prefs.defaultAccount || accounts[0]?.id || "");
-  const [reminder, setReminder] = useState<number | null>(prefs.eventReminderMin);
-  const [repeat, setRepeat] = useState("none");
-  const [customRule, setCustomRule] = useState<string | null>(null);
-  const [customText, setCustomText] = useState<string | null>(null);
+  const [allDay, setAllDay] = useState(draft?.allDay ?? init?.allDay ?? false);
+  const [sd, setSd] = useState(draft?.sd ?? toInputs(startSec, tz).date);
+  const [st, setSt] = useState(draft?.st ?? toInputs(startSec, tz).time);
+  const [ed, setEd] = useState(draft?.ed ?? toInputs(allDay ? endSec - 86400 : endSec, tz).date);
+  const [et, setEt] = useState(draft?.et ?? toInputs(endSec, tz).time);
+  const [where, setWhere] = useState(draft?.where ?? init?.location ?? "");
+  const [notes, setNotes] = useState(draft?.notes ?? init?.description ?? "");
+  const [invite, setInvite] = useState<string[]>(draft?.invite ?? init?.attendees ?? []);
+  const [accountId, setAccountId] = useState(draft?.accountId ?? (prefs.defaultAccount || accounts[0]?.id || ""));
+  const [reminder, setReminder] = useState<number | null>(draft ? draft.reminder : prefs.eventReminderMin);
+  const [repeat, setRepeat] = useState(draft?.repeat ?? "none");
+  const [customRule, setCustomRule] = useState<string | null>(draft?.customRule ?? null);
+  const [customText, setCustomText] = useState<string | null>(draft?.customText ?? null);
   const [existing, setExisting] = useState<CalEvent | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [dirty, setDirty] = useState(false);
+  const [dirty, setDirty] = useState(draft?.dirty ?? false);
   const touch = () => setDirty(true);
+  /** the form is over: the dialog closes, or the window ends */
+  const finish = () => (windowed ? windowed.done() : setDialog(null));
+  /** a toast: in the window of a form that is a window, in the main window (the window ends) */
+  const say = (text: string, kind: "info" | "success" | "error") => (windowed ? windowed.toast(text, kind) : showToast(text, undefined, kind));
   // moving the start moves the end with it (same length); the end alone never moves the start
   const moveStartTo = (change: { sd?: string; st?: string }) => {
     const n = moveStart({ sd, st, ed, et }, change, allDay);
@@ -869,6 +910,23 @@ export function EventDialog({ eventId, init }: { eventId?: string; init?: EventI
         setCustomRule(e.rrule);
         setCustomText(e.recurrenceText);
       }
+      if (draft) {
+        // the form moved here with changes: they are laid over the event as it is stored
+        setTitle(draft.title);
+        setAllDay(draft.allDay);
+        setSd(draft.sd);
+        setSt(draft.st);
+        setEd(draft.ed);
+        setEt(draft.et);
+        setWhere(draft.where);
+        setNotes(draft.notes);
+        setInvite(draft.invite);
+        setAccountId(draft.accountId);
+        setReminder(draft.reminder);
+        setRepeat(draft.repeat);
+        setCustomRule(draft.customRule);
+        setCustomText(draft.customText);
+      }
       setLoaded(true);
     }).catch((e) => live && setLoadErr(friendlyError(e)));
     return () => {
@@ -878,7 +936,55 @@ export function EventDialog({ eventId, init }: { eventId?: string; init?: EventI
 
   const close = async () => {
     if (dirty && !(await useStore.getState().confirm({ title: t("calendar.dialog.discardTitle"), body: t("calendar.dialog.discardBody"), confirmLabel: t("calendar.dialog.discard"), danger: true }))) return;
-    setDialog(null);
+    finish();
+  };
+  // the window asks the form for its close and for whether it has changes (the discard question is the dialog's own)
+  const closeRef = useRef(close);
+  closeRef.current = close;
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  useEffect(() => {
+    windowed?.register({ dirty: () => dirtyRef.current, close: () => closeRef.current() });
+  }, [windowed]);
+  useEffect(() => {
+    windowed?.title(title.trim() || t("calendar.newEvent"));
+  }, [windowed, title]); // eslint-disable-line react-hooks/exhaustive-deps
+  /** "Open in new window": the form with every change made so far moves into a window; the dialog closes, nothing is saved (REQ-4.6.6) */
+  const popOut = async () => {
+    const moved: EventDraft = { title, sd, st, ed, et, allDay, where, notes, invite, accountId, reminder, repeat, customRule, customText, calId, dirty };
+    const key = eventKey(eventId);
+    const init2 = eventId ? { eventId, draft: moved } : { init, draft: moved };
+    if (await openPopout("event", key, init2)) setDialog(null);
+  };
+  /** Delete in the window of an event (REQ-4.6.7): the questions of the event popover, then the event goes and the window ends */
+  const remove = async () => {
+    if (!existing) return;
+    const others = existing.attendees.filter((a) => a.role !== "chair").length;
+    const st2 = useStore.getState();
+    let notify = false;
+    if (existing.calendarId === "local" && existing.myStatus === "organizer" && others > 0) {
+      const c = await st2.choose({
+        title: t("calendar.pop.cancelTitle", { n: others }),
+        body: t("calendar.pop.cancelBody"),
+        choices: [
+          { id: "keep", label: t("calendar.pop.keep") },
+          { id: "silent", label: t("calendar.pop.deleteSilent"), kind: "danger" },
+          { id: "send", label: t("calendar.pop.sendCancellation"), kind: "primary" },
+        ],
+      });
+      if (c === "keep") return;
+      notify = c === "send";
+    } else if (isSyncedCalendarId(existing.calendarId)) {
+      const del = deleteConfirm(calInfo?.name ?? "", calInfo?.service, others);
+      if (!(await st2.confirm({ ...del, confirmLabel: t("common.delete"), danger: true }))) return;
+    } else if (!(await st2.confirm({ title: t("calendar.pop.deleteTitle", { summary: existing.summary }), body: existing.rrule ? t("calendar.pop.deleteRepeating") : undefined, confirmLabel: t("common.delete"), danger: true }))) return;
+    try {
+      await api.calendarDeleteEvent(existing.id, notify);
+      say(notify ? t("calendar.toast.cancelledNotified") : t("calendar.toast.deleted"), "success");
+      finish();
+    } catch (e) {
+      showToast(() => friendlyError(e), undefined, "error");
+    }
   };
 
   const hasGuests = invite.length > 0;
@@ -922,17 +1028,17 @@ export function EventDialog({ eventId, init }: { eventId?: string; init?: EventI
         hasGuests && !remote,
       );
       if (!eventId && (remote || prefs.calDefaultCalendar)) setPrefs({ calDefaultCalendar: remote ? calId : "" });
-      showToast(hasGuests ? t("calendar.toast.invitationsSent", { n: invite.length }) : eventId ? t("calendar.toast.eventSaved") : t("calendar.toast.eventAdded"), undefined, "success");
+      say(hasGuests ? t("calendar.toast.invitationsSent", { n: invite.length }) : eventId ? t("calendar.toast.eventSaved") : t("calendar.toast.eventAdded"), "success");
       bumpCal();
       useStore.getState().setCalDate(allDay ? dayOfMs(ev.start * 1000, "UTC") : dayOfMs(ev.start * 1000, tz));
-      setDialog(null);
+      finish();
     } catch (err) {
       bumpCal();
       const code = errorCode(err);
       if (code === "CAL_SEND_FAILED" || code === "CAL_CONFLICT" || code === "CAL_GONE") {
         // the invitations failed, or the service's version won: said once, the dialog closes (the calendar shows what is there now)
-        showToast(() => friendlyError(err), undefined, "error");
-        setDialog(null);
+        say(friendlyError(err), "error");
+        finish();
       } else if (code === "CAL_OFFLINE") {
         // nothing was saved: the dialog stays open with what was typed
         showToast(() => friendlyError(err), undefined, "error");
@@ -946,14 +1052,26 @@ export function EventDialog({ eventId, init }: { eventId?: string; init?: EventI
 
   if (loadErr) {
     return (
-      <Modal title={t("calendar.dialog.editTitle")} onClose={() => setDialog(null)} width={560}>
+      <Modal title={t("calendar.dialog.editTitle")} onClose={finish} width={560} windowed={!!windowed}>
         <div className="notice bad">{loadErr}</div>
       </Modal>
     );
   }
   const startDayPreview = parseDay(sd);
   return (
-    <Modal title={eventId ? t("calendar.dialog.editTitle") : t("calendar.newEvent")} onClose={() => void close()} width={560}>
+    <Modal
+      title={eventId ? t("calendar.dialog.editTitle") : t("calendar.newEvent")}
+      onClose={() => void close()}
+      width={560}
+      windowed={!!windowed}
+      headExtra={
+        windowed ? undefined : (
+          <button className="icon-btn" title={t("app.cmd.openInWindow")} aria-label={t("app.cmd.openInWindow")} onClick={() => void popOut()}>
+            <ExternalLink size={14} />
+          </button>
+        )
+      }
+    >
       {existing && isSyncedCalendarId(existing.calendarId) && readOnlyNote(existing, calInfo?.name ?? "", calInfo?.service) && (
         <div className="notice" role="note">{readOnlyNote(existing, calInfo?.name ?? "", calInfo?.service)}</div>
       )}
@@ -1042,6 +1160,9 @@ export function EventDialog({ eventId, init }: { eventId?: string; init?: EventI
       </div>
       {error && <div className="field-err" role="alert" style={{ marginTop: 10 }}>{error}</div>}
       <div className="row-inline" style={{ justifyContent: "flex-end", marginTop: 14 }}>
+        {windowed && existing && !existing.readOnly && (
+          <button className="btn danger" style={{ marginRight: "auto" }} onClick={() => void remove()} disabled={busy}><Trash2 size={14} /> {t("common.delete")}</button>
+        )}
         <button className="btn" onClick={() => void close()} disabled={busy}>{t("common.cancel")}</button>
         <button className="btn primary" disabled={busy || !loaded || !!existing?.readOnly} aria-busy={busy} onClick={() => void save()}>
           {hasGuests ? <CalendarCheck size={14} /> : <Check size={14} />} {primary}

@@ -31,6 +31,9 @@ import type { Lang } from "./i18n";
 import { fmtNumber } from "./i18n/format";
 import { calTz, CalView, Day, rangeFor, systemTz, today } from "./calendar";
 import { accentText, accountColor, buttonAccent, clampMaxDownload, DEFAULT_PREFS, lightened, mergePrefs, Prefs, readableOn, staleAccountPrefs, topBar, validHex } from "./prefs";
+import { captionColors, gradientT } from "./captionColors";
+import { settingsWindowOpen } from "./popout/popoutCount";
+import { SETTINGS_KEY, settingsTarget } from "./popout/windowKinds";
 import { darkTopBar } from "./topBarDark";
 
 /** `quiet`: the caller tells a failure itself. `onSaved`: the caller says "Draft saved" itself (the pane makes no toast). */
@@ -623,6 +626,28 @@ export function applyPrefs(p: Prefs) {
   root.style.setProperty("--top-dk-end", topDk.end);
 }
 
+let captionSent = "";
+/** Where the minimize button of the main window sits on the 135deg gradient of the band (1 = the end, also when the page has no custom frame). */
+function captionT(): number {
+  const bar = document.querySelector(".topbar")?.getBoundingClientRect();
+  const min = document.querySelector(".wc-min")?.getBoundingClientRect();
+  if (!bar || !min || bar.width <= 0 || min.width <= 0) return 1;
+  return Math.round(gradientT(min.left + min.width / 2 - bar.left, min.top + min.height / 2 - bar.top, bar.width, bar.height) * 100) / 100;
+}
+
+/**
+ * The main page tells the backend the colours of the native title bar of the secondary windows (Windows 11, W4.3): the colour of its own band behind its caption
+ * buttons, in Light and in Dark. Called where the main page applies its preferences (start, every change of the accent) and when the caption buttons move
+ * (WindowControls.tsx: a resize); only when the colours changed. The backend ignores it where a native caption is kept (Windows 10, high contrast, macOS, Linux).
+ */
+export function publishCaptionColors(p: Prefs) {
+  const colors = captionColors(validHex(p.accent) ? p.accent : DEFAULT_PREFS.accent, captionT());
+  const key = JSON.stringify(colors);
+  if (key === captionSent) return;
+  captionSent = key;
+  void api.windowCaptionColors(colors).catch(() => { captionSent = ""; });
+}
+
 /** Apply read/unread/flag/pin changes to the lists right away; the backend call (IMAP) follows. */
 function applyOptimistic(ids: string[], action: string) {
   if (!["read", "unread", "star", "unstar", "pin", "unpin"].includes(action)) return;
@@ -791,6 +816,7 @@ export const useStore = create<State>((set, get) => ({
     }
     const accounts = orderAccounts(storeMissingColors(rawAccounts, prefs.accent), prefs.accountOrder); // the person's order (empty: as the backend gives them)
     applyPrefs(prefs);
+    publishCaptionColors(prefs);
     mirrorSettings(prefs);
     const wait = usePlatform.getState().accountsDelayMs; // (a debug build can slow the start down on purpose, to try "New mail" before the mailboxes are read)
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
@@ -1430,7 +1456,14 @@ export const useStore = create<State>((set, get) => ({
   setComposeSaver: (composeSaver) => set({ composeSaver }),
   setComposeEnd: (composeEnd) => set({ composeEnd }),
   setComposeProbe: (composeProbe) => set({ composeProbe }),
-  setDialog: (dialog) => set({ dialog }),
+  setDialog: (dialog) => {
+    // while the Settings window exists every way of opening Settings (the gear, the command bar, a toast, the links of other windows) brings that window to the front on the asked tab
+    if (dialog?.type === "settings" && settingsTarget(settingsWindowOpen()) === "window") {
+      void import("./popout/open").then((m) => m.openPopout("settings", SETTINGS_KEY, { tab: dialog.tab, focus: dialog.focus, nonce: dialog.nonce ?? Date.now() }));
+      return;
+    }
+    set({ dialog });
+  },
   setCommandOpen: (commandOpen) => set({ commandOpen }),
   setRibbonTab: (ribbonTab) => set({ ribbonTab }),
 
@@ -1565,6 +1598,7 @@ export const useStore = create<State>((set, get) => ({
     // every screen reads `accounts`: a new order shows everywhere at once (folder pane, Compose From, Settings)
     if ("accountOrder" in patch) set((s) => ({ accounts: orderAccounts(s.accounts, prefs.accountOrder) }));
     applyPrefs(prefs);
+    publishCaptionColors(prefs);
     const saved = api.setSetting("prefs", JSON.stringify(prefs));
     void saved.catch(() => undefined);
     const mirrored = mirrorSettings(patch);

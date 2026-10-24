@@ -94,6 +94,7 @@ export default defineLocale<typeof ns.en>({
   "app.popout.tooMany": "Открыто слишком много окон. Закройте одно, чтобы открыть другое.",
   "app.popout.openFailed": "Не удалось открыть новое окно ({error}).",
   "app.popout.mainUnreachable": "Не удалось связаться с главным окном. Повторите попытку.",
+  "app.popout.crashed": "Окно перестало работать и было закрыто.",
   "app.cmd.openInWindow": "Открыть в новом окне",
   "app.quit.sending": {
     one: "Отправка {n} письма перед выходом из Hey Look!…",

@@ -429,6 +429,8 @@ export default defineLocale<typeof ns.en>({
   "compose.popout.newTitle": "Nouveau message",
   "compose.popout.popOut": "Ouvrir dans une fenêtre",
   "compose.popout.popOutTip": "Ouvrir dans une nouvelle fenêtre (Ctrl+Shift+O)",
+  "compose.popout.popIn": "Déplacer vers la fenêtre principale",
+  "compose.popout.popInTip": "Déplacer vers la fenêtre principale (Ctrl+Shift+O)",
   "compose.popout.sending": "Envoi… {n} s",
   "compose.popout.closeTitle": "Enregistrer votre message ?",
   "compose.popout.closeBody": "Ce message n’a pas été envoyé. Enregistrez-le dans Brouillons ou abandonnez-le.",

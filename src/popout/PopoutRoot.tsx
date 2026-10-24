@@ -42,6 +42,8 @@ interface Known {
   label: string;
   key: string | null;
   init: unknown;
+  reloaded: boolean;
+  recoveryId: string | null;
 }
 
 export default function PopoutRoot({ route }: { route: Exclude<Route, { kind: "main" }> }) {
@@ -127,7 +129,7 @@ export default function PopoutRoot({ route }: { route: Exclude<Route, { kind: "m
         label = info.label;
         await readPrefs();
         if (dead) return;
-        setKnown({ label: info.label, key: info.key, init: info.init });
+        setKnown({ label: info.label, key: info.key, init: info.init, reloaded: !!info.reloaded, recoveryId: info.recoveryId ?? null });
         await api.popoutReady();
       } catch {
         if (!dead) setFailed(true);
@@ -174,7 +176,7 @@ export default function PopoutRoot({ route }: { route: Exclude<Route, { kind: "m
   const View = VIEWS[route.kind];
   return (
     <>
-      <View kind={route.kind} label={known.label} keyOf={known.key} init={known.init} />
+      <View kind={route.kind} label={known.label} keyOf={known.key} init={known.init} reloaded={known.reloaded} recoveryId={known.recoveryId} />
       <Toasts />
       <AskHost />
     </>

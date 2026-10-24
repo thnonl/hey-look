@@ -24,6 +24,14 @@ export interface ComposeSeam {
    * to Drafts. Whatever else ends the window releases the pause (the schedule stays), W2.10.
    */
   scheduledHandled(): void;
+  /** The id under which this message writes its crash snapshot: the window tells the backend, which restores the message from it when the page process dies (W4.2). */
+  recovery(id: string): void;
+  /**
+   * Move the message back to the main window (W4.5): `init` is the message as the window holds it (the same mapping as Pop out). Resolves to true when the main
+   * window shows it in its inline Compose and this window has ended without a question, a toast or a save; false when it did not (the main window kept the message
+   * it had, or did not answer): the window is as it was.
+   */
+  popIn(init: Record<string, unknown>): Promise<boolean>;
   /** The subject changed: it is the title of the window. */
   title(subject: string): void;
   /** Move the message being written to a window of its own; only the inline Compose has this (the window is the window already). */

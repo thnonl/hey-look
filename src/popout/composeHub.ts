@@ -7,8 +7,10 @@ import { t } from "../i18n";
 import { friendlyError, useStore, type Dialog } from "../store";
 import { fmtWhen } from "../util";
 import { startCompose } from "./composeOpen";
+import type { ComposeInit } from "../store";
 import { parseComposeRequest } from "./composeRequests";
 import { fills } from "./composeFills";
+import { recoverOne } from "../composeRecovery";
 import { setPopoutCounts } from "./popoutCount";
 
 interface Envelope {
@@ -96,8 +98,20 @@ export function handleComposeRequest(env: Envelope): boolean {
     case "fill-ready":
       fills.listening(env.from);
       break;
+    case "pop-in":
+      void import("./mainLazy").then((m) => m.popIn(env, p.init as ComposeInit));
+      break;
+    case "pop-in-result":
+      void import("./mainLazy").then((m) => m.popInResult(env));
+      break;
   }
   return true;
+}
+
+/** A window was ended because its page process died twice (W4.2): say so, and save what a compose window held. */
+export function handlePopoutCrashed(p: { label?: unknown; kind?: unknown; recoveryId?: unknown }): void {
+  useStore.getState().showToast(() => t("app.popout.crashed"), undefined, "error");
+  if (p.kind === "compose" && typeof p.recoveryId === "string" && p.recoveryId) void recoverOne(p.recoveryId).catch(() => undefined);
 }
 
 /** The listeners of the main window: compose window requests and the count of open windows. Returns the function that removes them. */
@@ -105,6 +119,8 @@ export function startComposeHub(): () => void {
   const subs = [
     listen<Envelope>("popout-request", (e) => void handleComposeRequest(e.payload)),
     listen<{ compose?: number; reader?: number }>("popout-count", (e) => setPopoutCounts(e.payload)),
+    listen<{ what?: unknown; from?: unknown }>("data-changed", (e) => void import("./mainLazy").then((m) => m.handleDataChanged(e.payload ?? {}))),
+    listen<{ label?: unknown; kind?: unknown; recoveryId?: unknown }>("popout-crashed", (e) => handlePopoutCrashed(e.payload ?? {})),
   ];
   return () => subs.forEach((s) => void s.then((off) => off()).catch(() => undefined));
 }

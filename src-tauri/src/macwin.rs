@@ -68,6 +68,24 @@ unsafe fn app_windows() -> Option<(usize, usize)> {
     }
 }
 
+/// What `NSApp` lists, for `GET /native` of the debug test bridge (REQ-4.1.5): how many windows, how many are visible, and how many of them are
+/// tao's own (the class name starts with `TaoWindow` or `NSKVONotifying_TaoWindow`: every window of the app, which is what a leak of closed windows
+/// adds to). `None` when AppKit cannot be asked. Main thread.
+pub fn counts() -> Option<(usize, usize, usize)> {
+    // SAFETY: called on the main thread; the windows come from `[NSApp windows]` and `app_window_list` drops null entries.
+    unsafe {
+        let (total, visible) = app_windows()?;
+        let titled = app_window_list()
+            .into_iter()
+            .filter(|w| {
+                let name = text(msg_send![*w, className]);
+                name.starts_with("TaoWindow") || name.starts_with("NSKVONotifying_TaoWindow")
+            })
+            .count();
+        Some((total, visible, titled))
+    }
+}
+
 /// What the window system lists now, for the log. Main thread.
 pub fn windows_summary() -> String {
     // SAFETY: called on the main thread (see the callers in popout.rs).
@@ -212,6 +230,9 @@ unsafe fn set_one(w: *mut AnyObject, dark: Option<bool>) {
     // SAFETY: `w` is a live NSWindow on the main thread; objects that come back are checked for null before they are messaged.
     unsafe {
         let _: () = msg_send![w, setAppearance: appearance_for(dark)];
+        // D-063: the title bar is not drawn by the system: it shows the window's background colour, which bgcolor.rs sets to the app's own ground (--bg)
+        // in the same apply, so the strip above the page is not a grey of its own (35,36,39 against 27,28,32 in Dark)
+        let _: () = msg_send![w, setTitlebarAppearsTransparent: Bool::YES];
         let content: *mut AnyObject = msg_send![w, contentView];
         if !content.is_null() {
             let frame: *mut AnyObject = msg_send![content, superview];

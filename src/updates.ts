@@ -62,6 +62,8 @@ interface UpdatesState {
   deferUpdate: () => void;
   cancelRestart: () => void;
   restartToUpdate: () => Promise<void>;
+  /** The Settings window asked for Restart now (W4.6). */
+  restartFromWindow: () => Promise<void>;
   retryUpdate: () => void;
   openFallback: () => void;
   startupCheck: () => Promise<void>;
@@ -398,6 +400,13 @@ export const useUpdates = create<UpdatesState>((set, get) => {
         setFlow({ state: "deferred", countdown: null, asking: "none" });
         void api.updateDefer(true).catch(() => undefined);
       }
+    },
+
+    /** The Settings window asked for "Restart now" (W4.6): the download may have been made in that window, so this store has not seen it; the install is the backend's, which has the package. */
+    restartFromWindow: async () => {
+      const f = get().flow;
+      if (!(f.state === "ready" || f.state === "deferred" || (f.state === "failed" && f.canReinstall))) setFlow({ state: "ready", countdown: null, asking: "none" });
+      await get().restartToUpdate();
     },
 
     restartToUpdate: async () => {

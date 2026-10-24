@@ -496,6 +496,7 @@ export default defineLocale<typeof ns.en>({
   "settings.keys.closeWindow": "Đóng cửa sổ thư",
   "settings.keys.shiftCompose": "Thư mới, trả lời, trả lời tất cả hoặc chuyển tiếp trong cửa sổ mới",
   "settings.keys.popOutCompose": "Chuyển thư đang soạn sang cửa sổ mới",
+  "settings.keys.popInCompose": "Chuyển thư đang soạn về cửa sổ chính",
   "settings.about.title": "Giới thiệu",
   "settings.about.tagline": "{name} — ứng dụng thư cho máy tính, xây dựng bằng Tauri, React và Rust.",
   "settings.about.testBuild": "Bản thử nghiệm: thư, tài khoản và cài đặt của bạn được lưu trong {dir}, không phải thư mục dữ liệu thông thường.",

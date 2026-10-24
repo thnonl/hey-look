@@ -1,7 +1,10 @@
-import { Channel, invoke } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
+import { Channel, invoke as tauriInvoke, type InvokeArgs, type InvokeOptions } from "@tauri-apps/api/core";
+import { DATA_CHANGING } from "./popout/windowKinds";
 import { slimDraft } from "./draftUpload";
 import { t } from "./i18n";
 import type { RecoveredDraft, RecoveryInfo, RecoveryLoaded, SnapshotOut } from "./recovery";
+import type { PopoutKind } from "./popout/route";
 import type { Importance } from "./importance";
 import type { ThreadHome } from "./notifyOpen";
 
@@ -554,11 +557,26 @@ export interface PopoutOpened {
 }
 /** What a secondary window learns about itself (`popout_init`). */
 export interface PopoutInfo {
-  kind: "compose" | "reader";
+  kind: PopoutKind;
   label: string;
   key: string | null;
   /** the hand-off data the opener left in the backend (never in the address) */
   init: unknown;
+  /** the page of this window was loaded again after its process died (W4.2) */
+  reloaded?: boolean;
+  /** a compose window: the id of the crash snapshot of its message (the window reported it with `popoutNote("recovery", id)`) */
+  recoveryId?: string | null;
+}
+
+/**
+ * Every command goes through here. One that changes a list that other windows show (accounts, signatures, templates, rules, PGP keys, the calendar connections) tells every window
+ * when it succeeded (`data-changed { what }`, REQ-4.6.4): the main window and the Settings window then read the lists again.
+ */
+async function invoke<T>(cmd: string, args?: InvokeArgs, options?: InvokeOptions): Promise<T> {
+  const result = await tauriInvoke<T>(cmd, args, options);
+  const what = DATA_CHANGING[cmd];
+  if (what) void emit("data-changed", { what, from: (window as unknown as { __TAURI_INTERNALS__?: { metadata?: { currentWindow?: { label?: string } } } }).__TAURI_INTERNALS__?.metadata?.currentWindow?.label ?? "main" }).catch(() => undefined);
+  return result;
 }
 
 export const api = {
@@ -706,7 +724,7 @@ export const api = {
   /** The quit waits (`true`, for 60 s at most, and the window is brought to the front) or no longer waits (`false`) for an answer of the person. */
   quitDialog: (open: boolean) => invoke<void>("quit_dialog", { open }),
   /** Open a secondary window ("compose" | "reader"), or focus the one that already shows `key`; `init` waits in the backend for the new page. */
-  popoutOpen: (kind: "compose" | "reader", key?: string | null, init?: unknown, focusOnly?: boolean) => invoke<PopoutOpened>("popout_open", { kind, key: key ?? null, init: init ?? null, focusOnly: focusOnly ?? null }),
+  popoutOpen: (kind: PopoutKind, key?: string | null, init?: unknown, focusOnly?: boolean) => invoke<PopoutOpened>("popout_open", { kind, key: key ?? null, init: init ?? null, focusOnly: focusOnly ?? null }),
   /** A secondary window asks who it is; `token` is the one in its address. */
   popoutInit: (token: string) => invoke<PopoutInfo>("popout_init", { token }),
   /** A secondary window's page is up (it listens for the quit request): the backend shows the window. */
@@ -724,10 +742,19 @@ export const api = {
   /** The calling window ends now (its page has decided: saved, discarded or sent). */
   popoutDestroy: () => invoke<boolean>("popout_destroy"),
   /** A line for startup.log from a secondary window: "content" (the view was drawn), "error" (a script error), "info". */
-  popoutNote: (kind: "content" | "error" | "info" | "strip", text: string) => invoke<void>("popout_note", { kind, text }),
+  popoutNote: (kind: "content" | "error" | "info" | "strip" | "recovery", text: string) => invoke<void>("popout_note", { kind, text }),
   /** The page changed its own theme (or its colour scheme changed): the backend applies the frame theme of this window again (macOS title bar; the second way next to the backend's own triggers). What the page sees goes to startup.log. */
   windowThemeRefresh: (pageTheme: string, prefersDark: boolean) => invoke<void>("window_theme_refresh", { pageTheme, prefersDark }),
+  /** The main page hands over the colours of the caption of the secondary windows (Windows 11; src/captionColors.ts). */
+  windowCaptionColors: (colors: { light: { bg: string; fg: string }; dark: { bg: string; fg: string } }) => invoke<void>("window_caption_colors", { colors }),
   /** The calling window shows another thing now (a draft that was saved is another draft): its key follows. False when another window has that key. */
+  /** A reader window goes on to show another conversation (Next / Previous, W4.4): `shown`, or `focused` when another window already has that conversation (it was brought forward, this one stays). */
+  popoutShow: (key: string, init: unknown) => invoke<{ status: "shown" | "focused"; label: string | null }>("popout_show", { key, init }),
+  /** Drag and drop between windows (W4.7, src-tauri/src/drag.rs): the page that starts a drag says what its token stands for; a target looks (peek) and on the drop takes it once. */
+  dragBegin: (token: string, payload: unknown) => invoke<void>("drag_begin", { token, payload }),
+  dragPeek: (token: string) => invoke<unknown | null>("drag_peek", { token }),
+  dragTake: (token: string) => invoke<unknown | null>("drag_take", { token }),
+  dragEnd: (token: string) => invoke<void>("drag_end", { token }),
   popoutSetKey: (key: string | null) => invoke<boolean>("popout_set_key", { key }),
   /** The update restart: every open secondary window saves what it holds. False = a person keeps a window open (the restart must stop). */
   popoutSaveAll: () => invoke<boolean>("popout_save_all"),
