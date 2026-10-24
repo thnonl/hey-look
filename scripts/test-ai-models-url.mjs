@@ -91,7 +91,7 @@ assert.equal(modelsFetchKey(base, "k", { has: false, tag: "s" }, { url: "x", sen
 // ---- 5. source pins: the tab, the backend command, the page's call
 const tsx = read("../src/components/SettingsDialog.tsx");
 const tab = tsx.slice(tsx.indexOf("function AiTab()"), tsx.indexOf("\nfunction KeyRow("));
-assert.ok(tab.indexOf("<details") > tab.indexOf('<div className="ai-actions">'), "the disclosure is after Save and the status slot");
+assert.ok(tab.indexOf("<details") < tab.indexOf('<div className="ai-actions">'), "the disclosure is above Save and the status slot (what Save stores is above Save)");
 assert.match(tab, /await Promise\.all\(\[api\.setSetting\("ai_endpoint", v\.ai_endpoint\), api\.setSetting\("ai_model", v\.ai_model\), api\.setSetting\("ai_models_url", modelsUrl\.trim\(\)\), api\.setSetting\("ai_models_key_origin", permitted\)\]\);/, "Save stores the list URL (as typed, trimmed, also when invalid) and the permission with the other two settings in one Promise.all");
 assert.match(tab, /const permitted = other && sendKey && resolved\.kind === "url" \? \(originOf\(resolved\.url\) \?\? ""\) : "";/, "the permission is the list's origin while the switch is on for another server, else empty");
 assert.match(tab, /setKeyOrigin\(on && resolved\.kind === "url" \? \(originOf\(resolved\.url\) \?\? ""\) : ""\)/, "the switch stores the origin of the server it names");

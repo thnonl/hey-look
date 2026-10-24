@@ -2148,11 +2148,7 @@ function AiTab() {
         ) : (
           <input id="set-aiModel" aria-label={t("settings.ai.model")} value={v.ai_model} placeholder={t("settings.ai.modelPlaceholder")} onChange={(e) => edit({ ai_model: e.target.value })} {...modelFocus} />
         )}
-        <div className="ai-actions">
-          <button className="btn primary" onClick={() => void save()}>{t("common.save")}</button>
-          <div className={`ai-status small ${saveErr ? "bad" : "muted"}`} role="status" title={status || undefined}>{status}</div>
-        </div>
-        {/* Advanced (W8.11): the last child of the form, after Save and the status slot, so that opening it or typing in it moves nothing above it */}
+        {/* Advanced (W8.11): between Model and Save, collapsed unless a list URL is saved: what Save stores is above it, and the status slot under Save stays the last thing of the form (opening Advanced pushes Save down, which is expected) */}
         <details className="advanced" open={advOpen} onToggle={(e) => setAdvOpen(e.currentTarget.open)}>
           <summary>{t("settings.add.advanced")}</summary>
           <div className="form">
@@ -2167,6 +2163,10 @@ function AiTab() {
             )}
           </div>
         </details>
+        <div className="ai-actions">
+          <button className="btn primary" onClick={() => void save()}>{t("common.save")}</button>
+          <div className={`ai-status small ${saveErr ? "bad" : "muted"}`} role="status" title={status || undefined}>{status}</div>
+        </div>
       </div>
     </div>
   );

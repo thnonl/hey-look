@@ -55,7 +55,7 @@ const PAGE = `(() => {
     const labels = [...form.querySelectorAll('label')].filter((l) => !l.closest('details')), inputs = [...form.querySelectorAll('input, select')].filter((i) => !i.closest('details'));
     const a = document.activeElement, link = form.querySelector('button.link');
     return {
-      pos: { summary: R(form.querySelector('details.advanced > summary')), h3: R(body.querySelector('h3')), intro: R(body.querySelector('h3 + .muted')), labels: labels.map(R), url: R(inputs[0]), key: R(inputs[1]), model: R(inputs[2]), save: R(form.querySelector('.btn.primary')), slot: R(form.querySelector('.ai-status, [role=status]')), form: R(form), modal: R(document.querySelector('.modal')), scroll: body.scrollTop, scrollH: body.scrollHeight },
+      pos: { summary: R(form.querySelector('details.advanced > summary')), details: R(form.querySelector('details.advanced')), h3: R(body.querySelector('h3')), intro: R(body.querySelector('h3 + .muted')), labels: labels.map(R), url: R(inputs[0]), key: R(inputs[1]), model: R(inputs[2]), save: R(form.querySelector('.btn.primary')), slot: R(form.querySelector('.ai-status, [role=status]')), form: R(form), modal: R(document.querySelector('.modal')), scroll: body.scrollTop, scrollH: body.scrollHeight },
       text: (form.querySelector('.ai-status, [role=status]') || {}).textContent || '', modelTag: inputs[2] ? inputs[2].tagName : '', link: !!link, linkInHead: link ? !!link.closest('.field-head') : null,
       active: a === inputs[0] ? 'url' : a === inputs[1] ? 'key' : a === inputs[2] ? 'model' : a === link ? 'link' : a && a.classList.contains('primary') ? 'save' : a && a.tagName === 'BODY' ? 'body' : 'other',
       caret: a && a.selectionStart != null && a.type !== 'password' ? a.selectionStart : null, value: a && a.value != null ? a.value : null,
@@ -99,7 +99,8 @@ async function runConfig(cfg) {
   const typeText = async (text, gap = 25) => { for (const ch of text) { await cdp('Input.dispatchKeyEvent', { type: 'keyDown', text: ch, key: ch }); await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: ch }); await sleep(gap); } };
   const press = async (key, code) => { await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key, code }); await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key, code }); };
   const click = async (selector) => {
-    const [x, y] = await evaluate(`(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; })()`);
+    // (a control below the fold of the scrolling page is scrolled to first, as a person would: a click at a place outside the dialog lands on the backdrop and closes it; the sampler follows the scroll)
+    const [x, y] = await evaluate(`(() => { const e = document.querySelector(${JSON.stringify(selector)}); e.scrollIntoView({ block: 'nearest' }); const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; })()`);
     await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
     await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
     await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
@@ -207,7 +208,7 @@ async function runConfig(cfg) {
   if (!(await evaluate(`!!document.querySelector('.settings-body .form button.link')`))) fail(cfg, 'the link to remove the saved key went away although removing failed');
   await sleep(300);
 
-  // 9. (W8.11) Advanced, the last thing in the form: open it, type a list URL on another server (the warning and the switch appear), turn the permission on and off, type a value that is none of the three forms
+  // 9. (W8.11; fix53: between Model and Save, so that Save and its slot go down when it opens) Advanced: open it, type a list URL on another server (the warning and the switch appear), turn the permission on and off, type a value that is none of the three forms
   await phase('open Advanced');
   await click('.settings-body details.advanced summary');
   await waitFor('Advanced open', `document.querySelector('.settings-body details.advanced').open`);
@@ -217,6 +218,11 @@ async function runConfig(cfg) {
   await typeText('http://127.0.0.1:31842/v1/models', 15);
   await waitFor('the warning and the switch', `!!document.querySelector('.settings-body details.advanced .switch')`);
   await shot('advanced');
+  // Advanced open with the other-server warning and the switch on screen, the smallest window included: Save is reachable by scrolling and the page does not overflow sideways
+  const reach = await evaluate(`(() => { const b = document.querySelector('.settings-body'), m = document.querySelector('.modal').getBoundingClientRect(); b.scrollTop = b.scrollHeight; const sv = document.querySelector('.settings-body .ai-actions .btn.primary').getBoundingClientRect(), bb = b.getBoundingClientRect(); return { saveInView: sv.top >= bb.top - 0.5 && sv.bottom <= bb.bottom + 0.5, sideways: b.scrollWidth - b.clientWidth, dlgRight: m.right, dlgBottom: m.bottom, w: innerWidth, h: innerHeight, docX: document.documentElement.scrollWidth - innerWidth }; })()`);
+  if (!reach.saveInView) fail(cfg, `Save cannot be scrolled into the page with Advanced open and the warning shown ${flat(reach)}`);
+  if (reach.sideways > 0 || reach.docX > 0 || reach.dlgRight > reach.w + 0.5 || reach.dlgBottom > reach.h + 0.5) fail(cfg, `Advanced open: the page overflows ${flat(reach)}`);
+  checks += 2;
   await phase('turn the key permission on and off');
   await click('.settings-body details.advanced .switch');
   await sleep(900);
@@ -234,6 +240,7 @@ async function runConfig(cfg) {
   if (!first) { fail(cfg, 'the AI tab never rendered'); return; }
   // every frame is compared with the first one: nothing may move, ever
   const moved = new Map();
+  let maxGrew = 0;
   for (const { phase: ph, s } of log) {
     if (!s) continue;
     checks++;
@@ -241,10 +248,16 @@ async function runConfig(cfg) {
     const growing = ADVANCED.has(ph);
     // (in a low window the page scrolls to the field being typed in: the fields are compared in the page's own coordinates, rectangle + scroll)
     const inPage = (v, scroll) => (Array.isArray(v) && v.length === 4 && typeof v[0] === 'number' ? [v[0], v[1] + scroll, v[2], v[3]] : Array.isArray(v) ? v.map((x) => inPage(x, scroll)) : v);
-    for (const k of Object.keys(first.pos)) if (!(growing && (k === 'form' || k === 'scrollH' || k === 'scroll')) && flat(growing && k !== 'modal' ? inPage(s.pos[k], s.pos.scroll) : s.pos[k]) !== flat(growing && k !== 'modal' ? inPage(first.pos[k], first.pos.scroll) : first.pos[k])) { const key = `${k} (${ph})`; if (!moved.has(key)) moved.set(key, `${flat(first.pos[k])} -> ${flat(s.pos[k])}`); }
+    // (Save and its slot are BELOW Advanced: they go down by what the disclosure grew, exactly, and never overlap it)
+    const grew = s.pos.details && first.pos.details ? s.pos.details[3] - first.pos.details[3] : 0;
+    if (s.pos.details && s.pos.save && s.pos.save[1] < s.pos.details[1] + s.pos.details[3] - 0.5) moved.set('Save is not below the Advanced block', `${flat(s.pos.details)} / ${flat(s.pos.save)}`);
+    if (growing && s.pos.save && s.pos.slot) for (const k of ['save', 'slot']) { const dy = (s.pos[k][1] + s.pos.scroll) - (first.pos[k][1] + first.pos.scroll); if (Math.abs(dy - grew) > 1 || s.pos[k][0] !== first.pos[k][0] || s.pos[k][2] !== first.pos[k][2] || s.pos[k][3] !== first.pos[k][3]) moved.set(`${k} did not move down by what Advanced grew (${ph})`, `${grew} px: ${flat(first.pos[k])} -> ${flat(s.pos[k])}`); }
+    if (growing && grew > maxGrew) maxGrew = grew;
+    for (const k of Object.keys(first.pos)) if (!(growing && (k === 'form' || k === 'scrollH' || k === 'scroll' || k === 'details' || k === 'save' || k === 'slot')) && flat(growing && k !== 'modal' ? inPage(s.pos[k], s.pos.scroll) : s.pos[k]) !== flat(growing && k !== 'modal' ? inPage(first.pos[k], first.pos.scroll) : first.pos[k])) { const key = `${k} (${ph})`; if (!moved.has(key)) moved.set(key, `${flat(first.pos[k])} -> ${flat(s.pos[k])}`); }
     if (s.link && s.linkInHead === false) moved.set('Remove the saved key is not on the key label\'s line', '');
   }
   for (const [k, v] of moved) fail(cfg, `${k} moved: ${v}`);
+  if (maxGrew < 40) fail(cfg, `Advanced never grew (${maxGrew} px): the test did not see it open with the warning and the switch`);
   // the focus and the caret stayed where the person put them
   const inPhase = (ph) => log.filter((e) => e.phase === ph && e.s).map((e) => e.s);
   const only = (ph, who) => { const a = inPhase(ph).filter((s) => s.active !== who); if (a.length) fail(cfg, `focus left the ${who} box during "${ph}" (it was on ${[...new Set(a.map((s) => s.active))].join(', ')})`); };

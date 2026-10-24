@@ -95,24 +95,32 @@ try {
   const setting = (key) => evaluate(`window.__TAURI_INTERNALS__.invoke('get_setting', { key: ${JSON.stringify(key)} })`);
   tag = 'W8.11';
 
-  // AC-8.11.1: Advanced is the last thing in the form, closed; opening it moves nothing above it
+  // AC-8.11.1 (the place changed in fix53): Advanced sits between Model and Save, closed; opening it moves nothing above it, and Save with its status slot go down by what the disclosure grew
   await openAiTab();
   await settle();
   ok((await count()) === 1 && (await last()).url === 'http://127.0.0.1:31841/v1/models' && (await last()).keySent === true, `AC-8.11.1: the automatic request, as before (${JSON.stringify(await last())})`);
-  ok(await evaluate(`(() => { const d = document.querySelector('.settings-body details.advanced'); return !!d && !d.open && d.parentElement.classList.contains('form') && d === d.parentElement.lastElementChild; })()`), 'Advanced is closed and is the last child of the form');
+  ok(await evaluate(`(() => { const d = document.querySelector('.settings-body details.advanced'); return !!d && !d.open && d.parentElement.classList.contains('form') && d.previousElementSibling === document.getElementById('set-aiModel') && d.nextElementSibling === document.querySelector('.ai-actions') && d.nextElementSibling === d.parentElement.lastElementChild; })()`), 'Advanced is closed, right after Model and right before Save, and Save with its status slot are the last thing of the form');
   const before = await rects();
+  const advH = () => evaluate(`document.querySelector('details.advanced').getBoundingClientRect().height`);
+  const advBefore = await advH();
+  let opened = null; // (the rects with Advanced open and empty)
   await click('details.advanced summary');
   ok(await waitFor(`document.querySelector('details.advanced').open`), 'Advanced opens');
   ok((await evaluate(`document.getElementById('set-aiModelsUrl').placeholder`)) === 'http://127.0.0.1:31841/v1/models', 'the placeholder is the automatic address');
   ok(await evaluate(`document.getElementById('set-aiModelsUrl').value === '' && document.getElementById('set-aiModelsUrlHint').textContent.startsWith('Leave empty')`), 'an empty box and the hint');
-  ok(JSON.stringify(await rects()) === JSON.stringify(before), `Base URL, key, Model, Save and the slot did not move when Advanced opened (${JSON.stringify(before)} / ${JSON.stringify(await rects())})`);
+  {
+    const after = opened = await rects(), grew = (await advH()) - advBefore;
+    ok(JSON.stringify(after.slice(0, 3)) === JSON.stringify(before.slice(0, 3)), `Base URL, key and Model did not move when Advanced opened (${JSON.stringify(before.slice(0, 3))} / ${JSON.stringify(after.slice(0, 3))})`);
+    ok(grew > 20 && after[3].every((r, i) => r[0] === before[3][i][0] && r[2] === before[3][i][2] && r[3] === before[3][i][3] && Math.abs(r[1] - before[3][i][1] - grew) <= 1), `Save and the status slot moved down by what Advanced grew (${grew} px: ${JSON.stringify(before[3])} / ${JSON.stringify(after[3])})`);
+    ok(after[4][0] === before[4][0], `the dialog kept its height (${before[4][0]} / ${after[4][0]})`);
+  }
   // AC-8.11.2
   await setField('set-aiModelsUrl', '/api/tags');
   await settle();
   ok((await count()) === 2 && (await last()).url === 'http://127.0.0.1:31841/api/tags' && (await last()).keySent === true, `AC-8.11.2: /api/tags: one request with the key (${JSON.stringify(await last())}, ${await count()} in all)`);
   ok((await models()).includes('llama3.2:latest') && (await models()).includes('qwen2.5:7b'), `Model lists the models of /api/tags (${JSON.stringify(await models())})`);
   ok((await warning()) === null, 'no warning for the same server');
-  ok(JSON.stringify(await rects()) === JSON.stringify(before), 'and nothing above Advanced moved while typing');
+  ok(JSON.stringify(await rects()) === JSON.stringify(opened), 'and nothing moved while typing (no warning yet: Advanced did not grow)');
   // AC-8.11.3
   await setField('set-aiModelsUrl', '/model/info');
   await settle();
@@ -127,7 +135,7 @@ try {
   const w = await warning();
   ok(w && w.text.startsWith('127.0.0.1:31842 is not the Base URL’s server. The API key is sent there only if you allow it.') && w.label === 'Send the API key to 127.0.0.1:31842' && w.on === false, `AC-8.11.4: the warning and the switch (off) (${JSON.stringify(w)})`);
   ok((await count()) === n0 + 1 && (await last()).keySent === false && (await last()).url === 'http://127.0.0.1:31842/v1/models', `one request, without the key (${JSON.stringify(await last())})`);
-  ok(JSON.stringify(await rects()) === JSON.stringify(before), 'nothing above moved when the warning appeared');
+  ok(JSON.stringify((await rects()).slice(0, 3)) === JSON.stringify(before.slice(0, 3)), 'nothing above Advanced moved when the warning appeared (Save goes down by the warning)');
   n0 = await count();
   await click('details.advanced .switch');
   await settle();

@@ -86,6 +86,7 @@
 - Opening a file of a type that can run code asks first on macOS and Linux too: `.webloc`, `.inetloc`, `.fileloc`, `.kext`, `.prefpane`, `.dylib`, `.plugin`, `.osax`, `.bash`, `.zsh`, `.csh`, `.ksh`, `.fish`, `.flatpakref`, `.flatpak`, `.snap`, `.apk` and `.xpi`
 - The Website link of Settings > About and the help link of a Google sign-in that ended open the website in the language of the app
 - Search in Gmail from the Archive folder (or from all mailboxes) searches Gmail's All Mail, like the app's own Archive search: it no longer reaches Spam and Trash
+- In Settings > AI Assistant the Advanced section (Model list URL) sits above the Save button, so that everything Save stores is above it; opening Advanced moves Save down. The Settings search box shows its placeholder at 12 px so that the longest one (German) fits in fonts with wide letters
 
 ### Fixed
 
