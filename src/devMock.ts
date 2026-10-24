@@ -1607,6 +1607,10 @@ export function installMock() {
           return { added, exhausted, limited: !exhausted && have + added >= cap };
         });
       }
+      case "notify_caps": { // (W5.4) `#noactions`: a Linux notification service without buttons; macOS has none
+        const os = hashTokens().get("os") || "windows";
+        return { actions: os === "windows" || (os === "linux" && !hashTokens().has("noactions")) };
+      }
       case "print_html": { // (macOS Print, W5.3) `#printfail` makes it fail; the documents are kept in window.__printed for a check
         (((window as unknown as { __printed?: { html: string; title: string }[] }).__printed ??= [])).push({ html: String(a.html), title: String(a.title) });
         if (hashTokens().has("printfail")) throw "mock: print failed";

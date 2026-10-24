@@ -29,7 +29,10 @@ pub fn has_actions(caps: &[String]) -> bool {
 /// (at most 3, each only when `label` knows it). Empty buttons give just `default`. `buttons` is already the cleaned list of the setting.
 pub fn action_pairs(buttons: &[String], open_label: &str, label: impl Fn(&str) -> Option<&'static str>) -> Vec<(String, String)> {
     let mut out = vec![(DEFAULT_KEY.to_string(), open_label.to_string())];
-    for b in buttons.iter().take(3) {
+    for b in buttons {
+        if out.len() > 3 {
+            break;
+        }
         if b == DEFAULT_KEY || out.iter().any(|(k, _)| k == b) {
             continue;
         }
@@ -306,9 +309,9 @@ mod tests {
         assert_eq!(p.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(), ["default", "flag", "snooze", "reply"]);
         // none, none, none: only the body click
         assert_eq!(action_pairs(&[], "Open", lab), vec![("default".into(), "Open".into())]);
-        // at most 3 buttons, unknown keys and repeats dropped, `default` cannot be a button
+        // at most 3 valid buttons, unknown keys and repeats dropped, `default` cannot be a button
         let p = action_pairs(&b(&["archive", "archive", "bogus", "default", "delete", "read", "flag"]), "Open", lab);
-        assert_eq!(p.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(), ["default", "archive", "delete"], "{p:?}");
+        assert_eq!(p.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(), ["default", "archive", "delete", "read"], "{p:?}");
         // the summary and the test notification: no buttons, the body click only
         assert_eq!(action_pairs(&[], "Open", lab).len(), 1);
     }
@@ -366,6 +369,16 @@ mod tests {
         assert_eq!(service_plan(true, true), ServicePlan::Send);
         assert_eq!(service_plan(false, true), ServicePlan::SendAndWait, "startable but not running: the existing 5 s wait");
         assert_eq!(service_plan(false, false), ServicePlan::FailNow, "neither: the error at once");
+    }
+
+    /// AC-5.4.5: the seam that plays a service without buttons is debug-only, and a missing answer is never remembered as "no buttons" for the rest of the run.
+    #[test]
+    fn the_no_buttons_seam_is_debug_only_and_only_a_real_answer_is_remembered() {
+        let src = crate::test_guard::non_test_code(include_str!("linuxnotify.rs"));
+        assert!(src.contains("cfg!(debug_assertions) && std::env::var(\"HEYLOOK_TEST_NOTIFY_NO_ACTIONS\")"));
+        let caps = &src[src.find("pub fn actions_supported()").unwrap()..];
+        assert_eq!(caps.matches("KNOWN.set(").count(), 1, "only the Some(Ok(..)) arm remembers an answer");
+        assert!(caps.find("Some(Ok(caps))").unwrap() < caps.find("KNOWN.set(").unwrap() && caps.find("KNOWN.set(").unwrap() < caps.find("Some(Err(e))").unwrap());
     }
 
     /// One listener for the whole run, no thread per notification; the match is on the notification service's signals only.

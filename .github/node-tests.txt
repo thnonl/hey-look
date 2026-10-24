@@ -380,3 +380,5 @@ ui-c | node scripts/test-print-ui.mjs --require-browser
 static | node --experimental-strip-types scripts/test-no-tray-texts.mjs
 # 1.0.7 W5.6: no-tray texts and the Mac Welcome bullet in the dev preview, 8 languages
 ui-d | node scripts/test-no-tray-ui.mjs --require-browser
+# 1.0.7 W5.4: Settings notifications Buttons row or the no-buttons note per system / capability
+ui-b | node scripts/test-notify-buttons-ui.mjs --require-browser

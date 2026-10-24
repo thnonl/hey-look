@@ -33,6 +33,9 @@ mod macnotify;
 // macOS Print (W5.3): the rules are compiled everywhere and tested everywhere, the AppKit calls only on macOS
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod macprint;
+// Linux notification buttons (W5.4) and the "Send test" check (W5.6): the rules are compiled everywhere and tested everywhere
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+mod linuxnotify;
 // the macOS Dock badge: the call's rules and record (D-056); compiled everywhere so that they are tested everywhere
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod dockbadge;
@@ -1976,6 +1979,13 @@ async fn notify_permission(state: tauri::State<'_, AppState>, ask: Option<String
 #[tauri::command]
 async fn os_color_scheme() -> R<linuxtheme::OsScheme> {
     blocking(|| Ok(linuxtheme::command_value())).await
+}
+
+/// Does the notification service of this system draw buttons? `{ actions }`: Windows true, macOS false, Linux asks the bus once per run (`GetCapabilities`). Settings shows the Buttons row
+/// of a mailbox when true, a note when false (W5.4). Async: the first Linux call may wait for the bus (3 s at most).
+#[tauri::command]
+async fn notify_caps() -> R<serde_json::Value> {
+    blocking(|| Ok(serde_json::json!({ "actions": linuxnotify::actions_supported() }))).await
 }
 
 /// Print a message (macOS, W5.3): `html` is the print document the page built (`src/printDoc.ts`); the system print sheet opens on the window that called. Windows and Linux print the frame
@@ -6049,6 +6059,7 @@ pub fn run() {
             os_color_scheme,
             open_notification_settings,
             print_html,
+            notify_caps,
             play_notify_sound,
             create_mail_folder,
             open_external,
@@ -6921,7 +6932,7 @@ mod capability_tests {
             "quit_now", "quit_cancelled", "sends_flushed", "quit_page_alive", "quit_dialog", "frontend_ready", "page_state", "page_pong", "show_window", "set_mail_available", "take_tray_compose",
             // calendar connections, sync triggers, mail actions that belong to the main page's intent layer
             "calendar_connect", "calendar_disconnect", "calendar_sources", "calendar_set_sync", "calendar_sync_now", "sync_account", "refresh_badge", "thread_action",
-            "queue_action", "cancel_action", "sender_action", "load_older", "idle_states", "frame_info", "frame_caption_rect", "frame_system_menu", "test_notification", "notify_permission", "open_notification_settings", "play_notify_sound", "create_mail_folder",
+            "queue_action", "cancel_action", "sender_action", "load_older", "idle_states", "frame_info", "frame_caption_rect", "frame_system_menu", "test_notification", "notify_permission", "notify_caps", "open_notification_settings", "play_notify_sound", "create_mail_folder",
             // the caption colours are the main page's to hand over (W4.3): a window never sets its own
             "window_caption_colors",
             // a secondary window asks the main page (popout_request); only the main page answers

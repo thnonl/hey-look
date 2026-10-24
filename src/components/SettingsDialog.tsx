@@ -1156,12 +1156,22 @@ function NotifyPanel({ scope }: { scope: string | null }) {
   const t = useT();
   const os = usePlatform((s) => s.os);
   const windows = os === "windows";
+  // (W5.4) do the notifications of this system have buttons? Windows always; macOS never; Linux when its notification service lists the capability (asked once per run)
+  const [buttons, setButtons] = useState<boolean | null>(windows ? true : os === "macos" ? false : null);
+  useEffect(() => {
+    if (windows || os === "macos") return setButtons(windows);
+    let live = true;
+    api.notifyCaps().then((c) => live && setButtons(c.actions)).catch(() => live && setButtons(false));
+    return () => {
+      live = false;
+    };
+  }, [windows, os]);
   return (
     <>
       <OvRow scope={scope} k="notifications" label={t("settings.notify.desktop")}>
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
-      {!windows && <div className="muted small">{t("settings.notify.noButtons", { os: os === "macos" ? "macOS" : "Linux" })}</div>}
+      {buttons === false && <div className="muted small">{os === "macos" ? t("settings.notify.noButtons", { os: "macOS" }) : t("settings.notify.noButtonsDesktop")}</div>}
       <OvRow scope={scope} k="smartNotifications" label={t("settings.notify.smart")} hint={t("settings.notify.smartHint")}>
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
@@ -1171,7 +1181,7 @@ function NotifyPanel({ scope }: { scope: string | null }) {
       <OvRow scope={scope} k="notifySound" label={t("settings.notify.sound")} hint={t("settings.notify.soundOnHint")}>
         {(v, set) => <SoundControl value={v} onChange={set} />}
       </OvRow>
-      {windows && (
+      {buttons === true && (
       <OvRow scope={scope} k="notifyActions" label={t("settings.notify.buttons")} hint={t("settings.notify.buttonsHint")}>
         {(v, set) => (
           <div className="three">

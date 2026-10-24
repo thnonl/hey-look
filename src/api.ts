@@ -613,6 +613,8 @@ export const api = {
   refreshBadge: () => invoke<void>("refresh_badge"),
   testNotification: () => invoke<void>("test_notification"),
   /** macOS: what the system lets this app do with notifications (`unsupported` elsewhere); `"sendTest"` asks macOS first while it was never asked (W5.10) */
+  /** Does the notification service of this system draw buttons? (Windows true, macOS false, Linux asks the bus once per run, W5.4) */
+  notifyCaps: () => invoke<{ actions: boolean }>("notify_caps"),
   notifyPermission: (ask?: "sendTest") => invoke<NotifyPermission>("notify_permission", { ask }),
   /** macOS: the Notifications pane of System Settings */
   openNotificationSettings: () => invoke<void>("open_notification_settings"),

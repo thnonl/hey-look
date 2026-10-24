@@ -233,6 +233,7 @@
   "node --experimental-strip-types scripts/test-print-doc.mjs": 2,
   "node scripts/test-print-ui.mjs --require-browser": 25,
   "node --experimental-strip-types scripts/test-no-tray-texts.mjs": 2,
-  "node scripts/test-no-tray-ui.mjs --require-browser": 40
+  "node scripts/test-no-tray-ui.mjs --require-browser": 40,
+  "node scripts/test-notify-buttons-ui.mjs --require-browser": 45
  }
 }

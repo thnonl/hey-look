@@ -4,6 +4,7 @@
 
 ### Added
 
+- Linux: a new-mail notification has the buttons of the mailbox's Notifications > Buttons setting (Archive, Delete, Mark as read by default) when the desktop's notification service draws buttons, and a click on the notification opens the conversation; a button works also while the window is hidden. Settings says so when the desktop has no buttons.
 - macOS: Print is in the More menu of a message (main window and message window) and Cmd+P prints in a message window; the system print sheet opens on that window with the message only, in the light colours, across as many pages as it needs.
 - Linux: with the theme set to System the app follows the desktop's light or dark setting (read from the desktop portal, or from the GTK settings when there is no portal), also while it runs; the title bar, scroll bars and pop-up lists of the system follow too. Light and Dark chosen in Settings still win.
 - A PDF attachment is drawn in the preview on macOS and Linux too (until now a card with Open and Save as): the pages with their text (select and copy, read by a screen reader), "Page 3 of 30" and zoom (Fit, 100 %, 150 %, 200 %) in the header, Esc and the arrows as for a picture. Links inside a PDF do nothing and nothing in a PDF runs; a PDF with a password says so, and one that cannot be drawn shows Open. The viewer is PDF.js (Apache-2.0, with its fonts, character maps and decoders; the licences are in the app's `pdfjs` folder) and loads when the first PDF is previewed. Windows is unchanged (the system's own viewer).
@@ -58,6 +59,8 @@
 
 ### Fixed
 
+- Linux without a tray (for example KDE with the System Tray widget removed): Welcome, the quit question, the Send later picker, Settings > Filters and the Settings tab no longer talk about the tray; "Send test" says at once when no notification service is running. The macOS Welcome screen says "menu bar".
+- Linux: a log out, a shut down or a `kill` (SIGTERM, SIGHUP, SIGINT) closes the push connections and saves the queued actions before Hey Look! ends, like a macOS log out.
 - A newsletter that has a dark design (`prefers-color-scheme: dark`) now follows the message background (Original = its light design, Dark = its dark design, as the button in the reading pane says), not the colour setting of the system or of the app; switching the background changes it at once without reloading the message, and printing is always light.
 - macOS: the app now asks macOS for permission to show notifications (banners, sound and the Dock badge), once, when you have an account and notifications or the Dock badge are on, when you press Send test, or when you turn them on in Settings. Without that permission macOS never registered Hey Look! in System Settings > Notifications and the Dock showed no unread number. If notifications are turned off for the app, Settings > Notifications & tray says so and has an "Open System Settings" button; Send test works in every state (the old "not available on macOS" message is gone).
 - macOS: a window that is closed no longer leaves an invisible native window and about 1.4 MB behind (the window toolkit's release bug, fixed upstream, is built in), and the title bar of every window is the colour of the app in the dark theme instead of a lighter grey strip

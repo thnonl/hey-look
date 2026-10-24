@@ -665,16 +665,17 @@ fn toast(app: &AppHandle, thread: String, title: &str, line1: &str, line2: &str,
     shown
 }
 
-/// macOS and Linux: a plain native notification (no buttons; clicking it has the system's default effect only). `sound` is "pop" (the Hey Look! sound, W13.8), "reminder"
-/// (an event reminder: the system's notification sound) or "none".
+/// macOS: a plain native notification (no buttons; clicking it has the system's default effect only). Linux: the notification carries the mailbox's buttons and a click on its body opens the
+/// conversation when the service draws buttons (W5.4, linuxnotify.rs). `sound` is "pop" (the Hey Look! sound, W13.8), "reminder" (an event reminder: the system's notification sound) or "none".
 #[cfg(not(windows))]
-fn toast(app: &AppHandle, _thread: String, title: &str, line1: &str, line2: &str, sound: &str, _actions: &[String]) -> Result<(), String> {
+fn toast(app: &AppHandle, thread: String, title: &str, line1: &str, line2: &str, sound: &str, actions: &[String]) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
-        return toast_linux(app, title, &notification_body(line1, line2), sound);
+        return toast_linux(app, &thread, title, &notification_body(line1, line2), sound, actions);
     }
     #[cfg(not(target_os = "linux"))]
     {
+        let _ = (&thread, actions); // (macOS notifications have no buttons)
         // macOS: the hidden diagnostic (HEYLOOK_MAC_NOTIFY in a debug build, see macnotify.rs); off = the unchanged path below. The notification is silent, the app plays the sound
         // (a new-mail sound is the only signal on a Mac where the notification itself is not shown, W13.8)
         #[cfg(target_os = "macos")]
@@ -703,10 +704,27 @@ fn toast(app: &AppHandle, _thread: String, title: &str, line1: &str, line2: &str
 /// service ("ServiceUnknown" on the bus) was never reported and "Send test" stayed silent (QA BUG-L2). The notification is sent
 /// here and the answer of the bus is returned; a bus that does not answer in time is an error too.
 #[cfg(target_os = "linux")]
-fn toast_linux(app: &AppHandle, title: &str, body: &str, sound: &str) -> Result<(), String> {
+fn toast_linux(app: &AppHandle, thread: &str, title: &str, body: &str, sound: &str, actions: &[String]) -> Result<(), String> {
     let mut n = notify_rust::Notification::new();
     n.summary(title).body(body).auto_icon();
+    // (W5.4) an e-mail notification: its category, and the desktop file that names the app (services group and mute by it); urgency stays normal
+    n.hint(notify_rust::Hint::Category("email.arrived".into()));
+    n.hint(notify_rust::Hint::DesktopEntry(LINUX_DESKTOP_ID.into()));
+    // (W5.4) buttons and the click on the body, when the service draws buttons; the one listener of the run answers them
+    let pairs = if crate::linuxnotify::actions_supported() {
+        let open = crate::i18n::tr(crate::i18n::K::TrayOpen);
+        let pairs = crate::linuxnotify::action_pairs(actions, open, action_label);
+        for (key, label) in &pairs {
+            n.action(key, label);
+        }
+        let handle = app.clone();
+        crate::linuxnotify::ensure_listener(move |answer| linux_answer(&handle, answer));
+        pairs
+    } else {
+        Vec::new()
+    };
     let app = app.clone();
+    let thread = thread.to_string();
     let sound = sound.to_string();
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -724,11 +742,16 @@ fn toast_linux(app: &AppHandle, title: &str, body: &str, sound: &str) -> Result<
                 _ => by_app = true,
             }
         }
-        let shown = n.show().map(|_| ()).map_err(|e| notify_failure_text(&e.to_string()));
+        let shown = n.show().map(|h| h.id()).map_err(|e| notify_failure_text(&e.to_string()));
+        if let Ok(id) = &shown {
+            if !pairs.is_empty() {
+                crate::linuxnotify::tracked().lock().unwrap_or_else(|p| p.into_inner()).insert(*id, &thread, &pairs, std::time::Instant::now());
+            }
+        }
         if shown.is_ok() && by_app {
             crate::notifysound::play_with_player(&app);
         }
-        let _ = tx.send(shown);
+        let _ = tx.send(shown.map(|_| ()));
     });
     rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap_or_else(|_| {
         // no answer in 5 s: the bus holds the call while it tries to start a notification service that never comes up (an
@@ -736,6 +759,22 @@ fn toast_linux(app: &AppHandle, title: &str, body: &str, sound: &str) -> Result<
         crate::startup::line("notify", "the notification call got no answer from the bus within 5 s");
         Err(NO_NOTIFICATION_SERVICE.into())
     })
+}
+
+/// The desktop file id of the app on Linux (hey-look.desktop: the .deb, the AppImage's and the snap's).
+#[cfg(target_os = "linux")]
+const LINUX_DESKTOP_ID: &str = "hey-look";
+
+/// Linux (W5.4): an answer of the notification service. The body of a notification opens its conversation (the main window only comes forward when it has none, as the summary and the
+/// test notification); a button does what it does on Windows (`handle_activation`), also while the window is hidden.
+#[cfg(target_os = "linux")]
+fn linux_answer(app: &AppHandle, answer: crate::linuxnotify::Answer) {
+    use crate::linuxnotify::Answer;
+    match answer {
+        Answer::Open { thread } if thread.is_empty() => show_main(app),
+        Answer::Open { thread } => handle_activation(app, &thread, None),
+        Answer::Button { thread, key } => handle_activation(app, &thread, Some(key)),
+    }
 }
 
 /// What "Send test" says when no notification service can show the notification (TC-165 (1)).
@@ -1013,6 +1052,11 @@ pub fn test_notification(app: &AppHandle, db: &Db) -> Result<(), String> {
             return Ok(());
         }
     }
+    // Linux (W5.6): ask the bus first; no notification service and none that can be started is the answer at once, not after the 5 s wait
+    #[cfg(target_os = "linux")]
+    if crate::linuxnotify::send_test_plan() == crate::linuxnotify::ServicePlan::FailNow {
+        return Err(NO_NOTIFICATION_SERVICE.into());
+    }
     let p = prefs(db);
     toast(
         app,
@@ -1263,7 +1307,7 @@ mod platform_tests {
         // BUG-L2: the plugin's show() drops the bus error, so "Send test" could never report it. The Linux branch of `toast` must
         // call `toast_linux` (which waits for the answer) before it reaches the plugin.
         let src = include_str!("shell.rs");
-        let toast = &src[src.find("fn toast(app: &AppHandle, _thread").unwrap()..];
+        let toast = &src[src.find("fn toast(app: &AppHandle, thread: String").unwrap()..];
         let linux = toast.find("toast_linux(").unwrap();
         let plugin = toast.find(concat!("builder", "()")).unwrap();
         assert!(linux < plugin, "the Linux branch comes first and returns");

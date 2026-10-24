@@ -54,6 +54,7 @@
     "allow-test-notification",
     "allow-notify-permission",
     "allow-open-notification-settings",
+    "allow-notify-caps",
     "allow-play-notify-sound",
     "allow-pick-folder",
     "allow-list-signatures",
