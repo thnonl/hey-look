@@ -222,7 +222,8 @@ function afterSave(path: string, name: string, m: Pick<MessageFull, "id" | "from
 
 // ---------------------------------------------------------------- card
 
-export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
+/** `siblings`: the cards of the strip this one is in, in strip order (1.0.7 W8.8c): the preview then steps through the previewable ones with Previous / Next, ← → and "n of m". Alone: this card only. */
+export function AttachmentCard({ m, a, siblings }: { m: MessageFull; a: AttMeta; siblings?: AttMeta[] }) {
   const t = useT();
   const { prefs, showToast } = useStore();
   const [st, setSt] = useState<CardState>({ status: "idle" });
@@ -362,7 +363,7 @@ export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
       </div>
       {acts}
       {busy && <div className="progress indet" role="progressbar" aria-label={busyLabel(a.name)}><i /></div>}
-      {preview && <PreviewDialog m={m} items={[a]} start={0} onClose={() => setPreview(false)} />}
+      {preview && <PreviewDialog m={m} items={siblings ?? [a]} start={siblings ? Math.max(0, siblings.indexOf(a)) : 0} onClose={() => setPreview(false)} />}
     </div>
   );
 }
@@ -443,7 +444,7 @@ export function AttachmentStrip({ m }: { m: MessageFull }) {
           {saveAll && <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={saveAll.total} aria-valuenow={saveAll.done}><i style={{ width: `${saveAll.total ? (saveAll.done / saveAll.total) * 100 : 0}%` }} /></div>}
           <div className="att-grid" role="list">
             {cards.map((a) => (
-              <AttachmentCard key={a.index} m={m} a={a} />
+              <AttachmentCard key={a.index} m={m} a={a} siblings={cards} />
             ))}
           </div>
         </div>
@@ -618,11 +619,12 @@ function PdfCard({ att, onOpen, onSave }: { att: Pick<AttMeta, "name" | "size">;
   );
 }
 
-/** Modal preview of attachments (pictures, PDF, small text), with ← → between previewable items. */
+/** Modal preview of attachments (pictures, PDF, small text), with ← → between previewable items. `start` is the place of the first one in `items`; the items that cannot be previewed (an archive; for
+ *  confidential mail also a PDF) are not in the "n of m" and are stepped over. */
 export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; items: AttMeta[]; start: number; onClose: () => void }) {
   const t = useT();
   const list = items.filter((a) => previewable(a, !!m.confidential));
-  const [i, setI] = useState(Math.max(0, Math.min(start, list.length - 1)));
+  const [i, setI] = useState(Math.max(0, Math.min(Math.max(0, list.indexOf(items[start])), list.length - 1)));
   const [data, setData] = useState<PvLoaded | null>(null);
   // PDF.js (macOS, Linux): the viewer draws its page number and zoom buttons into this place of the header (pdfView.tsx), and tells when it cannot run (the card replaces it)
   const [pdfTools, setPdfTools] = useState<HTMLElement | null>(null);
