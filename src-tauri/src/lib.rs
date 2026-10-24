@@ -14,6 +14,7 @@ mod drag;
 mod tempstore;
 mod flagguard;
 mod folders;
+mod folderstate;
 mod headerfold;
 mod ical;
 mod i18n;
@@ -76,6 +77,7 @@ mod recover;
 mod replyhdr;
 use oauth::Provider;
 mod schedule;
+mod serversearch;
 mod sessionend;
 mod shard;
 mod shell;
@@ -770,14 +772,73 @@ fn fmap(db: &Db, account_id: &str) -> HashMap<String, String> {
         .unwrap_or_default()
 }
 
-/// The server folder for a role from the saved list (drafts ...). Save draft and send do not create a folder the server lacks (README, known
-/// limitations): the action that needs one fails with a message that says which folder is missing (QA BUG-M4 / M8). A move (archive,
-/// delete ...) looks at the server and may create Archive / Trash instead: `move_to_role`.
-fn folder_for(db: &Db, acc: &Account, role: &str) -> R<String> {
-    fmap(db, &acc.id).get(role).cloned().ok_or_else(|| match role {
-        "drafts" => "this account has no Drafts folder".to_string(),
-        r => format!("no '{r}' folder on this account"),
-    })
+/// (W6.4) The server's Drafts folder for `acc`, as every writer of drafts needs it (Save draft, autosave, quit save, crash recovery, "Move to Drafts", Discard changes). The saved
+/// name first (a usual save costs nothing extra); when there is none, a fresh LIST (a folder another program made, or renamed, since the last sync: only a sync refreshed the saved
+/// list before, OBS-R8-1), which also replaces the saved list; when the server has none even then and `create`, `Drafts` is created (`INBOX.Drafts` / `INBOX/Drafts` on a server that
+/// keeps its folders in the INBOX namespace, `mail::name_to_create`), subscribed to, and stored as the drafts role. `Ok(None)`: no Drafts folder and `create` is off (a reader asks
+/// like this: nothing is created for a look-up). Same shape as the Sent copy (`store_sent_copy`). A refused CREATE is the coded `DRAFTS_NOT_CREATED`.
+fn resolve_drafts<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s: &mut imap::Session<T>, create: bool) -> R<Option<(String, bool)>> {
+    if let Some(n) = fmap(db, &acc.id).get("drafts").cloned() {
+        return Ok(Some((n, false)));
+    }
+    let listing = mail::list_folders(s)?;
+    save_listing(db, &acc.id, &listing)?;
+    if let Some(n) = listing.map.get("drafts").cloned() {
+        return Ok(Some((n, false)));
+    }
+    if !create {
+        return Ok(None);
+    }
+    let name = mail::name_to_create("drafts", &listing).ok_or_else(|| drafts_not_created("no name for it"))?;
+    mail::create_folder(s, &name).map_err(|why| drafts_not_created(&why))?;
+    let mut map = listing.map.clone();
+    map.insert("drafts".to_string(), name.clone());
+    save_fmap(db, &acc.id, &map)?;
+    startup::line("draft", &format!("account {}: the server had no Drafts folder: created it", acc.id));
+    Ok(Some((name, true)))
+}
+
+/// `resolve_drafts` for a reader: the folder if the server has one, else nothing (and nothing is created).
+fn find_drafts<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s: &mut imap::Session<T>) -> R<Option<String>> {
+    Ok(resolve_drafts(db, acc, s, false)?.map(|f| f.0))
+}
+
+/// APPEND a draft to the account's Drafts folder and return the folder it went into (W6.4). The folder is found or created as `resolve_drafts` says, and only when a draft is
+/// really written (an empty message never gets here, W2.3 / W13.5). A saved name the server refuses (the folder was renamed or removed since the last sync) is looked up again
+/// with a fresh LIST before the APPEND is given up. An APPEND into a folder made just now that is refused is `DRAFTS_NOT_CREATED` too: nothing else changes, the caller keeps
+/// the message.
+fn append_draft<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s: &mut imap::Session<T>, raw: &[u8]) -> R<String> {
+    let saved = fmap(db, &acc.id).get("drafts").cloned();
+    if let Some(name) = &saved {
+        match mail::append(s, name, raw, true) {
+            Ok(()) => return Ok(name.clone()),
+            Err(first) => {
+                // refused: ask the server what it has now
+                let listing = mail::list_folders(s)?;
+                save_listing(db, &acc.id, &listing)?;
+                match listing.map.get("drafts") {
+                    Some(n) if n != name => {
+                        mail::append(s, n, raw, true)?;
+                        return Ok(n.clone());
+                    }
+                    // the server has the folder we tried: the APPEND failed for another reason
+                    Some(_) => return Err(first),
+                    None => {}
+                }
+            }
+        }
+    }
+    let (name, created) = resolve_drafts(db, acc, s, true)?.ok_or_else(|| drafts_not_created("no Drafts folder"))?;
+    match mail::append(s, &name, raw, true) {
+        Ok(()) => Ok(name),
+        Err(why) if created => Err(drafts_not_created(&why)),
+        Err(e) => Err(e),
+    }
+}
+
+fn drafts_not_created(why: &str) -> String {
+    let why: String = why.chars().take(120).collect();
+    i18n::coded("DRAFTS_NOT_CREATED", &[("why", &why)], &format!("Couldn’t find or create the Drafts folder on this account ({why})."))
 }
 
 /// The conversation a message belongs to: its first reference, else its own Message-ID, else (no ID at all) its place in the folder.
@@ -876,6 +937,12 @@ struct SyncResult {
     /// (W13.2) the new mail of this sync per folder (key, thread id): the side menu marks those folders (`mail-arrived`)
     #[serde(skip)]
     arrivals: Vec<(String, String)>,
+    /// (W6.1) the roles whose folder the server renumbered: their stored mail was dropped and read again (`folder-reset`)
+    #[serde(skip)]
+    resets: Vec<String>,
+    /// (W6.3) the prune after this sync removed this many local messages, and the mailbox is at or above its cap afterwards (`mail-pruned`)
+    #[serde(skip)]
+    pruned: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -948,7 +1015,21 @@ fn apply_server_flags(c: &Connection, guard: &flagguard::FlagGuard, started: u64
     Ok(())
 }
 
+/// A debug build can hold every sync back before it connects (`HEYLOOK_TEST_SYNC_DELAY_MS`, at most 120 s): QA of an action that runs before the first sync has recorded the numbering of
+/// the folders (1.0.7 W6.1, AC-6.1.7). Never in a release build.
+fn test_sync_delay_ms() -> u64 {
+    if !cfg!(debug_assertions) {
+        return 0;
+    }
+    std::env::var("HEYLOOK_TEST_SYNC_DELAY_MS").ok().and_then(|v| v.trim().parse::<u64>().ok()).unwrap_or(0).min(120_000)
+}
+
 fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
+    let delay = test_sync_delay_ms();
+    if delay > 0 {
+        startup::line("sync", &format!("test seam HEYLOOK_TEST_SYNC_DELAY_MS: waiting {delay} ms before the sync of {account_id}"));
+        std::thread::sleep(std::time::Duration::from_millis(delay));
+    }
     let acc = db::get_account(&lock(db), account_id)?;
     let sec = secret(db, &acc)?;
     let mut s = mail::connect(&acc, &sec)?;
@@ -961,7 +1042,7 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
     custom.sort();
     roles.extend(custom);
 
-    let mut result = SyncResult { added: 0, new_inbox: vec![], arrivals: vec![] };
+    let mut result = SyncResult { added: 0, new_inbox: vec![], arrivals: vec![], resets: vec![], pruned: None };
     // (W13.2) the mail of the person's own mailboxes is not new mail; neither is mail that only moved between folders
     let own = newmail::own_set(db::list_accounts(&lock(db)).unwrap_or_default().iter().map(|a| a.email.as_str()));
     let mut tally = newmail::Tally::default();
@@ -969,22 +1050,35 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
     let mut to_rule: Vec<(String, String, String, String)> = vec![]; // thread, from, to, subject
     for role in roles {
         let Some(name) = map.get(&role) else { continue };
-        let (max_uid, min_uid): (u32, u32) = lock(db)
-            .query_row(
-                "SELECT COALESCE(MAX(uid),0), COALESCE(MIN(uid),0) FROM messages WHERE account_id=?1 AND folder=?2",
-                params![account_id, role],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .map_err(err)?;
+        let (max_uid, min_uid, known): (u32, u32, folderstate::Known) = {
+            let c = lock(db);
+            let (max_uid, min_uid) = c
+                .query_row(
+                    "SELECT COALESCE(MAX(uid),0), COALESCE(MIN(uid),0) FROM messages WHERE account_id=?1 AND folder=?2",
+                    params![account_id, role],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .map_err(err)?;
+            (max_uid, min_uid, folderstate::known(folderstate::get(&c, account_id, &role).as_ref(), name))
+        };
         // (F-16/F-17) flags of messages an action changes while this fetch runs are not written back: see `flagguard`
         let flags_started = flagguard::GUARD.epoch();
         // the first sync of a folder is only a taste (the newest page, so the UI has mail at once); `backfill_run` brings the rest
-        let ff = match mail::fetch_folder(&mut s, name, max_uid, min_uid, PAGE) {
+        let ff = match mail::fetch_folder(&mut s, name, &known, max_uid, min_uid, PAGE) {
             Ok(f) => f,
             Err(_) => continue,
         };
+        // (W6.1) the server renumbered the folder: what is stored of it is dropped below and the folder is read like a first sync
+        let (max_uid, min_uid) = if ff.reset { (0, 0) } else { (max_uid, min_uid) };
         let c = lock(db);
         c.execute_batch("BEGIN").map_err(err)?;
+        if ff.reset {
+            if let Err(e) = reset_folder(&c, account_id, &role, name, &known, ff.validity) {
+                let _ = c.execute_batch("ROLLBACK");
+                return Err(e);
+            }
+            result.resets.push(role.clone());
+        }
         for p in &ff.new {
             // (before the row is written) was this message stored in another folder already, or moved by the app, or removed from another folder by this sync?
             let moved = p.message_id.as_deref().map_or(false, |mid| {
@@ -1048,6 +1142,10 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
                 }
             }
         }
+        // (W6.1) what the folder is numbered under, for the writes on its UIDs
+        if let Some(v) = ff.validity {
+            folderstate::set(&c, account_id, &role, name, v)?;
+        }
         c.execute_batch("COMMIT").map_err(err)?;
     }
     let _ = s.logout();
@@ -1059,6 +1157,12 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
             .into_iter()
             .filter(|r| r.account_id.as_deref().map_or(true, |a| a == acc.id))
             .collect();
+        // (W6.2) a filter that moves mail to Junk does nothing on a mailbox without a Junk folder (the saved list was refreshed at the start of this sync): one line per run, no
+        // error for the person (the filter list says "No Junk folder"); a Junk folder that appears later makes it work again by itself
+        let (rules, skipped) = usable_rules(rules, map.contains_key("junk"));
+        if skipped > 0 {
+            startup::line("filters", &format!("account {}: {skipped} filter(s) that move mail to Junk were skipped: this mailbox has no Junk folder", acc.id));
+        }
         startup::line("filters", &format!("{} filter(s) apply to this account", rules.len()));
         let outcome = apply_rules(&rules, &to_rule, &mut |r, tid| {
             let res = action_impl_in(db, vec![tid.to_string()], r.action.clone(), r.arg.clone(), Some("inbox".into()), false);
@@ -1089,13 +1193,56 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
     result.arrivals = std::mem::take(&mut tally.arrivals);
     // new mail arrived: keep the account at its cap by dropping its oldest local mail (a failure here never fails the sync)
     if result.added > 0 {
-        match prune_oldest(db, account_id, max_download(db), &fresh) {
-            Ok(0) => {}
-            Ok(n) => eprintln!("pruned {n} oldest local messages of account {account_id} (download cap)"),
-            Err(e) => eprintln!("pruning account {account_id} failed: {e}"),
+        let cap = max_download(db);
+        let removed = match prune_oldest(db, account_id, cap, &fresh) {
+            Ok(0) => 0,
+            Ok(n) => {
+                eprintln!("pruned {n} oldest local messages of account {account_id} (download cap)");
+                n
+            }
+            Err(e) => {
+                eprintln!("pruning account {account_id} failed: {e}");
+                0
+            }
+        };
+        // (W6.3) a mailbox that is at its cap after a sync says so (the notice at the end of its lists does not wait for a "Load older" that is answered "limited")
+        if account_total(db, account_id).is_ok_and(|n| n >= cap) {
+            result.pruned = Some(removed);
         }
     }
     Ok(result)
+}
+
+/// (W6.1) The server renumbered the folder of `role`: the rows stored of it are dropped (straight from the account's own table, as `prune_oldest` does, never through the `messages`
+/// view), its "downloaded to the oldest message" mark and its cached raw messages go, and the caller reads it like a first sync. Pins and snoozes live in `thread_meta`, keyed by
+/// threads that come from Message-IDs, and stay. Runs inside the caller's transaction.
+fn reset_folder(c: &Connection, account_id: &str, role: &str, name: &str, known: &folderstate::Known, now: Option<u32>) -> R<()> {
+    let table = shard::messages_table(c, account_id)?;
+    if role == "drafts" {
+        // (the ids an open compose may still hold as `m:<id>`: see folderstate::retire)
+        let mut st = c.prepare(&format!("SELECT id, message_id FROM {table} WHERE folder=?1")).map_err(err)?;
+        let rows: Vec<(String, Option<String>)> =
+            st.query_map(params![role], |r| Ok((r.get(0)?, r.get(1)?))).map_err(err)?.filter_map(|r| r.ok()).collect();
+        drop(st);
+        folderstate::retire(c, account_id, &rows)?;
+    }
+    c.execute(&format!("DELETE FROM {table} WHERE folder=?1"), params![role]).map_err(err)?;
+    c.execute("DELETE FROM settings WHERE key=?1", params![exhausted_key(account_id, role)]).map_err(err)?;
+    rawcache::forget_prefix(&format!("{account_id}:{role}:"));
+    let was = match known {
+        folderstate::Known::Validity(v) => format!("UIDVALIDITY {v} -> {}", now.map_or("none".to_string(), |n| n.to_string())),
+        _ => format!("the role now names the server folder {name}"),
+    };
+    startup::line("sync", &format!("account {account_id} folder {role}: the server renumbered this folder ({was}): reading it again"));
+    Ok(())
+}
+
+/// The filters that can run on a mailbox, and how many were left out: the ones that move mail to Junk when the mailbox has no Junk folder (W6.2).
+fn usable_rules(rules: Vec<Rule>, has_junk: bool) -> (Vec<Rule>, usize) {
+    let total = rules.len();
+    let kept: Vec<Rule> = rules.into_iter().filter(|r| has_junk || r.action != "junk").collect();
+    let skipped = total - kept.len();
+    (kept, skipped)
 }
 
 /// What running the filters over new mail came to: the threads that left the inbox, and one message per failed filter run.
@@ -1190,6 +1337,13 @@ fn run_sync(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<SyncResult> 
 fn run_sync_inner(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<SyncResult> {
     let _guard = SYNC_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let r = sync_impl(db, account_id)?;
+    // (W6.1) every window drops a selection or an open conversation of a folder that was read again, and re-reads its list
+    for role in &r.resets {
+        let _ = app.emit("folder-reset", serde_json::json!({ "accountId": account_id, "role": role }));
+    }
+    if let Some(removed) = r.pruned {
+        let _ = app.emit_to("main", "mail-pruned", serde_json::json!({ "accountId": account_id, "removed": removed }));
+    }
     for why in take_rule_errors_to_tell() {
         let _ = app.emit_to("main", "filter-failed", why);
     }
@@ -1552,6 +1706,21 @@ fn pending_worker(app: tauri::AppHandle) {
     loop {
         std::thread::sleep(std::time::Duration::from_secs(1));
         commit_due(&app);
+        resync_refused(&app);
+    }
+}
+
+/// (W6.1) A write that was refused because its folder changed on the server (`FOLDER_CHANGED`) asked for a sync of the account: it reads the folder again (a thread of its own, this
+/// worker commits the Undo times).
+fn resync_refused(app: &tauri::AppHandle) {
+    for account_id in folderstate::take_resync() {
+        let (app, db) = (app.clone(), app.state::<AppState>().db.clone());
+        let _ = std::thread::Builder::new().name("resync".into()).spawn(move || {
+            startup::line("sync", &format!("account {account_id}: a write was refused because a folder changed on the server: syncing"));
+            if run_sync(&app, &db, &account_id).is_ok() {
+                let _ = app.emit("mail-synced", ());
+            }
+        });
     }
 }
 
@@ -1610,6 +1779,10 @@ fn account_total(db: &Db, account_id: &str) -> R<u32> {
 /// "downloaded to the oldest message", so its `exhausted:` mark is cleared. Never holds the lock across network IO (it has none).
 /// Returns how many messages were deleted.
 fn prune_oldest(db: &Db, account_id: &str, cap: u32, keep: &std::collections::HashSet<String>) -> R<u32> {
+    // (W6.7) a message the person opened from a server search stays for the rest of the run
+    let mut keep = keep.clone();
+    keep.extend(serversearch::protected());
+    let keep = &keep;
     let ids: Vec<(String, String)> = {
         let c = lock(db);
         let total: u32 = c
@@ -1680,6 +1853,60 @@ fn prune_oldest(db: &Db, account_id: &str, cap: u32, keep: &std::collections::Ha
     Ok(ids.len() as u32)
 }
 
+/// (W6.3) Bring every mailbox to the "Max emails to download" cap NOW: the person lowered it, and the extra local mail goes at once instead of at the next arrival. The same rules
+/// as the prune after new mail (`prune_oldest`: drafts, flagged, pinned and snoozed mail and the newest message of every folder stay, the server is never touched) plus the
+/// conversations in `keep_threads` (the one in the reading pane, the ones in reader windows): an open conversation does not vanish under the person's eyes. Returns, per mailbox,
+/// (account id, messages removed, the mailbox is at or above the cap afterwards).
+fn prune_all_to_limit(db: &Db, keep_threads: &[String]) -> R<Vec<(String, u32, bool)>> {
+    let cap = max_download(db);
+    let accounts = db::list_accounts(&lock(db))?;
+    let keep: std::collections::HashSet<String> = {
+        let c = lock(db);
+        let mut out = std::collections::HashSet::new();
+        for t in keep_threads.iter().take(200) {
+            let mut st = c.prepare("SELECT id FROM messages WHERE thread_id=?1").map_err(err)?;
+            for id in st.query_map([t], |r| r.get::<_, String>(0)).map_err(err)?.flatten() {
+                out.insert(id);
+            }
+        }
+        out
+    };
+    let mut out = vec![];
+    for a in accounts {
+        let removed = prune_oldest(db, &a.id, cap, &keep).unwrap_or_else(|e| {
+            eprintln!("pruning account {} failed: {e}", a.id);
+            0
+        });
+        if removed > 0 {
+            startup::line("prune", &format!("account {}: the download limit is {cap} mails: {removed} oldest local messages removed (the server keeps them)", a.id));
+        }
+        let at_limit = account_total(db, &a.id).map(|n| n >= cap).unwrap_or(false);
+        out.push((a.id, removed, at_limit));
+    }
+    Ok(out)
+}
+
+/// The person lowered the download limit (Settings > Mailboxes > Reading & sync): the extra local mail goes at once, in the background, and the lists read again. `keep_threads`:
+/// the conversation open in the reading pane; the reader windows' are added here. A mailbox that is at the cap afterwards tells the page (`mail-pruned`), which then shows the
+/// notice "Download limit reached" without a sync. Nothing is removed when the limit is higher than before: the page does not ask then.
+#[tauri::command]
+async fn prune_to_limit(app: tauri::AppHandle, state: tauri::State<'_, AppState>, keep_threads: Vec<String>) -> R<u32> {
+    let db = state.db.clone();
+    let mut threads = keep_threads;
+    threads.extend(popout::reader_keys(&app));
+    let done = blocking(move || prune_all_to_limit(&db, &threads)).await?;
+    let mut removed = 0;
+    for (account_id, n, at_limit) in done {
+        removed += n;
+        if at_limit {
+            let _ = app.emit_to("main", "mail-pruned", serde_json::json!({ "accountId": account_id, "removed": n }));
+        }
+    }
+    // the lists (and the reader windows) read again
+    let _ = app.emit("mail-synced", ());
+    Ok(removed)
+}
+
 /// Pause between two chunks of the background download, so the server (and the database lock) are never hammered.
 const BACKFILL_PAUSE: std::time::Duration = std::time::Duration::from_millis(1500);
 
@@ -1742,8 +1969,13 @@ fn load_older_impl(db: &Db, account_id: &str, role: &str, limit: u32) -> R<LoadO
     if min_uid == 0 {
         return Ok(LoadOlder { added: 0, exhausted: true, limited: false }); // nothing stored: there is no "older" to speak of
     }
+    let expect = recorded_validity(db, account_id, role, &name);
     let mut s = mail::connect(&acc, &sec)?;
-    let (found, exhausted) = mail::fetch_older(&mut s, &name, min_uid, clamp_chunk(limit, total, cap) as usize)?;
+    let (found, exhausted) = mail::fetch_older(&mut s, &name, expect, min_uid, clamp_chunk(limit, total, cap) as usize).inspect_err(|e| {
+        if mail::is_folder_changed(e) {
+            folderstate::want_resync(account_id);
+        }
+    })?;
     let _ = s.logout();
     store_page(db, &acc, role, &found)?;
     if exhausted {
@@ -1751,6 +1983,11 @@ fn load_older_impl(db: &Db, account_id: &str, role: &str, limit: u32) -> R<LoadO
     }
     let added = found.len() as u32;
     Ok(LoadOlder { added, exhausted, limited: !exhausted && total + added >= cap })
+}
+
+/// The UIDVALIDITY recorded for the folder of `role` when it is the server folder `name` (W6.1): the lowest stored UID is checked against it before older mail is paged in.
+fn recorded_validity(db: &Db, account_id: &str, role: &str, name: &str) -> Option<u32> {
+    folderstate::get(&lock(db), account_id, role).filter(|s| s.name == name).map(|s| s.validity)
 }
 
 /// Fetch the next page (default and maximum 50) of older messages for a folder. An IMAP failure is an error, never "nothing
@@ -1839,15 +2076,18 @@ fn backfill_run(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<()> {
         db,
         account_id,
         BACKFILL_PAUSE,
-        &mut |acc, name, below, count| {
+        &mut |acc, name, expect, below, count| {
             let step = (|| -> R<(Vec<mail::Parsed>, bool)> {
                 if sess.is_none() {
                     sess = Some(mail::connect(acc, &secret(db, acc)?)?);
                 }
-                mail::fetch_older(sess.as_mut().ok_or("no session")?, name, below, count)
+                mail::fetch_older(sess.as_mut().ok_or("no session")?, name, expect, below, count)
             })();
-            if step.is_err() {
+            if let Err(e) = &step {
                 sess = None; // a failed session is not reused
+                if mail::is_folder_changed(e) {
+                    folderstate::want_resync(&acc.id); // (W6.1) the folder was renumbered: a sync reads it again
+                }
             }
             step
         },
@@ -1871,7 +2111,7 @@ fn backfill_loop(
     db: &Db,
     account_id: &str,
     pause: std::time::Duration,
-    fetch: &mut dyn FnMut(&Account, &str, u32, usize) -> R<(Vec<mail::Parsed>, bool)>,
+    fetch: &mut dyn FnMut(&Account, &str, Option<u32>, u32, usize) -> R<(Vec<mail::Parsed>, bool)>,
     emit: &mut dyn FnMut(serde_json::Value),
 ) -> R<()> {
     let mut open: Option<(String, u32, u32)> = None; // the last progress event, unless it ended its folder
@@ -1886,7 +2126,7 @@ fn backfill_chunks(
     db: &Db,
     account_id: &str,
     pause: std::time::Duration,
-    fetch: &mut dyn FnMut(&Account, &str, u32, usize) -> R<(Vec<mail::Parsed>, bool)>,
+    fetch: &mut dyn FnMut(&Account, &str, Option<u32>, u32, usize) -> R<(Vec<mail::Parsed>, bool)>,
     emit: &mut dyn FnMut(serde_json::Value),
     open: &mut Option<(String, u32, u32)>,
 ) -> R<()> {
@@ -1898,7 +2138,7 @@ fn backfill_chunks(
         let Some((role, name, have, target)) = next_backfill(db, account_id, &skip, max_download(db)) else { break };
         let (_, below) = folder_state(db, account_id, &role)?;
         let step = (|| -> R<(usize, bool)> {
-            let (found, exhausted) = fetch(&acc, &name, below, (target - have).min(PAGE) as usize)?;
+            let (found, exhausted) = fetch(&acc, &name, recorded_validity(db, account_id, &role, &name), below, (target - have).min(PAGE) as usize)?;
             store_page(db, &acc, &role, &found)?;
             Ok((found.len(), exhausted))
         })();
@@ -2274,6 +2514,13 @@ struct Query {
     after: Option<i64>,
     before: Option<i64>,
     folder: Option<String>,
+}
+
+impl Query {
+    /// `is:snoozed` is no operator of the local search (it stays a word there); the server search leaves it out like `is:pinned` (W6.7).
+    fn snoozed_asked(&self) -> bool {
+        self.words.iter().any(|w| w.eq_ignore_ascii_case("is:snoozed"))
+    }
 }
 
 fn split_tokens(q: &str) -> Vec<String> {
@@ -2907,22 +3154,58 @@ struct MsgRef {
     role: String,
     uid: u32,
     id: String,
+    /// (W6.1) the numbering of the folder (server name, UIDVALIDITY) at the moment this ref was taken: a write is sent only when the server still has it. `None`: no numbering
+    /// was recorded then (an install from before 1.0.7); the write checks `mid` instead.
+    state: Option<folderstate::State>,
+    /// the Message-ID the local row had
+    mid: Option<String>,
+}
+
+/// The columns `MsgRef::from_row` reads, in this order.
+const MSG_REF_COLS: &str = "account_id,folder,uid,id,message_id";
+
+/// A row of `MSG_REF_COLS` (the numbering is added by `with_numbering`).
+fn msg_ref_row(r: &rusqlite::Row) -> rusqlite::Result<MsgRef> {
+    Ok(MsgRef { account_id: r.get(0)?, role: r.get(1)?, uid: r.get(2)?, id: r.get(3)?, mid: r.get(4)?, state: None })
+}
+
+/// Give every ref the recorded numbering of its folder, as it is right now (W6.1).
+fn with_numbering(c: &Connection, mut refs: Vec<MsgRef>) -> Vec<MsgRef> {
+    let mut cache: HashMap<(String, String), Option<folderstate::State>> = HashMap::new();
+    for m in refs.iter_mut() {
+        m.state = cache.entry((m.account_id.clone(), m.role.clone())).or_insert_with(|| folderstate::get(c, &m.account_id, &m.role)).clone();
+    }
+    refs
 }
 
 fn thread_msgs(c: &Connection, thread_ids: &[String]) -> R<Vec<MsgRef>> {
     let mut out = vec![];
     for t in thread_ids {
-        let mut st = c
-            .prepare("SELECT account_id,folder,uid,id FROM messages WHERE thread_id=?1")
-            .map_err(err)?;
-        let rows = st
-            .query_map([t], |r| Ok(MsgRef { account_id: r.get(0)?, role: r.get(1)?, uid: r.get(2)?, id: r.get(3)? }))
-            .map_err(err)?;
+        let mut st = c.prepare(&format!("SELECT {MSG_REF_COLS} FROM messages WHERE thread_id=?1")).map_err(err)?;
+        let rows = st.query_map([t], msg_ref_row).map_err(err)?;
         for r in rows {
             out.push(r.map_err(err)?);
         }
     }
-    Ok(out)
+    Ok(with_numbering(c, out))
+}
+
+/// What a write on these messages of one folder is checked against (W6.1): the numbering all of them were taken under, else their Message-IDs.
+fn expect_of(group: &[&MsgRef]) -> mail::Expect {
+    if let Some(st) = group.first().and_then(|m| m.state.clone()) {
+        if group.iter().all(|m| m.state.as_ref() == Some(&st)) {
+            return mail::Expect::State { name: st.name, validity: st.validity };
+        }
+    }
+    mail::Expect::MessageIds(group.iter().map(|m| (m.uid, m.mid.clone())).collect())
+}
+
+/// A refused write (`FOLDER_CHANGED`) also asks for a sync of the account, which reads the folder again (the one-second worker starts it).
+fn refused(acc: &Account, e: String) -> String {
+    if mail::is_folder_changed(&e) {
+        folderstate::want_resync(&acc.id);
+    }
+    e
 }
 
 /// `scope`: the folder the user is acting from. Moves only touch messages in that folder
@@ -3033,6 +3316,8 @@ fn act_on_session<T: std::io::Read + std::io::Write>(
         let group: Vec<&MsgRef> = list.iter().filter(|m| m.role == role).collect();
         let uids: Vec<u32> = group.iter().map(|m| m.uid).collect();
         let src = folders.map.get(&role).cloned().ok_or("source folder unknown")?;
+        // (W6.1) the UIDs are sent only when the folder still has the numbering they were taken under
+        let expect = expect_of(&group);
         let is_move = dst_role.is_some() || action == "delete_forever";
         if is_move {
             let allowed = match scope {
@@ -3047,7 +3332,7 @@ fn act_on_session<T: std::io::Read + std::io::Write>(
             "read" | "unread" => {
                 // (F-16/F-17) a sync that read the old flags must not write them over this change: see `flagguard`
                 let _writing = flagguard::GUARD.writing(group.iter().map(|m| (acc.id.clone(), role.clone(), m.uid)));
-                mail::store_flag(s, &src, &uids, "\\Seen", action == "read")?;
+                mail::store_flag(s, &src, &expect, &uids, "\\Seen", action == "read").map_err(|e| refused(acc, e))?;
                 let c = lock(db);
                 for m in &group {
                     c.execute("UPDATE messages SET seen=?1 WHERE id=?2", params![(action == "read") as i64, m.id])
@@ -3056,7 +3341,7 @@ fn act_on_session<T: std::io::Read + std::io::Write>(
             }
             "star" | "unstar" => {
                 let _writing = flagguard::GUARD.writing(group.iter().map(|m| (acc.id.clone(), role.clone(), m.uid)));
-                mail::store_flag(s, &src, &uids, "\\Flagged", action == "star")?;
+                mail::store_flag(s, &src, &expect, &uids, "\\Flagged", action == "star").map_err(|e| refused(acc, e))?;
                 let c = lock(db);
                 for m in &group {
                     c.execute("UPDATE messages SET flagged=?1 WHERE id=?2", params![(action == "star") as i64, m.id])
@@ -3064,7 +3349,7 @@ fn act_on_session<T: std::io::Read + std::io::Write>(
                 }
             }
             "delete_forever" => {
-                mail::delete_forever(s, &src, &uids)?;
+                mail::delete_forever(s, &src, &expect, &uids).map_err(|e| refused(acc, e))?;
                 let c = lock(db);
                 for m in &group {
                     c.execute("DELETE FROM messages WHERE id=?1", [&m.id]).map_err(err)?;
@@ -3078,7 +3363,7 @@ fn act_on_session<T: std::io::Read + std::io::Write>(
                 if dst == "trash" && role == "trash" {
                     continue;
                 }
-                move_to_role(db, acc, s, &mut folders, &src, &uids, dst, create_missing)?;
+                move_to_role(db, acc, s, &mut folders, &src, &expect, &uids, dst, create_missing).map_err(|e| refused(acc, e))?;
                 let c = lock(db);
                 for m in &group {
                     // (W13.2) the copy in the target folder, which a later sync finds, is moved mail, not new mail
@@ -3112,6 +3397,7 @@ fn move_to_role<T: std::io::Read + std::io::Write>(
     s: &mut imap::Session<T>,
     folders: &mut Folders,
     src: &str,
+    expect: &mail::Expect,
     uids: &[u32],
     dst: &str,
     create_missing: bool,
@@ -3119,8 +3405,10 @@ fn move_to_role<T: std::io::Read + std::io::Write>(
     let tried = folders.map.get(dst).cloned();
     let mut first_error = None;
     if let Some(name) = &tried {
-        match mail::move_to(s, src, uids, name) {
+        match mail::move_to(s, src, expect, uids, name) {
             Ok(()) => return Ok(()),
+            // (W6.1) a folder that changed is not "a destination that failed": nothing is tried again
+            Err(e) if mail::is_folder_changed(&e) => return Err(e),
             Err(e) => first_error = Some(e),
         }
     }
@@ -3129,7 +3417,7 @@ fn move_to_role<T: std::io::Read + std::io::Write>(
         // the server has the folder we tried: the move failed for another reason
         return Err(first_error.unwrap_or_else(|| folder_missing(dst)));
     }
-    mail::move_to(s, src, uids, &name)
+    mail::move_to(s, src, expect, uids, &name)
 }
 
 /// The server folder for a role, looked up on the server: the saved list is replaced by a fresh LIST (once per action), and a standard
@@ -3151,7 +3439,8 @@ fn resolve_folder<T: std::io::Read + std::io::Write>(
     if let Some(n) = folders.map.get(dst).cloned() {
         return Ok((n, false));
     }
-    let create = if create_missing { folders.listing.as_ref().and_then(|l| mail::name_to_create(dst, l)) } else { None };
+    // (a move never makes the Drafts folder: that is for a draft that is saved, `resolve_drafts`)
+    let create = if create_missing && dst != "drafts" { folders.listing.as_ref().and_then(|l| mail::name_to_create(dst, l)) } else { None };
     let Some(create) = create else {
         return Err(if create_missing { folder_missing(dst) } else { format!("no '{dst}' folder on this account") });
     };
@@ -3970,18 +4259,19 @@ async fn inline_image(state: tauri::State<'_, AppState>, message_id: String, cid
 
 // ---------- send / drafts / outbox ----------
 
-fn send_now(db: &Db, d: &smtp::Draft) -> R<()> {
+/// Send a message and store its Sent copy. `on_accepted` is called with the bytes of the Sent copy at the moment the SMTP server has accepted the message (before the copy is
+/// stored): a queued message writes its marker then (`mark_accepted`, W6.5), so a process that ends in the seconds the copy takes never sends it a second time.
+fn send_now(db: &Db, d: &smtp::Draft, on_accepted: &dyn Fn(&[u8])) -> R<()> {
     let acc = db::get_account(&lock(db), &d.account_id)?;
     let sec = secret(db, &acc)?;
     let (raw, env) = finished_message(db, &acc, d)?;
     // the Sent copy is byte for byte the DATA the server received (smtp::as_data)
     let (wire, raw) = smtp::as_data(&raw);
     smtp::send_raw(&acc, &smtp_secret(db, &acc)?, &env, wire)?;
+    on_accepted(&raw);
     // the message is out: the one it answers or forwards gets its flag on its own server (in the background; a failure is a line in the log, never the send's)
     flag_original(db, d);
-    let h = acc.smtp_host.to_lowercase();
-    let auto_saves = h.contains("gmail") || h.contains("googlemail") || h.contains("office365") || h.contains("outlook");
-    if !auto_saves {
+    if !server_stores_sent_copy(&acc) {
         // best effort, after the send went through: a copy that cannot be stored is a line in the log, never an error of the send
         match mail::connect(&acc, &sec) {
             Ok(mut s) => {
@@ -3994,6 +4284,12 @@ fn send_now(db: &Db, d: &smtp::Draft) -> R<()> {
         }
     }
     Ok(())
+}
+
+/// Gmail and Outlook keep a copy of what is sent through their SMTP servers themselves: the app stores none.
+fn server_stores_sent_copy(acc: &Account) -> bool {
+    let h = acc.smtp_host.to_lowercase();
+    h.contains("gmail") || h.contains("googlemail") || h.contains("office365") || h.contains("outlook")
 }
 
 /// W2.22 CF-18: after an answer or a forward went out, the original gets `\Answered` / `$Forwarded` on the server it is on. Best effort and off the send's
@@ -4055,7 +4351,14 @@ fn flag_on_session<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s:
     let (role, uid) = original_found(found)?;
     let folder = fmap(db, &acc.id).get(&role).cloned().ok_or("the folder of the original is unknown")?;
     let flag = if a.kind == "forwarded" { "$Forwarded" } else { "\\Answered" };
-    mail::store_flag(s, &folder, &[uid], flag, true)
+    // (W6.1) the UID of the local row is only used under the numbering it was read under
+    let expect = {
+        let c = lock(db);
+        let mid: Option<String> = c.query_row("SELECT message_id FROM messages WHERE account_id=?1 AND folder=?2 AND uid=?3", params![acc.id, role, uid], |r| r.get(0)).ok().flatten();
+        let one = with_numbering(&c, vec![MsgRef { account_id: acc.id.clone(), role: role.clone(), uid, id: String::new(), state: None, mid }]);
+        expect_of(&one.iter().collect::<Vec<_>>())
+    };
+    mail::store_flag(s, &folder, &expect, &[uid], flag, true).map_err(|e| refused(acc, e))
 }
 
 /// Put the copy of a sent message into the account's Sent folder, with the F-14 rule for a missing folder: the saved name first; when
@@ -4170,6 +4473,26 @@ fn remember_draft_meeting(db: &Db, acc: &Account, raw: &[u8], d: &smtp::Draft) {
     }
 }
 
+/// (W6.5) The Message-ID a queued message goes out with is given when its row is made and kept in the payload: every build of the row, also the one after a crash, carries it.
+fn with_message_id(db: &Db, mut d: smtp::Draft) -> R<smtp::Draft> {
+    if d.message_id.is_none() {
+        let acc = db::get_account(&lock(db), &d.account_id)?;
+        d.message_id = Some(smtp::fresh_message_id(&acc)?);
+    }
+    Ok(d)
+}
+
+/// The SMTP server accepted the message of the outbox row `id` (W6.5): the row is marked, and keeps the bytes of the Sent copy, until the copy is stored and the row goes. A
+/// row with the marker is never sent again (`outbox_startup`); the next start stores its Sent copy (`finish_accepted`).
+fn mark_accepted<'a>(db: &'a Db, id: &'a str) -> impl Fn(&[u8]) + 'a {
+    move |sent: &[u8]| {
+        match lock(db).execute("UPDATE outbox SET smtp_done_at=?2, sent_raw=?3 WHERE id=?1", params![id, now(), sent]) {
+            Ok(_) => startup::line("send", &format!("{id}: accepted by the SMTP server")),
+            Err(e) => startup::line("send", &format!("{id}: accepted by the SMTP server, but the marker could not be written: {e}")),
+        }
+    }
+}
+
 /// Queue a finished message (MIME is built at send time from the stored draft) for `send_at`.
 fn insert_outbox(db: &Db, draft: &smtp::Draft, send_at: i64) -> R<String> {
     let id = uuid::Uuid::new_v4().to_string();
@@ -4209,6 +4532,7 @@ async fn outbox_hold(app: tauri::AppHandle, state: tauri::State<'_, AppState>, d
     }
     blocking(move || {
         let acc = db::get_account(&lock(&db), &draft.account_id)?;
+        let draft = with_message_id(&db, draft)?;
         let draft = pgpstore::seal_for_outbox(&db, &acc, &draft)?;
         insert_outbox_hold(&db, &draft, due_at, replaces.as_deref())
     })
@@ -4234,7 +4558,7 @@ async fn outbox_hold_send(app: tauri::AppHandle, state: tauri::State<'_, AppStat
     blocking(move || {
         let (payload, _attempts) = claim_outbox(&db, &id, &["undo"])?.ok_or("OUTBOX_GONE: This message is no longer waiting to be sent.")?;
         let replaces: Option<String> = lock(&db).query_row("SELECT replaces FROM outbox WHERE id=?1", [&id], |r| r.get(0)).ok().flatten();
-        let res = serde_json::from_str::<smtp::Draft>(&payload).map_err(err).and_then(|d| send_now(&db, &d));
+        let res = serde_json::from_str::<smtp::Draft>(&payload).map_err(err).and_then(|d| send_now(&db, &d, &mark_accepted(&db, &id)));
         match res {
             Ok(()) => {
                 let _ = lock(&db).execute("DELETE FROM outbox WHERE id=?1", [&id]);
@@ -4285,6 +4609,7 @@ async fn send_message(
         let id = blocking(move || {
             // encrypt / sign now (decision: the key is only needed at schedule time) and keep just the result
             let acc = db::get_account(&lock(&db), &draft.account_id)?;
+            let draft = with_message_id(&db, draft)?;
             let draft = pgpstore::seal_for_outbox(&db, &acc, &draft)?;
             let id = insert_outbox(&db, &draft, at)?;
             drop_replaced_draft(&db, replaces);
@@ -4295,7 +4620,7 @@ async fn send_message(
         return Ok(format!("scheduled:{id}"));
     }
     blocking(move || {
-        if let Err(e) = send_now(&db, &draft) {
+        if let Err(e) = send_now(&db, &draft, &|_| ()) {
             // the invitation never went out: do not leave its event behind (Compose reopens and can send again)
             if draft.meeting.is_some() {
                 if let Ok(p) = serde_json::to_string(&draft) {
@@ -4378,7 +4703,6 @@ async fn save_draft(state: tauri::State<'_, AppState>, draft: smtp::Draft, repla
 /// The part of `save_draft` that talks to the server: append the draft, keep the version that was opened (the first save of an opened draft,
 /// see draftmail.rs "The version of a draft as it was opened"), and remove the draft this one replaces.
 fn save_draft_on<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s: &mut imap::Session<T>, raw: &[u8], replaces: Option<String>) -> R<SavedDraft> {
-    let folder = folder_for(db, acc, "drafts")?;
     let target = replaces.as_deref().map(draftmail::Target::parse);
     // read before the append: the opened message is the one this save is about to replace. The bytes remembered when the draft was opened come first (the
     // local row may be gone by now); the row is the fallback.
@@ -4401,7 +4725,7 @@ fn save_draft_on<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s: &
     };
     // the draft being replaced is not in the local store any more (a sync removed it, another save replaced it): it is found on the server by its own Message-ID
     let opened_row_gone = opened_id.as_deref().is_some_and(|id| !draftmail::local_draft_exists(db, &acc.id, id));
-    mail::append(s, &folder, raw, true)?;
+    let folder = append_draft(db, acc, s, raw)?;
     let draft_ref = draftmail::draft_ref(&acc.id, raw);
     if let Some(t) = replaces {
         // never remove the draft that was just appended (a reference to its own Message-ID)
@@ -4417,8 +4741,17 @@ fn save_draft_on<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s: &
                 // the opened draft by its local row (its UID), then ALWAYS by its own Message-ID (from the bytes that were remembered or read): no local row, a UID that
                 // no longer fits (UIDVALIDITY, a move) or a removal that did not take leaves the opened version on the server next to the saved copy (Mac QA D-016/D-020)
                 Some(target @ draftmail::Target::Local(_)) => {
-                    let by_uid = if opened_row_gone { Ok(()) } else { draftmail::drop_on_session(db, acc, s, target) };
-                    let by_mid = match opened.as_deref().and_then(draftmail::message_id_of).filter(|m| Some(format!("mid:{}|{m}", acc.id)) != draft_ref) {
+                    // (W6.1) the row's UID is used only when the row is the message that was opened: after the folder was read again the same id can name another draft
+                    let opened_mid = opened.as_deref().and_then(draftmail::message_id_of);
+                    let row_is_other = match (&opened_mid, &opened_id) {
+                        (Some(om), Some(id)) => draftmail::local_message_id(db, &acc.id, id).is_some_and(|rm| &rm != om),
+                        _ => false,
+                    };
+                    if row_is_other {
+                        startup::line("draft", &format!("account {}: the row of the opened draft is another message now: it is removed by its Message-ID only", acc.id));
+                    }
+                    let by_uid = if opened_row_gone || row_is_other { Ok(()) } else { draftmail::drop_on_session(db, acc, s, target) };
+                    let by_mid = match opened_mid.filter(|m| Some(format!("mid:{}|{m}", acc.id)) != draft_ref) {
                         Some(mid) => draftmail::delete_by_message_id(s, &folder, &mid).map(|_| ()),
                         None => Ok(()),
                     };
@@ -4669,13 +5002,18 @@ fn save_recovered(db: &Db, id: &str, draft: &mut smtp::Draft, replaces: Option<S
         return Err("an encrypted message is not saved from a snapshot".into());
     }
     let acc = db::get_account(&lock(db), &draft.account_id)?;
-    let folder = folder_for(db, &acc, "drafts")?;
     let sec = secret(db, &acc)?;
     let mut s = mail::connect(&acc, &sec)?;
     let done: R<RecoveredDraft> = (|| {
-        let found = draftmail::find_by_recovery_id(&mut s, &folder, id)?;
+        // (W6.4) a server without Drafts has no draft of this snapshot; the folder is made only when the draft is written below
+        let folder = find_drafts(db, &acc, &mut s)?;
+        let found = match &folder {
+            Some(f) => draftmail::find_by_recovery_id(&mut s, f, id)?,
+            None => vec![],
+        };
         match recover::verdict(&found, id, snap.saved_at) {
             recover::Verdict::Covered(uid) => {
+                let folder = folder.ok_or("no Drafts folder")?;
                 let raw = mail::fetch_raw(&mut s, &folder, uid)?;
                 Ok(RecoveredDraft { status: "covered", thread_id: draft_thread_id(&acc.id, &raw), draft_ref: draftmail::draft_ref(&acc.id, &raw) })
             }
@@ -4683,11 +5021,11 @@ fn save_recovered(db: &Db, id: &str, draft: &mut smtp::Draft, replaces: Option<S
                 ensure_draft_has_content(draft)?; // (a snapshot of recipients only stays on this computer, W13.5)
                 draft.recovery_id = Some(id.to_string());
                 let raw = draft_bytes(db, &acc, draft)?;
-                mail::append(&mut s, &folder, &raw, true)?;
+                let folder = append_draft(db, &acc, &mut s, &raw)?;
                 remember_draft_meeting(db, &acc, &raw, draft);
                 // the draft is on the server: what it replaces goes (a failure here is only logged, like Save draft). The older drafts of this
                 // very message are removed by the uids that were checked against their headers, on this session.
-                if let Err(e) = mail::delete_forever(&mut s, &folder, &replace) {
+                if let Err(e) = mail::delete_forever(&mut s, &folder, &mail::Expect::Verified, &replace) {
                     startup::line("draft", &format!("account {}: an older draft of this message could not be removed: {e}", acc.id));
                 }
                 if let Some(t) = replaces {
@@ -4811,17 +5149,57 @@ fn cancel_outbox(app: tauri::AppHandle, state: tauri::State<AppState>, id: Strin
     Ok(())
 }
 
-/// Counts for the quit guard: everything that will not go out unless the app keeps running.
+/// Counts for the quit question: the scheduled messages that WAIT - a time still to come, a message being edited (`held`), one that waits for the person's decision (`overdue`).
+/// What is due now goes out in the quit itself (`send_due_at_quit`) and a row being sent is finished by it, so neither is counted (W6.12). `next` = the earliest time still to come.
 fn outbox_counts(db: &Db) -> (i64, Option<i64>) {
+    outbox_counts_at(db, now())
+}
+
+fn outbox_counts_at(db: &Db, at: i64) -> (i64, Option<i64>) {
     let c = lock(db);
     let count = c
-        .query_row("SELECT COUNT(*) FROM outbox WHERE status IN ('pending','held','sending','overdue') AND undo!=1", [], |r| r.get(0))
+        .query_row("SELECT COUNT(*) FROM outbox WHERE ((status='pending' AND send_at>?1) OR status IN ('held','overdue')) AND undo!=1", [at], |r| r.get(0))
         .unwrap_or(0);
     let next = c
-        .query_row("SELECT MIN(send_at) FROM outbox WHERE status='pending'", [], |r| r.get::<_, Option<i64>>(0))
+        .query_row("SELECT MIN(send_at) FROM outbox WHERE status='pending' AND send_at>?1 AND undo!=1", [at], |r| r.get::<_, Option<i64>>(0))
         .ok()
         .flatten();
     (count, next)
+}
+
+/// How many scheduled messages are due now: `pending`, their time is here, not in their Undo time (a quit sends them, W6.12).
+fn outbox_due_count(db: &Db, at: i64) -> i64 {
+    lock(db).query_row("SELECT COUNT(*) FROM outbox WHERE status='pending' AND send_at<=?1 AND undo!=1", [at], |r| r.get(0)).unwrap_or(0)
+}
+
+/// W6.12: the scheduled messages whose time has come are sent before the app ends, one after the other, for at most `budget` in all (a row not reached, or one that fails, stays
+/// `pending` for the next start; `overdue` rows wait for the person's decision and are not touched). A row the worker is sending right now is waited for first. `send` sends one
+/// claimed row (the app's: `deliver`). Returns (rows sent, rows left behind that were due).
+fn send_due_at_quit(db: &Db, at: i64, budget: std::time::Duration, send: &mut dyn FnMut(&str, &str, i64, i64) -> R<()>) -> (usize, usize) {
+    let t0 = std::time::Instant::now();
+    // the worker may be in the middle of a row: it finishes it (its marker), the quit waits within the budget
+    while t0.elapsed() < budget && lock(db).query_row("SELECT COUNT(*) FROM outbox WHERE status='sending' AND undo!=1", [], |r| r.get::<_, i64>(0)).unwrap_or(0) > 0 {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let due: Vec<(String, i64)> = {
+        let c = lock(db);
+        let Ok(mut st) = c.prepare("SELECT id,send_at FROM outbox WHERE status='pending' AND send_at<=?1 AND undo!=1 ORDER BY send_at") else { return (0, 0) };
+        let Ok(rows) = st.query_map([at], |r| Ok((r.get(0)?, r.get(1)?))) else { return (0, 0) };
+        rows.filter_map(|r| r.ok()).collect()
+    };
+    let (mut sent, mut left) = (0, 0);
+    for (id, due_at) in due {
+        if t0.elapsed() >= budget {
+            left += 1;
+            continue;
+        }
+        let Ok(Some((payload, attempts))) = claim_outbox(db, &id, &["pending"]) else { continue };
+        match send(&id, &payload, attempts, due_at) {
+            Ok(()) => sent += 1,
+            Err(_) => left += 1,
+        }
+    }
+    (sent, left)
 }
 
 #[derive(Serialize)]
@@ -4919,6 +5297,7 @@ async fn outbox_update(app: tauri::AppHandle, state: tauri::State<'_, AppState>,
         };
         // encrypting / signing a message with big pictures takes seconds: not under the lock (the folder list waits for it on the main thread, D-025).
         // The sender could claim the row meanwhile; the UPDATE below says so (`status!='sending'`), as it always did.
+        let draft = with_message_id(&db, draft)?;
         let sealed = match pgpstore::seal_for_outbox(&db, &acc, &draft) {
             Ok(d) => d,
             Err(e) => {
@@ -4996,9 +5375,9 @@ async fn outbox_to_draft(app: tauri::AppHandle, state: tauri::State<'_, AppState
         let sec = secret(&db, &acc)?;
         let raw = draft_bytes(&db, &acc, &d)?;
         let mut s = mail::connect(&acc, &sec)?;
-        let folder = folder_for(&db, &acc, "drafts")?;
-        mail::append(&mut s, &folder, &raw, true)?;
+        let appended = append_draft(&db, &acc, &mut s, &raw);
         let _ = s.logout();
+        appended?;
         remember_draft_meeting(&db, &acc, &raw, &d);
         let c = lock(&db);
         c.execute("DELETE FROM outbox WHERE id=?1", [&id]).map_err(err)?;
@@ -5030,7 +5409,7 @@ fn retry_enabled(db: &Db) -> bool {
 
 /// Send a claimed item and record the outcome: delete on success, retry later or mark failed on error.
 fn deliver(app: &tauri::AppHandle, db: &Db, id: &str, payload: &str, attempts: i64, late: &mut i64, left: &mut i64, due_at: i64) -> R<()> {
-    let res = serde_json::from_str::<smtp::Draft>(payload).map_err(err).and_then(|d| send_now(db, &d));
+    let res = serde_json::from_str::<smtp::Draft>(payload).map_err(err).and_then(|d| send_now(db, &d, &mark_accepted(db, id)));
     // 2 = left behind by an earlier run (REQ-49 d): told apart from a scheduled message that came due while the app was closed
     let (undo, replaces): (i64, Option<String>) =
         lock(db).query_row("SELECT undo, replaces FROM outbox WHERE id=?1", [id], |r| Ok((r.get(0)?, r.get(1)?))).unwrap_or((0, None));
@@ -5080,9 +5459,11 @@ async fn outbox_send_now(app: tauri::AppHandle, state: tauri::State<'_, AppState
 /// app was closed waits as Overdue instead of going out without a word.
 fn outbox_startup(db: &Db) {
     let c = lock(db);
-    let _ = c.execute("UPDATE outbox SET status='pending' WHERE status='sending'", []);
+    // (W6.5) a row the SMTP server accepted before the last run ended (`smtp_done_at`) is NOT sent again, whatever its state: `finish_accepted` stores its Sent copy. A row that
+    // was in the middle of the SMTP exchange with no answer is sent again (losing a message is worse than a second one that carries the same Message-ID).
+    let _ = c.execute("UPDATE outbox SET status='pending' WHERE status='sending' AND smtp_done_at IS NULL", []);
     // messages that were in their Undo time when the last run ended (REQ-49 d): they go out like a scheduled message that came due
-    let _ = c.execute("UPDATE outbox SET status='pending', undo=2 WHERE undo=1", []);
+    let _ = c.execute("UPDATE outbox SET status='pending', undo=2 WHERE undo=1 AND smtp_done_at IS NULL", []);
     if setting_in(&c, "scheduled_catchup").as_deref() == Some("ask") {
         let _ = c.execute("UPDATE outbox SET status='overdue' WHERE status='pending' AND send_at < ?1", [now() - schedule::GRACE_SECS]);
     }
@@ -5090,13 +5471,68 @@ fn outbox_startup(db: &Db) {
     let _ = c.execute("UPDATE outbox SET undo=0 WHERE undo=2 AND status='overdue'", []);
 }
 
+/// (W6.5) The rows the SMTP server accepted before the last run ended: they are not sent again; their Sent copy is stored from the bytes the row kept (best effort, the rule of
+/// `store_sent_copy`), the draft the message was written from goes, and the row goes. `store` stores a copy (a test hands in its own). Returns how many rows were finished.
+fn finish_accepted(db: &Db, store: &mut dyn FnMut(&Account, &[u8]) -> R<()>) -> i64 {
+    type Row = (String, String, Option<Vec<u8>>, Option<String>);
+    let rows: Vec<Row> = {
+        let c = lock(db);
+        let Ok(mut st) = c.prepare("SELECT id,payload,sent_raw,replaces FROM outbox WHERE smtp_done_at IS NOT NULL") else { return 0 };
+        let Ok(found) = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))) else { return 0 };
+        found.filter_map(|r| r.ok()).collect()
+    };
+    let mut n = 0;
+    for (id, payload, raw, replaces) in rows {
+        startup::line("send", &format!("{id} was accepted before the app ended: not sent again"));
+        let acc = serde_json::from_str::<smtp::Draft>(&payload).ok().and_then(|d| db::get_account(&lock(db), &d.account_id).ok());
+        if let (Some(acc), Some(raw)) = (&acc, &raw) {
+            if !server_stores_sent_copy(acc) {
+                if let Err(e) = store(acc, raw) {
+                    startup::line("send", &format!("account {}: the message {id} was sent before the app ended, but no copy was stored in a Sent folder: {e}", acc.id));
+                }
+            }
+        }
+        let _ = lock(db).execute("DELETE FROM outbox WHERE id=?1", [&id]);
+        drop_replaced_draft(db, replaces);
+        n += 1;
+    }
+    n
+}
+
+/// `finish_accepted` for the app: the copy goes into the Sent folder over a connection of its own.
+fn store_accepted_copy(db: &Db, acc: &Account, raw: &[u8]) -> R<()> {
+    let sec = secret(db, acc)?;
+    let mut s = mail::connect(acc, &sec)?;
+    let done = store_sent_copy(db, acc, &mut s, raw);
+    let _ = s.logout();
+    done
+}
+
 fn setting_in(c: &Connection, key: &str) -> Option<String> {
     db::get_setting(c, key)
 }
 
+/// The pause between two rounds of the outbox worker: 15 s. A debug build can shorten or lengthen it (`HEYLOOK_TEST_OUTBOX_TICK_S`, 1 to 600): QA of a scheduled message that comes due
+/// at a quit before the worker has seen it (1.0.7 W6.12). Never in a release build.
+fn outbox_tick() -> std::time::Duration {
+    let secs = if cfg!(debug_assertions) { std::env::var("HEYLOOK_TEST_OUTBOX_TICK_S").ok().and_then(|v| v.trim().parse::<u64>().ok()).map(|s| s.clamp(1, 600)) } else { None };
+    std::time::Duration::from_secs(secs.unwrap_or(15))
+}
+
+/// The worker takes no new row once a quit has started (W6.12): what is due goes out in the quit's own step, what is not waits for the next start.
+fn worker_may_claim() -> bool {
+    !QUIT_BUSY.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 fn outbox_worker(app: tauri::AppHandle, db: Db) {
+    let mut earlier_run_done = false;
     loop {
-        std::thread::sleep(std::time::Duration::from_secs(15));
+        std::thread::sleep(outbox_tick());
+        let (mut late, mut left) = (0, 0);
+        if !earlier_run_done {
+            earlier_run_done = true;
+            left += finish_accepted(&db, &mut |acc, raw| store_accepted_copy(&db, acc, raw));
+        }
         let due: Vec<(String, i64)> = {
             let c = lock(&db);
             let Ok(mut st) = c.prepare("SELECT id,send_at FROM outbox WHERE status='pending' AND send_at<=?1 ORDER BY send_at") else {
@@ -5105,8 +5541,10 @@ fn outbox_worker(app: tauri::AppHandle, db: Db) {
             let Ok(rows) = st.query_map([now()], |r| Ok((r.get(0)?, r.get(1)?))) else { continue };
             rows.filter_map(|r| r.ok()).collect()
         };
-        let (mut late, mut left) = (0, 0);
         for (id, due_at) in due {
+            if !worker_may_claim() {
+                break;
+            }
             let Ok(Some((payload, attempts))) = claim_outbox(&db, &id, &["pending"]) else { continue };
             let _ = deliver(&app, &db, &id, &payload, attempts, &mut late, &mut left, due_at);
         }
@@ -5148,7 +5586,42 @@ fn flush_event(label: &str) -> &'static str {
 /// What the request carries: nothing for the main page; a secondary window is told why it is asked (`quit` or `update`), because the question
 /// it may have to put to the person says "quit" or "restart".
 fn flush_payload(label: &str, why: &str) -> serde_json::Value {
-    if label == "main" { serde_json::Value::Null } else { serde_json::json!({ "why": why }) }
+    // the main page is also told how many scheduled messages are due now: the backend sends them after the page's part, and the toast "Sending your messages before Hey Look! quits…"
+    // counts them with the messages in their Undo time (W6.12)
+    if label == "main" { serde_json::json!({ "due": QUIT_DUE.load(std::sync::atomic::Ordering::SeqCst) }) } else { serde_json::json!({ "why": why }) }
+}
+
+/// The scheduled messages that were due when the quit began (`flush_payload`).
+static QUIT_DUE: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+
+/// How long a quit spends sending the scheduled messages that are due (W6.12).
+const QUIT_DUE_BUDGET: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// W6.12: the scheduled messages whose time has come go out before the app ends, a message that waits for a time to come stays. Runs after the pages' part of the quit and before the
+/// exit. The outbox worker takes nothing new from the moment the quit began (`worker_may_claim`). Logs the two numbers; a row not reached in the budget, or one that fails, stays for
+/// the next start.
+fn send_due_before_exit(app: &tauri::AppHandle) {
+    let db = app.state::<AppState>().db.clone();
+    let at = now();
+    let due = outbox_due_count(&db, at);
+    let (waiting, _) = outbox_counts_at(&db, at);
+    startup::stage(Some(app), &format!("quit: {due} scheduled message(s) due now are sent before the app ends; {waiting} wait for the next start"));
+    if due == 0 {
+        return;
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    let (app2, db2) = (app.clone(), db.clone());
+    std::thread::spawn(move || {
+        let r = send_due_at_quit(&db2, at, QUIT_DUE_BUDGET, &mut |id, payload, attempts, due_at| {
+            let (mut late, mut left) = (0, 0);
+            deliver(&app2, &db2, id, payload, attempts, &mut late, &mut left, due_at)
+        });
+        let _ = tx.send(r);
+    });
+    match rx.recv_timeout(QUIT_DUE_BUDGET + std::time::Duration::from_secs(2)) {
+        Ok((sent, left)) => startup::stage(Some(app), &format!("quit: {sent} scheduled message(s) sent, {left} left for the next start")),
+        Err(_) => startup::stage(Some(app), "quit: a scheduled message is still being sent after the budget: the quit goes on"),
+    }
 }
 
 /// Test seam for QA (`HEYLOOK_TEST_QUIT_PAGE=silent`): the page is not asked, so for the quit it is a page that never answers (a hung or dead
@@ -5224,8 +5697,9 @@ fn finish_sends_then(app: &tauri::AppHandle, then: impl FnOnce(&tauri::AppHandle
         return;
     }
     let targets = flush_targets(app);
+    QUIT_DUE.store(outbox_due_count(&app.state::<AppState>().db, now()), std::sync::atomic::Ordering::SeqCst);
     if !targets.is_empty() {
-        startup::stage(Some(app), &format!("quit: asking the page to save its draft and send what is waiting (window visible: {}; windows asked: {})", window_shown(app), targets.join(", ")));
+        startup::stage(Some(app), &format!("quit: asking the page to save its draft and send the messages in their Undo time (window visible: {}; windows asked: {})", window_shown(app), targets.join(", ")));
     }
     let app = app.clone();
     std::thread::spawn(move || {
@@ -5239,6 +5713,7 @@ fn finish_sends_then(app: &tauri::AppHandle, then: impl FnOnce(&tauri::AppHandle
             startup::stage(Some(&app), &verdict.text(&limits));
         }
         if matches!(verdict, quitwait::Verdict::Go(_)) {
+            send_due_before_exit(&app);
             then(&app);
         }
         QUIT_BUSY.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -6172,6 +6647,10 @@ pub fn run() {
             queue_action,
             cancel_action,
             load_older,
+            prune_to_limit,
+            serversearch::server_search,
+            serversearch::server_search_cancel,
+            serversearch::server_open,
             attachment_data,
             set_secret,
             has_secret,
@@ -6489,14 +6968,15 @@ mod quit_tests {
         assert!(ask.contains("quitwait::drive(") && fin.contains("quitwait::Limits::default()"), "{ask}");
         assert!(fin.contains("quitwait::run_steps(&quitwait::steps(&targets)") && fin.contains("ask_windows(&app, labels, limits, \"quit\")"), "{fin}");
         assert!(!fin.contains("USER_DIALOG") && !lib.contains("static USER_DIALOG"), "a flag that stops the clock lets a quit hang for ever");
-        assert!(fin.contains("quit: asking the page to save its draft and send what is waiting"));
+        assert!(fin.contains("quit: asking the page to save its draft and send the messages in their Undo time"));
+        assert!(lib.contains("quit: {due} scheduled message(s) due now are sent before the app ends; {waiting} wait for the next start"));
         // which windows must answer is decided in one place
         assert!(fin.contains("flush_targets(app)") && lib.contains("fn flush_targets(app: &tauri::AppHandle) -> Vec<String>"));
         assert!(ask.contains("test_silent_page()") && lib.contains("HEYLOOK_TEST_QUIT_PAGE"));
         // every window gets a wait of its own (a thread each), so one person's question does not use up another window's time
         assert!(ask.contains("std::thread::scope") && ask.contains("scope.spawn"), "{ask}");
         // every "go on" runs the rest of the sequence (queued actions, exit); only the person's "keep the window" does not
-        assert!(fin.contains("if matches!(verdict, quitwait::Verdict::Go(_)) {\n            then(&app);"), "{fin}");
+        assert!(fin.contains("if matches!(verdict, quitwait::Verdict::Go(_)) {\n            send_due_before_exit(&app);\n            then(&app);"), "{fin}");
         let q = crate::test_guard::non_test_code(include_str!("quitwait.rs"));
         assert!(q.contains("FIRST_SIGN_WAIT: Duration = Duration::from_secs(8)") && q.contains("DIALOG_WAIT: Duration = Duration::from_secs(60)"));
         assert!(q.contains("the page did not answer in {} s, quitting"));
@@ -6582,7 +7062,7 @@ mod quit_tests {
         }
         let main_only = [
             "confirm-quit", "tray-compose", "open-thread", "notify-reply", "app-shown", "signin-state", "backfill-progress", "action-verify-failed",
-            "action-failed", "moves-committed", "outbox-leftover", "outbox-catchup", "filter-failed", "event-reminder", "download-dir-fallback", "frame-caption",
+            "action-failed", "moves-committed", "mail-pruned", "outbox-leftover", "outbox-catchup", "filter-failed", "event-reminder", "download-dir-fallback", "frame-caption",
         ];
         for ev in main_only {
             assert!(!code.contains(&format!("emit(\"{ev}\"")), "{ev} is broadcast");
@@ -6591,7 +7071,7 @@ mod quit_tests {
         // the flush request goes to the window that is asked (main: flush-sends, the others: popout-flush)
         assert!(code.contains("app.emit_to(label.as_str(), flush_event(label), flush_payload(label, why))"));
         // the main page gets no payload; a secondary window is told whether the app quits or restarts for an update
-        assert_eq!(flush_payload("main", "quit"), serde_json::Value::Null);
+        assert!(flush_payload("main", "quit").get("due").is_some(), "the main page is told how many scheduled messages are due");
         assert_eq!(flush_payload("compose-2", "update"), serde_json::json!({ "why": "update" }));
         // these are for every window: the data they show changed
         for ev in ["mail-synced", "outbox-changed", "calendar-changed", "idle-state"] {
@@ -6691,22 +7171,6 @@ mod quit_tests {
         assert!(l["junk"]);
         let spam = folder_infos(&lock(&db)).unwrap().into_iter().find(|f| f.key == "junk").unwrap();
         assert_eq!(spam.name, "Spam");
-    }
-
-    /// QA BUG-M4 / M8: a folder the server lacks is named in the error; one it has is used.
-    #[test]
-    fn a_missing_folder_is_named_in_the_error() {
-        let db = test_db("folders");
-        let acc = Account {
-            id: "a1".into(), email: "me@example.com".into(), display_name: "Me".into(), imap_host: "h".into(), imap_port: 993, imap_ssl: true,
-            smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
-            smtp_username: String::new(), tls_insecure: false, reply_to: String::new(),
-        };
-        db::set_setting(&lock(&db), "fmap:a1", r#"{"inbox":"INBOX","drafts":"Entwürfe"}"#).unwrap();
-        assert_eq!(folder_for(&db, &acc, "drafts").unwrap(), "Entwürfe");
-        assert_eq!(folder_for(&db, &acc, "archive").unwrap_err(), "no 'archive' folder on this account");
-        let acc2 = Account { id: "a2".into(), ..acc };
-        assert_eq!(folder_for(&db, &acc2, "drafts").unwrap_err(), "this account has no Drafts folder");
     }
 
     /// QA BUG-M6: every way out of the app has to pass the flush. The window can no longer be reached once it is destroyed, so the
@@ -6935,7 +7399,7 @@ mod capability_tests {
             "quit_now", "quit_cancelled", "sends_flushed", "quit_page_alive", "quit_dialog", "frontend_ready", "page_state", "page_pong", "show_window", "set_mail_available", "take_tray_compose",
             // calendar connections, sync triggers, mail actions that belong to the main page's intent layer
             "calendar_connect", "calendar_disconnect", "calendar_sources", "calendar_set_sync", "calendar_sync_now", "sync_account", "refresh_badge", "thread_action",
-            "queue_action", "cancel_action", "sender_action", "load_older", "idle_states", "frame_info", "frame_caption_rect", "frame_system_menu", "test_notification", "notify_permission", "notify_caps", "open_notification_settings", "play_notify_sound", "create_mail_folder",
+            "queue_action", "cancel_action", "sender_action", "load_older", "prune_to_limit", "server_search", "server_search_cancel", "server_open", "idle_states", "frame_info", "frame_caption_rect", "frame_system_menu", "test_notification", "notify_permission", "notify_caps", "open_notification_settings", "play_notify_sound", "create_mail_folder",
             // the caption colours are the main page's to hand over (W4.3): a window never sets its own
             "window_caption_colors",
             // a secondary window asks the main page (popout_request); only the main page answers
@@ -6968,7 +7432,7 @@ mod capability_tests {
         // what no secondary window ever gets (REQ-S2 and the quit, update and frame commands)
         let never = [
             "quit_now", "quit_cancelled", "sends_flushed", "quit_page_alive", "quit_dialog", "frontend_ready", "page_state", "page_pong", "popout_reply", "popout_save_all", "update_install",
-            "thread_action", "queue_action", "cancel_action", "sender_action", "prepare_action", "load_older", "frame_info", "frame_caption_rect", "frame_system_menu", "show_window", "set_mail_available",
+            "thread_action", "queue_action", "cancel_action", "sender_action", "prepare_action", "load_older", "prune_to_limit", "server_search", "server_search_cancel", "server_open", "frame_info", "frame_caption_rect", "frame_system_menu", "show_window", "set_mail_available",
             "take_tray_compose", "idle_states", "window_caption_colors", "update_startup_state", "update_startup_ack", "refresh_badge", "sync_account", "popout_show", "popout_park", "popout_set_key",
             "drag_begin", "drag_take", "send_message", "save_draft", "discard_draft", "recovery_save", "recovery_clear", "outbox_hold", "outbox_hold_send", "outbox_update", "outbox_reschedule", "create_mail_folder",
         ];
@@ -7300,8 +7764,8 @@ mod backfill_tests {
     }
 
     /// A server holding uids 1..=`total`: the `count` highest below `below`, like `mail::fetch_older`.
-    fn server(total: u32) -> impl FnMut(&Account, &str, u32, usize) -> R<(Vec<mail::Parsed>, bool)> {
-        move |_, _, below, count| {
+    fn server(total: u32) -> impl FnMut(&Account, &str, Option<u32>, u32, usize) -> R<(Vec<mail::Parsed>, bool)> {
+        move |_, _, _, below, count| {
             let (pick, exhausted) = mail::pick_older((1..=total).filter(|u| *u < below), below, count);
             Ok((pick.into_iter().map(parsed).collect(), exhausted))
         }
@@ -7310,7 +7774,7 @@ mod backfill_tests {
     /// (role, have, target, done) of the events a run emitted.
     type Ev = (String, u64, u64, bool);
 
-    fn run(db: &Db, fetch: &mut dyn FnMut(&Account, &str, u32, usize) -> R<(Vec<mail::Parsed>, bool)>, between: &mut dyn FnMut(&Db, usize)) -> (R<()>, Vec<Ev>) {
+    fn run(db: &Db, fetch: &mut dyn FnMut(&Account, &str, Option<u32>, u32, usize) -> R<(Vec<mail::Parsed>, bool)>, between: &mut dyn FnMut(&Db, usize)) -> (R<()>, Vec<Ev>) {
         let mut events: Vec<Ev> = vec![];
         let r = backfill_loop(db, ACC, std::time::Duration::ZERO, fetch, &mut |ev| {
             assert_eq!(ev["accountId"], ACC);
@@ -7384,9 +7848,9 @@ mod backfill_tests {
         let mut calls = 0;
         let (r, ev) = run(
             &db,
-            &mut |a, n, b, c| {
+            &mut |a, n, e, b, c| {
                 calls += 1;
-                if calls == 1 { good(a, n, b, c) } else { Err("connection reset".to_string()) }
+                if calls == 1 { good(a, n, e, b, c) } else { Err("connection reset".to_string()) }
             },
             &mut |_, _| {},
         );
@@ -7398,7 +7862,7 @@ mod backfill_tests {
         let db = first_sync(120, 50);
         let mut good = server(120);
         let mut calls = 0;
-        let (r, ev) = run(&db, &mut |a, n, b, c| { calls += 1; if calls == 1 { Err("hiccup".to_string()) } else { good(a, n, b, c) } }, &mut |_, _| {});
+        let (r, ev) = run(&db, &mut |a, n, e, b, c| { calls += 1; if calls == 1 { Err("hiccup".to_string()) } else { good(a, n, e, b, c) } }, &mut |_, _| {});
         assert!(r.is_ok());
         assert_eq!(ev.last(), Some(&("inbox".into(), 120, 500, true)));
     }
@@ -7822,7 +8286,7 @@ mod importance_tests {
         let d = smtp::Draft {
             account_id: "a1".into(), to: vec!["ann@example.com".into()], cc: vec![], bcc: vec![], subject: "Ship it".into(), html: "<p>x</p>".into(), text: "x".into(),
             in_reply_to: None, references: vec![], attachments: vec![], inline: vec![], security: None, prebuilt: None, meeting: None, calendar: None,
-            confidential: false, importance: High, recovery_id: None, meeting_form: None, answers: None,
+            confidential: false, importance: High, recovery_id: None, meeting_form: None, answers: None, message_id: None,
         };
         let sent = smtp::build(&acc, &d).unwrap().formatted();
         let p = mail::parse(1, &sent, true, false, 0).unwrap();
@@ -7843,7 +8307,7 @@ mod importance_tests {
         let d = smtp::Draft {
             account_id: "a1".into(), to: vec!["ann@example.com".into()], cc: vec![], bcc: vec![], subject: "Hi".into(), html: "<p>x</p>".into(), text: "x".into(),
             in_reply_to: None, references: vec![], attachments: vec![], inline: vec![], security: None, prebuilt: None, meeting: None, calendar: None,
-            confidential: false, importance: Default::default(), recovery_id: None, meeting_form: None, answers: None,
+            confidential: false, importance: Default::default(), recovery_id: None, meeting_form: None, answers: None, message_id: None,
         };
         let reply_to = |c: &Connection| {
             let acc = db::get_account(c, "a1").unwrap();
@@ -8084,6 +8548,14 @@ mod fakeimap;
 #[cfg(test)]
 mod foldermove_tests;
 #[cfg(test)]
+mod uidvalidity_tests;
+#[cfg(test)]
+mod drafts_tests;
+#[cfg(test)]
+mod sendonce_tests;
+#[cfg(test)]
+mod limit_tests;
+#[cfg(test)]
 mod readrace_tests;
 #[cfg(test)]
 mod testbridge_guard;
@@ -8098,7 +8570,7 @@ mod empty_draft_tests {
         smtp::Draft {
             account_id: "a1".into(), to: vec!["ann@example.com".into()], cc: vec![], bcc: vec![], subject: String::new(), html: String::new(), text: String::new(),
             in_reply_to: None, references: vec![], attachments: vec![], inline: vec![], security: None, prebuilt: None, meeting: None, calendar: None,
-            confidential: false, importance: importance::Importance::Normal, recovery_id: None, meeting_form: None, answers: None,
+            confidential: false, importance: importance::Importance::Normal, recovery_id: None, meeting_form: None, answers: None, message_id: None,
         }
     }
 

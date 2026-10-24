@@ -149,6 +149,8 @@ export default defineLocale<typeof ns.en>({
   "reading.body.frameTitleSubject": "邮件正文：{subject}",
   "reading.body.linkWarnTitle": "此链接可能不会指向它显示的地址",
   "reading.body.linkWarnBody": "它显示为“{text}”，但实际打开的是{target}。仍要打开吗？",
+  "reading.body.linkWarnLookalike": "它打开的是{target}，该地址使用了外观与普通字母相似的其他文字字符。仍要打开吗？",
+  "reading.body.linkWarnHidden": "它隐藏了真实地址，实际打开的是{target}。仍要打开吗？",
   "reading.body.linkWarnConfirm": "打开链接",
   "reading.pic.missing": "此邮件中缺少图片（cid:{cid}）",
   "reading.pic.loading": "正在加载{size}…",

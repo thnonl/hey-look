@@ -628,7 +628,7 @@ async function mockCheckUpdate(trigger: string, prefsJson?: string) {
 }
 
 // ---- the update flow (`#dl=<mode>`, `#sending`, `#draftfail`, `#afterupdate=ok|draft|fail`): a pretend download with the same events as Rust's channel.
-// Modes: ok (default; 9.8 MB over 6 s), nolength (no total), slow (60 s), stall (stops at 30 %, fails after 10 s), fail (fails at 40 %),
+// Modes: ok (default; 9.8 MB over 6 s), fast (ready after 0.3 s), nolength (no total), slow (60 s), stall (stops at 30 %, fails after 10 s), fail (fails at 40 %),
 // verifyfail, badurl, installfail, offline (fails at once), changed (the first one: GitHub has 1.2.0 now). `update_install` never restarts: it shows a toast and logs the call.
 type UpdateLogEntry = { trigger?: string; cmd?: string; restart?: boolean; draftSaved?: boolean; note?: string; at: number; kind: string | null };
 function logUpdateCall(e: { trigger?: string; cmd?: string; restart?: boolean; draftSaved?: boolean; note?: string }): UpdateLogEntry {
@@ -665,7 +665,7 @@ async function mockDownload(ch: { onmessage: (e: unknown) => void }) {
   const full = 10276044;
   const total = mode === "nolength" ? null : full;
   send({ event: "started", data: { total, version: mode === "changed" ? "1.2.0" : "1.1.0" } });
-  const steps = mode === "slow" ? 600 : 60;
+  const steps = mode === "slow" ? 600 : mode === "fast" ? 2 : 60;
   const tick = 100;
   for (let i = 1; i <= steps; i++) {
     await wait(tick);
@@ -689,7 +689,7 @@ async function mockDownload(ch: { onmessage: (e: unknown) => void }) {
     send({ event: "progress", data: { received: Math.round(full * f) } });
   }
   send({ event: "verifying" });
-  await wait(1000);
+  await wait(mode === "fast" ? 50 : 1000);
   if (mode === "verifyfail") {
     send({ event: "failed", data: { stage: "verify", message: "signature mismatch" } });
     entry.kind = "failed";
@@ -774,6 +774,7 @@ const mockCap = () => {
   const n = Number(settings.max_download);
   return settings.max_download?.trim() && Number.isFinite(n) ? Math.min(5000, Math.max(100, Math.trunc(n))) : 2000;
 };
+let mockServerRun = 0;
 const mockMail = {
   calls: [] as { accountId: string; role: string; limit: number; at: number }[],
   opened: [] as string[],
@@ -1194,6 +1195,16 @@ export function installMock() {
   Object.assign(window, {
     __mockGone: mockGone,
     __mockEmit: (name: string, payload: unknown) => emit(name, payload),
+    // the update flow of the page (`#update=available&dl=fast`): a check, then "Update" as the announcement toast's button does it; `flow()` is its state
+    __mockUpdates: {
+      start: async () => {
+        const { useUpdates } = await import("./updates");
+        await useUpdates.getState().checkUpdate("manual");
+        await useUpdates.getState().startUpdate("toast");
+      },
+      cancel: async () => (await import("./updates")).useUpdates.getState().cancelUpdate(),
+      flow: async () => (await import("./updates")).useUpdates.getState().flow.state,
+    },
     // an IMAP EXPUNGE of a draft by another program: the server copy is gone, the page does not know yet (D-043: Discard changes before any save puts the opened version back)
     __mockExpungeDraft: (threadId: string) => {
       const ref = `m:a1:drafts:${threadId}`;
@@ -1505,9 +1516,9 @@ export function installMock() {
         return Object.values(recoveryRead()).filter((x) => accounts.some((acc) => acc.id === x.accountId)).sort((x, y) => y.savedAt - x.savedAt).map(({ payload: _p, files, ...i }) => ({ ...i, files: files.length }));
       case "recovery_load": return recoveryRead()[String(a.id)] ?? null;
       case "recovery_save_draft": {
-        // like the backend: `#nodrafts` = the account has no Drafts folder, `#draftfail` = the server refuses; the snapshot stays then. Else the
-        // snapshot is saved as a draft (the same as Save draft) and removed.
-        if (hashTokens().has("nodrafts")) throw "this account has no Drafts folder";
+        // like the backend: `#nodrafts` = the account has no Drafts folder, which is made now (W6.4) unless `#nocreate` (the server refuses to make it: the coded error,
+        // the snapshot stays); else the snapshot is saved as a draft (the same as Save draft) and removed.
+        if (hashTokens().has("nodrafts") && hashTokens().has("nocreate")) throw "DRAFTS_NOT_CREATED|why=not allowed: Couldn’t find or create the Drafts folder on this account (not allowed).";
         const saved = handle("save_draft", { draft: a.draft, replaces: a.replaces }) as { threadId: string; draftRef: string };
         const all = recoveryRead();
         delete all[String(a.id)];
@@ -1606,6 +1617,55 @@ export function installMock() {
           const exhausted = have + added >= total;
           return { added, exhausted, limited: !exhausted && have + added >= cap };
         });
+      }
+      // Search on the server (W6.7): `#serversearch[=capped|none|fail|slow|local]`. The answer is made of rows that this computer does not have; `__serverCalls` logs what the page asked
+      // (search / cancel / open). `slow` answers after 6 s (Cancel in between makes the answer stale), `fail` says the second mailbox could not be searched.
+      case "server_search": {
+        const w = window as unknown as { __serverCalls?: { cmd: string; filter?: unknown; at: number }[] };
+        (w.__serverCalls ??= []).push({ cmd: "search", filter: a.filter, at: Date.now() });
+        const mode = hashTokens().get("serversearch") || "";
+        const gen = ++mockServerRun;
+        const rows = Array.from({ length: mode === "none" ? 0 : mode === "capped" ? 200 : 7 }, (_, i) => ({
+          accountId: "a1", role: i % 3 === 2 ? "archive" : "inbox", uid: 5000 - i, validity: 1, subject: i === 0 ? "Báo cáo quý 3" : `Old invoice ${i + 1}`, fromName: i % 2 ? "Ann Lee" : "", fromEmail: "ann@x.test",
+          date: Math.floor(Date.now() / 1000) - 86400 * 400 - i * 3600, seen: i % 2 === 0, flagged: i === 3, hasAttach: i === 1,
+        }));
+        return later(mode === "slow" ? 6000 : 300, () => ({
+          rows: gen === mockServerRun ? rows : [],
+          capped: mode === "capped",
+          errors: mode === "fail" ? [{ accountId: "a2", error: "IMAP login failed: the mock server is down" }] : [],
+          localOnly: mode === "local",
+          cancelled: gen !== mockServerRun,
+        }));
+      }
+      case "server_search_cancel": {
+        mockServerRun++;
+        const w = window as unknown as { __serverCalls?: { cmd: string; at: number }[] };
+        (w.__serverCalls ??= []).push({ cmd: "cancel", at: Date.now() });
+        return null;
+      }
+      case "server_open": {
+        const w = window as unknown as { __serverCalls?: { cmd: string; uid?: number; at: number }[] };
+        (w.__serverCalls ??= []).push({ cmd: "open", uid: Number(a.uid), at: Date.now() });
+        return later(hashNum("serveropenms", 250), () => {
+          if (hashTokens().has("serveropenfail")) throw "MSG_NOT_ON_SERVER: message not found on server";
+          return "t1";
+        });
+      }
+      case "prune_to_limit": {
+        // the person lowered the cap (W6.3): every mailbox is brought to it at once; the call is logged for a check (window.__pruneCalls = [{ keep, cap }])
+        const w = window as unknown as { __pruneCalls?: { keep: unknown; cap: number }[] };
+        (w.__pruneCalls ??= []).push({ keep: a.keepThreads, cap: mockCap() });
+        const cap = mockCap();
+        let removed = 0;
+        for (const id of Object.keys(mockMail.local)) {
+          if (mockMail.local[id] > cap) {
+            removed += mockMail.local[id] - cap;
+            mockMail.local[id] = cap;
+          }
+          if (mockMail.local[id] >= cap) void emit("mail-pruned", { accountId: id, removed });
+        }
+        void emit("mail-synced", null);
+        return removed;
       }
       case "notify_caps": { // (W5.4) `#noactions`: a Linux notification service without buttons; macOS has none
         const os = hashTokens().get("os") || "windows";

@@ -599,6 +599,11 @@ pub fn ready_labels(app: &AppHandle) -> Vec<String> {
     labels.into_iter().filter(|l| app.get_webview_window(l).is_some()).collect()
 }
 
+/// The conversations the reader windows show (their keys, W6.3): a prune that lowers the download limit keeps them.
+pub fn reader_keys(app: &AppHandle) -> Vec<String> {
+    reg(app).entries.iter().filter(|e| e.kind == Kind::Reader).flat_map(|e| e.keys.iter().cloned()).collect()
+}
+
 /// Bring a secondary window to the front (also from the tray or minimized).
 pub fn bring_to_front(app: &AppHandle, label: &str) {
     // a window that is on its way out, or whose page is not up yet, is not put on screen (a window shown early is a blank white one; the page

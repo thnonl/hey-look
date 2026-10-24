@@ -492,6 +492,13 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
 .ml-float .ml-group { position: absolute; left: 0; right: 0; top: 0; }
 .ml-foot { padding: 14px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .ml-foot .spin { margin-right: 4px; }
+/* Search on the server (W6.7): the button, the running line, the heading and the rows at the end of the results */
+.ml-srv { padding: 12px 14px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+.ml-srv section { width: 100%; text-align: left; }
+.ml-srv-head { margin: 4px 0 6px; padding: 0 2px; font-size: 12px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--muted); }
+.ml-srv-rows { display: block; }
+.ml-srv-err { word-break: break-word; overflow-wrap: anywhere; }
+.ml-srv section > .muted { padding: 8px 2px; text-align: center; }
 .gmail-search { display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: 100%; }
 .gmail-search .btn { max-width: 100%; flex-direction: column; gap: 0; }
 .gs-main { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -836,7 +843,7 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 .ask-back { z-index: var(--z-ask); }
 .ask { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow); width: 440px; max-width: 92vw; padding: 20px 22px; animation: pop .16s var(--ease); }
 .ask h3 { font-size: 1.15em; margin-bottom: 6px; }
-.ask p { margin: 0 0 16px; line-height: 1.5; }
+.ask p { margin: 0 0 16px; line-height: 1.5; word-break: break-word; overflow-wrap: anywhere; } /* (W6.14) a long xn-- host of the link warning stays inside the box */
 .ask-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
 
 /* ===== settings ===== */

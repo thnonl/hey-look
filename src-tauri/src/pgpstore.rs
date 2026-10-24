@@ -757,7 +757,7 @@ pub async fn pgp_import_from_message(state: tauri::State<'_, AppState>, message_
 #[tauri::command]
 pub async fn pgp_pick_key_file(app: tauri::AppHandle) -> R<Option<String>> {
     blocking(move || {
-        let p = app.dialog().file().set_title(crate::i18n::tr(crate::i18n::K::ChooseKeyFile)).add_filter(crate::i18n::tr(crate::i18n::K::OpenPgpKeys), &["asc", "gpg", "pgp", "key", "txt"]).blocking_pick_file();
+        let p = crate::attach::with_filter(app.dialog().file().set_title(crate::i18n::tr(crate::i18n::K::ChooseKeyFile)), crate::i18n::tr(crate::i18n::K::OpenPgpKeys), &["asc", "gpg", "pgp", "key", "txt"]).blocking_pick_file();
         match p {
             Some(f) => Ok(Some(f.into_path().map_err(err)?.to_string_lossy().into_owned())),
             None => Ok(None),
@@ -1074,7 +1074,7 @@ mod tests {
             confidential: false,
             importance: Default::default(),
             recovery_id: None,
-            meeting_form: None, answers: None,
+            meeting_form: None, answers: None, message_id: None,
         }
     }
 
@@ -1693,6 +1693,73 @@ mod tests {
         import_materials(&c, m(), "new-pass-5678", true, "paste").unwrap();
         let s = load_store(&c).unwrap();
         assert!(openpgp::is_protected(s.by_fpr(&done[0]).unwrap().secret.as_ref().unwrap()));
+    }
+
+    /// W6.10 (BA decision: the keys stay in the app database): the design is only safe while every stored secret key is locked by its own passphrase with a slow S2K.
+    /// Pins it for the three ways a secret key gets into the table (generate, import, change passphrase); `--nocapture` prints the S2K lines for the report (AC-6.10.1).
+    #[test]
+    fn every_stored_secret_key_is_passphrase_protected_with_a_strong_s2k() {
+        let (c, _acc, _g) = setup();
+        let strong = |lines: &[String]| lines.iter().all(|l| l.contains("Cfb AES256 IteratedAndSalted Sha256") && l.contains(&format!("coded {} ", openpgp::S2K_COUNT)));
+        assert_eq!(openpgp::s2k_count_bytes(openpgp::S2K_COUNT), 65_011_712, "the highest coded count");
+        assert_eq!(openpgp::s2k_count_bytes(224), 16_777_216, "rPGP's default is four times less");
+
+        // generated (with and without an expiry)
+        let generated = add_own(&c, "me@example.com", "my-pass-1234");
+        let sk = openpgp::generate(Algo::Cv25519, "Exp <exp@example.com>", Some(30), "exp-pass-1234").unwrap();
+        let expiring = save_key(&c, &sk.to_public_key(), Some(&sk), true, "generated").unwrap().fingerprint;
+        assert!(openpgp::unlock_clone(&sk, "exp-pass-1234").is_ok() && openpgp::unlock_clone(&sk, "wrong-pass-12").is_err());
+        assert!(openpgp::key_expiry(&sk.to_public_key()).is_some(), "the expiry was set before the key was locked");
+
+        // imported: a key another program locked is stored exactly as it came (its own S2K, here rPGP's older default), an unprotected one gets ours
+        let mut foreign = openpgp::generate(Algo::Cv25519, "Old <old@example.com>", None, "").unwrap();
+        let pw = pgp::types::Password::from("foreign-pass-1");
+        foreign.primary_key.set_password(&mut rand08::thread_rng(), &pw).unwrap();
+        for s in foreign.secret_subkeys.iter_mut() {
+            s.key.set_password(&mut rand08::thread_rng(), &pw).unwrap();
+        }
+        let foreign_lines = openpgp::s2k_lines(&foreign);
+        assert!(foreign_lines.iter().all(|l| l.contains("coded 224 ")), "{foreign_lines:?}");
+        let armored = openpgp::armor_secret(&foreign).unwrap();
+        let imported_foreign = import_materials(&c, openpgp::parse_material(armored.as_bytes()).unwrap(), "foreign-pass-1", true, "paste").unwrap().remove(0);
+        let plain = openpgp::generate(Algo::Cv25519, "Plain <plain@example.com>", None, "").unwrap();
+        assert!(!openpgp::is_protected(&plain));
+        let plain_armored = openpgp::armor_secret(&plain).unwrap();
+        let imported_plain = import_materials(&c, openpgp::parse_material(plain_armored.as_bytes()).unwrap(), "plain-pass-1234", true, "paste").unwrap().remove(0);
+
+        // changed passphrase (what pgp_change_passphrase stores)
+        let before: String = c.query_row("SELECT secret_armored FROM pgp_keys WHERE fingerprint=?1", [&imported_foreign], |r| r.get(0)).unwrap();
+        let changed = openpgp::change_passphrase(&openpgp::parse_secret(&before).unwrap(), "foreign-pass-1", "changed-pass-12").unwrap();
+        c.execute("UPDATE pgp_keys SET secret_armored=?2 WHERE fingerprint=?1", params![imported_foreign, openpgp::armor_secret(&changed).unwrap()]).unwrap();
+        assert!(openpgp::unlock_clone(&changed, "changed-pass-12").is_ok() && openpgp::unlock_clone(&changed, "foreign-pass-1").is_err());
+
+        // the table: every secret_armored is locked, and the keys this app locked have the strong S2K
+        let rows: Vec<(String, String)> = c
+            .prepare("SELECT fingerprint, secret_armored FROM pgp_keys WHERE secret_armored IS NOT NULL")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(rows.len(), 4);
+        for (fpr, armored) in &rows {
+            let key = openpgp::parse_secret(armored).unwrap();
+            assert!(openpgp::is_protected(&key) && key.secret_subkeys.iter().all(|s| matches!(s.key.secret_params(), pgp::types::SecretParams::Encrypted(_))), "{fpr}");
+            let lines = openpgp::s2k_lines(&key);
+            assert!(lines.iter().all(|l| !l.contains("NOT PROTECTED")), "{fpr}: {lines:?}");
+            let label = if *fpr == generated { "generated (Curve25519)" } else if *fpr == expiring { "generated (Curve25519, with expiry)" } else if *fpr == imported_foreign { "imported (locked by another program), then Change passphrase" } else { "imported (was unprotected)" };
+            println!("S2K {label}: {lines:?}");
+            if *fpr == imported_foreign || *fpr == generated || *fpr == expiring || *fpr == imported_plain {
+                assert!(strong(&lines), "{label}: {lines:?}");
+            }
+        }
+        // a key that was only imported (not changed) keeps the S2K it came with
+        let came: String = format!("{foreign_lines:?}");
+        assert!(came.contains("coded 224"));
+        // the commands store through these paths only
+        let src = crate::test_guard::non_test_code(include_str!("pgpstore.rs"));
+        assert!(src.contains("openpgp::armor_secret(&changed)"), "change passphrase stores the re-locked key");
+        assert!(!src.contains("set_password("), "no key is locked with rPGP's default outside openpgp::lock_with");
     }
 
     #[test]

@@ -149,6 +149,8 @@ export default defineLocale<typeof ns.en>({
   "reading.body.frameTitleSubject": "Nachrichtentext: {subject}",
   "reading.body.linkWarnTitle": "Dieser Link führt möglicherweise nicht zum angegebenen Ziel",
   "reading.body.linkWarnBody": "Angezeigt wird „{text}“, geöffnet wird aber {target}. Trotzdem öffnen?",
+  "reading.body.linkWarnLookalike": "Geöffnet wird {target}, eine Adresse mit Buchstaben aus anderen Alphabeten, die gewöhnlichen Buchstaben zum Verwechseln ähnlich sehen. Trotzdem öffnen?",
+  "reading.body.linkWarnHidden": "Der Link verbirgt seine echte Adresse und öffnet {target}. Trotzdem öffnen?",
   "reading.body.linkWarnConfirm": "Link öffnen",
   "reading.pic.missing": "Bild fehlt in dieser Nachricht (cid:{cid})",
   "reading.pic.loading": "Wird geladen… {size}",

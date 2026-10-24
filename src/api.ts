@@ -402,6 +402,33 @@ export interface ThreadFilter {
 
 export type SearchScope = "current" | "account" | "all";
 
+/** A message the mail server has and this computer does not (headers only), from "Search on the server" (W6.7). */
+export interface ServerRow {
+  accountId: string;
+  role: string;
+  uid: number;
+  /** the UIDVALIDITY the UID was read under */
+  validity: number | null;
+  subject: string;
+  fromName: string;
+  fromEmail: string;
+  date: number;
+  seen: boolean;
+  flagged: boolean;
+  hasAttach: boolean;
+}
+
+export interface ServerSearchResult {
+  rows: ServerRow[];
+  /** more were found than the newest 200 shown */
+  capped: boolean;
+  errors: { accountId: string; error: string }[];
+  /** `is:pinned` / `is:snoozed` were left out (they are known on this computer only) */
+  localOnly: boolean;
+  /** a newer search or Cancel made this one stale */
+  cancelled: boolean;
+}
+
 export interface LoadOlderResult {
   added: number;
   /** the server has nothing older in that folder */
@@ -655,6 +682,14 @@ export const api = {
   cancelAction: (id: string) => invoke<boolean>("cancel_action", { id }),
   /** Downloads up to `limit` (max 50) messages older than what is stored. Rejects with the server's error; never turns it into "none". */
   loadOlder: (accountId: string, role: string, limit = 50) => invoke<LoadOlderResult>("load_older", { accountId, role, limit }),
+  /** Search the mail server(s) with the words and scope of the local search; headers only, nothing is stored (W6.7). */
+  serverSearch: (filter: ThreadFilter) => invoke<ServerSearchResult>("server_search", { filter }),
+  /** Stop the running server search (its connections are closed). */
+  serverSearchCancel: () => invoke<void>("server_search_cancel"),
+  /** Download one message of a server row and store it; resolves to its conversation. */
+  serverOpen: (accountId: string, role: string, uid: number, validity: number | null) => invoke<string>("server_open", { accountId, role, uid, validity }),
+  /** The download limit was lowered (W6.3): every mailbox is brought to it at once, except the conversations in `keepThreads` (and the ones in reader windows). Resolves to how many messages went. */
+  pruneToLimit: (keepThreads: string[]) => invoke<number>("prune_to_limit", { keepThreads }),
   attachmentData: (messageId: string, index: number) =>
     invoke<{ name: string; mime: string; dataBase64: string }>("attachment_data", { messageId, index }),
   setSecret: (name: SecretName, value: string) => invoke<void>("set_secret", { name, value }),

@@ -169,6 +169,10 @@ function App() {
       listen("mail-synced", () => void useStore.getState().refresh()),
       // an archive / delete / move whose Undo time is over has been done (also while the window was hidden to the tray): the messages leave the list now
       listen<{ threadIds: string[] }>("moves-committed", (e) => useStore.getState().dropThreads(e.payload.threadIds)),
+      // a mailbox is at its download limit after a prune (W6.3): the notice at the end of its lists needs no sync
+      listen<{ accountId: string; removed: number }>("mail-pruned", (e) => useStore.getState().onPruned(e.payload.accountId)),
+      // the server renumbered a folder and its mail was read again (W6.1): a selection or an open conversation of it goes, the list is read again
+      listen<{ accountId: string; role: string }>("folder-reset", (e) => useStore.getState().folderReset(e.payload.accountId, e.payload.role)),
       // the window comes back (from the tray, a second start): what changed meanwhile is read at once, not at the next 30 s refresh
       listen("app-shown", () => void useStore.getState().refresh()),
       // a secondary window (the reader) asks for something the main page owns: mail state with its Undo, the preferences, a dialog, a message
@@ -233,8 +237,10 @@ function App() {
       }),
       // The rest of a quit (REQ-48 b, c): a message being written is saved to Drafts (and the person is asked when that fails), then every
       // message still in its Undo time goes out now, for at most 20 s. The answer tells the backend whether the quit goes on.
-      listen("flush-sends", () => {
+      listen<{ due?: number } | null>("flush-sends", (ev) => {
         const swallow = () => undefined;
+        // the scheduled messages that are due now go out after this part of the quit (the backend sends them, W6.12): the toast counts them with the messages in their Undo time
+        const due = Math.max(0, Math.floor(Number(ev.payload?.due ?? 0)) || 0);
         const ask = (kind: "scheduledEdit" | "notSaved") =>
           kind === "scheduledEdit"
             ? useStore.getState().choose({
@@ -276,7 +282,7 @@ function App() {
             await useStore.getState().composeEnd?.();
             useStore.setState({ composeDirty: false });
           },
-          inFlight: () => useStore.getState().sendsInFlight,
+          inFlight: () => useStore.getState().sendsInFlight + due,
           tell: (n) => useStore.getState().showToast(t("app.quit.sending", { n }), undefined, "info"),
           flush: flushSends,
         });

@@ -14,7 +14,7 @@ import { calendarErrorCode, calendarStepFailure, calendarSyncKind, providerName,
 import { ACCENT_PRESETS, ACCOUNT_PALETTE, accountColor, DEFAULT_PREFS, eff, folderLabel, folderTitle, isOverridden, MAX_DOWNLOAD_PRESETS, NOTIFY_ACTIONS, Overridable, Prefs, staleAccountPrefs, validHex } from "../prefs";
 import { aiSettingsSaved } from "../aiGuide";
 import { normalizeSidebar } from "../sidebarState";
-import { folderVisible } from "../junk";
+import { folderVisible, ruleTargetProblem } from "../junk";
 import { cutAtWord, friendlyError, useStore } from "../store";
 import { credStore, kbd, riskyHint, usePlatform } from "../platform";
 import { filtersIntroKey, trayTabTitleKey } from "../trayWords";
@@ -1105,13 +1105,15 @@ const ACTION_WORD: Record<Rule["action"], Key> = {
 
 function FiltersPanel({ scope }: { scope: string | null }) {
   const t = useT();
-  const { folders, showToast, confirm } = useStore();
+  const { folders, showToast, confirm, accounts } = useStore();
+  const accountIds = accounts.map((a) => a.id);
   const tray = usePlatform((s) => s.tray);
   const [list, setList] = useState<Rule[]>([]);
   const [cur, setCur] = useState<Rule | null>(null);
   const load = () => api.listRules().then(setList);
   useEffect(() => void load(), []);
   const roles = Array.from(new Set(folders.filter((f) => !scope || f.accountId === scope).map((f) => f.key))).filter((k) => !["inbox", "sent", "drafts"].includes(k));
+  const junkProblem = cur ? ruleTargetProblem({ action: "junk", accountId: cur.accountId }, folders, accountIds) !== null : false;
   return (
     <>
       <div className="muted small pad">{t(filtersIntroKey(tray))}</div>
@@ -1120,7 +1122,12 @@ function FiltersPanel({ scope }: { scope: string | null }) {
         items={list}
         empty={t("settings.filters.empty")}
         title={(r) => r.name || t("settings.filters.autoName", { field: t(FIELD_WORD[r.field]), op: t(OP_WORD[r.op]), value: r.value })}
-        tags={(r) => !r.enabled && <span className="ov-tag">{t("settings.filters.off")}</span>}
+        tags={(r) => (
+          <>
+            {!r.enabled && <span className="ov-tag">{t("settings.filters.off")}</span>}
+            {ruleTargetProblem(r, folders, accountIds) && <span className="ov-tag">{t("mail.junk.none")}</span>}
+          </>
+        )}
         render={(r) => <div className="muted small">{t(ACTION_WORD[r.action])}{r.arg ? ` → ${folderLabel(r.arg)}` : ""}</div>}
         onOpen={setCur}
         onDelete={async (r) => {
@@ -1150,9 +1157,12 @@ function FiltersPanel({ scope }: { scope: string | null }) {
           <label>{t("settings.filters.then")}</label>
           <div className="row-inline">
             <select aria-label={t("settings.filters.ruleAction")} value={cur.action} onChange={(e) => setCur({ ...cur, action: e.target.value as Rule["action"] })}>
-              <option value="archive">{t("settings.action.archive")}</option><option value="trash">{t("common.delete")}</option><option value="junk">{t("settings.filters.toJunk")}</option>
+              <option value="archive">{t("settings.action.archive")}</option><option value="trash">{t("common.delete")}</option>
+              {/* (W6.2) where the mailbox has no Junk folder the option is greyed out and says so; a rule that already moves to Junk keeps it selected with the same words */}
+              <option value="junk" disabled={junkProblem && cur.action !== "junk"}>{junkProblem ? t("settings.filters.toJunkNone") : t("settings.filters.toJunk")}</option>
               <option value="read">{t("settings.action.read")}</option><option value="star">{t("settings.action.flag")}</option><option value="pin">{t("settings.action.pin")}</option><option value="move">{t("settings.filters.toFolder")}</option>
             </select>
+            {cur.action === "junk" && junkProblem && <div className="muted small" role="note">{t("mail.junk.noneTip")}</div>}
             {cur.action === "move" && (
               <select aria-label={t("settings.filters.targetFolder")} value={cur.arg ?? ""} onChange={(e) => setCur({ ...cur, arg: e.target.value })}>
                 <option value="">{t("settings.filters.chooseFolder")}</option>

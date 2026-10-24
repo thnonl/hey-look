@@ -7,5 +7,8 @@
   "slk", "xla", "xlw", "xll", "rdp", "one", "onepkg", "jnlp", "xbap", "website", "ps2", "ps2xml", "msh", "msh1", "msh2",
   "mshxml", "msh1xml", "msh2xml", "job", "shs", "shb", "bas", "py", "pyw", "pyz", "pl", "sh", "command", "xnk", "vhd",
   "vhdx", "dmg", "wim", "iso", "img", "msu", "mht", "mhtml", "xsl", "xslt",
-  "app", "pkg", "mpkg", "scpt", "applescript", "workflow", "terminal", "desktop", "appimage", "run", "deb", "rpm", "bin"
+  "app", "pkg", "mpkg", "scpt", "applescript", "workflow", "terminal", "desktop", "appimage", "run", "deb", "rpm", "bin",
+  "webloc", "inetloc", "fileloc", "kext", "prefpane", "dylib", "plugin", "osax",
+  "bash", "zsh", "csh", "ksh", "fish", "flatpakref", "flatpak", "snap",
+  "apk", "xpi"
 ]

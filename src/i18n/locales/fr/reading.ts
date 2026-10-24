@@ -148,6 +148,8 @@ export default defineLocale<typeof ns.en>({
   "reading.body.frameTitleSubject": "Corps du message : {subject}",
   "reading.body.linkWarnTitle": "Ce lien ne mène peut-être pas à la destination indiquée",
   "reading.body.linkWarnBody": "Il s’affiche comme « {text} » mais ouvre {target}. L’ouvrir quand même ?",
+  "reading.body.linkWarnLookalike": "Il ouvre {target}, une adresse qui utilise des lettres d’autres alphabets ressemblant à des lettres ordinaires. L’ouvrir quand même ?",
+  "reading.body.linkWarnHidden": "Il masque sa véritable adresse et ouvre {target}. L’ouvrir quand même ?",
   "reading.body.linkWarnConfirm": "Ouvrir le lien",
   "reading.pic.missing": "Image absente de ce message (cid:{cid})",
   "reading.pic.loading": "Chargement de {size}…",

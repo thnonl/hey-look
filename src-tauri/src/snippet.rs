@@ -392,6 +392,35 @@ const VIEW_PHRASES: &[&str] = &[
     "откройте письмо в браузере", "откройте его в браузере", "открыть это письмо в браузере", "посмотреть это письмо в браузере", "прочитать письмо в браузере",
     "在浏览器中查看此邮件", "在浏览器中查看本邮件", "请在浏览器中查看", "在浏览器里查看", "点击这里在浏览器中查看",
     "xem thư này trên trình duyệt", "xem email này trong trình duyệt", "mở email trong trình duyệt", "xem phiên bản trình duyệt", "xem thư trực tuyến",
+    // Portuguese (W6.13)
+    "ver no navegador", "ver no browser", "ver este e-mail no navegador", "ver este email no navegador", "ver esta mensagem no navegador", "ver e-mail no navegador",
+    "visualizar no navegador", "visualizar este e-mail no navegador", "visualizar este email no navegador", "abrir no navegador", "ver versão online", "ver versão web",
+    "clique aqui para ver no navegador", "problemas para visualizar este e-mail", "se não consegue visualizar este e-mail", "se você não consegue visualizar este e-mail",
+    "caso não consiga visualizar este e-mail",
+    // Italian
+    "visualizza nel browser", "visualizza questa email nel browser", "visualizza questa e-mail nel browser", "visualizza questa newsletter nel browser", "visualizza online",
+    "vedi nel browser", "apri nel browser", "leggi nel browser", "visualizza la versione web", "visualizza la versione online", "se non riesci a visualizzare questa email",
+    "se non visualizzi correttamente questa email", "problemi di visualizzazione",
+    // Dutch
+    "bekijk in browser", "bekijk in je browser", "bekijk in uw browser", "bekijk deze e-mail in je browser", "bekijk deze e-mail in uw browser", "bekijk online",
+    "bekijk de webversie", "bekijk webversie", "bekijk de online versie", "open in browser", "lees in je browser", "problemen met het bekijken van deze e-mail",
+    "als deze e-mail niet goed wordt weergegeven", "wordt deze e-mail niet goed weergegeven",
+    // Polish
+    "zobacz w przeglądarce", "wyświetl w przeglądarce", "zobacz wiadomość w przeglądarce", "wyświetl wiadomość w przeglądarce", "zobacz tę wiadomość w przeglądarce",
+    "otwórz w przeglądarce", "zobacz wersję online", "zobacz wersję w przeglądarce", "jeśli nie widzisz tej wiadomości", "jeśli wiadomość nie wyświetla się poprawnie",
+    "jeżeli wiadomość nie wyświetla się poprawnie", "problem z wyświetlaniem wiadomości",
+    // Turkish
+    "tarayıcıda görüntüle", "tarayıcınızda görüntüleyin", "tarayıcıda görüntülemek için tıklayın", "bu e-postayı tarayıcıda görüntüle", "bu e-postayı tarayıcınızda görüntüleyin",
+    "web tarayıcısında görüntüle", "tarayıcıda aç", "web sürümünü görüntüle", "e-posta düzgün görünmüyorsa", "e-posta doğru görüntülenmiyorsa", "görüntüleme sorunu yaşıyorsanız",
+    // Korean
+    "브라우저에서 보기", "브라우저에서 보시려면 클릭하세요", "웹 브라우저에서 보기", "웹브라우저에서 보기", "웹페이지로 보기", "웹에서 보기", "브라우저로 보기", "웹 버전 보기", "웹버전 보기",
+    "이메일이 정상적으로 보이지 않으면", "메일이 정상적으로 보이지 않는 경우", "메일이 보이지 않으면", "이 메일이 제대로 보이지 않으면",
+    // Indonesian
+    "lihat di browser", "lihat di browser anda", "lihat di peramban", "lihat email ini di browser", "lihat email di browser", "lihat versi web", "lihat versi online",
+    "buka di browser", "baca di browser", "jika email ini tidak tampil dengan benar", "jika tidak dapat melihat email ini", "email tidak tampil dengan benar", "kesulitan melihat email ini",
+    // Traditional Chinese
+    "在瀏覽器中查看", "在瀏覽器中檢視", "在瀏覽器中開啟", "在瀏覽器中閱讀", "在瀏覽器查看", "使用瀏覽器查看", "於瀏覽器中檢視", "請在瀏覽器中查看", "網頁版查看", "線上檢視",
+    "如果郵件無法正常顯示", "如果無法正常顯示", "無法查看此郵件", "郵件無法顯示", "電子郵件無法正常顯示",
 ];
 
 /// Text of links and buttons that are not content ("click here", "unsubscribe"): dropped when they are all there is.
@@ -424,7 +453,31 @@ const ACTION_PHRASES: &[&str] = &[
     "nhan vao day", "nhap vao day", "bam vao day", "huy dang ky", "bo dang ky",
     // Arabic
     "انقر هنا", "اضغط هنا", "إلغاء الاشتراك", "الغاء الاشتراك",
+    // Portuguese, Italian, Dutch, Polish, Turkish, Korean, Indonesian, Traditional Chinese (W6.13)
+    "clique aqui", "cancelar inscrição", "cancelar subscrição", "descadastrar", "gerenciar preferências", "política de privacidade",
+    "clicca qui", "annulla l iscrizione", "cancella iscrizione", "disiscriviti", "gestisci le preferenze", "informativa sulla privacy",
+    "klik hier", "uitschrijven", "afmelden", "voorkeuren beheren", "privacybeleid",
+    "kliknij tutaj", "kliknij tu", "wypisz się", "zrezygnuj z subskrypcji", "zarządzaj preferencjami", "polityka prywatności",
+    "buraya tıklayın", "buraya tıklayınız", "abonelikten çık", "tercihleri yönet", "gizlilik politikası",
+    "여기를 클릭", "여기를 클릭하세요", "수신거부", "수신 거부", "구독 취소", "개인정보처리방침", "환경설정 관리",
+    "klik di sini", "klik disini", "berhenti berlangganan", "kelola preferensi", "kebijakan privasi",
+    "點擊這裡", "點擊此處", "點此查看", "取消訂閱", "退訂", "不再接收", "管理訂閱", "隱私權政策",
 ];
+
+/// The text in Unicode normalisation form C, for MATCHING only (W6.13): "Xem thư" typed with a combining horn and hook (NFD, as macOS mail and some
+/// newsletter tools write Vietnamese) is the same phrase as the precomposed one. What is shown keeps its own bytes.
+fn nfc(s: &str) -> std::borrow::Cow<'_, str> {
+    icu_normalizer::ComposingNormalizer::new_nfc().normalize(s)
+}
+
+/// A lower-case character as the phrases compare it: the Turkish dotless i is an i (capital I lowers to i), the dot above the İ lowers to is dropped; None = skip.
+fn fold(c: char) -> Option<char> {
+    match c {
+        '\u{0131}' => Some('i'),
+        '\u{0307}' => None,
+        _ => Some(c),
+    }
+}
 
 /// The phrases in a comparable form (lower case, one space between words, punctuation gone), longest first; `true` = a "view" phrase.
 fn phrases() -> &'static [(Vec<char>, bool)] {
@@ -432,7 +485,7 @@ fn phrases() -> &'static [(Vec<char>, bool)] {
     P.get_or_init(|| {
         let norm = |s: &str| -> Vec<char> {
             let mut out: Vec<char> = Vec::new();
-            for c in s.chars().flat_map(|c| c.to_lowercase()) {
+            for c in nfc(s).chars().flat_map(|c| c.to_lowercase()).filter_map(fold) {
                 if wordish(c) {
                     out.push(c);
                 } else if out.last().is_some_and(|l| *l != ' ') {
@@ -459,7 +512,7 @@ fn eat_phrase(s: &str, p: &[char]) -> Option<usize> {
     while pi < p.len() {
         let (idx, c) = it.next()?;
         if wordish(c) {
-            for lc in c.to_lowercase() {
+            for lc in c.to_lowercase().filter_map(fold) {
                 if p.get(pi) != Some(&lc) {
                     return None;
                 }
@@ -484,7 +537,28 @@ fn eat_phrase(s: &str, p: &[char]) -> Option<usize> {
 
 /// `s` without the boilerplate phrases at its start ("view" phrases always, "click here" / "unsubscribe" ones when `actions`),
 /// white space and punctuation between them included; and whether there was any.
-fn strip_boilerplate(mut s: &str, actions: bool) -> (&str, bool) {
+fn strip_boilerplate(s: &str, actions: bool) -> (&str, bool) {
+    let n = nfc(s);
+    if matches!(n, std::borrow::Cow::Borrowed(_)) {
+        return strip_normalized(s, actions);
+    }
+    // not in form C (Vietnamese typed with combining marks, Hangul jamo): the phrases are looked for in the normalised text; what is left is the ORIGINAL text after the
+    // part that was eaten, so the shown text keeps its bytes
+    let (rest, hit) = strip_normalized(&n, actions);
+    if !hit {
+        return (s, false);
+    }
+    let eaten = &n[..n.len() - rest.len()];
+    let end = s
+        .char_indices()
+        .map(|(i, _)| i)
+        .chain(std::iter::once(s.len()))
+        .find(|&i| nfc(&s[..i]).len() >= eaten.len() && nfc(&s[..i]).starts_with(eaten))
+        .unwrap_or(s.len());
+    (&s[end..], true)
+}
+
+fn strip_normalized(mut s: &str, actions: bool) -> (&str, bool) {
     let mut hit = false;
     'again: loop {
         s = s.trim_start_matches(sepish);
@@ -1231,6 +1305,110 @@ mod tests {
         assert_eq!(preview_text("Viewing hours are 9 to 5"), "Viewing hours are 9 to 5");
         assert_eq!(preview_text("Read online reviews before you buy"), "Read online reviews before you buy");
         assert_eq!(preview_text("[Click here to claim your 50% discount](https://x.example/c)"), "Click here to claim your 50% discount");
+    }
+
+    fn nfd(s: &str) -> String {
+        icu_normalizer::DecomposingNormalizer::new_nfd().normalize(s).into_owned()
+    }
+
+    /// W6.13: the "view in browser" lines of Portuguese, Italian, Dutch, Polish, Turkish, Korean, Indonesian and Traditional Chinese are dropped like the older languages'.
+    #[test]
+    fn boilerplate_of_the_added_languages_is_dropped() {
+        let phrases = [
+            // Portuguese
+            "Ver no navegador", "Ver este e-mail no navegador", "Visualizar no navegador", "Ver versão online", "Clique aqui", "Cancelar inscrição", "Descadastrar",
+            // Italian
+            "Visualizza nel browser", "Visualizza questa email nel browser", "Vedi nel browser", "Problemi di visualizzazione", "Clicca qui", "Annulla l'iscrizione", "Disiscriviti",
+            // Dutch
+            "Bekijk in browser", "Bekijk deze e-mail in je browser", "Bekijk online", "Bekijk de webversie", "Klik hier", "Uitschrijven", "Afmelden",
+            // Polish
+            "Zobacz w przeglądarce", "Wyświetl wiadomość w przeglądarce", "Otwórz w przeglądarce", "Jeśli nie widzisz tej wiadomości", "Kliknij tutaj", "Wypisz się",
+            // Turkish
+            "Tarayıcıda görüntüle", "Bu e-postayı tarayıcıda görüntüle", "Tarayıcınızda görüntüleyin", "Buraya tıklayın", "Abonelikten çık",
+            // Korean
+            "브라우저에서 보기", "웹 브라우저에서 보기", "웹페이지로 보기", "메일이 정상적으로 보이지 않는 경우", "여기를 클릭", "수신거부", "구독 취소",
+            // Indonesian
+            "Lihat di browser", "Lihat email ini di browser", "Lihat versi web", "Klik di sini", "Berhenti berlangganan",
+            // Traditional Chinese
+            "在瀏覽器中查看", "在瀏覽器中檢視", "無法查看此郵件", "點擊這裡", "取消訂閱", "退訂",
+        ];
+        for p in phrases {
+            let md = format!("[{p}](https://t.example/x?id=1)\nReal words here");
+            assert_eq!(preview_text(&md), "Real words here", "link {p:?}");
+            let line = format!("{p} https://t.example/x?id=1\nReal words here");
+            assert_eq!(preview_text(&line), "Real words here", "line {p:?}");
+            assert_eq!(preview_text(&format!("{}\nReal words here", p.to_uppercase())), "Real words here", "upper {p:?}");
+            assert_eq!(preview_text(&md.replace("\nReal words here", "")), "", "alone {p:?}");
+            // decomposed (NFD) text finds the same phrase, and the real words after it keep their bytes
+            assert_eq!(preview_text(&nfd(&line)), "Real words here", "NFD line {p:?}");
+            assert_eq!(preview_text(&nfd(&md.replace("Real words here", "Thư thật"))), nfd("Thư thật"), "NFD link {p:?}");
+        }
+        // the lead-in in front of the real content, on one line (what the notification shows)
+        assert_eq!(preview_text("Ver este e-mail no navegador | Promoção de verão começa hoje"), "Promoção de verão começa hoje");
+        assert_eq!(preview_text("브라우저에서 보기 여름 세일 시작"), "여름 세일 시작");
+        assert_eq!(preview_text("在瀏覽器中查看 全場五折，僅限今天"), "全場五折，僅限今天");
+        assert_eq!(preview_text("Tarayıcıda görüntüle | Yaz indirimi başladı"), "Yaz indirimi başladı");
+        // real content that only starts like a phrase is content
+        assert_eq!(preview_text("Ver novidades da semana"), "Ver novidades da semana");
+        assert_eq!(preview_text("Klik hier om je account te bevestigen voor vrijdag"), "Klik hier om je account te bevestigen voor vrijdag");
+        assert_eq!(preview_text("Afmelden voor de training kan tot vrijdag"), "Afmelden voor de training kan tot vrijdag");
+    }
+
+    /// W6.13: Vietnamese typed with combining marks (NFD) and precomposed (NFC) are the same phrase; the shown text keeps its bytes when it is not boilerplate.
+    #[test]
+    fn nfd_vietnamese_phrases_are_found_and_the_shown_text_keeps_its_bytes() {
+        let nfc_phrases = [
+            "Xem thư này trên trình duyệt", "Xem trong trình duyệt", "Xem email trên trình duyệt", "Xem phiên bản web", "Mở trong trình duyệt", "Không xem được email?", "Nhấn vào đây",
+            "Hủy đăng ký", "Huỷ đăng ký", "Chính sách bảo mật", "Xem bản trực tuyến",
+        ];
+        for p in nfc_phrases {
+            let d = nfd(p);
+            assert_ne!(d, p, "the fixture is really decomposed: {p:?}");
+            for (name, text) in [("nfc", p.to_string()), ("nfd", d.clone())] {
+                assert_eq!(preview_text(&format!("{text}\nSố lượng có hạn")), "Số lượng có hạn", "{name} line {p:?}");
+                // (a "view" phrase leads a line of content; "click here" / "unsubscribe" ones are only dropped when they are all there is)
+                let view = !["Nhấn vào đây", "Hủy đăng ký", "Huỷ đăng ký", "Chính sách bảo mật"].contains(&p);
+                if view {
+                    assert_eq!(preview_text(&format!("{text} | Ưu đãi lớn")), "Ưu đãi lớn", "{name} lead-in {p:?}");
+                }
+                assert_eq!(preview_text(&format!("[{text}](https://t.example/x)")), "", "{name} link alone {p:?}");
+                assert_eq!(preview_text(&format!("{}\nSố lượng có hạn", text.to_uppercase())), "Số lượng có hạn", "{name} upper {p:?}");
+            }
+            // what follows is shown as it came (NFD stays NFD), what is not boilerplate is not touched
+            let rest = nfd("Ưu đãi lớn cho khách hàng");
+            if !["Nhấn vào đây", "Hủy đăng ký", "Huỷ đăng ký", "Chính sách bảo mật"].contains(&p) {
+                assert_eq!(preview_text(&format!("{d} {rest}")), rest, "bytes of the rest, {p:?}");
+            }
+        }
+        let real = nfd("Xem lại hóa đơn tháng này trước thứ sáu");
+        assert_eq!(preview_text(&real), real, "NFD content that only starts like a phrase keeps its bytes");
+        let real = nfd("Hủy đăng ký học phần trước ngày 30");
+        assert_eq!(preview_text(&real), real);
+        // a link whose text is the NFD phrase, the notification and the stored snippet
+        assert_eq!(make(None, Some(&format!("<a href=\"https://v.example\">{}</a> Summer sale", nfd("Xem thư này trên trình duyệt")))), "Summer sale");
+        assert_eq!(notification_preview(&nfd("Xem thư này trên trình duyệt | Ưu đãi iPhone")), nfd("Ưu đãi iPhone"));
+        // Hangul as jamo (NFD) is found too
+        assert_eq!(preview_text(&nfd("브라우저에서 보기 여름 세일")), nfd("여름 세일"));
+        // Turkish capital I / dotted İ
+        assert_eq!(preview_text("TARAYICIDA GÖRÜNTÜLE\nİndirim başladı"), "İndirim başladı");
+    }
+
+    /// W6.13: normalisation changes nothing about what is not boilerplate, whatever the input (the same loop as the fuzz test, with decomposed input).
+    #[test]
+    fn nfd_input_never_panics_and_plain_text_is_unchanged() {
+        let mut seed = 0xD1B5_4A32_D192_ED03u64;
+        for i in 0..8_000 {
+            let s = nfd(&fuzz_string(&mut seed));
+            let p = preview_text(&s);
+            assert!(!p.contains(['\n', '\r']), "iteration {i}: {s:?}");
+            let _ = notification_preview(&s);
+            let _ = make(Some(&s), None);
+        }
+        for text in ["Hello world, this is a plain message", "Chào bạn, đây là thư thường", "안녕하세요 여러분", "Merhaba arkadaşlar, toplantı yarın"] {
+            for t in [text.to_string(), nfd(text)] {
+                assert_eq!(preview_text(&t), t, "{t:?}");
+            }
+        }
     }
 
     #[test]

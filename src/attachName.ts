@@ -70,3 +70,21 @@ export function outgoingNames(names: string[]): string[] {
   }
   return out;
 }
+
+// ---- the name of a folder, for the texts that say where a file went (W6.8)
+
+/**
+ * The name of a folder from its path, for "Save to {folder}" and "Saved {name} to {folder}": the last segment, with `/` and `\` both separating, trailing separators ignored. A drive
+ * root `D:\` is `D:`, a network share `\srv\share` is `share`, the root `/` is `/`. Never the whole path.
+ */
+export function folderNameOf(folder: string): string {
+  const p = folder.trim();
+  return p.split(/[\\/]+/).filter(Boolean).pop() ?? (p ? "/" : "");
+}
+
+/** The folder name for a saved FILE: its parent folder (`D:\a.txt` is `D:`, `/a.txt` is `/`). */
+export function savedFolderName(filePath: string): string {
+  const p = filePath.trim().replace(/[\\/]+$/, "");
+  if (!/[\\/]/.test(p)) return "";
+  return folderNameOf(p.replace(/[\\/][^\\/]*$/, "") || (/^[\\/]/.test(p) ? "/" : ""));
+}

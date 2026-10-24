@@ -26,6 +26,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 imap = "2.4.1"
+# the types of a BODYSTRUCTURE (serversearch.rs); the version imap already uses
+imap-proto = "0.10.2"
 native-tls = "0.2.18"
 mail-parser = "0.11.9"
 lettre = "0.11.23"
@@ -52,6 +54,8 @@ rand08 = { package = "rand", version = "0.8" }
 smallvec = "1"
 # snippet.rs cuts preview text on grapheme boundaries (emoji sequences, combining marks); already in the lock file
 unicode-segmentation = "1"
+# NFC for matching the "view in browser" phrases (W6.13); the version is the one already in Cargo.lock (through url / idna)
+icu_normalizer = { version = "2.3", default-features = false, features = ["compiled_data"] }
 semver = "1"
 tokio = { version = "1", features = ["sync", "time", "macros"] }
 
@@ -125,3 +129,7 @@ tauri = { version = "2", features = ["test"] }
 # rustls is the version reqwest already uses, rcgen is MIT OR Apache-2.0
 rustls = "0.23"
 rcgen = "0.14"
+
+# The OpenPGP key locking hashes 62 MB per passphrase try (openpgp::S2K_COUNT, W6.10): at opt-level 0 that takes tens of seconds per unlock in a debug build and the pgp tests time out.
+[profile.dev.package.sha2]
+opt-level = 3

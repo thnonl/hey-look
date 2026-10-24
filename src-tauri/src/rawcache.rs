@@ -56,6 +56,18 @@ impl RawCache {
         }
     }
 
+    /// Drop every message whose id starts with `prefix` (a folder the server renumbered: its ids name other messages now, W6.1).
+    pub fn remove_prefix(&mut self, prefix: &str) {
+        let bytes = &mut self.bytes;
+        self.items.retain(|(k, v)| {
+            let keep = !k.starts_with(prefix);
+            if !keep {
+                *bytes -= v.len();
+            }
+            keep
+        });
+    }
+
     #[cfg(test)]
     pub fn len(&self) -> usize {
         self.items.len()
@@ -86,6 +98,11 @@ pub fn put(id: &str, raw: Arc<Vec<u8>>) {
 /// Drop a message that is no longer stored locally (pruned by the download cap).
 pub fn forget(id: &str) {
     with_cache(|c| c.remove(id))
+}
+
+/// Drop every cached message of a folder (ids are `<account>:<role>:<uid>`) after the server renumbered it.
+pub fn forget_prefix(prefix: &str) {
+    with_cache(|c| c.remove_prefix(prefix))
 }
 
 /// Fetch `id` once: callers asking for the same message at the same time wait for the first download and then find it in

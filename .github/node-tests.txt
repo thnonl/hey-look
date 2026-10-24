@@ -13,6 +13,10 @@ static | node --experimental-strip-types scripts/test-pasted-html.mjs
 static | node --experimental-strip-types scripts/test-send-size.mjs
 static | node --experimental-strip-types scripts/test-from-account.mjs
 static | node --experimental-strip-types scripts/test-attach-name.mjs
+# W6.8: the folder name in the save texts (Windows, POSIX, UNC, root)
+static | node --experimental-strip-types scripts/test-folder-name.mjs
+# W6.14: the link warning cases L1 to L4 and the cases that are not warned
+static | node --experimental-strip-types scripts/test-link-check.mjs
 static | node --experimental-strip-types scripts/test-link-url.mjs
 static | node scripts/test-csp-ready.mjs
 static | node --experimental-strip-types scripts/test-update-result.mjs
@@ -402,3 +406,11 @@ ui-d | node scripts/test-mac-window-top.mjs --require-browser
 ui-c | node scripts/test-main-reader-memory.mjs --require-browser
 # 1.0.7 fix35: the message frame is written, not navigated: one frame, constant history, no srcdoc copy of the mail, over 20 selections
 ui-c | node scripts/test-mail-frame-history.mjs --require-browser
+# 1.0.7 W6.1: `folder-reset` (the server renumbered a folder and it was read again): the folder on screen drops the selection, the checked rows and the open conversation and the list is read again; another folder or mailbox changes nothing; the all-mailboxes view follows every mailbox
+ui-b | node scripts/test-folder-reset.mjs --require-browser
+# 1.0.7 W6.17b: the toast "Downloading Hey Look!" is keyed and goes when the download leaves `downloading`: a fast download shows the ready text and no Downloading toast beside it, a slow one keeps it until it is over, a cancel takes it away
+ui-b | node scripts/test-update-toast.mjs --require-browser
+# 1.0.7 W6.3: lowering the download limit asks the backend to prune at once with the open conversation kept, raising it asks nothing, `mail-pruned` shows the limit notice at the end of an unfiltered list without a sync (not under a filter), a sync in progress keeps what it was told
+ui-b | node scripts/test-prune-limit.mjs --require-browser
+# 1.0.7 W6.7: "Search on the server" in the real page - the button at the end of a search (never started by itself, hint, before the webmail buttons), Enter starts it, the running state and Cancel, the heading and the rows (unread, attachment, flag, no snippet), arrows / Home / End between the rows and Enter opens one, a different search or scope drops the results, the capped / nothing more / failed mailbox / pinned notes, a row whose message is gone
+ui-b | node scripts/test-server-search-ui.mjs --require-browser

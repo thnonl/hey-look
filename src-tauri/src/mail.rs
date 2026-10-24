@@ -53,15 +53,19 @@ pub fn secure_connection_error(host: &str, port: u16, raw: &str) -> String {
     if l.contains("certificate") || l.contains("verify") || l.contains("hostname") || l.contains("expired") {
         return raw.to_string();
     }
-    let server: String = raw.trim().chars().take(120).collect();
-    format!(
-        "Couldn\u{2019}t start a secure connection to {host}:{port}. Hey Look! connects only with SSL/TLS or STARTTLS. Check the port and the security setting. (Server: {server})"
+    // the library's own words (Windows socket text, "token supplied to the function is invalid") are for the log, not for the person (W6.9)
+    let raw_line: String = raw.trim().chars().take(200).collect();
+    crate::startup::line("connect", &format!("secure connection to {host}:{port} failed: {raw_line}"));
+    crate::i18n::coded(
+        "SECURE_CONNECTION",
+        &[("host", host), ("port", &port.to_string())],
+        &format!("Couldn\u{2019}t start a secure connection to {host}:{port}. Hey Look! connects only with SSL/TLS or STARTTLS. Check the port and the security setting."),
     )
 }
 
-/// Whether an error text is the hint of `secure_connection_error`.
+/// Whether an error text is the hint of `secure_connection_error` (the coded form, and the English sentence an older build stored).
 pub fn is_secure_connection_error(text: &str) -> bool {
-    text.starts_with("Couldn\u{2019}t start a secure connection to ")
+    text.starts_with("SECURE_CONNECTION|") || text.starts_with("Couldn\u{2019}t start a secure connection to ")
 }
 
 /// Whether an SMTP error text is a failure of the TLS step (lettre words it as "tls", "starttls" or "handshake" errors).
@@ -477,14 +481,15 @@ pub fn encode_imap_utf7(s: &str) -> String {
     out
 }
 
-/// The name to create for a standard role the server lacks, or None for a role that is never created (drafts, junk, custom folders).
-/// Archive, Trash and Sent (for the copy of a sent message) use their plain English names. A server that keeps every folder inside the INBOX namespace (`INBOX.Sent`, Courier and
-/// older Dovecot setups) gets `INBOX.Archive`: a top-level folder is refused there.
+/// The name to create for a standard role the server lacks, or None for a role that is never created (junk, custom folders).
+/// Archive, Trash, Sent (for the copy of a sent message) and Drafts (for a draft that is saved, W6.4) use their plain English names. A server that keeps every folder inside the INBOX
+/// namespace (`INBOX.Sent`, Courier and older Dovecot setups) gets `INBOX.Archive`: a top-level folder is refused there.
 pub fn name_to_create(role: &str, listing: &Listing) -> Option<String> {
     let leaf = match role {
         "archive" => "Archive",
         "trash" => "Trash",
         "sent" => "Sent",
+        "drafts" => "Drafts",
         _ => return None,
     };
     let in_inbox_namespace = !namespace_prefix(listing.map.values(), listing.delimiter.as_deref()).is_empty();
@@ -600,13 +605,21 @@ mod connect_tests {
     #[test]
     fn a_failed_secure_connection_is_explained_and_a_bad_certificate_is_left_alone() {
         let m = secure_connection_error("mail.example.com", 143, "Bad Response: Invalid command.");
+        // the coded error: the UI translates it from the code and the values (backend.SECURE_CONNECTION); the English sentence is the fallback, without the library's words
         assert_eq!(
             m,
-            "Couldn\u{2019}t start a secure connection to mail.example.com:143. Hey Look! connects only with SSL/TLS or STARTTLS. Check the port and the security setting. (Server: Bad Response: Invalid command.)"
+            "SECURE_CONNECTION|host=mail.example.com|port=143: Couldn\u{2019}t start a secure connection to mail.example.com:143. Hey Look! connects only with SSL/TLS or STARTTLS. Check the port and the security setting."
         );
-        // the server's words are cut at 120 characters
+        assert!(!m.contains("Bad Response") && !m.contains("Server:"));
+        assert!(is_secure_connection_error(&m));
+        // an older build stored the English sentence: still recognised
+        assert!(is_secure_connection_error("Couldn\u{2019}t start a secure connection to h:1. Hey Look! connects only with SSL/TLS or STARTTLS. (Server: x)"));
+        assert!(!is_secure_connection_error("SECURE_CONNECTIONS: no") && !is_secure_connection_error("login failed"));
+        // a long raw text never reaches the person
         let long = "x".repeat(300);
-        assert!(secure_connection_error("h", 1, &long).ends_with(&format!("(Server: {})", "x".repeat(120))));
+        assert!(!secure_connection_error("h", 1, &long).contains("xxxx"));
+        // an IPv6 host keeps its colons through the escape
+        assert!(secure_connection_error("::1", 143, "boom").starts_with("SECURE_CONNECTION|host=%3A%3A1|port=143: "));
         // an untrusted certificate keeps its own advice
         assert_eq!(secure_connection_error("h", 993, "certificate verify failed"), "certificate verify failed");
         assert!(is_tls_step_failure("error:0A00010B:SSL routines:wrong version number") && is_tls_step_failure("invalid tls handshake"));
@@ -711,6 +724,10 @@ pub struct FolderFetch {
     pub new: Vec<Parsed>,
     /// (uid, seen, flagged) for messages already stored in the scanned range
     pub flags: Vec<(u32, bool, bool)>,
+    /// the UIDVALIDITY the SELECT answered (None: the server sent none)
+    pub validity: Option<u32>,
+    /// (W6.1) the folder was renumbered since it was recorded: what is stored of it is stale and `new` is a fresh first page, the caller replaces the stored rows
+    pub reset: bool,
 }
 
 fn ids_in(raw: &str) -> Vec<String> {
@@ -1076,9 +1093,12 @@ impl Parts<'_> {
     }
 }
 
-pub fn fetch_folder(s: &mut Sess, folder: &str, max_known_uid: u32, min_known_uid: u32, initial: u32) -> R<FolderFetch> {
+pub fn fetch_folder<T: Read + Write>(s: &mut imap::Session<T>, folder: &str, known: &crate::folderstate::Known, max_known_uid: u32, min_known_uid: u32, initial: u32) -> R<FolderFetch> {
     let mb = s.select(folder).map_err(err)?;
-    let mut res = FolderFetch { new: vec![], flags: vec![] };
+    // (W6.1) another UIDVALIDITY: the stored UIDs mean nothing any more, the folder is read like a first sync
+    let reset = crate::folderstate::renumbered(known, mb.uid_validity);
+    let (max_known_uid, min_known_uid) = if reset { (0, 0) } else { (max_known_uid, min_known_uid) };
+    let mut res = FolderFetch { new: vec![], flags: vec![], validity: mb.uid_validity, reset };
     if mb.exists == 0 {
         return Ok(res);
     }
@@ -1150,8 +1170,14 @@ pub fn uid_set(uids: &[u32]) -> String {
 /// The next `count` messages older than `below_uid` (the lowest UID already stored): `UID SEARCH` for the UIDs that exist
 /// below it, then one `UID FETCH` of exactly the highest `count` of them. Returns the parsed messages and whether the folder
 /// has nothing older than the lowest one returned.
-pub fn fetch_older(s: &mut Sess, folder: &str, below_uid: u32, count: usize) -> R<(Vec<Parsed>, bool)> {
-    s.select(folder).map_err(err)?;
+pub fn fetch_older<T: Read + Write>(s: &mut imap::Session<T>, folder: &str, expect_validity: Option<u32>, below_uid: u32, count: usize) -> R<(Vec<Parsed>, bool)> {
+    let mb = s.select(folder).map_err(err)?;
+    // (W6.1) the lowest stored UID is a position in the numbering the folder had when it was recorded
+    if let (Some(was), Some(now)) = (expect_validity, mb.uid_validity) {
+        if was != now {
+            return Err(folder_changed());
+        }
+    }
     if below_uid <= 1 || count == 0 {
         return Ok((vec![], below_uid <= 1));
     }
@@ -1178,6 +1204,25 @@ pub fn fetch_older(s: &mut Sess, folder: &str, below_uid: u32, count: usize) -> 
     Ok((out, exhausted))
 }
 
+/// One message of a folder, parsed like the sync parses it (W6.7: a row of the server search that is opened). `BODY.PEEK[]`: it stays unread on the server. `expect_validity`: the
+/// UIDVALIDITY the UID was read under; a folder that was renumbered since is `FOLDER_CHANGED` and nothing is read. A message that is gone is `MSG_NOT_ON_SERVER`.
+pub fn fetch_one<T: Read + Write>(s: &mut imap::Session<T>, folder: &str, uid: u32, expect_validity: Option<u32>) -> R<Parsed> {
+    let mb = s.examine(folder).map_err(err)?;
+    if let (Some(was), Some(now)) = (expect_validity, mb.uid_validity) {
+        if was != now {
+            return Err(folder_changed());
+        }
+    }
+    let fetched = s.uid_fetch(uid.to_string(), "(UID FLAGS INTERNALDATE BODY.PEEK[])").map_err(err)?;
+    let f = fetched.iter().find(|m| m.uid == Some(uid)).ok_or("MSG_NOT_ON_SERVER: message not found on server")?;
+    let body = f.body().ok_or("MSG_NOT_ON_SERVER: message not found on server")?;
+    let flags = f.flags();
+    let seen = flags.iter().any(|x| matches!(x, imap::types::Flag::Seen));
+    let flagged = flags.iter().any(|x| matches!(x, imap::types::Flag::Flagged));
+    let fb = f.internal_date().map(|d| d.timestamp()).unwrap_or(0);
+    parse(uid, body, seen, flagged, fb).ok_or_else(|| "MSG_NOT_ON_SERVER: the message could not be read".to_string())
+}
+
 pub fn fetch_raw<T: Read + Write>(s: &mut imap::Session<T>, folder: &str, uid: u32) -> R<Vec<u8>> {
     s.select(folder).map_err(err)?;
     let f = s.uid_fetch(uid.to_string(), "BODY.PEEK[]").map_err(err)?;
@@ -1201,41 +1246,148 @@ pub fn fetch_header<T: Read + Write>(s: &mut imap::Session<T>, folder: &str, uid
         .ok_or_else(|| "MSG_NOT_ON_SERVER: message not found on server".into())
 }
 
-pub fn store_flag<T: Read + Write>(s: &mut imap::Session<T>, folder: &str, uids: &[u32], flag: &str, add: bool) -> R<()> {
+/// What a write on stored UIDs (STORE, MOVE, COPY, EXPUNGE) is checked against before any command is sent (W6.1). A stored UID names the message it had when the app
+/// read the folder; when the server renumbered the folder since, it names another message or none, and an unchecked Delete would remove an unrelated message.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Expect {
+    /// the refs were taken under this recorded numbering (the server's folder name, UIDVALIDITY): the SELECT must answer the same
+    State { name: String, validity: u32 },
+    /// no numbering recorded yet (an install from before 1.0.7, the first action before the first sync): each UID must still carry the Message-ID the local row has
+    /// (a row without one cannot be told apart and is refused)
+    MessageIds(Vec<(u32, Option<String>)>),
+    /// the UIDs were found in this very session by their own header (a draft looked up by Message-ID): nothing more to check
+    Verified,
+}
+
+/// The coded error of a refused write: nothing was sent.
+pub fn folder_changed() -> String {
+    crate::i18n::coded("FOLDER_CHANGED", &[], "This folder changed on the server, so nothing was done. Hey Look! is reading it again. Try again in a moment.")
+}
+
+pub fn is_folder_changed(error: &str) -> bool {
+    error.starts_with("FOLDER_CHANGED")
+}
+
+/// The Message-ID (with its angle brackets, as the local rows keep it) of a header block.
+fn header_message_id(head: &[u8]) -> Option<String> {
+    MessageParser::default().parse(head)?.message_id().map(|m| format!("<{m}>"))
+}
+
+/// Do the Message-IDs the server has for the UIDs it knows equal the ones expected? A UID the server does not know is fine (a command on it reaches nothing); one that
+/// carries another Message-ID, or an expected one that is missing, is not. `found`: (uid, Message-ID) of what the server answered.
+pub fn message_ids_agree(expected: &[(u32, Option<String>)], found: &[(u32, Option<String>)]) -> bool {
+    expected.iter().all(|(uid, want)| match found.iter().find(|(u, _)| u == uid) {
+        None => true,
+        Some((_, have)) => want.is_some() && want == have,
+    })
+}
+
+fn verify_message_ids<T: Read + Write>(s: &mut imap::Session<T>, expected: &[(u32, Option<String>)]) -> R<()> {
+    if expected.iter().any(|(_, m)| m.is_none()) {
+        return Err(folder_changed());
+    }
+    for chunk in expected.chunks(200) {
+        let mut uids: Vec<u32> = chunk.iter().map(|(u, _)| *u).collect();
+        uids.sort_unstable();
+        uids.dedup();
+        let fetched = s.uid_fetch(uid_set(&uids), "(UID BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])").map_err(err)?;
+        let found: Vec<(u32, Option<String>)> = fetched.iter().filter_map(|f| Some((f.uid?, f.header().and_then(header_message_id)))).collect();
+        if !message_ids_agree(chunk, &found) {
+            return Err(folder_changed());
+        }
+    }
+    Ok(())
+}
+
+/// SELECT the folder and check what the caller's UIDs were taken under. Nothing has been sent that changes anything when this fails with `FOLDER_CHANGED`.
+pub fn select_guarded<T: Read + Write>(s: &mut imap::Session<T>, folder: &str, expect: &Expect) -> R<()> {
+    let mb = s.select(folder).map_err(err)?;
+    match expect {
+        Expect::Verified => Ok(()),
+        Expect::State { name, validity } => {
+            if name == folder && mb.uid_validity == Some(*validity) {
+                Ok(())
+            } else {
+                crate::startup::line(
+                    "folder",
+                    &format!("a write on {folder} was refused: its UIDVALIDITY is {:?}, the UIDs were taken under {validity}{}", mb.uid_validity, if name == folder { "" } else { " for another server folder" }),
+                );
+                Err(folder_changed())
+            }
+        }
+        Expect::MessageIds(list) => verify_message_ids(s, list).inspect_err(|e| {
+            if is_folder_changed(e) {
+                crate::startup::line("folder", &format!("a write on {folder} was refused: a UID names another message than the one stored (no numbering recorded yet)"));
+            }
+        }),
+    }
+}
+
+pub fn store_flag<T: Read + Write>(s: &mut imap::Session<T>, folder: &str, expect: &Expect, uids: &[u32], flag: &str, add: bool) -> R<()> {
     if uids.is_empty() {
         return Ok(());
     }
-    s.select(folder).map_err(err)?;
+    select_guarded(s, folder, expect)?;
     let set = uids.iter().map(|u| u.to_string()).collect::<Vec<_>>().join(",");
     let q = if add { format!("+FLAGS ({flag})") } else { format!("-FLAGS ({flag})") };
     s.uid_store(set, q).map_err(err)?;
     Ok(())
 }
 
-pub fn move_to<T: Read + Write>(s: &mut imap::Session<T>, src: &str, uids: &[u32], dst: &str) -> R<()> {
+/// Permanently remove the messages `uids` of the selected folder, which carry `\Deleted` now - and only those. With UIDPLUS (or IMAP4rev2) that is `UID EXPUNGE <set>`. Without,
+/// a plain `EXPUNGE` would also remove every message another program flagged `\Deleted` in the folder (Thunderbird's "mark as deleted", Apple Mail): their flags are taken off
+/// around the EXPUNGE and set again (W6.1). Residual risk (accepted): a flag another program sets in the milliseconds between the SEARCH and the EXPUNGE, and a crash between the
+/// lifting and the restoring leave a foreign message unmarked (it is not lost).
+fn expunge_ours<T: Read + Write>(s: &mut imap::Session<T>, uids: &[u32]) -> R<()> {
+    let mut ours: Vec<u32> = uids.to_vec();
+    ours.sort_unstable();
+    ours.dedup();
+    let set = uid_set(&ours);
+    let uidplus = s.capabilities().map(|c| c.has_str("UIDPLUS") || c.has_str("IMAP4rev2")).unwrap_or(false);
+    if uidplus {
+        s.uid_expunge(&set).map_err(err)?;
+        return Ok(());
+    }
+    let marked = s.uid_search("DELETED").map_err(err)?;
+    let mut foreign: Vec<u32> = marked.into_iter().filter(|u| ours.binary_search(u).is_err()).collect();
+    foreign.sort_unstable();
+    if foreign.is_empty() {
+        s.expunge().map_err(err)?;
+        return Ok(());
+    }
+    let fset = uid_set(&foreign);
+    s.uid_store(&fset, "-FLAGS.SILENT (\\Deleted)").map_err(err)?;
+    let expunged = s.expunge().map_err(err);
+    // (put back whatever happened above: the other program's marks are not ours to lose)
+    let restored = s.uid_store(&fset, "+FLAGS.SILENT (\\Deleted)").map_err(err);
+    crate::startup::line("expunge", &format!("{} message(s) marked deleted by another program were kept (no UIDPLUS on this server)", foreign.len()));
+    expunged?;
+    restored?;
+    Ok(())
+}
+
+pub fn move_to<T: Read + Write>(s: &mut imap::Session<T>, src: &str, expect: &Expect, uids: &[u32], dst: &str) -> R<()> {
     if uids.is_empty() {
         return Ok(());
     }
-    s.select(src).map_err(err)?;
+    select_guarded(s, src, expect)?;
     let set = uids.iter().map(|u| u.to_string()).collect::<Vec<_>>().join(",");
     if s.uid_mv(&set, dst).is_ok() {
         return Ok(());
     }
     s.uid_copy(&set, dst).map_err(err)?;
     s.uid_store(&set, "+FLAGS (\\Deleted)").map_err(err)?;
-    s.expunge().map_err(err)?;
-    Ok(())
+    expunge_ours(s, uids)
 }
 
-pub fn delete_forever<T: Read + Write>(s: &mut imap::Session<T>, src: &str, uids: &[u32]) -> R<()> {
+pub fn delete_forever<T: Read + Write>(s: &mut imap::Session<T>, src: &str, expect: &Expect, uids: &[u32]) -> R<()> {
     if uids.is_empty() {
         return Ok(());
     }
-    s.select(src).map_err(err)?;
+    select_guarded(s, src, expect)?;
     let set = uids.iter().map(|u| u.to_string()).collect::<Vec<_>>().join(",");
     s.uid_store(&set, "+FLAGS (\\Deleted)").map_err(err)?;
-    s.expunge().map_err(err)?;
-    Ok(())
+    expunge_ours(s, uids)
 }
 
 pub fn append<T: Read + Write>(s: &mut imap::Session<T>, folder: &str, raw: &[u8], draft: bool) -> R<()> {
