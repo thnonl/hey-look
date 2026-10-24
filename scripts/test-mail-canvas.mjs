@@ -115,7 +115,9 @@ assert.match(prefs, /mailCanvas: resolveMailCanvas\(p\.mailCanvas\),/);
 const rp = read("src/components/ReadingPane.tsx");
 assert.match(rp, /const stored = useStore\(\(s\) => s\.prefs\.mailCanvas\);/);
 assert.match(rp, /const session = useStore\(\(s\) => s\.mailCanvasSession\);/);
-assert.match(rp, /effectiveCanvas\(themeDark, stored, session\) === "dark"/);
+// fix38 moved the one rule into useCanvasDark() (src/openStatus.tsx), which the pane, the reader window and the status share
+assert.match(rp, /const dark = useCanvasDark\(\);/);
+assert.match(read("src/openStatus.tsx"), /effectiveCanvas\(themeDark, stored, session\) === "dark"/);
 assert.match(rp, /pressCanvas\(themeDark, stored, session\)/);
 assert.match(rp, /if \(press\.pref\) setPrefs\(\{ mailCanvas: press\.pref \}\)/);
 assert.match(rp, /setSession\(press\.session\)/);
