@@ -76,6 +76,7 @@
     "allow-open-external",
     "allow-copy-text",
     "allow-print-html",
+    "allow-mac-menu-state",
     "allow-read-clipboard-text",
     "allow-popout-open",
     "allow-popout-init",

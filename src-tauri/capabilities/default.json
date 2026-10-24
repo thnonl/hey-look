@@ -37,6 +37,7 @@
     "allow-notify-permission",
     "allow-open-notification-settings",
     "allow-print-html",
+    "allow-mac-menu-state",
     "allow-notify-caps",
     "allow-play-notify-sound",
     "allow-create-mail-folder",

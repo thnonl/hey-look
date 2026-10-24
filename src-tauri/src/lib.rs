@@ -2239,6 +2239,13 @@ async fn print_html(app: tauri::AppHandle, window: tauri::WebviewWindow, html: S
     blocking(move || macprint::print(&app, &label, html, title)).await
 }
 
+/// A page tells the macOS menu bar whether it shows a message that can be printed (File > Print…, W5.11): main and reader windows, on every change. The item follows the window with
+/// the focus. Windows and Linux have no such item and the pages do not call it there.
+#[tauri::command]
+fn mac_menu_state(app: tauri::AppHandle, window: tauri::WebviewWindow, can_print: bool) {
+    shell::note_can_print(&app, window.label(), can_print);
+}
+
 /// Settings > Notifications & tray > "Open System Settings" (macOS, notifications turned off for the app): the Notifications pane of System Settings.
 #[tauri::command]
 async fn open_notification_settings(app: tauri::AppHandle) -> R<()> {
@@ -3111,7 +3118,7 @@ fn pack_thread(mut messages: Vec<MessageFull>) -> R<Vec<u8>> {
     let code = |s: &Option<String>| -> R<u32> {
         match s {
             None => Ok(0),
-            Some(s) => u32::try_from(s.len()).ok().and_then(|n| n.checked_add(1)).ok_or_else(|| "MSG_TOO_BIG: a message body is over 4 GB".to_string()),
+            Some(s) => u32::try_from(s.len()).ok().and_then(|n| n.checked_add(1)).ok_or_else(|| "a message body over 4 GB cannot be packed".to_string()),
         }
     };
     let mut total = 4 + meta.len();
@@ -3119,7 +3126,7 @@ fn pack_thread(mut messages: Vec<MessageFull>) -> R<Vec<u8>> {
         total += 8 + h.as_ref().map_or(0, String::len) + t.as_ref().map_or(0, String::len);
     }
     let mut out = Vec::with_capacity(total);
-    out.extend_from_slice(&u32::try_from(meta.len()).map_err(|_| "MSG_TOO_BIG: the messages are over 4 GB".to_string())?.to_le_bytes());
+    out.extend_from_slice(&u32::try_from(meta.len()).map_err(|_| "messages over 4 GB cannot be packed".to_string())?.to_le_bytes());
     out.extend_from_slice(&meta);
     for (h, t) in &bodies {
         out.extend_from_slice(&code(h)?.to_le_bytes());
@@ -6522,6 +6529,9 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            // macOS: which window has the focus and which ones can print decides File > Print… (every window, main or not)
+            #[cfg(target_os = "macos")]
+            shell::menu_window_event(window, event);
             // the OS changed its theme (any window says so): with the System setting every window's frame follows (wintheme.rs)
             if let tauri::WindowEvent::ThemeChanged(theme) = event {
                 wintheme::on_os_theme_changed(window.app_handle(), &format!("tao ThemeChanged({theme:?}) of {}", window.label()));
@@ -6577,6 +6587,7 @@ pub fn run() {
             open_notification_settings,
             print_html,
             get_thread_packed,
+            mac_menu_state,
             notify_caps,
             play_notify_sound,
             create_mail_folder,
@@ -7473,7 +7484,7 @@ mod capability_tests {
         let never = [
             "quit_now", "quit_cancelled", "sends_flushed", "quit_page_alive", "quit_dialog", "frontend_ready", "page_state", "page_pong", "popout_reply", "popout_save_all", "update_install",
             "thread_action", "queue_action", "cancel_action", "sender_action", "prepare_action", "load_older", "prune_to_limit", "server_search", "server_search_cancel", "server_open", "frame_info", "frame_caption_rect", "frame_system_menu", "show_window", "set_mail_available",
-            "take_tray_compose", "idle_states", "window_caption_colors", "update_startup_state", "update_startup_ack", "refresh_badge", "sync_account", "popout_show", "popout_park", "popout_set_key",
+            "take_tray_compose", "idle_states", "window_caption_colors", "update_startup_state", "update_startup_ack", "refresh_badge", "sync_account", "popout_show", "popout_park", "popout_set_key", "mac_menu_state",
             "drag_begin", "drag_take", "send_message", "save_draft", "discard_draft", "recovery_save", "recovery_clear", "outbox_hold", "outbox_hold_send", "outbox_update", "outbox_reschedule", "create_mail_folder",
         ];
         // (kind, capability file, window pattern, what the view needs on top of the basics, what it must not get on top of `never`)

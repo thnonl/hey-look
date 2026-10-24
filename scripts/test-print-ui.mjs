@@ -2,7 +2,7 @@
 // 1.0.7 W5.3 (REQ-5.3.1 to REQ-5.3.4, AC-5.3.1/5.3.4/5.3.5/5.3.9 page part) in the dev preview, whose mock backend answers `print_html` (`#os=macos` plays the Mac):
 //   the per-message More menu has Print and it hands the backend ONE light document (title = subject, CSP with script-src 'none', the mail, no app UI) even with the Dark background;
 //   a failing backend (`#printfail`) shows the toast "Couldn't print this message." in this window and nothing else changes; a second press while a print is under way does nothing;
-//   the reader window: Cmd+P and More > Print print the last open message; Windows (`#os=windows`) never calls print_html
+//   the reader window: the menu item File > Print… (event mac-print; Cmd+P is the menu's key, the page takes none) and More > Print print the last open message; Windows (`#os=windows`) never calls print_html
 //   node scripts/test-print-ui.mjs [--require-browser]
 import assert from 'node:assert/strict';
 import { sleep, startHarness } from './cdp-harness.mjs';
@@ -49,15 +49,20 @@ try {
     assert.equal((await printed()).length, 1, 'the call was made once');
     assert.equal(await evaluate(`!!document.querySelector('.msg-frame')`), true);
   });
-  await check('REQ-5.3.1 reader window: Cmd+P and More > Print print the last open message', async () => {
+  await check('REQ-5.3.1 reader window: the menu item and More > Print print the last open message, Cmd+P is not taken by the page (W5.11)', async () => {
     await cdp('Emulation.setDeviceMetricsOverride', { width: 1100, height: 760, deviceScaleFactor: 1, mobile: false });
     await cdp('Page.navigate', { url: 'about:blank' });
     await cdp('Page.navigate', { url: `${H.base}?w=reader&thread=t1#lang=en&os=macos` });
     await sleep(800);
     assert.ok(await waitFor(`!!document.querySelector('.rp-msg.open iframe.msg-frame')?.contentDocument?.querySelector('p')`, 12000), 'the reader did not open its mail');
     await sleep(400);
-    await evaluate(`document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', metaKey: true, bubbles: true })); 1`);
-    assert.ok(await waitFor(`(window.__printed ?? []).length >= 1`, 4000), 'Cmd+P did not print');
+    // W5.11: Cmd+P is the File > Print… item of the menu bar on a Mac; the page does not take it too (no double print); the menu's event prints
+    const taken = await evaluate(`(() => { const e = new KeyboardEvent('keydown', { key: 'p', metaKey: true, bubbles: true, cancelable: true }); document.body.dispatchEvent(e); return e.defaultPrevented; })()`);
+    await sleep(400);
+    assert.equal(taken, false, 'the page claimed Cmd+P');
+    assert.equal((await printed()).length, 0, 'Cmd+P printed in the page');
+    await evaluate(`import('/src/macMenu.ts').then((m) => m.macMenuEvent('print')); 1`);
+    assert.ok(await waitFor(`(window.__printed ?? []).length >= 1`, 4000), 'the menu item did not print');
     const before = (await printed()).length;
     await sleep(400);
     assert.equal(await clickPrint(), true, 'the reader menu has Print');

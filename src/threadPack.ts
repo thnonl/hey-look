@@ -13,7 +13,7 @@ export function unpackThread(input: ArrayBuffer | ArrayLike<number>): MessageFul
   const bytes = input instanceof ArrayBuffer ? new Uint8Array(input) : Uint8Array.from(input); // (an older backend or a mock may hand over a plain list of bytes)
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const need = (end: number) => {
-    if (end > bytes.byteLength) throw new Error("the conversation answer is cut short");
+    if (end > bytes.byteLength) throw new Error("the conversation answer is cut short"); // i18n-ok: internal consistency error of the packed answer, never shown
   };
   need(4);
   const metaLen = view.getUint32(0, true);
@@ -36,7 +36,7 @@ export function unpackThread(input: ArrayBuffer | ArrayLike<number>): MessageFul
     m.html = part(htmlCode);
     m.text = part(textCode);
   }
-  if (at !== bytes.byteLength) throw new Error("the conversation answer has bytes left over");
+  if (at !== bytes.byteLength) throw new Error("the conversation answer has bytes left over"); // i18n-ok: internal consistency error of the packed answer, never shown
   return messages;
 }
 

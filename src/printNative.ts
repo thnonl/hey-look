@@ -3,6 +3,7 @@ import { api } from "./api";
 import { t } from "./i18n";
 import { buildPrintDoc, type PrintSource } from "./printDoc";
 import { usePrinting } from "./printStatus";
+import { useStore } from "./store";
 
 const sources = new WeakMap<HTMLIFrameElement, () => PrintSource>();
 
@@ -25,4 +26,13 @@ export async function printFrameNative(frame: HTMLIFrameElement | null, toast: (
   } finally {
     setTimeout(() => usePrinting.setState({ on: false }), Math.max(0, 300 - (Date.now() - since)));
   }
+}
+
+/**
+ * The message the macOS File > Print… item and the reader's Print button print: the last open message of this window (its frame is the last `iframe.msg-frame` of an open card).
+ * An error becomes the toast of this window.
+ */
+export function printOpenMessage(): Promise<void> {
+  const frames = document.querySelectorAll<HTMLIFrameElement>(".rp-msg.open iframe.msg-frame");
+  return printFrameNative(frames[frames.length - 1] ?? null, (text) => useStore.getState().showToast(() => text, undefined, "error"));
 }

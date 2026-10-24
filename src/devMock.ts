@@ -1683,6 +1683,9 @@ export function installMock() {
         if (hashTokens().has("printfail")) throw "mock: print failed";
         return null;
       }
+      case "mac_menu_state": // (macOS File > Print…, W5.11) what the page said last and how often, for a check
+        (window as unknown as { __macMenu?: { can: boolean; at: number }[] }).__macMenu = [...((window as unknown as { __macMenu?: { can: boolean; at: number }[] }).__macMenu ?? []), { can: a.canPrint === true, at: Math.round(performance.now()) }];
+        return null;
       case "plugin:opener|open_url": // (Linux asks the backend: open_external)
       case "open_external":
         if (hashTokens().has("openfail")) throw "mock: no default browser"; // `#openfail` makes opening links fail (update check: copy-link path)
