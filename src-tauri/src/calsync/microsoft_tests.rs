@@ -527,8 +527,8 @@ fn occurrences_and_exceptions_are_single_read_only_rows_a_series_master_is_not_s
         calendar::get_event(&c, &id).unwrap()
     };
     let (o1, o2, s) = (get("o1"), get("o2"), get("s"));
-    assert_eq!((o1.read_only.as_deref(), o1.rrule.is_none(), o1.series_id.as_deref(), o1.remote_kind.as_deref()), (Some("repeating"), true, Some("series-1"), Some("occurrence")));
-    assert_eq!((o2.read_only.as_deref(), o2.start, o2.remote_kind.as_deref()), (Some("repeating"), utc(2026, 10, 28, 15, 0), Some("exception")), "the moved one shows at its new time");
+    assert_eq!((o1.read_only.as_deref(), o1.rrule.is_none(), o1.series_id.as_deref(), o1.remote_kind.as_deref()), (None, true, Some("series-1"), Some("occurrence")));
+    assert_eq!((o2.read_only.as_deref(), o2.start, o2.remote_kind.as_deref()), (None, utc(2026, 10, 28, 15, 0), Some("exception")), "the moved one shows at its new time");
     assert_eq!(o1.uid, o2.uid, "instances share the series' UID and differ by the original start");
     assert_ne!(o1.recurrence_id, o2.recurrence_id);
     assert_eq!(o1.recurrence_id, utc(2026, 10, 20, 13, 0).to_string());

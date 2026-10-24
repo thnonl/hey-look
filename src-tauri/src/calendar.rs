@@ -1466,13 +1466,30 @@ pub fn calendar_list_events(state: tauri::State<crate::AppState>, from: i64, to:
     list_range(&lock(&state.db), from, to)
 }
 
+/// The form's values for an event, or for one part of its series (`scope`, with the slot of the occurrence it starts at). Outlook's series master is fetched
+/// from the service for "this and following" and "the whole series", so the call may wait for the network.
 #[tauri::command]
-pub fn calendar_get_event(state: tauri::State<crate::AppState>, id: String) -> R<CalEvent> {
-    let c = lock(&state.db);
-    let mut e = get_event(&c, &id)?;
-    let mine = account_emails(&c);
-    mark_you(&mut e, &mine);
-    Ok(e)
+pub async fn calendar_get_event(state: tauri::State<'_, crate::AppState>, id: String, scope: Option<String>, occurrence_start: Option<i64>) -> R<CalEventDetail> {
+    let db = state.db.clone();
+    crate::blocking(move || {
+        let scope = crate::calseries::Scope::parse(scope.as_deref())?;
+        let mut d = {
+            let c = lock(&db);
+            let e = get_event(&c, &id)?;
+            match scope {
+                None => CalEventDetail { event: e, changed_count: 0, pattern_unsupported: false },
+                Some(sc) if crate::calsync::is_remote_calendar_id(&e.calendar_id) => {
+                    drop(c);
+                    crate::calsync::series::get(&db, &crate::calsync::cmds::AppFactory { db: db.clone() }, &id, sc, occurrence_start)?
+                }
+                Some(sc) => crate::calseries::get(&c, &id, sc, occurrence_start)?,
+            }
+        };
+        let mine = account_emails(&lock(&db));
+        mark_you(&mut d.event, &mine);
+        Ok(d)
+    })
+    .await
 }
 
 /// The synced calendar an event input is for: the calendar of the event being edited, or the one chosen for a new event.
@@ -1484,6 +1501,28 @@ fn remote_calendar_of(c: &Connection, inp: &CalEventInput) -> Option<String> {
     crate::calsync::is_remote_calendar_id(&id).then_some(id)
 }
 
+/// The part of a series a save is for: the one the form asked for, or, for a changed occurrence saved without a scope, that occurrence.
+fn scope_of(c: &Connection, inp: &CalEventInput) -> R<Option<crate::calseries::Scope>> {
+    if let Some(s) = crate::calseries::Scope::parse(inp.scope.as_deref())? {
+        return Ok(Some(s));
+    }
+    Ok(inp.id.as_deref().and_then(|id| get_event(c, id).ok()).filter(|e| !e.recurrence_id.is_empty() && e.remote_kind.is_none()).map(|_| crate::calseries::Scope::Occurrence))
+}
+
+/// Send the mails a scoped change made; the change itself is stored already. `v` = "saved" | "deleted" (the words of the failure text).
+fn send_all(db: &Db, mails: &[Mail], v: &str) -> R<()> {
+    for m in mails {
+        send_mail(db, m).map_err(|e| {
+            if v == "saved" {
+                crate::i18n::coded("CAL_SEND_FAILED", &[("v", "saved"), ("detail", &e)], &format!("The event was saved, but the invitations weren't sent: {e}"))
+            } else {
+                crate::i18n::coded("CAL_SEND_FAILED", &[("v", "deleted"), ("detail", &e)], &format!("The event was deleted, but the cancellation wasn't sent: {e}"))
+            }
+        })?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn calendar_save_event(app: tauri::AppHandle, state: tauri::State<'_, crate::AppState>, event: CalEventInput, notify: bool) -> R<CalEvent> {
     let db = state.db.clone();
@@ -1491,6 +1530,18 @@ pub async fn calendar_save_event(app: tauri::AppHandle, state: tauri::State<'_, 
         // an event of a synced calendar goes to its provider (which sends the invitations, not this app)
         if remote_calendar_of(&lock(&db), &event).is_some() {
             return crate::calsync::write::save(&db, &crate::calsync::cmds::AppFactory { db: db.clone() }, &event);
+        }
+        let scope = scope_of(&lock(&db), &event)?;
+        if let Some(sc) = scope {
+            let mut event = event;
+            if event.occurrence_start.is_none() {
+                event.occurrence_start = event.id.as_deref().and_then(|id| get_event(&lock(&db), id).ok()).and_then(|e| e.recurrence_id.parse().ok());
+            }
+            let saved = crate::calseries::save(&lock(&db), &event, sc)?;
+            if notify {
+                send_all(&db, &saved.mails, "saved")?;
+            }
+            return Ok(saved.event);
         }
         let (e, acc) = save_local(&lock(&db), &event)?;
         if let (true, Some(acc)) = (notify, acc) {
@@ -1504,9 +1555,10 @@ pub async fn calendar_save_event(app: tauri::AppHandle, state: tauri::State<'_, 
 }
 
 #[tauri::command]
-pub async fn calendar_delete_event(app: tauri::AppHandle, state: tauri::State<'_, crate::AppState>, id: String, notify: bool) -> R<()> {
+pub async fn calendar_delete_event(app: tauri::AppHandle, state: tauri::State<'_, crate::AppState>, id: String, notify: bool, scope: Option<String>, occurrence_start: Option<i64>) -> R<()> {
     let db = state.db.clone();
     let out = crate::blocking(move || {
+        let scope = crate::calseries::Scope::parse(scope.as_deref())?;
         let (e, acc) = {
             let c = lock(&db);
             let e = get_event(&c, &id)?;
@@ -1514,7 +1566,11 @@ pub async fn calendar_delete_event(app: tauri::AppHandle, state: tauri::State<'_
             (e, acc)
         };
         if crate::calsync::is_remote_calendar_id(&e.calendar_id) {
-            return crate::calsync::write::delete(&db, &crate::calsync::cmds::AppFactory { db: db.clone() }, &id);
+            return crate::calsync::write::delete(&db, &crate::calsync::cmds::AppFactory { db: db.clone() }, &id, scope, occurrence_start);
+        }
+        if let Some(sc) = scope {
+            let gone = crate::calseries::delete(&lock(&db), &id, sc, occurrence_start, notify)?;
+            return send_all(&db, &gone.mails, "deleted");
         }
         let mut result = Ok(());
         let organizer_is_me = e.calendar_id == LOCAL && e.my_status.as_deref() == Some("organizer") && e.attendees.len() > 1;

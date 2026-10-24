@@ -13,14 +13,17 @@
 //!
 //! Rules of the model: the provider is the truth. A pull overwrites the local row (last write wins; the local copy only differs
 //! between a write and its confirmation, and a write that loses a race with another device gets `Conflict`, after which the
-//! server version is pulled and shown with a note). Repeating events of a remote calendar are read-only. There is no offline queue:
+//! server version is pulled and shown with a note). Repeating events can be changed as a whole, from one occurrence on, or one occurrence at a time
+//! (`series.rs`; Google keeps the series as one master, Outlook lists occurrences and its master is fetched when needed). There is no offline queue:
 //! a write without a connection fails with `CAL_OFFLINE` and changes nothing.
 
 pub mod cmds;
 pub mod engine;
 pub mod google;
+pub mod graph_recur;
 pub mod http;
 pub mod microsoft;
+pub mod series;
 pub mod store;
 pub mod write;
 
@@ -81,6 +84,11 @@ impl Kind {
             Kind::Microsoft => "Outlook",
             Kind::CalDav => "the calendar server",
         }
+    }
+
+    /// The service lists a series occurrence by occurrence, with no master among the events (Outlook); the master is fetched when it is needed.
+    pub fn lists_occurrences(self) -> bool {
+        self == Kind::Microsoft
     }
 
     pub fn enabled(self) -> bool {
@@ -218,6 +226,8 @@ pub struct RemoteEvent {
     pub exdates: Vec<i64>,
     /// the master's RDATEs (instants): extra dates of the series
     pub rdates: Vec<i64>,
+    /// A series master whose repeat rule Hey Look! cannot express (an Outlook pattern outside the mapped set): `rrule` is empty and the rule must be left alone.
+    pub pattern_unsupported: bool,
     /// "confirmed" | "tentative" | "cancelled". A cancelled instance (`series_id` + `recurrence_id`) hides its slot; a cancelled
     /// single event or master counts as deleted.
     pub status: String,
@@ -255,6 +265,7 @@ impl RemoteEvent {
             rrule: None,
             exdates: vec![],
             rdates: vec![],
+            pattern_unsupported: false,
             status: "confirmed".into(),
             my_status: None,
             reminder_min: None,
@@ -277,6 +288,8 @@ pub struct EventDraft {
     /// guests (never the user); the provider sends the invitations
     pub attendees: Vec<CalAttendee>,
     pub reminder_min: Option<i64>,
+    /// RRULE (without the prefix) of a repeating event to create
+    pub rrule: Option<String>,
 }
 
 /// The fields of an event that changed; `None` = leave as it is. The attendee list, when it changed, is the whole new list
@@ -290,6 +303,23 @@ pub struct EventPatch {
     pub description: Option<Option<String>>,
     pub attendees: Option<Vec<CalAttendee>>,
     pub reminder_min: Option<Option<i64>>,
+    /// the repeat rule of a series, with the extra dates it keeps; sent whole
+    pub recurrence: Option<Recurrence>,
+}
+
+/// The recurrence of a series master as a write sends it. The service applies its own rules to the occurrences it already has.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Recurrence {
+    /// the rule without the `RRULE:` prefix; `None` makes the series a single event
+    pub rrule: Option<String>,
+    /// dates of the series that do not happen (EXDATE)
+    pub exdates: Vec<i64>,
+    /// extra dates (RDATE)
+    pub rdates: Vec<i64>,
+    /// the first occurrence as the series will have it after the write (a service that keeps the rule with the start needs it)
+    pub start: i64,
+    pub all_day: bool,
+    pub tzid: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -439,6 +469,19 @@ pub trait CalProvider: Send {
     /// days ago. `None` = never.
     fn rebaseline_after_days(&self) -> Option<i64> {
         None
+    }
+    /// Change one occurrence of a series that the service keeps as one event (Google): finds the instance that starts at `original_start` and changes it (the
+    /// service creates the exception). Returns the instance as stored (kind `Exception`).
+    fn update_occurrence(&self, _cal: &RemoteCalendar, _series_id: &str, _original_start: i64, _all_day: bool, _changed: &EventPatch) -> Result<RemoteEvent, SyncErr> {
+        Err(SyncErr::NotSetUp("changing one occurrence is not part of this service".into()))
+    }
+    /// Delete one occurrence of such a series; returns the provider id of the instance that was deleted.
+    fn delete_occurrence(&self, _cal: &RemoteCalendar, _series_id: &str, _original_start: i64, _all_day: bool) -> Result<String, SyncErr> {
+        Err(SyncErr::NotSetUp("deleting one occurrence is not part of this service".into()))
+    }
+    /// The series master as the service has it now (its own EXDATEs and RDATEs, the repeat rule, the version tag).
+    fn get_series(&self, _cal: &RemoteCalendar, _series_id: &str) -> Result<RemoteEvent, SyncErr> {
+        Err(SyncErr::NotSetUp("series are not part of this service".into()))
     }
 }
 

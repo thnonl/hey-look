@@ -53,6 +53,7 @@ fn create_sends_the_event_in_its_zone_with_guests_and_a_reminder_and_lets_outloo
         description: Some("Bring wine".into()),
         attendees: vec![CalAttendee { name: Some("Guest".into()), ..guest("g@x.test", "optional") }, guest("h@x.test", "required")],
         reminder_min: Some(30),
+        rrule: None,
     };
     let got = prov(&srv).create(&work(), &draft).unwrap();
     assert_eq!((got.id.as_str(), got.etag.as_str()), ("newid", "W/\"created\""));
@@ -238,7 +239,7 @@ fn a_412_is_a_conflict_the_server_version_is_pulled_and_a_404_removes_the_row() 
 }
 
 #[test]
-fn saving_in_a_synced_outlook_calendar_creates_the_event_and_a_repeat_is_refused() {
+fn saving_in_a_synced_outlook_calendar_creates_the_event_and_a_repeating_one_with_its_pattern() {
     let (db, sid) = setup_db();
     let srv = FakeServer::start(|r| {
         if let Some(l) = list_ok(r) {
@@ -274,8 +275,14 @@ fn saving_in_a_synced_outlook_calendar_creates_the_event_and_a_repeat_is_refused
     };
     let saved = write::save(&db, &factory, &input).unwrap();
     assert_eq!((saved.summary.as_str(), saved.remote_id.as_deref(), saved.etag.as_deref()), ("New", Some("new"), Some("W/\"etag-new\"")));
-    let rep = write::save(&db, &factory, &calendar::CalEventInput { rrule: Some("FREQ=WEEKLY".into()), ..input }).unwrap_err();
-    assert!(rep.starts_with("CAL_READ_ONLY: Repeating events can be added to Calendar in Outlook for now."), "{rep}");
+    // a repeating event (W7.1): the rule travels as Graph's pattern and range
+    write::save(&db, &factory, &calendar::CalEventInput { rrule: Some("FREQ=WEEKLY;BYDAY=TU".into()), tzid: Some("America/New_York".into()), ..input }).unwrap();
+    let sent = srv.requests().into_iter().filter(|r| r.method == "POST").last().unwrap().json();
+    assert_eq!(sent["recurrence"]["pattern"]["type"], "weekly");
+    assert_eq!(sent["recurrence"]["pattern"]["daysOfWeek"], json!(["tuesday"]));
+    assert_eq!(sent["recurrence"]["range"]["type"], "noEnd");
+    assert_eq!(sent["recurrence"]["range"]["startDate"], "2026-10-20");
+    assert_eq!(sent["recurrence"]["range"]["recurrenceTimeZone"], "America/New_York");
 }
 
 // ---------------------------------------------------------------- errors

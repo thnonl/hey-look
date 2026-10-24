@@ -11,7 +11,7 @@ const TOMBSTONE_KEEP_SECS: i64 = 30 * 86_400;
 
 // ------------------------------------------------------------------ read-only reasons
 
-/// `events.read_only`: 0 editable, 1 read-only calendar, 2 repeating, 3 organized by someone else.
+/// `events.read_only`: 0 editable, 1 read-only calendar, 2 repeating (1.0.6 only: a row that still has it is editable now), 3 organized by someone else.
 pub fn read_only_code(reason: Option<&str>) -> i64 {
     match reason {
         Some("calendar") => 1,
@@ -24,7 +24,6 @@ pub fn read_only_code(reason: Option<&str>) -> i64 {
 pub fn read_only_reason(code: i64) -> Option<String> {
     match code {
         1 => Some("calendar".into()),
-        2 => Some("repeating".into()),
         3 => Some("organizer".into()),
         _ => None,
     }
@@ -376,8 +375,6 @@ pub fn prune_orphans(c: &Connection) -> R<usize> {
 fn read_only_for(cal: &CalRow, re: &RemoteEvent) -> Option<String> {
     if cal.read_only {
         Some("calendar".into())
-    } else if re.rrule.is_some() || re.kind != EventKind::Single {
-        Some("repeating".into())
     } else if !re.can_edit {
         Some("organizer".into())
     } else {
@@ -433,7 +430,7 @@ pub fn event_from_remote(cal: &CalRow, account_id: &str, re: &RemoteEvent, id: S
     .derive()
 }
 
-fn find_remote(c: &Connection, cal_id: &str, remote_id: &str) -> Option<CalEvent> {
+pub(crate) fn find_remote(c: &Connection, cal_id: &str, remote_id: &str) -> Option<CalEvent> {
     c.query_row(&format!("SELECT {COLS} FROM events WHERE calendar_id=?1 AND remote_id=?2"), params![cal_id, remote_id], calendar::row_event).optional().ok().flatten()
 }
 
@@ -448,7 +445,7 @@ pub fn upsert_remote(c: &Connection, cal: &CalRow, account_id: &str, re: &Remote
     Ok(e)
 }
 
-fn tombstone(c: &Connection, cal_id: &str, remote_id: &str, series: Option<&str>, rec: Option<i64>, now: i64) -> R<()> {
+pub(crate) fn tombstone(c: &Connection, cal_id: &str, remote_id: &str, series: Option<&str>, rec: Option<i64>, now: i64) -> R<()> {
     c.execute(
         "INSERT OR REPLACE INTO cal_tombstones(calendar_id,remote_id,series_id,recurrence_id,deleted_at) VALUES(?1,?2,?3,?4,?5)",
         params![cal_id, remote_id, series, rec, now],
@@ -478,9 +475,19 @@ pub fn remove_remote(c: &Connection, cal_id: &str, remote_id: &str, now: i64) ->
     Ok(changed)
 }
 
+/// One occurrence of a series was deleted at the service by this app: its row (if there is one) goes and its slot stays hidden (a tombstone of the instance, then the
+/// master's exclusion list).
+pub fn forget_occurrence(c: &Connection, cal_id: &str, series_remote_id: &str, instance_id: &str, slot: i64, now: i64) -> R<()> {
+    if let Some(old) = find_remote(c, cal_id, instance_id) {
+        c.execute("DELETE FROM events WHERE id=?1", [&old.id]).map_err(err)?;
+    }
+    tombstone(c, cal_id, instance_id, Some(series_remote_id), Some(slot), now)?;
+    refresh_exdates(c, cal_id, series_remote_id)
+}
+
 /// The master's exclusion list: its own EXDATEs plus the original slot of every exception and every cancelled instance, so an
 /// expanded series never shows a moved or deleted instance at its old time as well.
-fn refresh_exdates(c: &Connection, cal_id: &str, series: &str) -> R<()> {
+pub(crate) fn refresh_exdates(c: &Connection, cal_id: &str, series: &str) -> R<()> {
     let Some(master) = find_remote(c, cal_id, series) else { return Ok(()) };
     let mut all: BTreeSet<i64> = master.exdates.iter().copied().collect();
     let mut st = c.prepare("SELECT recurrence_id FROM events WHERE calendar_id=?1 AND series_id=?2 AND recurrence_id!=''").map_err(err)?;
@@ -890,12 +897,12 @@ pub(crate) mod tests {
         apply_pull(&c, &cal, ACC, &pull(vec![moved, gone, series("s", t0)], vec![], "t1", true), Some(0), 100).unwrap();
         let master = calendar::get_event(&c, &find_id(&c, "s")).unwrap();
         assert_eq!(master.exdates, vec![t0 + WEEK, t0 + 2 * WEEK], "the old slot of the moved and of the cancelled instance");
-        assert_eq!(master.read_only.as_deref(), Some("repeating"));
+        assert_eq!(master.read_only, None, "a repeating event can be changed since 1.0.7");
         let from = t0 - 3600;
         let shown = calendar::list_range(&c, from, from + 5 * WEEK).unwrap();
         let starts: Vec<i64> = shown.iter().map(|e| e.start).collect();
         assert_eq!(starts, vec![t0, t0 + WEEK + 7200, t0 + 3 * WEEK, t0 + 4 * WEEK], "moved one at its new time, none on the deleted date, no duplicate");
-        assert!(shown.iter().all(|e| e.read_only.as_deref() == Some("repeating")));
+        assert!(shown.iter().all(|e| e.read_only.is_none()));
         // the cancelled instance is a tombstone and no row
         assert_eq!(count(&c, "SELECT COUNT(*) FROM events WHERE remote_id='s_3'"), 0);
         assert_eq!(count(&c, "SELECT COUNT(*) FROM cal_tombstones WHERE remote_id='s_3' AND series_id='s'"), 1);
@@ -1041,11 +1048,34 @@ pub(crate) mod tests {
         assert!(serde_json::to_value(&i[0]).unwrap().get("lastSync").is_some());
     }
 
+    /// W7.1: rows that 1.0.6 stored as read-only because they repeat become editable, and the calendars are downloaded again, once.
+    #[test]
+    fn the_series_migration_clears_read_only_2_and_the_tokens_once() {
+        let c = conn();
+        let (_, cal) = setup(&c);
+        apply_pull(&c, &cal, ACC, &pull(vec![series("s", 1_700_000_000)], vec![], "t1", true), Some(0), 100).unwrap();
+        assert_eq!(get_calendar(&c, &cal.id).unwrap().sync_state.as_deref(), Some("t1"));
+        // a database of 1.0.6: the row is read-only because it repeats, and the migration has not run
+        c.execute("UPDATE events SET read_only=2", []).unwrap();
+        c.execute("DELETE FROM settings WHERE key='cal_series_unlocked'", []).unwrap();
+        crate::db::migrate(&c).unwrap();
+        assert_eq!(c.query_row::<i64, _, _>("SELECT read_only FROM events", [], |r| r.get(0)).unwrap(), 0);
+        assert_eq!(get_calendar(&c, &cal.id).unwrap().sync_state, None, "downloaded again");
+        // the next start leaves what has happened since alone
+        c.execute("UPDATE calendars SET sync_state='t2'", []).unwrap();
+        c.execute("UPDATE events SET read_only=3", []).unwrap();
+        crate::db::migrate(&c).unwrap();
+        assert_eq!(get_calendar(&c, &cal.id).unwrap().sync_state.as_deref(), Some("t2"));
+        assert_eq!(c.query_row::<i64, _, _>("SELECT read_only FROM events", [], |r| r.get(0)).unwrap(), 3);
+    }
+
     #[test]
     fn read_only_codes_round_trip() {
-        for r in [None, Some("calendar"), Some("repeating"), Some("organizer")] {
+        for r in [None, Some("calendar"), Some("organizer")] {
             assert_eq!(read_only_reason(read_only_code(r)).as_deref(), r);
         }
+        // a row stored by 1.0.6 as read-only because it repeats (code 2) is editable now
+        assert_eq!(read_only_reason(2), None);
         assert_eq!(read_only_code(Some("whatever")), 0);
     }
 }

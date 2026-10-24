@@ -5,7 +5,7 @@
 //! resync), `events.insert`, `events.patch` and `events.delete` with `If-Match`.
 use super::http;
 use super::store::Source;
-use super::{CalList, CalProvider, EventDraft, EventKind, EventPatch, Kind, Pull, PullReq, RemoteCalendar, RemoteEvent, Rsvp, SyncErr, When, MAX_EVENTS_PER_CALENDAR};
+use super::{CalList, CalProvider, EventDraft, EventKind, EventPatch, Kind, Pull, PullReq, Recurrence, RemoteCalendar, RemoteEvent, Rsvp, SyncErr, When, MAX_EVENTS_PER_CALENDAR};
 use crate::calendar::{CalAttendee, CalPerson};
 use crate::Db;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
@@ -65,6 +65,14 @@ impl GoogleProvider {
             };
         }
         Err(map_error(status, retry, &text))
+    }
+
+    /// The instance of a series that starts at `original_start` (`events.instances` with `originalStart`): its id and version tag. `NotFound` when the series has none there.
+    fn instance(&self, cal: &RemoteCalendar, series_id: &str, original_start: i64, all_day: bool) -> Result<RemoteEvent, SyncErr> {
+        let start = if all_day { date_of(original_start) } else { rfc3339(original_start) };
+        let q = vec![("originalStart", start), ("maxResults", "1".to_string())];
+        let v = self.call(Method::GET, &format!("{}/instances", Self::event_path(cal, series_id)), &q, None, None)?;
+        v["items"].as_array().into_iter().flatten().find_map(|i| parse_event(cal, i)).filter(|e| e.status != "cancelled").ok_or(SyncErr::NotFound)
     }
 
     fn events_path(cal: &RemoteCalendar) -> String {
@@ -225,6 +233,42 @@ fn recurrence(lines: &[Value]) -> (Option<String>, Vec<i64>, Vec<i64>) {
     (rule, ex, extra)
 }
 
+/// One `EXDATE` / `RDATE` line for a list of instants, in the form of the series' start: dates for an all-day series, local times with TZID for a zoned one,
+/// UTC otherwise.
+fn date_line(name: &str, list: &[i64], all_day: bool, tzid: Option<&str>) -> Option<String> {
+    if list.is_empty() {
+        return None;
+    }
+    let tz = tzid.and_then(crate::ical::iana_for).filter(|_| !all_day);
+    let values: Vec<String> = list
+        .iter()
+        .map(|t| {
+            if all_day {
+                date_of(*t).replace('-', "")
+            } else {
+                crate::ical::wall_in(tz, *t).format("%Y%m%dT%H%M%S").to_string() + if tz.is_some() { "" } else { "Z" }
+            }
+        })
+        .collect();
+    let head = match (all_day, tz) {
+        (true, _) => format!("{name};VALUE=DATE"),
+        (false, Some(z)) => format!("{name};TZID={}", z.name()),
+        (false, None) => name.to_string(),
+    };
+    Some(format!("{head}:{}", values.join(",")))
+}
+
+/// `recurrence[]` of a write: the rule and the dates that go with it. `Null` when there is nothing left (the event stops repeating).
+fn recurrence_json(r: &Recurrence) -> Value {
+    let mut lines: Vec<String> = vec![];
+    if let Some(rule) = r.rrule.as_deref().map(crate::recur::bare).filter(|x| !x.is_empty()) {
+        lines.push(format!("RRULE:{rule}"));
+    }
+    lines.extend(date_line("EXDATE", &r.exdates, r.all_day, r.tzid.as_deref()));
+    lines.extend(date_line("RDATE", &r.rdates, r.all_day, r.tzid.as_deref()));
+    if lines.is_empty() { Value::Null } else { json!(lines) }
+}
+
 // ------------------------------------------------------------------ mapping
 
 fn partstat(s: &str) -> &'static str {
@@ -371,6 +415,7 @@ fn parse_event(cal: &RemoteCalendar, v: &Value) -> Option<RemoteEvent> {
         rrule,
         exdates,
         rdates,
+        pattern_unsupported: false,
         status: status.into(),
         my_status,
         reminder_min: reminder(v, cal),
@@ -524,6 +569,14 @@ impl CalProvider for GoogleProvider {
         if !ev.attendees.is_empty() {
             body["attendees"] = attendees_json(&ev.attendees, false);
         }
+        if let Some(rule) = ev.rrule.as_deref().map(crate::recur::bare).filter(|r| !r.is_empty()) {
+            body["recurrence"] = json!([format!("RRULE:{rule}")]);
+            // a repeating event has to name the zone its rule is worked out in
+            if !ev.all_day && ev.tzid.is_none() {
+                body["start"]["timeZone"] = json!("UTC");
+                body["end"]["timeZone"] = json!("UTC");
+            }
+        }
         // Google sends the invitations to the guests (the app sends none for these events)
         let v = self.call(Method::POST, &Self::events_path(cal), &[("sendUpdates", "all".into())], Some(&body), None)?;
         parse_event(cal, &v).ok_or_else(|| SyncErr::Other("Google Calendar answered with an event that cannot be shown".into()))
@@ -551,6 +604,14 @@ impl CalProvider for GoogleProvider {
         if let Some(r) = &changed.reminder_min {
             body["reminders"] = reminders_json(*r);
         }
+        if let Some(rec) = &changed.recurrence {
+            body["recurrence"] = recurrence_json(rec);
+            // (a series names the zone of its rule whenever its time is written)
+            if !rec.all_day && rec.tzid.is_none() && changed.when.is_some() {
+                body["start"]["timeZone"] = json!("UTC");
+                body["end"]["timeZone"] = json!("UTC");
+            }
+        }
         let v = self.call(Method::PATCH, &Self::event_path(cal, remote_id), &[("sendUpdates", "all".into())], Some(&body), Some(etag))?;
         parse_event(cal, &v).ok_or_else(|| SyncErr::Other("Google Calendar answered with an event that cannot be shown".into()))
     }
@@ -562,6 +623,25 @@ impl CalProvider for GoogleProvider {
             Err(SyncErr::Gone) => Err(SyncErr::NotFound),
             Err(e) => Err(e),
         }
+    }
+
+    fn get_series(&self, cal: &RemoteCalendar, series_id: &str) -> Result<RemoteEvent, SyncErr> {
+        let v = self.call(Method::GET, &Self::event_path(cal, series_id), &[], None, None)?;
+        parse_event(cal, &v).ok_or_else(|| SyncErr::Other("Google Calendar answered with an event that cannot be shown".into()))
+    }
+
+    fn update_occurrence(&self, cal: &RemoteCalendar, series_id: &str, original_start: i64, all_day: bool, changed: &EventPatch) -> Result<RemoteEvent, SyncErr> {
+        let inst = self.instance(cal, series_id, original_start, all_day)?;
+        let mut patch = changed.clone();
+        // (an occurrence has no rule of its own)
+        patch.recurrence = None;
+        self.update(cal, &inst.id, &inst.etag, &patch)
+    }
+
+    fn delete_occurrence(&self, cal: &RemoteCalendar, series_id: &str, original_start: i64, all_day: bool) -> Result<String, SyncErr> {
+        let inst = self.instance(cal, series_id, original_start, all_day)?;
+        self.delete(cal, &inst.id, &inst.etag)?;
+        Ok(inst.id)
     }
 
     fn respond(&self, cal: &RemoteCalendar, remote_id: &str, etag: &str, status: Rsvp, me: &str, attendees: &[CalAttendee]) -> Result<(), SyncErr> {
@@ -942,8 +1022,8 @@ mod tests {
             ],
             "the moved one at its new time, none on the deleted dates, no duplicate"
         );
-        // nothing of it can be edited here
-        assert!(calendar::list_range(&lock(&db), utc(2026, 10, 12, 0, 0), utc(2026, 11, 11, 0, 0)).unwrap().iter().all(|e| e.read_only.as_deref() == Some("repeating")));
+        // a series of the person's own can be changed since 1.0.7
+        assert!(calendar::list_range(&lock(&db), utc(2026, 10, 12, 0, 0), utc(2026, 11, 11, 0, 0)).unwrap().iter().all(|e| e.read_only.is_none() && e.series));
         assert_eq!(rows(&db).len(), 2, "the master and the exception; the cancelled instance is a tombstone");
     }
 
@@ -1067,6 +1147,7 @@ mod tests {
             description: None,
             attendees: vec![CalAttendee { email: "g@x.test".into(), name: Some("Guest".into()), role: "optional".into(), status: "needs-action".into(), is_you: false }],
             reminder_min: Some(15),
+            rrule: None,
         };
         let got = provider(&srv).create(&team, &draft).unwrap();
         assert_eq!((got.id.as_str(), got.etag.as_str()), ("newid", "\"created\""));
@@ -1130,6 +1211,84 @@ mod tests {
         let r = &srv.requests()[0];
         assert_eq!((r.method.as_str(), r.headers["if-match"].as_str(), r.query("sendUpdates").as_deref()), ("DELETE", "\"e\"", Some("all")));
         assert_eq!(provider(&srv).delete(&cal(), "old", "\"e\""), Err(SyncErr::NotFound), "410: deleted already");
+    }
+
+    /// W7.1: one occurrence of a series is found by its original start and changed or deleted with the etag of that instance.
+    #[test]
+    fn google_occurrence_paths() {
+        let srv = FakeServer::start(|r| match (r.method.as_str(), r.path()) {
+            ("GET", "/calendars/primary/events/ser/instances") => {
+                let mut i = ev_json("ser_20261027T080000Z", "Weekly", "2026-10-27T09:00:00+01:00", "2026-10-27T10:00:00+01:00");
+                i["recurringEventId"] = json!("ser");
+                i["originalStartTime"] = json!({ "dateTime": "2026-10-27T09:00:00+01:00" });
+                i["etag"] = json!("\"inst\"");
+                Resp::json(200, json!({ "items": [i] }))
+            }
+            ("GET", "/calendars/primary/events/none/instances") => Resp::json(200, json!({ "items": [] })),
+            ("PATCH", "/calendars/primary/events/ser_20261027T080000Z") => {
+                let mut v = ev_json("ser_20261027T080000Z", "Moved", "2026-10-27T11:00:00+01:00", "2026-10-27T12:00:00+01:00");
+                v["recurringEventId"] = json!("ser");
+                v["originalStartTime"] = json!({ "dateTime": "2026-10-27T09:00:00+01:00" });
+                v["etag"] = json!("\"after\"");
+                Resp::json(200, v)
+            }
+            ("DELETE", "/calendars/primary/events/ser_20261027T080000Z") => Resp::empty(204),
+            (m, p) => panic!("unexpected {m} {p}"),
+        });
+        let patch = EventPatch { summary: Some("Moved".into()), ..Default::default() };
+        let got = provider(&srv).update_occurrence(&cal(), "ser", utc(2026, 10, 27, 8, 0), false, &patch).unwrap();
+        assert_eq!((got.series_id.as_deref(), got.recurrence_id, got.kind, got.summary.as_str()), (Some("ser"), Some(utc(2026, 10, 27, 8, 0)), EventKind::Exception, "Moved"));
+        let (find, write) = (&srv.requests()[0], &srv.requests()[1]);
+        assert_eq!(find.query("originalStart").as_deref(), Some("2026-10-27T08:00:00Z"), "the original start of the slot");
+        assert_eq!(find.query("maxResults").as_deref(), Some("1"));
+        assert_eq!((write.method.as_str(), write.headers["if-match"].as_str(), write.query("sendUpdates").as_deref()), ("PATCH", "\"inst\"", Some("all")));
+        assert_eq!(write.json()["summary"], "Moved");
+        assert!(write.json().get("recurrence").is_none(), "an instance has no rule");
+        // delete: the same lookup, then DELETE with the etag of the instance; its id comes back for the tombstone
+        let id = provider(&srv).delete_occurrence(&cal(), "ser", utc(2026, 10, 27, 8, 0), false).unwrap();
+        assert_eq!(id, "ser_20261027T080000Z");
+        let d = srv.requests().pop().unwrap();
+        assert_eq!((d.method.as_str(), d.headers["if-match"].as_str()), ("DELETE", "\"inst\""));
+        // all day: the date; a slot with no instance is gone
+        provider(&srv).update_occurrence(&cal(), "none", utc(2026, 10, 27, 0, 0), true, &patch).unwrap_err();
+        assert_eq!(srv.requests().pop().unwrap().query("originalStart").as_deref(), Some("2026-10-27"));
+        assert_eq!(provider(&srv).delete_occurrence(&cal(), "none", utc(2026, 10, 27, 8, 0), false), Err(SyncErr::NotFound));
+    }
+
+    /// W7.1: the recurrence of a write, in the form of the start of the series.
+    #[test]
+    fn google_recurrence_lines() {
+        let timed = Recurrence { rrule: Some("FREQ=WEEKLY;UNTIL=20261109T075959Z".into()), exdates: vec![utc(2026, 10, 20, 8, 0)], rdates: vec![utc(2026, 11, 1, 9, 0)], start: utc(2026, 10, 13, 8, 0), all_day: false, tzid: Some("Europe/Berlin".into()) };
+        assert_eq!(
+            recurrence_json(&timed),
+            json!(["RRULE:FREQ=WEEKLY;UNTIL=20261109T075959Z", "EXDATE;TZID=Europe/Berlin:20261020T100000", "RDATE;TZID=Europe/Berlin:20261101T100000"]),
+            "10:00 Berlin is 08:00Z on 20 Oct (summer time) and 09:00Z on 1 Nov would be 10:00 (winter time)"
+        );
+        let utc_series = Recurrence { tzid: None, rdates: vec![], ..timed.clone() };
+        assert_eq!(recurrence_json(&utc_series), json!(["RRULE:FREQ=WEEKLY;UNTIL=20261109T075959Z", "EXDATE:20261020T080000Z"]));
+        let day = Recurrence { rrule: Some("RRULE:FREQ=WEEKLY;UNTIL=20261101".into()), exdates: vec![utc(2026, 10, 19, 0, 0)], rdates: vec![], start: utc(2026, 10, 12, 0, 0), all_day: true, tzid: None };
+        assert_eq!(recurrence_json(&day), json!(["RRULE:FREQ=WEEKLY;UNTIL=20261101", "EXDATE;VALUE=DATE:20261019"]));
+        // nothing left: the event stops repeating
+        assert_eq!(recurrence_json(&Recurrence { rrule: None, exdates: vec![utc(2026, 10, 19, 0, 0)], rdates: vec![], ..day.clone() }), json!(["EXDATE;VALUE=DATE:20261019"]));
+        assert_eq!(recurrence_json(&Recurrence { rrule: None, exdates: vec![], rdates: vec![], ..day }), Value::Null);
+    }
+
+    /// W7.1: a new repeating event names its rule and the zone it is worked out in; a patch of a series carries the whole recurrence.
+    #[test]
+    fn google_create_and_patch_carry_the_recurrence() {
+        let srv = patch_server();
+        let team = RemoteCalendar { id: "team@group.calendar.google.com".into(), ..cal() };
+        let draft = EventDraft { summary: "Daily".into(), start: utc(2026, 12, 1, 8, 0), end: utc(2026, 12, 1, 9, 0), rrule: Some("RRULE:FREQ=DAILY".into()), ..Default::default() };
+        provider(&srv).create(&team, &draft).unwrap();
+        let b = srv.requests()[0].json();
+        assert_eq!(b["recurrence"], json!(["RRULE:FREQ=DAILY"]));
+        assert_eq!(b["start"]["timeZone"], "UTC", "a repeating event always names a zone");
+        let patch = EventPatch {
+            recurrence: Some(Recurrence { rrule: Some("FREQ=DAILY;COUNT=3".into()), exdates: vec![], rdates: vec![], start: utc(2026, 12, 1, 8, 0), all_day: false, tzid: Some("Europe/Berlin".into()) }),
+            ..Default::default()
+        };
+        provider(&srv).update(&cal(), "ev1", "\"e\"", &patch).unwrap();
+        assert_eq!(srv.requests()[1].json()["recurrence"], json!(["RRULE:FREQ=DAILY;COUNT=3"]));
     }
 
     #[test]

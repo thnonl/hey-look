@@ -14,7 +14,7 @@
 use super::google::plain_text;
 use super::http;
 use super::store::Source;
-use super::{CalProvider, EventDraft, EventKind, EventPatch, Kind, Pull, PullReq, RemoteCalendar, RemoteEvent, Rsvp, SyncErr, When, MAX_EVENTS_PER_CALENDAR};
+use super::{graph_recur, CalProvider, EventDraft, EventKind, EventPatch, Kind, Pull, PullReq, Recurrence, RemoteCalendar, RemoteEvent, Rsvp, SyncErr, When, MAX_EVENTS_PER_CALENDAR};
 use crate::calendar::{CalAttendee, CalPerson};
 use crate::Db;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Timelike, Utc};
@@ -339,17 +339,22 @@ fn body_text(b: &Value) -> Option<String> {
     (!t.is_empty()).then_some(t)
 }
 
-/// One Graph event as a `RemoteEvent`. `None` for what the app does not show (a series master: the view lists its occurrences).
+/// One Graph event as a `RemoteEvent`. `None` for what the app does not show (a series master: the view lists its occurrences; `get_series` reads a master on purpose).
 /// `showAs`, `categories`, `importance` and `sensitivity` are ignored.
 fn parse_event(v: &Value) -> Option<RemoteEvent> {
+    parse_any(v, false)
+}
+
+fn parse_any(v: &Value, master_wanted: bool) -> Option<RemoteEvent> {
     let id = v["id"].as_str()?.to_string();
     let typ = v["type"].as_str().unwrap_or("singleInstance");
-    if typ == "seriesMaster" {
+    if typ == "seriesMaster" && !master_wanted {
         return None;
     }
     let kind = match typ {
         "occurrence" => EventKind::Occurrence,
         "exception" => EventKind::Exception,
+        "seriesMaster" => EventKind::Master,
         _ => EventKind::Single,
     };
     let all_day = v["isAllDay"].as_bool() == Some(true);
@@ -392,11 +397,24 @@ fn parse_event(v: &Value) -> Option<RemoteEvent> {
     let organizer = if !attendees.is_empty() || !is_organizer { organizer } else { None };
     let updated = v["lastModifiedDateTime"].as_str().and_then(|u| DateTime::parse_from_rfc3339(u).ok()).map(|d| d.timestamp());
     let join_url = v["onlineMeeting"]["joinUrl"].as_str().or_else(|| v["onlineMeetingUrl"].as_str()).filter(|u| !u.is_empty()).map(String::from);
-    let instance = kind != EventKind::Single;
+    let instance = matches!(kind, EventKind::Occurrence | EventKind::Exception);
     let orig = v["originalStart"].as_str().and_then(|s| DateTime::parse_from_rfc3339(s).ok()).map(|d| d.timestamp());
     let raw_uid = v["iCalUId"].as_str().filter(|u| !u.is_empty());
     // a meeting from a service outside Exchange has the UID of its invitation inside the hex ID: that one is the event's uid (the twin rule matches by it)
     let original = raw_uid.and_then(original_uid);
+    let tzid: Option<String> = if all_day {
+        None
+    } else {
+        v["recurrence"]["range"]["recurrenceTimeZone"].as_str().or(own_start).and_then(crate::ical::iana_for).map(|t| t.name().to_string())
+    };
+    // a master's repeat rule from its pattern; a pattern outside the mapped set leaves the rule empty and says so
+    let (rrule, pattern_unsupported) = match (kind, v["recurrence"].is_object()) {
+        (EventKind::Master, true) => match graph_recur::from_graph(&v["recurrence"], start, all_day, tzid.as_deref()) {
+            Ok(r) => (Some(r), false),
+            Err(_) => (None, true),
+        },
+        _ => (None, false),
+    };
     Some(RemoteEvent {
         etag: v["@odata.etag"].as_str().unwrap_or("").to_string(),
         ext_uid: original.as_ref().and(raw_uid).map(String::from),
@@ -408,15 +426,16 @@ fn parse_event(v: &Value) -> Option<RemoteEvent> {
         start,
         end,
         all_day,
-        tzid: if all_day { None } else { own_start.and_then(crate::ical::iana_for).map(|t| t.name().to_string()) },
+        tzid,
         location: v["location"]["displayName"].as_str().filter(|l| !l.trim().is_empty()).map(String::from),
         join_url,
         description: body_text(&v["body"]),
         organizer,
         attendees,
-        rrule: None,
+        rrule,
         exdates: vec![],
         rdates: vec![],
+        pattern_unsupported,
         status: if cancelled { "cancelled" } else { "confirmed" }.into(),
         my_status,
         reminder_min: (v["isReminderOn"].as_bool() == Some(true)).then(|| v["reminderMinutesBeforeStart"].as_i64()).flatten().filter(|m| *m >= 0),
@@ -489,6 +508,15 @@ fn reminder_json(min: Option<i64>) -> Value {
     match min {
         Some(m) => json!({ "isReminderOn": true, "reminderMinutesBeforeStart": m }),
         None => json!({ "isReminderOn": false }),
+    }
+}
+
+/// `recurrence` of a write: Graph's pattern and range for the rule, `null` when the series stops repeating. A rule that does not map is left out of the body (the engine
+/// checks that a rule maps before it sends one).
+fn recurrence_json(r: &Recurrence, zoned: bool) -> Value {
+    match r.rrule.as_deref().filter(|x| !x.trim().is_empty()) {
+        None => Value::Null,
+        Some(rule) => graph_recur::to_graph(rule, r.start, r.all_day, r.tzid.as_deref().filter(|_| zoned)).unwrap_or(Value::Null),
     }
 }
 
@@ -565,11 +593,16 @@ impl CalProvider for MicrosoftProvider {
             if !ev.attendees.is_empty() {
                 body["attendees"] = attendees_json(&ev.attendees);
             }
+            if let Some(rule) = ev.rrule.as_deref().filter(|r| !r.trim().is_empty()) {
+                if let Some(rec) = graph_recur::to_graph(rule, ev.start, ev.all_day, ev.tzid.as_deref().filter(|_| zoned)) {
+                    body["recurrence"] = rec;
+                }
+            }
             body
         };
         // Outlook sends the invitations to the guests (the app sends none for these events)
         let v = self.write(Method::POST, &url, None, ev.tzid.is_some() && !ev.all_day, build)?;
-        parse_event(&v).ok_or_else(|| SyncErr::Other("Outlook answered with an event that cannot be shown".into()))
+        parse_any(&v, true).ok_or_else(|| SyncErr::Other("Outlook answered with an event that cannot be shown".into()))
     }
 
     fn update(&self, _cal: &RemoteCalendar, remote_id: &str, etag: &str, changed: &EventPatch) -> Result<RemoteEvent, SyncErr> {
@@ -596,11 +629,14 @@ impl CalProvider for MicrosoftProvider {
             if let Some(r) = &changed.reminder_min {
                 body.as_object_mut().unwrap().extend(reminder_json(*r).as_object().cloned().unwrap_or_default());
             }
+            if let Some(rec) = &changed.recurrence {
+                body["recurrence"] = recurrence_json(rec, zoned);
+            }
             body
         };
-        let zoned = changed.when.as_ref().is_some_and(|w| w.tzid.is_some() && !w.all_day);
+        let zoned = changed.when.as_ref().is_some_and(|w| w.tzid.is_some() && !w.all_day) || changed.recurrence.as_ref().is_some_and(|r| r.tzid.is_some() && !r.all_day);
         let v = self.write(Method::PATCH, &self.event_url(remote_id), Some(etag), zoned, build)?;
-        parse_event(&v).ok_or_else(|| SyncErr::Other("Outlook answered with an event that cannot be shown".into()))
+        parse_any(&v, true).ok_or_else(|| SyncErr::Other("Outlook answered with an event that cannot be shown".into()))
     }
 
     fn delete(&self, _cal: &RemoteCalendar, remote_id: &str, etag: &str) -> Result<(), SyncErr> {
@@ -610,6 +646,17 @@ impl CalProvider for MicrosoftProvider {
             Err(SyncErr::Gone) => Err(SyncErr::NotFound),
             Err(e) => Err(e),
         }
+    }
+
+    fn get_series(&self, _cal: &RemoteCalendar, series_id: &str) -> Result<RemoteEvent, SyncErr> {
+        let v = self.call(Method::GET, &self.event_url(series_id), None, None)?;
+        let mut master = parse_any(&v, true).ok_or_else(|| SyncErr::Other("Outlook answered with an event that cannot be shown".into()))?;
+        if master.kind != EventKind::Master {
+            // the id was not a master (a single event): there is no series to change
+            return Err(SyncErr::NotFound);
+        }
+        master.id = series_id.to_string();
+        Ok(master)
     }
 
     fn respond(&self, _cal: &RemoteCalendar, remote_id: &str, _etag: &str, status: Rsvp, _me: &str, _attendees: &[CalAttendee]) -> Result<(), SyncErr> {
@@ -634,3 +681,6 @@ mod tests;
 #[cfg(test)]
 #[path = "microsoft_tests_rw.rs"]
 mod tests_rw;
+#[cfg(test)]
+#[path = "microsoft_tests_series.rs"]
+mod tests_series;

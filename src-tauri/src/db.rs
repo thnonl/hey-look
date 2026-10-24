@@ -112,6 +112,7 @@ pub fn migrate(conn: &Connection) -> R<()> {
     // the provider's own UID of a synced event whose `uid` was worked out from it (Graph: the Global Object ID of a meeting from another service)
     add_column(conn, "ALTER TABLE events ADD COLUMN ext_uid TEXT")?;
     conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_events_remote ON events(calendar_id, remote_id);").map_err(err)?;
+    series_unlock(conn)?;
     // the message being written, kept until it is sent, discarded or saved (crash recovery, see recover.rs)
     crate::recover::create_tables(conn)?;
     // the version of a draft as it was opened, for Discard (draftmail.rs)
@@ -130,6 +131,17 @@ pub fn migrate(conn: &Connection) -> R<()> {
         add_column(conn, &format!("ALTER TABLE {t} ADD COLUMN account_id TEXT"))?;
     }
     Ok(())
+}
+
+/// 1.0.7 W7.1: repeating events of Google and Outlook calendars can be changed. Rows stored by 1.0.6 as read-only because they repeat (code 2) become editable, and every
+/// synced calendar is downloaded again once (its sync token is cleared), so each row is stored with what the service says about it now.
+fn series_unlock(conn: &Connection) -> R<()> {
+    if get_setting(conn, "cal_series_unlocked").is_some() {
+        return Ok(());
+    }
+    conn.execute("UPDATE events SET read_only=0 WHERE read_only=2", []).map_err(err)?;
+    conn.execute("UPDATE calendars SET sync_state=NULL", []).map_err(err)?;
+    set_setting(conn, "cal_series_unlocked", "1")
 }
 
 /// Run one `ALTER TABLE ... ADD COLUMN`. Only "duplicate column name" (an already migrated database) is ignored: any other

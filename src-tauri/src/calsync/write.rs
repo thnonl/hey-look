@@ -5,6 +5,7 @@ use super::engine::{self, Clock};
 use super::store::{self, CalRow, Source};
 use super::{EventDraft, EventPatch, Kind, ProviderFactory, Rsvp, SyncErr, When};
 use crate::calendar::{self, CalAttendee, CalEvent, CalEventInput};
+use crate::calseries::Scope;
 use crate::db::R;
 use crate::{lock, Db};
 
@@ -25,22 +26,20 @@ pub fn error_text(e: &SyncErr, kind: Kind, calendar: &str, email: &str) -> Strin
 }
 
 /// Why a synced event cannot be changed, as a sentence.
-fn read_only_text(reason: &str, calendar: &str, kind: Kind) -> String {
-    let service = kind.service();
+pub(super) fn read_only_text(reason: &str, calendar: &str, _kind: Kind) -> String {
     match reason {
-        "repeating" => format!("CAL_READ_ONLY: Repeating events of {calendar} can be changed in {service} for now."),
         "organizer" => "CAL_READ_ONLY: Only the organizer can change this event.".to_string(),
         _ => format!("CAL_READ_ONLY: {calendar} is read only."),
     }
 }
 
-struct Target {
-    cal: CalRow,
-    src: Source,
-    email: String,
+pub(super) struct Target {
+    pub cal: CalRow,
+    pub src: Source,
+    pub email: String,
 }
 
-fn target(db: &Db, calendar_id: &str) -> R<Target> {
+pub(super) fn target(db: &Db, calendar_id: &str) -> R<Target> {
     let c = lock(db);
     let cal = store::get_calendar(&c, calendar_id).ok_or("CAL_GONE: This calendar is no longer synced.")?;
     let src = store::get_source(&c, &cal.source_id).ok_or("CAL_GONE: This calendar is no longer synced.")?;
@@ -56,21 +55,21 @@ fn note_failure(db: &Db, t: &Target, e: &SyncErr) {
     }
 }
 
-fn fail(db: &Db, t: &Target, e: SyncErr) -> String {
+pub(super) fn fail(db: &Db, t: &Target, e: SyncErr) -> String {
     note_failure(db, t, &e);
     error_text(&e, t.src.kind, &t.cal.name, &t.email)
 }
 
-fn norm(s: &str) -> String {
+pub(super) fn norm(s: &str) -> String {
     s.trim().to_ascii_lowercase()
 }
 
-fn clean(s: &Option<String>) -> Option<String> {
+pub(super) fn clean(s: &Option<String>) -> Option<String> {
     s.as_ref().map(|v| v.trim().to_string()).filter(|v| !v.is_empty())
 }
 
 /// The guests of an input: no chair, no duplicates, lower-case addresses; the answers already given are kept.
-fn guests(inp: &CalEventInput, old: Option<&CalEvent>, me: &str) -> Vec<CalAttendee> {
+pub(super) fn guests(inp: &CalEventInput, old: Option<&CalEvent>, me: &str) -> Vec<CalAttendee> {
     let mut out: Vec<CalAttendee> = vec![];
     for a in inp.attendees.iter().filter(|a| a.role != "chair") {
         let email = norm(&a.email);
@@ -131,6 +130,15 @@ pub fn diff(old: &CalEvent, inp: &CalEventInput, me: &str) -> EventPatch {
     p
 }
 
+/// The part of a series an event stands for when the caller named none: a master is the whole series, an occurrence (or a changed one) itself. `None` for a single event.
+fn default_scope(e: &CalEvent) -> Option<Scope> {
+    match e.remote_kind.as_deref() {
+        Some("master") => Some(Scope::Series),
+        Some("occurrence" | "exception") => Some(Scope::Occurrence),
+        _ => None,
+    }
+}
+
 /// Create or change a single event of a synced calendar.
 pub fn save(db: &Db, factory: &dyn ProviderFactory, inp: &CalEventInput) -> R<CalEvent> {
     if inp.end < inp.start {
@@ -140,6 +148,10 @@ pub fn save(db: &Db, factory: &dyn ProviderFactory, inp: &CalEventInput) -> R<Ca
         Some(id) => Some(calendar::get_event(&lock(db), id)?),
         None => None,
     };
+    // one part of a series (or an event of one saved without a choice: the occurrence for an occurrence, the series for its master)
+    if let Some(sc) = Scope::parse(inp.scope.as_deref())?.or_else(|| existing.as_ref().and_then(default_scope)) {
+        return super::series::save(db, factory, inp, sc);
+    }
     let cal_id = match &existing {
         Some(e) => e.calendar_id.clone(),
         None => inp.calendar_id.clone().unwrap_or_default(),
@@ -151,9 +163,6 @@ pub fn save(db: &Db, factory: &dyn ProviderFactory, inp: &CalEventInput) -> R<Ca
     }
     if let Some(reason) = existing.as_ref().and_then(|e| e.read_only.as_deref()) {
         return Err(read_only_text(reason, &name, t.src.kind));
-    }
-    if inp.rrule.as_deref().is_some_and(|r| !r.trim().is_empty()) {
-        return Err(format!("CAL_READ_ONLY: Repeating events can be added to {name} in {} for now.", t.src.kind.service()));
     }
     let provider = factory.provider(&t.src).map_err(|e| fail(db, &t, e))?;
     let me = norm(&t.email);
@@ -170,6 +179,7 @@ pub fn save(db: &Db, factory: &dyn ProviderFactory, inp: &CalEventInput) -> R<Ca
                 description: inp.description.clone().filter(|d| !d.trim().is_empty()),
                 attendees: guests(inp, None, &me),
                 reminder_min: inp.reminder_min,
+                rrule: inp.rrule.as_deref().map(crate::recur::bare).filter(|r| !r.is_empty()).map(String::from),
             };
             provider.create(&remote, &draft).map_err(|e| fail(db, &t, e))?
         }
@@ -209,8 +219,11 @@ fn after_failed_write(db: &Db, factory: &dyn ProviderFactory, t: &Target, _row_i
 }
 
 /// Delete a single event of a synced calendar at the provider, then here. An event that is gone there already counts as deleted.
-pub fn delete(db: &Db, factory: &dyn ProviderFactory, id: &str) -> R<()> {
+pub fn delete(db: &Db, factory: &dyn ProviderFactory, id: &str, scope: Option<Scope>, occurrence_start: Option<i64>) -> R<()> {
     let e = calendar::get_event(&lock(db), id)?;
+    if let Some(sc) = scope.or_else(|| default_scope(&e)) {
+        return super::series::delete(db, factory, id, sc, occurrence_start);
+    }
     let t = target(db, &e.calendar_id)?;
     let name = t.cal.name.clone();
     if t.cal.read_only {
@@ -420,12 +433,12 @@ mod tests {
         let e = env();
         e.fake.add_event("primary", RemoteEvent::single("b", "Other", T0, T0 + 60));
         engine::refresh_calendar(&e.db, &e.factory, &e.cal, Clock { now: T0 + 5, jitter: 0.5 }).unwrap();
-        delete(&e.db, &e.factory, &event_id(&e, "a")).unwrap();
+        delete(&e.db, &e.factory, &event_id(&e, "a"), None, None).unwrap();
         assert!(e.fake.event("primary", "a").is_none());
         assert_eq!(row_count(&e), 1);
         // already deleted there: still fine
         e.fake.remove_event_silently("primary", "b");
-        delete(&e.db, &e.factory, &event_id(&e, "b")).unwrap();
+        delete(&e.db, &e.factory, &event_id(&e, "b"), None, None).unwrap();
         assert_eq!(row_count(&e), 0);
         assert_eq!(lock(&e.db).query_row::<i64, _, _>("SELECT COUNT(*) FROM cal_tombstones", [], |r| r.get(0)).unwrap(), 2);
     }
@@ -435,7 +448,7 @@ mod tests {
         let e = env();
         let id = event_id(&e, "a");
         e.fake.update_summary("primary", "a", "Edited");
-        let err = delete(&e.db, &e.factory, &id).unwrap_err();
+        let err = delete(&e.db, &e.factory, &id, None, None).unwrap_err();
         assert!(err.starts_with("CAL_CONFLICT"), "{err}");
         assert_eq!(row_count(&e), 1);
         assert_eq!(calendar::get_event(&lock(&e.db), &id).unwrap().summary, "Edited");
@@ -452,7 +465,7 @@ mod tests {
         assert_eq!(err, "CAL_OFFLINE: You’re offline. Changes to Me need a connection.");
         assert_eq!(calendar::get_event(&lock(&e.db), &id).unwrap().summary, "Lunch");
         e.fake.fail_next_write(SyncErr::Offline);
-        assert!(delete(&e.db, &e.factory, &id).unwrap_err().starts_with("CAL_OFFLINE"));
+        assert!(delete(&e.db, &e.factory, &id, None, None).unwrap_err().starts_with("CAL_OFFLINE"));
         assert_eq!(row_count(&e), 1);
         e.fake.fail_next_write(SyncErr::Offline);
         assert!(save(&e.db, &e.factory, &input(&e, None)).unwrap_err().starts_with("CAL_OFFLINE"));
@@ -473,21 +486,11 @@ mod tests {
         };
         inp.calendar_id = Some(hol);
         assert_eq!(save(&e.db, &e.factory, &inp).unwrap_err(), "CAL_READ_ONLY: Holidays is read only.");
-        // a repeating event cannot be created
-        let mut inp = input(&e, None);
-        inp.rrule = Some("FREQ=DAILY".into());
-        assert!(save(&e.db, &e.factory, &inp).unwrap_err().starts_with("CAL_READ_ONLY: Repeating events can be added to Me in Google Calendar for now."));
-        // an existing repeating series and an event somebody else organizes
-        e.fake.add_event("primary", series("s", "Standup", T0, "FREQ=DAILY"));
+        // an event somebody else organizes
         let mut other = RemoteEvent::single("o", "Theirs", T0, T0 + 60);
         other.can_edit = false;
         e.fake.add_event("primary", other);
         engine::refresh_calendar(&e.db, &e.factory, &e.cal, Clock { now: T0 + 5, jitter: 0.5 }).unwrap();
-        let s_id = event_id(&e, "s");
-        let mut inp = input(&e, Some(&s_id));
-        inp.summary = "x".into();
-        assert_eq!(save(&e.db, &e.factory, &inp).unwrap_err(), "CAL_READ_ONLY: Repeating events of Me can be changed in Google Calendar for now.");
-        assert_eq!(delete(&e.db, &e.factory, &s_id).unwrap_err(), "CAL_READ_ONLY: Repeating events of Me can be changed in Google Calendar for now.");
         let o_id = event_id(&e, "o");
         let mut inp = input(&e, Some(&o_id));
         inp.summary = "x".into();

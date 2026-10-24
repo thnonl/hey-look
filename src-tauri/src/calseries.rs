@@ -816,7 +816,7 @@ mod tests {
     }
 
     fn ics_of(m: &Mail) -> String {
-        crate::ical::to_ics(Some(m.method), &m.events.iter().map(calendar::to_ics_event).collect::<Vec<_>>())
+        crate::ical::to_ics(Some(m.method), &m.events.iter().map(calendar::to_ics_event).collect::<Vec<_>>()).replace("\r\n ", "")
     }
 
     #[test]
