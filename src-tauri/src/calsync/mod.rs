@@ -13,14 +13,19 @@
 //!
 //! Rules of the model: the provider is the truth. A pull overwrites the local row (last write wins; the local copy only differs
 //! between a write and its confirmation, and a write that loses a race with another device gets `Conflict`, after which the
-//! server version is pulled and shown with a note). Repeating events of a remote calendar are read-only. There is no offline queue:
+//! server version is pulled and shown with a note). Repeating events can be changed as a whole, from one occurrence on, or one occurrence at a time
+//! (`series.rs`; Google keeps the series as one master, Outlook lists occurrences and its master is fetched when needed). There is no offline queue:
 //! a write without a connection fails with `CAL_OFFLINE` and changes nothing.
 
+pub mod caldav;
 pub mod cmds;
+pub mod dav_xml;
 pub mod engine;
 pub mod google;
+pub mod graph_recur;
 pub mod http;
 pub mod microsoft;
+pub mod series;
 pub mod store;
 pub mod write;
 
@@ -44,7 +49,7 @@ pub enum Kind {
 
 /// The kinds a build offers. A kind that is not listed has no switch in Settings and refuses `calendar_connect`. Keep in sync with
 /// `CALENDAR_SYNC_KINDS` in src/calendarSync.ts (a test compares them). Leaving a kind out switches it off (the cut line).
-pub const ENABLED_KINDS: [Kind; 2] = [Kind::Google, Kind::Microsoft];
+pub const ENABLED_KINDS: [Kind; 3] = [Kind::Google, Kind::Microsoft, Kind::CalDav];
 
 impl Kind {
     /// Value stored in `cal_sources.kind`.
@@ -83,6 +88,12 @@ impl Kind {
         }
     }
 
+    /// The service lists a series occurrence by occurrence, with no master among the events (Outlook); the master is fetched when it is needed.
+    pub fn lists_occurrences(self) -> bool {
+        self == Kind::Microsoft
+    }
+
+    /// Is this kind switched on in this build?
     pub fn enabled(self) -> bool {
         ENABLED_KINDS.contains(&self)
     }
@@ -218,6 +229,8 @@ pub struct RemoteEvent {
     pub exdates: Vec<i64>,
     /// the master's RDATEs (instants): extra dates of the series
     pub rdates: Vec<i64>,
+    /// A series master whose repeat rule Hey Look! cannot express (an Outlook pattern outside the mapped set): `rrule` is empty and the rule must be left alone.
+    pub pattern_unsupported: bool,
     /// "confirmed" | "tentative" | "cancelled". A cancelled instance (`series_id` + `recurrence_id`) hides its slot; a cancelled
     /// single event or master counts as deleted.
     pub status: String,
@@ -226,11 +239,30 @@ pub struct RemoteEvent {
     pub reminder_min: Option<i64>,
     /// the user may change this event (Google: organizer is the user or guests may modify; Graph: `isOrganizer`)
     pub can_edit: bool,
+    /// SEQUENCE of the event (CalDAV: the invitations this app sends carry the next one); 0 where the provider keeps no such number
+    pub sequence: i64,
     /// when the provider last changed it (UTC seconds), for telling a stale page from a newer deletion
     pub updated: Option<i64>,
 }
 
 impl RemoteEvent {
+    /// The event as a draft for another calendar of the same or another service (a move that makes a copy and deletes the original). Guests are not carried.
+    pub fn as_draft(&self) -> EventDraft {
+        EventDraft {
+            summary: self.summary.clone(),
+            start: self.start,
+            end: self.end,
+            all_day: self.all_day,
+            tzid: self.tzid.clone().or_else(|| (!self.all_day && self.rrule.is_some()).then(|| "UTC".to_string())),
+            location: self.location.clone(),
+            description: self.description.clone(),
+            attendees: vec![],
+            reminder_min: self.reminder_min,
+            rrule: self.rrule.clone(),
+            exdates: self.exdates.clone(),
+        }
+    }
+
     /// A plain single event (tests build their events from it).
     #[cfg(test)]
     pub fn single(id: &str, summary: &str, start: i64, end: i64) -> RemoteEvent {
@@ -255,10 +287,12 @@ impl RemoteEvent {
             rrule: None,
             exdates: vec![],
             rdates: vec![],
+            pattern_unsupported: false,
             status: "confirmed".into(),
             my_status: None,
             reminder_min: None,
             can_edit: true,
+            sequence: 0,
             updated: None,
         }
     }
@@ -277,6 +311,10 @@ pub struct EventDraft {
     /// guests (never the user); the provider sends the invitations
     pub attendees: Vec<CalAttendee>,
     pub reminder_min: Option<i64>,
+    /// RRULE (without the prefix) of a repeating event to create
+    pub rrule: Option<String>,
+    /// slots of the rule that are deleted from the start (a series that begins partway through an older one: CalDAV and Google write them with the rule)
+    pub exdates: Vec<i64>,
 }
 
 /// The fields of an event that changed; `None` = leave as it is. The attendee list, when it changed, is the whole new list
@@ -290,6 +328,23 @@ pub struct EventPatch {
     pub description: Option<Option<String>>,
     pub attendees: Option<Vec<CalAttendee>>,
     pub reminder_min: Option<Option<i64>>,
+    /// the repeat rule of a series, with the extra dates it keeps; sent whole
+    pub recurrence: Option<Recurrence>,
+}
+
+/// The recurrence of a series master as a write sends it. The service applies its own rules to the occurrences it already has.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Recurrence {
+    /// the rule without the `RRULE:` prefix; `None` makes the series a single event
+    pub rrule: Option<String>,
+    /// dates of the series that do not happen (EXDATE)
+    pub exdates: Vec<i64>,
+    /// extra dates (RDATE)
+    pub rdates: Vec<i64>,
+    /// the first occurrence as the series will have it after the write (a service that keeps the rule with the start needs it)
+    pub start: i64,
+    pub all_day: bool,
+    pub tzid: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -325,6 +380,15 @@ impl Rsvp {
     }
 }
 
+/// A resource of a CalDAV server as it was downloaded: its address, version tag, UID and the server's own iCalendar text (the source of later writes, D-7.4f).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct RawResource {
+    pub href: String,
+    pub etag: String,
+    pub uid: String,
+    pub raw: String,
+}
+
 /// What to pull for one calendar.
 #[derive(Clone, Debug)]
 pub struct PullReq {
@@ -334,6 +398,8 @@ pub struct PullReq {
     pub window_from: i64,
     /// (Google reads everything after `window_from`; a provider whose delta covers a window, like Graph, uses both ends)
     pub window_to: i64,
+    /// The resources the app already has with their version tags (address, etag), for a provider that has to compare (CalDAV without sync tokens); `None` for the others.
+    pub known: Option<Vec<(String, String)>>,
 }
 
 /// The answer of a pull. `upserts` and `removed` are applied together with `next_state`.
@@ -348,6 +414,10 @@ pub struct Pull {
     pub full: bool,
     /// more than `MAX_EVENTS_PER_CALENDAR` events: the rest was not downloaded
     pub truncated: bool,
+    /// CalDAV: the resources that were downloaded again: every row of such a resource (the master, its overrides) is replaced by what `upserts` holds for it
+    pub replace: Vec<String>,
+    /// CalDAV: the iCalendar text of the resources in `replace`, kept for later writes (`cal_resources`); `removed` resources are forgotten there
+    pub resources: Vec<RawResource>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -360,6 +430,10 @@ pub enum SyncErr {
     NotSetUp(String),
     /// 412: the event changed on the server since the etag
     Conflict,
+    /// 403: the server says the calendar (or the event) cannot be changed by this user
+    ReadOnly,
+    /// the grant lacks a permission that making a calendar needs (Google): allow access again; the source itself keeps working
+    NeedsScope,
     /// 410: the sync token is no longer valid, download everything again
     Gone,
     /// 404: the event (or the calendar) does not exist (any more)
@@ -378,6 +452,8 @@ impl std::fmt::Display for SyncErr {
             SyncErr::Blocked(t) => write!(f, "blocked: {t}"),
             SyncErr::NotSetUp(t) => write!(f, "not set up: {t}"),
             SyncErr::Conflict => write!(f, "the event changed on the server"),
+            SyncErr::ReadOnly => write!(f, "read only"),
+            SyncErr::NeedsScope => write!(f, "more permission is needed"),
             SyncErr::Gone => write!(f, "the sync token expired"),
             SyncErr::NotFound => write!(f, "not found"),
             SyncErr::RateLimited(Some(d)) => write!(f, "busy, retry in {} s", d.as_secs()),
@@ -435,10 +511,35 @@ pub trait CalProvider: Send {
     /// Set the user's own answer on an event without telling the organizer again (the iMIP reply is sent by the app).
     /// `attendees` is the event's stored guest list with the user's answer already set.
     fn respond(&self, cal: &RemoteCalendar, remote_id: &str, etag: &str, status: Rsvp, me: &str, attendees: &[CalAttendee]) -> Result<(), SyncErr>;
+    /// The provider compares version tags itself and wants the ones the app has (`PullReq::known`): CalDAV.
+    fn wants_known_etags(&self) -> bool {
+        false
+    }
     /// Delta tokens that only cover a window (Microsoft): download everything again when the window started more than this many
     /// days ago. `None` = never.
     fn rebaseline_after_days(&self) -> Option<i64> {
         None
+    }
+    /// Change one occurrence of a series that the service keeps as one event (Google): finds the instance that starts at `original_start` and changes it (the
+    /// service creates the exception). Returns the instance as stored (kind `Exception`).
+    fn update_occurrence(&self, _cal: &RemoteCalendar, _series_id: &str, _original_start: i64, _all_day: bool, _changed: &EventPatch) -> Result<RemoteEvent, SyncErr> {
+        Err(SyncErr::NotSetUp("changing one occurrence is not part of this service".into()))
+    }
+    /// Delete one occurrence of such a series; returns the provider id of the instance that was deleted.
+    fn delete_occurrence(&self, _cal: &RemoteCalendar, _series_id: &str, _original_start: i64, _all_day: bool) -> Result<String, SyncErr> {
+        Err(SyncErr::NotSetUp("deleting one occurrence is not part of this service".into()))
+    }
+    /// Move an event (a whole series moves as one) to another calendar of the same account. Returns the event as it is in the target. Services without a move make a copy and delete the original.
+    fn move_event(&self, _cal: &RemoteCalendar, _remote_id: &str, _etag: &str, _target: &RemoteCalendar) -> Result<RemoteEvent, SyncErr> {
+        Err(SyncErr::NotSetUp("moving an event is not part of this service".into()))
+    }
+    /// Make a calendar with this name in the account. Returns it as the service lists it.
+    fn create_calendar(&self, _name: &str) -> Result<RemoteCalendar, SyncErr> {
+        Err(SyncErr::NotSetUp("making a calendar is not part of this service".into()))
+    }
+    /// The series master as the service has it now (its own EXDATEs and RDATEs, the repeat rule, the version tag).
+    fn get_series(&self, _cal: &RemoteCalendar, _series_id: &str) -> Result<RemoteEvent, SyncErr> {
+        Err(SyncErr::NotSetUp("series are not part of this service".into()))
     }
 }
 
@@ -500,6 +601,15 @@ mod tests {
         let found: Vec<&str> = line.split('"').skip(1).step_by(2).collect();
         let ours: Vec<&str> = ENABLED_KINDS.iter().map(|k| k.as_str()).collect();
         assert_eq!(found, ours);
+    }
+
+    #[test]
+    fn the_google_calendar_creation_switch_matches_the_frontend() {
+        let ts = include_str!("../../../src/calendarSync.ts");
+        let line = ts.lines().find(|l| l.starts_with("export const GOOGLE_CREATE_CALENDARS")).expect("GOOGLE_CREATE_CALENDARS in calendarSync.ts");
+        assert_eq!(line.contains("= true"), crate::oauth::GOOGLE_CREATE_CALENDARS, "{line}");
+        // the scope is only asked for when the switch is on
+        assert_eq!(crate::oauth::Provider::Google.scope_for(crate::oauth::Purpose::Calendar).contains("calendar.app.created"), crate::oauth::GOOGLE_CREATE_CALENDARS);
     }
 
     #[test]

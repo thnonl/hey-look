@@ -199,10 +199,27 @@ export interface CalEvent {
   /** set on expanded occurrences of a repeating event */
   instanceStart?: number | null;
   /** an event of a synced calendar that can't be changed here, and why */
-  readOnly?: "calendar" | "repeating" | "organizer" | null;
+  readOnly?: "calendar" | "organizer" | null;
   /** the series has extra dates (RDATE); without a repeat rule the popover calls it "Custom" */
   hasRdates?: boolean;
+  /** the event belongs to a series (a rule, extra dates, a changed occurrence, or an occurrence a service lists on its own) */
+  series?: boolean;
+  /** the slot of an occurrence: the original start of the occurrence (epoch seconds), whatever time it was moved to */
+  occurrenceStart?: number | null;
+  /** this row replaces one occurrence of its series */
+  changedOccurrence?: boolean;
+  /** this occurrence is the first one of its series (the question leaves out "This and following") */
+  firstOccurrence?: boolean;
 }
+/** What the event form gets for an event or a part of its series. */
+export interface CalEventDetail extends CalEvent {
+  /** changed occurrences the save would reset (the whole series; from the chosen occurrence on for "this and following") */
+  changedCount?: number;
+  /** the repeat rule of the series cannot be changed in Hey Look! (an Outlook pattern it does not map) */
+  patternUnsupported?: boolean;
+}
+/** Which part of a series a change is for. */
+export type SeriesScope = "occurrence" | "following" | "series";
 export interface CalEventInput {
   id?: string | null;
   accountId?: string | null;
@@ -218,6 +235,10 @@ export interface CalEventInput {
   reminderMin?: number | null;
   /** the calendar a new event goes to ("local" or null = My events); fixed when editing */
   calendarId?: string | null;
+  /** the part of a series that is saved; absent for a single event */
+  scope?: SeriesScope;
+  /** the occurrence the scope starts at (`CalEvent.occurrenceStart`) */
+  occurrenceStart?: number | null;
 }
 export interface CalendarInfo {
   id: string;
@@ -229,13 +250,17 @@ export interface CalendarInfo {
   remote?: boolean;
   /** new events can be added to it */
   writable?: boolean;
-  /** "Google Calendar" / "Outlook" for a synced calendar */
+  /** "Google Calendar" / "Outlook" for a synced calendar, a CalDAV server by its name or host */
   service?: string | null;
+  /** this app sends the invitations of the events in this calendar (a CalDAV server that does not send them itself), else the service does */
+  appInvites?: boolean;
+  /** an event with guests can be moved out of this calendar here (Google, a CalDAV server without invitations); not Outlook */
+  movesGuests?: boolean;
   /** a mailbox's Invitations entry that is shown as part of its main synced calendar: that calendar's id (the lists leave the entry out, its events follow the calendar) */
   foldedInto?: string | null;
 }
 /** One calendar of a synced mailbox, as Settings lists it. */
-export interface CalendarSyncInfo { id: string; name: string; color: string; readOnly: boolean; primary: boolean; syncOn: boolean; eventCount: number; truncated: boolean }
+export interface CalendarSyncInfo { id: string; name: string; color: string; /** the colour is the person's own, not the service's */ customColor?: boolean; readOnly: boolean; primary: boolean; syncOn: boolean; eventCount: number; truncated: boolean }
 /** The calendar sync of one mailbox: its state and calendars. */
 export interface CalSource {
   id: string;
@@ -248,6 +273,18 @@ export interface CalSource {
   /** the first download is running */
   firstSync: boolean;
   calendars: CalendarSyncInfo[];
+  /** CalDAV: how the server is named and who signed in */
+  dav?: { label: string; username: string; host: string; preset: "icloud" | "fastmail" | "nextcloud" | "other"; scheduling: boolean } | null;
+}
+/** What the CalDAV dialog sends (W7.4). */
+export interface DavConnectArgs {
+  accountId: string;
+  service: "icloud" | "fastmail" | "nextcloud" | "other";
+  url: string;
+  username: string;
+  password: string;
+  useMailPassword: boolean;
+  trustCert: boolean;
 }
 export interface Meeting {
   start: number;
@@ -830,9 +867,9 @@ export const api = {
   calendarSetVisible: (calendarId: string, visible: boolean) => invoke<void>("calendar_set_visible", { calendarId, visible }),
   /** Events touching [from, to) (epoch seconds), repeats expanded. All-day events come with a day of slack. */
   calendarListEvents: (from: number, to: number) => invoke<CalEvent[]>("calendar_list_events", { from, to }),
-  calendarGetEvent: (id: string) => invoke<CalEvent>("calendar_get_event", { id }),
+  calendarGetEvent: (id: string, scope?: SeriesScope, occurrenceStart?: number | null) => invoke<CalEventDetail>("calendar_get_event", { id, scope: scope ?? null, occurrenceStart: occurrenceStart ?? null }),
   calendarSaveEvent: (event: CalEventInput, notify: boolean) => invoke<CalEvent>("calendar_save_event", { event, notify }),
-  calendarDeleteEvent: (id: string, notify: boolean) => invoke<void>("calendar_delete_event", { id, notify }),
+  calendarDeleteEvent: (id: string, notify: boolean, scope?: SeriesScope, occurrenceStart?: number | null) => invoke<void>("calendar_delete_event", { id, notify, scope: scope ?? null, occurrenceStart: occurrenceStart ?? null }),
   calendarRespond: (messageId: string, response: Rsvp, comment: string | null, send: boolean) =>
     invoke<CalInvite>("calendar_respond", { messageId, response, comment, send }),
   calendarAddFromMessage: (messageId: string, overrideAuth = false) => invoke<CalEvent>("calendar_add_from_message", { messageId, overrideAuth }),
@@ -843,6 +880,11 @@ export const api = {
   calendarSources: () => invoke<CalSource[]>("calendar_sources"),
   /** the services this build can connect ("google", "microsoft"): a mailbox whose service is not in it cannot turn calendar sync on */
   calendarKindsAvailable: () => invoke<string[]>("calendar_kinds_available"),
+  calendarMoveEvent: (eventId: string, targetCalendarId: string) => invoke<CalEvent>("calendar_move_event", { eventId, targetCalendarId }),
+  calendarCreateCalendar: (accountId: string, name: string, color: string | null) => invoke<CalSource>("calendar_create_calendar", { accountId, name, color }),
+  calendarSetColor: (calendarId: string, color: string | null) => invoke<void>("calendar_set_color", { calendarId, color }),
+  calendarConnectCaldav: (args: DavConnectArgs) => invoke<CalSource>("calendar_connect_caldav", { args }),
+  calendarDavPassword: (accountId: string, password: string) => invoke<CalSource>("calendar_dav_password", { accountId, password }),
   calendarConnect: (accountId: string) => invoke<CalSource>("calendar_connect", { accountId }),
   calendarCancelConnect: () => invoke<void>("calendar_cancel_connect"),
   calendarDisconnect: (accountId: string) => invoke<void>("calendar_disconnect", { accountId }),

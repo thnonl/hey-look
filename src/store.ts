@@ -144,7 +144,7 @@ export type Dialog =
   | { type: "pgp-generate"; accountId?: string; back?: string }
   | { type: "pgp-import"; armored?: string; paste?: boolean; back?: string }
   | { type: "pgp-key"; fingerprint: string; back?: string }
-  | { type: "event"; eventId?: string; init?: EventInit }
+  | { type: "event"; eventId?: string; init?: EventInit; scope?: "occurrence" | "following" | "series"; occurrenceStart?: number | null }
   /** (W13.10) New folder (`parentKey` null) / New subfolder (the key of the folder it goes under) in a mailbox */
   | { type: "folder-new"; accountId: string; parentKey: string | null };
 
@@ -373,6 +373,9 @@ interface State {
   calSources: CalSource[];
   /** `calSources` was read at least once (the sidebar offer waits for it) */
   calSourcesReady: boolean;
+  /** the services this build can connect (`calendar_kinds_available`); null until read (Settings shows the CalDAV option of a mailbox from it) */
+  calKinds: string[] | null;
+  loadCalKinds: () => Promise<void>;
   /** the sidebar offer for existing mailboxes was answered: "1"; null = not yet; undefined = the setting is not read yet (W7.9) */
   calOfferDone: string | null | undefined;
   /** the mailbox whose Settings > Calendar switch starts its connect path as soon as the section is shown (the sidebar offer's "Turn on...") */
@@ -804,6 +807,14 @@ export const useStore = create<State>((set, get) => ({
   calEvents: [],
   calSources: [],
   calSourcesReady: false,
+  calKinds: null,
+  loadCalKinds: async () => {
+    try {
+      set({ calKinds: await api.calendarKindsAvailable() });
+    } catch {
+      set({ calKinds: [] });
+    }
+  },
   calOfferDone: undefined,
   calAutostart: null,
   calendars: [],

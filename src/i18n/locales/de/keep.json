@@ -36,5 +36,6 @@
   "compose.fmt.style.code",
   "compose.link.bubble",
   "compose.emoji.smileys",
-  "compose.insert.symbol"
+  "compose.insert.symbol",
+  "settings.calendar.calName"
 ]

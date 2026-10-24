@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { ComposeFrame } from "./components/ComposeFrame";
 import { Modal } from "./components/ui";
+import { dialogTitleKey } from "./calendarSeries";
 import type { Key } from "./i18n";
 import { useT } from "./i18n/react";
 import { lazyView, LazyLoading } from "./lazy";
@@ -167,7 +168,7 @@ export const LazyEventDialog = lazyView<CalendarModule, EventProps>({
   ...calendarOpts,
   pick: (m) => m.EventDialog,
   dialog: true,
-  frame: (p, late) => <DialogFrame title={p.eventId ? "calendar.dialog.editTitle" : "calendar.newEvent"} late={late} width={560} onClose={closeDialog} />,
+  frame: (p, late) => <DialogFrame title={dialogTitleKey(p.scope, !!p.eventId)} late={late} width={560} onClose={closeDialog} />,
   failed: closeDialog,
 });
 

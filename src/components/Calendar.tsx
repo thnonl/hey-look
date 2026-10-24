@@ -1,10 +1,11 @@
-import { CalendarCheck, CalendarDays, CalendarPlus, Check, ChevronLeft, ChevronRight, CircleCheck, Clock, Copy, Download, ExternalLink, MapPin, Mail, Pencil, Repeat, Trash2, TriangleAlert, UserRound, Video, X } from "lucide-react";
+import { CalendarCheck, CalendarDays, CalendarPlus, Check, ChevronLeft, ChevronRight, CircleCheck, Clock, Copy, Download, ExternalLink, FolderInput, MapPin, Mail, Pencil, Repeat, Trash2, TriangleAlert, UserRound, Video, X } from "lucide-react";
 import { ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { api, CalEvent, errorCode, Rsvp } from "../api";
+import { api, CalEvent, CalEventDetail, CalendarInfo, errorCode, Rsvp, SeriesScope } from "../api";
 import { addDays, addMonths, chipClass, cmpDay, Day, dayKey, dayOfMs, dayStartMs, daysBetween, eventColor, eventDaySpan, eventLabel, eventsOnDay, fmtClock, fmtClockRange, fmtDayLong, fmtDayMonth, fmtDayShort, fmtRange, fmtTime, fromInputs, isUrl, joinLabel, joinShortName, layoutDay, monthGrid, monthTitle, myStatusLabel, partsOf, personName, nextHour, repeatKind, repeatRule, sameDay, today, toInputs, tzOffsetLabel, weekDays, weekStartOf, weekTitle, wdLong, wdNarrow, wdShort, CalView, MY_EVENTS_COLOR } from "../calendar";
 import { accountColor } from "../prefs";
 import { HOUR_PX_MAX, hourHeight, minuteFromY } from "../weekHours";
-import { calendarName, calendarOffer, calendarTitle, foldTarget, sidebarCalendars, defaultCalendar, deleteConfirm, isSyncedCalendarId, pausedSources, readOnlyNote, serviceName, writableCalendars } from "../calendarSync";
+import { calendarOffer, calendarTitle, foldTarget, sidebarCalendars, defaultCalendar, deleteConfirm, isSyncedCalendarId, pausedSources, readOnlyNote, serviceName, writableCalendars } from "../calendarSync";
+import { deletedToast, dialogTitleKey, needsResetQuestion, savedToastKey, scopeAsk, scopeNote, slotOf } from "../calendarSeries";
 import { friendlyError, EventInit, useStore } from "../store";
 import { t } from "../i18n";
 import { useT } from "../i18n/react";
@@ -19,6 +20,8 @@ import { newEvent } from "../newEvent";
 import { openPopout } from "../popout/open";
 import { shiftNow } from "../popout/modifier";
 import { eventKey } from "../popout/windowKinds";
+import { guestsBlock, moveTargets } from "../calendarMove";
+import { MoveDialog } from "./MoveDialog";
 // =============================================================== calendar module
 
 function useNow(everyMs = 60_000) {
@@ -43,11 +46,81 @@ interface PopState {
  */
 const canEditEvent = (ev: Pick<CalEvent, "calendarId" | "readOnly">) => ev.calendarId === "local" || (isSyncedCalendarId(ev.calendarId) && !ev.readOnly);
 
-/** What Edit does: the popover's Edit button, a double-click on an event and Ctrl/Cmd+Enter on it. (A series will ask which part first, W7.1.) */
-function openEventForEdit(ev: CalEvent) {
-  // Shift + double-click or Shift+Enter: the event opens in a window of its own (W4.6); opening it again focuses that window
-  if (shiftNow()) return void openPopout("event", eventKey(ev.id), { eventId: ev.id });
-  useStore.getState().setDialog({ type: "event", eventId: ev.id });
+/**
+ * What Edit does: the popover's Edit button, a double-click on an event and Ctrl/Cmd+Enter on it. An event of a series asks first which part to open: this occurrence, this and the
+ * following ones, or the whole series (W7.1, REQ-7.1.1); Cancel and Esc open nothing and resolve false.
+ */
+async function openEventForEdit(ev: CalEvent): Promise<boolean> {
+  // Shift + double-click or Shift+Enter: the event opens in a window of its own (W4.6); opening it again focuses that window (the key is read now, the question comes first)
+  const alone = shiftNow();
+  let scope: SeriesScope | undefined;
+  if (ev.series) {
+    const a = await useStore.getState().choose(scopeAsk("open", ev));
+    if (a === "cancel") return false;
+    scope = a as SeriesScope;
+  }
+  const occurrenceStart = scope ? (slotOf(ev) ?? null) : null;
+  if (alone) {
+    void openPopout("event", eventKey(ev.id, scope, occurrenceStart), { eventId: ev.id, scope, occurrenceStart });
+    return true;
+  }
+  useStore.getState().setDialog({ type: "event", eventId: ev.id, scope, occurrenceStart });
+  return true;
+}
+
+/** The zone the repeat rule of an event is worked out in: the zone of its series, else the one the calendar shows. */
+const ruleZone = (e: Pick<CalEvent, "allDay" | "tzid">, tz: string) => (!e.allDay && e.tzid ? e.tzid : tz);
+
+/** The day of the occurrence an event stands for, in the zone of its series (a date of its own for an all-day series). */
+function occurrenceDay(ev: Pick<CalEvent, "allDay" | "tzid" | "occurrenceStart" | "start">, appTz: string): Day {
+  const ms = (ev.occurrenceStart ?? ev.start) * 1000;
+  return ev.allDay ? dayOfMs(ms, "UTC") : dayOfMs(ms, ev.tzid ?? appTz);
+}
+
+/**
+ * Delete an event, or one part of its series, after the questions it needs: the part of a series (REQ-7.1.1, the question also stands for the confirmation; a synced calendar's
+ * sentence about the guests is in it), whether to send the cancellation for an event you organize, or the plain confirmation of a single event. Resolves true when the delete was
+ * made. `say` shows a toast where the person looks (an event window has its toast made in the main window).
+ */
+async function deleteEventAsked(ev: CalEvent, cal: Pick<CalendarInfo, "name" | "service" | "appInvites"> | undefined, appTz: string, say: (text: () => string, kind: "success" | "error") => void): Promise<"done" | "failed" | "cancelled"> {
+  const st = useStore.getState();
+  const others = ev.attendees.filter((a) => a.role !== "chair").length;
+  const synced = isSyncedCalendarId(ev.calendarId);
+  let scope: SeriesScope | undefined;
+  if (ev.series) {
+    const a = await st.choose(scopeAsk("delete", ev, synced ? deleteConfirm(cal?.name ?? "", cal?.service, others).body : null));
+    if (a === "cancel") return "cancelled";
+    scope = a as SeriesScope;
+  }
+  let notify = false;
+  if ((ev.calendarId === "local" || cal?.appInvites) && ev.myStatus === "organizer" && others > 0) {
+    const c = await st.choose({
+      title: t("calendar.pop.cancelTitle", { n: others }),
+      body: t("calendar.pop.cancelBody"),
+      choices: [
+        { id: "keep", label: t("calendar.pop.keep") },
+        { id: "silent", label: t("calendar.pop.deleteSilent"), kind: "danger" },
+        { id: "send", label: t("calendar.pop.sendCancellation"), kind: "primary" },
+      ],
+    });
+    if (c === "keep") return "cancelled";
+    notify = c === "send";
+  } else if (!ev.series) {
+    if (synced && !cal?.appInvites) {
+      // the service sends the cancellation to the guests, this app sends no mail for these events
+      const del = deleteConfirm(cal?.name ?? "", cal?.service, others);
+      if (!(await st.confirm({ ...del, confirmLabel: t("common.delete"), danger: true }))) return "cancelled";
+    } else if (!(await st.confirm({ title: t("calendar.pop.deleteTitle", { summary: ev.summary }), confirmLabel: t("common.delete"), danger: true }))) return "cancelled";
+  }
+  const day = occurrenceDay(ev, appTz);
+  try {
+    await api.calendarDeleteEvent(ev.id, notify, scope, scope ? slotOf(ev) ?? null : null);
+    say(() => deletedToast(scope, fmtDayLong(day)) ?? (notify ? t("calendar.toast.cancelledNotified") : t("calendar.toast.deleted")), "success");
+  } catch (e) {
+    say(() => friendlyError(e), "error");
+    return "failed";
+  }
+  return "done";
 }
 
 /** Opens the New event dialog on a day (at 09:00 – 10:00) or at an exact time. */
@@ -64,6 +137,8 @@ export function CalendarView() {
   const tz = useTz();
   const view: CalView = prefs.calView;
   const [pop, setPop] = useState<PopState | null>(null);
+  // the event the Move dialog is open for (W7.5)
+  const [moving, setMoving] = useState<{ ev: CalEvent; el: HTMLElement } | null>(null);
   const [focus, setFocus] = useState<Day>(calDate);
   const color = useAccountColor();
   const now = useNow();
@@ -91,7 +166,13 @@ export function CalendarView() {
     if (!canEditEvent(ev)) return openPop(ev, el);
     editOrigin.current = el;
     setPop(null);
-    openEventForEdit(ev);
+    // (a question comes first for a series: when it is cancelled the focus goes back to the event)
+    void openEventForEdit(ev).then((opened) => {
+      if (!opened) {
+        editOrigin.current = null;
+        requestAnimationFrame(() => (document.contains(el) ? el : document.querySelector<HTMLElement>(".mday[tabindex='0'], .week-wrap, .agenda"))?.focus({ preventScroll: true }));
+      }
+    });
   };
   // when that dialog closes (Save, Cancel, Esc) the focus returns to the event that opened it, else to the day or the grid (a button is not focused by a click in WebKit,
   // so the dialog cannot be trusted to remember it)
@@ -136,7 +217,8 @@ export function CalendarView() {
       )}
       {view === "week" && <WeekView events={events} tz={tz} anchor={calDate} weekStart={prefs.weekStart} todayD={todayD} now={now} color={color} openPop={openPop} edit={edit} />}
       {view === "agenda" && <AgendaView events={events} tz={tz} from={calDate} todayD={todayD} color={color} openPop={openPop} edit={edit} loading={calLoading} />}
-      {pop && <EventPopover state={pop} tz={tz} color={eventColor(pop.ev, color)} onClose={() => setPop(null)} onEdit={() => edit(pop.ev, pop.el)} />}
+      {pop && <EventPopover state={pop} tz={tz} color={eventColor(pop.ev, color)} onClose={() => setPop(null)} onEdit={() => edit(pop.ev, pop.el)} onMove={() => (setMoving({ ev: pop.ev, el: pop.el }), setPop(null))} />}
+      {moving && <MovingEvent ev={moving.ev} onClose={() => (requestAnimationFrame(() => (document.contains(moving.el) ? moving.el : null)?.focus({ preventScroll: true })), setMoving(null))} />}
       <span hidden>{calendars.length}</span>
     </section>
   );
@@ -432,9 +514,9 @@ function AgendaView({
 
 // =============================================================== event popover
 
-function EventPopover({ state, tz, color, onClose, onEdit }: { state: PopState; tz: string; color: string; onClose: () => void; onEdit: () => void }) {
+function EventPopover({ state, tz, color, onClose, onEdit, onMove }: { state: PopState; tz: string; color: string; onClose: () => void; onEdit: () => void; onMove: () => void }) {
   const t = useT();
-  const { showToast, choose, confirm, setDialog, bumpCal, setModule, setView, openMail: openMailThread } = useStore();
+  const { showToast, setDialog, bumpCal, setModule, setView, openMail: openMailThread } = useStore();
   const ev = state.ev;
   const ref = useRef<HTMLDivElement>(null);
   useOutside(ref, onClose, true);
@@ -461,7 +543,6 @@ function EventPopover({ state, tz, color, onClose, onEdit }: { state: PopState; 
     ref.current?.focus({ preventScroll: true });
     return () => back?.focus?.({ preventScroll: true });
   }, []);
-  const mine = ev.calendarId === "local";
   const invite = ev.calendarId.startsWith("invites:");
   // an event of a synced calendar (Google Calendar / Outlook) can be changed here unless the service or the calendar says otherwise
   const synced = isSyncedCalendarId(ev.calendarId);
@@ -508,31 +589,8 @@ function EventPopover({ state, tz, color, onClose, onEdit }: { state: PopState; 
   };
 
   const remove = async () => {
-    const others = ev.attendees.filter((a) => a.role !== "chair").length;
-    let notify = false;
-    if (mine && ev.myStatus === "organizer" && others > 0) {
-      const c = await choose({
-        title: t("calendar.pop.cancelTitle", { n: others }),
-        body: t("calendar.pop.cancelBody"),
-        choices: [
-          { id: "keep", label: t("calendar.pop.keep") },
-          { id: "silent", label: t("calendar.pop.deleteSilent"), kind: "danger" },
-          { id: "send", label: t("calendar.pop.sendCancellation"), kind: "primary" },
-        ],
-      });
-      if (c === "keep") return;
-      notify = c === "send";
-    } else if (synced) {
-      // the service sends the cancellation to the guests, this app sends no mail for these events
-      const del = deleteConfirm(syncedCal?.name ?? "", syncedCal?.service, others);
-      if (!(await confirm({ ...del, confirmLabel: t("common.delete"), danger: true }))) return;
-    } else if (!(await confirm({ title: t("calendar.pop.deleteTitle", { summary: ev.summary }), body: ev.rrule ? t("calendar.pop.deleteRepeating") : undefined, confirmLabel: t("common.delete"), danger: true }))) return;
-    try {
-      await api.calendarDeleteEvent(ev.id, notify);
-      showToast(notify ? t("calendar.toast.cancelledNotified") : t("calendar.toast.deleted"), undefined, "success");
-    } catch (e) {
-      showToast(() => friendlyError(e), undefined, errorCode(e) === "CAL_SEND_FAILED" ? "error" : "error");
-    }
+    const end = await deleteEventAsked(ev, syncedCal, tz, (text, kind) => showToast(() => text(), undefined, kind));
+    if (end === "cancelled") return;
     bumpCal();
     onClose();
   };
@@ -571,6 +629,8 @@ function EventPopover({ state, tz, color, onClose, onEdit }: { state: PopState; 
   // which actions apply to this event (an action that cannot be done is not shown; the note under the details says why Edit is missing)
   const showEdit = canEditEvent(ev);
   const showCopy = !ev.confidential;
+  // another calendar to move it to (W7.5): the user's own event, in My events or a synced calendar, with a writable calendar to go to
+  const showMove = showEdit && !invite && moveTargets(ev, useStore.getState().calendars).length > 0;
   const showDelete = !(synced && !!ev.readOnly);
   const showMail = invite && !!ev.sourceMessageId;
   const answerRow = canRsvp || !!ev.joinUrl;
@@ -591,7 +651,7 @@ function EventPopover({ state, tz, color, onClose, onEdit }: { state: PopState; 
         <button className="icon-btn" aria-label={t("common.close")} onClick={onClose}><X size={14} /></button>
       </h4>
       <div className="ev-details">
-        <div className="inv-row"><Clock size={14} aria-hidden /><span>{fmtRange(ev, tz)}{repeatText ? <><br /><span className="sub"><Repeat size={11} aria-hidden style={{ verticalAlign: -1 }} /> {repeatText}</span></> : ""}</span></div>
+        <div className="inv-row"><Clock size={14} aria-hidden /><span>{fmtRange(ev, tz)}{repeatText ? <><br /><span className="sub"><Repeat size={11} aria-hidden style={{ verticalAlign: -1 }} /> {repeatText}</span></> : ""}{ev.changedOccurrence ? <><br /><span className="sub" data-changed-occurrence>{t("calendar.pop.changedOccurrence")}</span></> : ""}</span></div>
         {(ev.location || ev.joinUrl) && (
           <div className="inv-row">
             <MapPin size={14} aria-hidden />
@@ -618,7 +678,7 @@ function EventPopover({ state, tz, color, onClose, onEdit }: { state: PopState; 
         {localOnlyNote && <div className="muted small">{localOnlyNote}</div>}
         {err && <div className="inline-err" role="alert"><TriangleAlert size={14} aria-hidden /> {err}</div>}
       </div>
-      {(answerRow || showMail || showEdit || showCopy || showDelete) && (
+      {(answerRow || showMail || showEdit || showCopy || showDelete || showMove) && (
         <div className="ev-foot">
           {answerRow && (
             <div className="ev-acts ev-answer">
@@ -632,11 +692,13 @@ function EventPopover({ state, tz, color, onClose, onEdit }: { state: PopState; 
               {ev.joinUrl && <button className="btn small primary" onClick={() => void open(ev.joinUrl!)}><Video size={13} /> {t("calendar.pop.join")}</button>}
             </div>
           )}
-          {(showMail || showEdit || showCopy || showDelete) && (
+          {(showMail || showEdit || showCopy || showDelete || showMove) && (
             <div className="ev-acts ev-actions">
               {showMail && <button className="icon-btn" title={t("calendar.pop.openEmail")} aria-label={t("calendar.pop.openEmail")} onClick={() => void openMail()}><Mail size={15} /></button>}
               {showEdit && actionButton(t("common.edit"), <Pencil size={14} aria-hidden />, onEdit)}
               {showCopy && actionButton(t("calendar.pop.duplicate"), <Copy size={14} aria-hidden />, duplicate)}
+              {/* (icon only, like Open email: its name is long, and a third line of buttons would push the footer out of small windows) */}
+              {showMove && <button type="button" className="btn small icon-only" title={t("calendar.pop.moveTo")} aria-label={t("calendar.pop.moveTo")} onClick={onMove}><FolderInput size={14} aria-hidden /></button>}
               {showCopy && actionButton(t("calendar.saveIcs"), <Download size={14} aria-hidden />, () => void saveIcs())}
               {showDelete && actionButton(t("common.delete"), <Trash2 size={14} aria-hidden />, () => void remove(), true)}
             </div>
@@ -645,6 +707,14 @@ function EventPopover({ state, tz, color, onClose, onEdit }: { state: PopState; 
       )}
     </div>
   );
+}
+
+/** The Move dialog of an event: the calendars it can go to, and the guests sentence when its service cannot move it with guests. */
+function MovingEvent({ ev, onClose }: { ev: CalEvent; onClose: () => void }) {
+  const { calendars, bumpCal } = useStore();
+  const targets = moveTargets(ev, calendars);
+  if (targets.length === 0) return null;
+  return <MoveDialog event={ev} targets={targets} blocked={guestsBlock(ev, calendars, targets)} onClose={onClose} onMoved={() => (bumpCal(), onClose())} />;
 }
 
 // =============================================================== sidebar (folder pane in Calendar mode)
@@ -839,7 +909,7 @@ export interface EventWindowHooks {
   title: (text: string) => void;
 }
 
-export function EventDialog({ eventId, init, draft, windowed }: { eventId?: string; init?: EventInit; draft?: EventDraft; windowed?: EventWindowHooks }) {
+export function EventDialog({ eventId, init, draft, windowed, scope, occurrenceStart }: { eventId?: string; init?: EventInit; draft?: EventDraft; windowed?: EventWindowHooks; scope?: SeriesScope; occurrenceStart?: number | null }) {
   const t = useT();
   const { prefs, accounts, calendars, setPrefs, setDialog, showToast, bumpCal } = useStore();
   const tz = useTz();
@@ -865,7 +935,7 @@ export function EventDialog({ eventId, init, draft, windowed }: { eventId?: stri
   const [repeat, setRepeat] = useState(draft?.repeat ?? "none");
   const [customRule, setCustomRule] = useState<string | null>(draft?.customRule ?? null);
   const [customText, setCustomText] = useState<string | null>(draft?.customText ?? null);
-  const [existing, setExisting] = useState<CalEvent | null>(null);
+  const [existing, setExisting] = useState<CalEventDetail | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(draft?.dirty ?? false);
@@ -887,7 +957,7 @@ export function EventDialog({ eventId, init, draft, windowed }: { eventId?: stri
   useEffect(() => {
     if (!eventId) return;
     let live = true;
-    api.calendarGetEvent(eventId).then((e) => {
+    api.calendarGetEvent(eventId, scope, occurrenceStart).then((e) => {
       if (!live) return;
       setExisting(e);
       setCalId(e.calendarId);
@@ -903,7 +973,8 @@ export function EventDialog({ eventId, init, draft, windowed }: { eventId?: stri
       setInvite(e.attendees.filter((a) => a.role !== "chair").map((a) => (a.name ? `${a.name} <${a.email}>` : a.email)));
       if (e.accountId) setAccountId(e.accountId);
       setReminder(e.reminderMin);
-      const startDay = e.allDay ? dayOfMs(e.start * 1000, "UTC") : dayOfMs(e.start * 1000, tz);
+      // the repeat choices are worked out in the zone of the series, not the one the form shows (a New York series seen from Ho Chi Minh keeps its weekday)
+      const startDay = e.allDay ? dayOfMs(e.start * 1000, "UTC") : dayOfMs(e.start * 1000, ruleZone(e, tz));
       const k = repeatKind(e.rrule, startDay);
       setRepeat(k);
       if (k === "custom") {
@@ -932,7 +1003,7 @@ export function EventDialog({ eventId, init, draft, windowed }: { eventId?: stri
     return () => {
       live = false;
     };
-  }, [eventId, tz]);
+  }, [eventId, tz, scope, occurrenceStart]);
 
   const close = async () => {
     if (dirty && !(await useStore.getState().confirm({ title: t("calendar.dialog.discardTitle"), body: t("calendar.dialog.discardBody"), confirmLabel: t("calendar.dialog.discard"), danger: true }))) return;
@@ -952,39 +1023,17 @@ export function EventDialog({ eventId, init, draft, windowed }: { eventId?: stri
   /** "Open in new window": the form with every change made so far moves into a window; the dialog closes, nothing is saved (REQ-4.6.6) */
   const popOut = async () => {
     const moved: EventDraft = { title, sd, st, ed, et, allDay, where, notes, invite, accountId, reminder, repeat, customRule, customText, calId, dirty };
-    const key = eventKey(eventId);
-    const init2 = eventId ? { eventId, draft: moved } : { init, draft: moved };
+    const key = eventKey(eventId, scope, occurrenceStart);
+    const init2 = eventId ? { eventId, scope, occurrenceStart, draft: moved } : { init, draft: moved };
     if (await openPopout("event", key, init2)) setDialog(null);
   };
   /** Delete in the window of an event (REQ-4.6.7): the questions of the event popover, then the event goes and the window ends */
   const remove = async () => {
     if (!existing) return;
-    const others = existing.attendees.filter((a) => a.role !== "chair").length;
-    const st2 = useStore.getState();
-    let notify = false;
-    if (existing.calendarId === "local" && existing.myStatus === "organizer" && others > 0) {
-      const c = await st2.choose({
-        title: t("calendar.pop.cancelTitle", { n: others }),
-        body: t("calendar.pop.cancelBody"),
-        choices: [
-          { id: "keep", label: t("calendar.pop.keep") },
-          { id: "silent", label: t("calendar.pop.deleteSilent"), kind: "danger" },
-          { id: "send", label: t("calendar.pop.sendCancellation"), kind: "primary" },
-        ],
-      });
-      if (c === "keep") return;
-      notify = c === "send";
-    } else if (isSyncedCalendarId(existing.calendarId)) {
-      const del = deleteConfirm(calInfo?.name ?? "", calInfo?.service, others);
-      if (!(await st2.confirm({ ...del, confirmLabel: t("common.delete"), danger: true }))) return;
-    } else if (!(await st2.confirm({ title: t("calendar.pop.deleteTitle", { summary: existing.summary }), body: existing.rrule ? t("calendar.pop.deleteRepeating") : undefined, confirmLabel: t("common.delete"), danger: true }))) return;
-    try {
-      await api.calendarDeleteEvent(existing.id, notify);
-      say(() => (notify ? t("calendar.toast.cancelledNotified") : t("calendar.toast.deleted")), "success");
-      finish();
-    } catch (e) {
-      showToast(() => friendlyError(e), undefined, "error");
-    }
+    // (the questions are about the part of the series this form is for)
+    const target: CalEvent = scope ? { ...existing, series: true, occurrenceStart: occurrenceStart ?? existing.occurrenceStart } : existing;
+    const end = await deleteEventAsked(target, calInfo, tz, (text, kind) => (kind === "success" ? say(text, kind) : showToast(() => text(), undefined, kind)));
+    if (end === "done") finish();
   };
 
   const hasGuests = invite.length > 0;
@@ -1004,8 +1053,17 @@ export function EventDialog({ eventId, init, draft, windowed }: { eventId?: stri
     const bad = invite.find((a) => !EMAIL.test(bare(a)));
     if (bad) return setError(t("calendar.dialog.errAddress", { address: bad }));
     if (hasGuests && !accountId && !remote) return setError(t("calendar.dialog.errAccount"));
-    const startDay = allDay ? dayOfMs(s * 1000, "UTC") : dayOfMs(s * 1000, tz);
-    const rrule = repeat === "custom" ? customRule : repeatRule(repeat, startDay);
+    const startDay = allDay ? dayOfMs(s * 1000, "UTC") : dayOfMs(s * 1000, existing ? ruleZone(existing, tz) : tz);
+    const rrule = scope === "occurrence" ? null : repeat === "custom" ? customRule : repeatRule(repeat, startDay);
+    // a time or rule change of a series may reset the occurrences that were changed one by one: ask first (REQ-7.1.3)
+    if (existing && (scope === "series" || scope === "following")) {
+      const timeChanged = s !== existing.start || e !== existing.end || allDay !== existing.allDay;
+      const ruleChanged = !existing.patternUnsupported && (rrule ?? null) !== (existing.rrule ?? null);
+      if (needsResetQuestion({ scope, synced: remote, changedCount: existing.changedCount ?? 0, timeChanged, ruleChanged })) {
+        const ok = await useStore.getState().confirm({ title: t("calendar.series.resetTitle"), body: t("calendar.series.resetBody"), confirmLabel: t("calendar.series.resetConfirm") });
+        if (!ok) return;
+      }
+    }
     setBusy(true);
     try {
       const ev = await api.calendarSaveEvent(
@@ -1023,12 +1081,14 @@ export function EventDialog({ eventId, init, draft, windowed }: { eventId?: stri
           rrule,
           reminderMin: reminder,
           calendarId: calId,
+          scope,
+          occurrenceStart: scope ? occurrenceStart ?? existing?.occurrenceStart ?? null : null,
         },
-        // (the service sends the invitations of a synced calendar, not this app)
-        hasGuests && !remote,
+        // (the service sends the invitations of a synced calendar, not this app; except a CalDAV server that does not send them: W7.4, D-7.4j)
+        hasGuests && (!remote || !!calInfo?.appInvites),
       );
       if (!eventId && (remote || prefs.calDefaultCalendar)) setPrefs({ calDefaultCalendar: remote ? calId : "" });
-      say(() => (hasGuests ? t("calendar.toast.invitationsSent", { n: invite.length }) : eventId ? t("calendar.toast.eventSaved") : t("calendar.toast.eventAdded")), "success");
+      say(() => (hasGuests && (!remote || !scope) ? t("calendar.toast.invitationsSent", { n: invite.length }) : t(savedToastKey(scope, !eventId))), "success");
       bumpCal();
       useStore.getState().setCalDate(allDay ? dayOfMs(ev.start * 1000, "UTC") : dayOfMs(ev.start * 1000, tz));
       finish();
@@ -1060,7 +1120,7 @@ export function EventDialog({ eventId, init, draft, windowed }: { eventId?: stri
   const startDayPreview = parseDay(sd);
   return (
     <Modal
-      title={eventId ? t("calendar.dialog.editTitle") : t("calendar.newEvent")}
+      title={t(dialogTitleKey(scope, !!eventId))}
       onClose={() => void close()}
       width={560}
       windowed={!!windowed}
@@ -1074,6 +1134,10 @@ export function EventDialog({ eventId, init, draft, windowed }: { eventId?: stri
     >
       {existing && isSyncedCalendarId(existing.calendarId) && readOnlyNote(existing, calInfo?.name ?? "", calInfo?.service) && (
         <div className="notice" role="note">{readOnlyNote(existing, calInfo?.name ?? "", calInfo?.service)}</div>
+      )}
+      {(scope === "occurrence" || scope === "following") && (
+        // which occurrence the changes are for: plain text, read after the title
+        <p className="muted small ev-scope-note" style={{ margin: "0 0 10px" }}>{scopeNote(scope, fmtDayLong(occurrenceDay({ allDay, tzid: existing?.tzid ?? null, occurrenceStart: occurrenceStart ?? existing?.occurrenceStart ?? null, start: existing?.start ?? startSec }, tz)))}</p>
       )}
       <div className="ev-form" aria-busy={!loaded}>
         <label htmlFor="ev-title">{t("calendar.dialog.title")}</label>
@@ -1094,8 +1158,9 @@ export function EventDialog({ eventId, init, draft, windowed }: { eventId?: stri
             <Switch checked={allDay} onChange={(v) => (setAllDay(v), touch())} label={t("calendar.allDay")} />
             <span className="tz">{allDay ? t("calendar.dialog.datesOnly") : `${tz} (${tzOffsetLabel(tz)})`}</span>
           </div>
+          {scope !== "occurrence" && (
           <div>
-            <select aria-label={t("calendar.dialog.repeat")} value={repeat} disabled={remote} onChange={(e) => (setRepeat(e.target.value), touch())}>
+            <select aria-label={t("calendar.dialog.repeat")} value={repeat} disabled={!!existing?.patternUnsupported} onChange={(e) => (setRepeat(e.target.value), touch())}>
               <option value="none">{t("calendar.repeat.none")}</option>
               <option value="daily">{t("calendar.repeat.daily")}</option>
               <option value="weekdays">{t("calendar.repeat.weekdays")}</option>
@@ -1104,9 +1169,10 @@ export function EventDialog({ eventId, init, draft, windowed }: { eventId?: stri
               <option value="yearly">{t("calendar.repeat.yearly")}</option>
               {customRule && <option value="custom">{t("calendar.repeat.custom", { text: customText ?? t("calendar.repeat.customFallback") })}</option>}
             </select>
-            {existing?.rrule && <div className="muted small" style={{ marginTop: 4 }}>{t("calendar.dialog.repeatsNote")}</div>}
-            {remote && <div className="muted small" style={{ marginTop: 4 }}>{t("calendar.sync.repeatAddOnly", { calendar: calendarName(calInfo?.name ?? ""), service: calInfo?.service ?? t("calendar.sync.ownApp") })}</div>}
+            {existing?.rrule && scope !== "following" && <div className="muted small" style={{ marginTop: 4 }}>{t("calendar.dialog.repeatsNote")}</div>}
+            {existing?.patternUnsupported && <div className="muted small" style={{ marginTop: 4 }}>{t("calendar.sync.patternUnsupported", { service: calInfo?.service ?? t("calendar.sync.ownApp") })}</div>}
           </div>
+          )}
         </div>
 
         <label htmlFor="ev-where">{t("calendar.dialog.where")}</label>
@@ -1121,6 +1187,7 @@ export function EventDialog({ eventId, init, draft, windowed }: { eventId?: stri
           <div className="muted small" style={{ gridColumn: "2 / -1" }}>{(() => {
             const from = accounts.find((a) => a.id === calInfo?.accountId)?.email;
             const service = calInfo?.service;
+            if (calInfo?.appInvites && from) return t("calendar.dialog.appSendsFrom", { email: from });
             return service
               ? (from ? t("calendar.dialog.serviceSendsFrom", { service, email: from }) : t("calendar.dialog.serviceSends", { service }))
               : (from ? t("calendar.dialog.genericSendsFrom", { email: from }) : t("calendar.dialog.genericSends"));
@@ -1141,8 +1208,6 @@ export function EventDialog({ eventId, init, draft, windowed }: { eventId?: stri
           value={calId}
           onChange={(e) => {
             setCalId(e.target.value);
-            // repeating events can't be added to a synced calendar yet
-            if (isSyncedCalendarId(e.target.value)) setRepeat("none");
             touch();
           }}
         >

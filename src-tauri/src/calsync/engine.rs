@@ -178,7 +178,8 @@ pub fn pull_calendar(db: &Db, provider: &dyn CalProvider, cal: &CalRow, account_
     }
     let mut resynced = false;
     loop {
-        let req = PullReq { state: state.clone(), window_from, window_to };
+        let known = provider.wants_known_etags().then(|| store::resource_etags(&lock(db), &cal.id));
+        let req = PullReq { state: state.clone(), window_from, window_to, known };
         match provider.pull(&cal.remote(), &req) {
             Ok(mut pull) => {
                 if state.is_none() {
@@ -258,7 +259,7 @@ mod tests {
 
     #[test]
     fn due_rules() {
-        let mut s = Source { id: "s".into(), account_id: "a".into(), kind: Kind::Google, status: OK.into(), last_sync: Some(1000), last_error: None, retry_at: None, fail_count: 0, connected_at: 0, list_state: None };
+        let mut s = Source { id: "s".into(), account_id: "a".into(), kind: Kind::Google, status: OK.into(), last_sync: Some(1000), last_error: None, retry_at: None, fail_count: 0, connected_at: 0, list_state: None, dav: None };
         assert!(!is_due(&s, 1000 + SYNC_INTERVAL - 1, false), "synced a moment ago");
         assert!(is_due(&s, 1000 + SYNC_INTERVAL, false), "every 5 minutes");
         assert!(is_due(&s, 1001, true), "Sync now / after an edit");

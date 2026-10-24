@@ -114,6 +114,37 @@ pub struct CalEvent {
     pub has_rdates: bool,
     #[serde(skip)]
     pub prev: Option<String>,
+    /// The event belongs to a series: a rule or extra dates, a changed occurrence, or a provider's occurrence of one (W7.1). Worked out by `derive`.
+    pub series: bool,
+    /// The slot of an occurrence: the original start of an expanded instance, of a changed occurrence or of a provider's occurrence.
+    pub occurrence_start: Option<i64>,
+    /// A row that replaces one occurrence of its series (not Outlook's plain occurrences).
+    pub changed_occurrence: bool,
+    /// The expanded occurrence is the first one of its series (set by `list_range`): the question leaves out "This and following" there.
+    pub first_occurrence: bool,
+}
+
+impl CalEvent {
+    /// Fill the fields that follow from the others (`series`, `occurrence_start`, `changed_occurrence`); called after a row is read or an instance made.
+    pub fn derive(mut self) -> CalEvent {
+        let slot = self.recurrence_id.parse::<i64>().ok();
+        self.series = self.rrule.is_some() || !self.rdates.is_empty() || !self.recurrence_id.is_empty() || self.series_id.is_some();
+        self.occurrence_start = self.instance_start.or(slot);
+        self.changed_occurrence = !self.recurrence_id.is_empty() && self.remote_kind.as_deref() != Some("occurrence");
+        self
+    }
+}
+
+/// What `calendar_get_event` gives the form: the event, and two facts about its series that only the form needs.
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct CalEventDetail {
+    #[serde(flatten)]
+    pub event: CalEvent,
+    /// Changed occurrences the part of the series being edited has (the whole series; from the chosen slot on for "this and following"): the reset question asks when it is above 0
+    pub changed_count: i64,
+    /// The repeat rule of the series cannot be changed in Hey Look! (an Outlook pattern the app does not map); the form disables Repeat
+    pub pattern_unsupported: bool,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -144,6 +175,12 @@ pub struct CalEventInput {
     /// the calendar a new event goes to (`None` / "local" = My events; a synced calendar's id otherwise); fixed when editing
     #[serde(default)]
     pub calendar_id: Option<String>,
+    /// Which part of a series is saved: "occurrence" | "following" | "series"; absent = the event as a whole (a single event, or a series as in 1.0.6)
+    #[serde(default)]
+    pub scope: Option<String>,
+    /// The slot of the occurrence the scope starts at (`CalEvent::occurrence_start`)
+    #[serde(default)]
+    pub occurrence_start: Option<i64>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -160,6 +197,10 @@ pub struct CalendarInfo {
     pub writable: bool,
     /// "Google Calendar" / "Outlook": the service that holds a synced calendar
     pub service: Option<String>,
+    /// This app sends the invitations of the events added to this calendar (a CalDAV server that does not send them itself, D-7.4j); else the service does
+    pub app_invites: bool,
+    /// An event with guests can be moved out of this calendar here: Google moves it, Outlook has no move and a CalDAV server that sends invitations would send them again (D-7.5a)
+    pub moves_guests: bool,
     /// A mailbox's "Invitations" calendar whose events are shown as part of its main synced calendar (W7.11): that calendar's id. The page
     /// leaves such an entry out of its lists and draws the events in the target's colour; `None` for every other calendar.
     pub folded_into: Option<String>,
@@ -299,7 +340,12 @@ pub(crate) fn row_event(r: &Row) -> rusqlite::Result<CalEvent> {
         series_id: r.get(27)?,
         remote_kind: r.get(28)?,
         read_only: crate::calsync::store::read_only_reason(r.get::<_, i64>(29)?),
-    })
+        series: false,
+        occurrence_start: None,
+        changed_occurrence: false,
+        first_occurrence: false,
+    }
+    .derive())
 }
 
 pub(crate) fn save_row(c: &Connection, e: &CalEvent) -> R<()> {
@@ -510,6 +556,7 @@ pub fn list_range(c: &Connection, from: i64, to: i64) -> R<Vec<CalEvent>> {
                 i.start = s;
                 i.end = en;
                 i.instance_start = Some(s);
+                i.first_occurrence = s == e.start;
                 if touches(&i) && !synced.hides_instance(&i) {
                     out.push(i);
                 }
@@ -599,7 +646,12 @@ fn event_from_ics(ev: &IcsEvent, calendar: &str, account: Option<&Account>, mess
         has_rdates: !ev.rdates.is_empty(),
         rdates: ev.rdates.clone(),
         prev: None,
+        series: false,
+        occurrence_start: None,
+        changed_occurrence: false,
+        first_occurrence: false,
     }
+    .derive()
 }
 
 /// An address as compared between a message sender and an organizer or attendee: trimmed, lower case, no `mailto:`.
@@ -989,7 +1041,7 @@ fn fmt_when(ev: &IcsEvent) -> String {
     format!("{} {}–{}{}", s.format("%a, %-d %b %Y"), s.format("%H:%M"), e.format("%H:%M"), tz)
 }
 
-fn to_ics_event(e: &CalEvent) -> IcsEvent {
+pub(crate) fn to_ics_event(e: &CalEvent) -> IcsEvent {
     IcsEvent {
         uid: e.uid.clone(),
         sequence: e.sequence,
@@ -1016,6 +1068,7 @@ fn to_ics_event(e: &CalEvent) -> IcsEvent {
         comment: None,
         dtstamp: now(),
         trimmed: false,
+        reminder_min: e.reminder_min,
     }
 }
 
@@ -1028,7 +1081,7 @@ fn iso_part(method: &str, ev: &IcsEvent) -> crate::smtp::CalendarPart {
     crate::smtp::CalendarPart { method: method.into(), ics: ical::to_ics(Some(method), std::slice::from_ref(ev)) }
 }
 
-fn display_name(a: &Account) -> String {
+pub(crate) fn display_name(a: &Account) -> String {
     if a.display_name.trim().is_empty() { a.email.clone() } else { a.display_name.clone() }
 }
 
@@ -1051,21 +1104,52 @@ fn mailto_list(addrs: &[CalAttendee], skip: &str) -> Vec<String> {
         .collect()
 }
 
+/// One message an organizer sends: the event (or, for a series, the series and its changed occurrences) of one REQUEST or CANCEL.
+#[derive(Clone, Debug)]
+pub struct Mail {
+    pub account: Account,
+    pub events: Vec<CalEvent>,
+    pub method: &'static str,
+}
+
 /// Send the REQUEST (invitation / update) or CANCEL of an event you organize.
 fn send_organizer_mail(db: &Db, acc: &Account, e: &CalEvent, method: &str) -> R<()> {
-    let ev = to_ics_event(e);
-    let to = mailto_list(&e.attendees, &acc.email);
+    send_mail(db, &Mail { account: acc.clone(), events: vec![e.clone()], method: if method == "CANCEL" { "CANCEL" } else { "REQUEST" } })
+}
+
+/// Send one organizer message. The guests, the subject and the text come from its first event; every event goes into the calendar part (a series
+/// with the occurrences changed one by one travels as one message). Nothing is sent when there is nobody to send to.
+pub(crate) fn send_mail(db: &Db, m: &Mail) -> R<()> {
+    let Some(first) = m.events.first() else { return Ok(()) };
+    let evs: Vec<IcsEvent> = m.events.iter().map(to_ics_event).collect();
+    let to = mailto_list(&first.attendees, &m.account.email);
     if to.is_empty() {
         return Ok(());
     }
-    let (subject, verb) = match method {
-        "CANCEL" => (format!("Canceled: {}", e.summary), "has canceled"),
-        _ if e.sequence > 0 => (format!("Updated invitation: {}", e.summary), "has updated the invitation"),
-        _ => (format!("Invitation: {}", e.summary), "invites you to"),
+    let (subject, verb) = match m.method {
+        "CANCEL" => (format!("Canceled: {}", first.summary), "has canceled"),
+        _ if first.sequence > 0 => (format!("Updated invitation: {}", first.summary), "has updated the invitation"),
+        _ => (format!("Invitation: {}", first.summary), "invites you to"),
     };
-    let text = body_text(&display_name(acc), verb, &ev);
-    let msg = crate::smtp::build_calendar_mail(acc, &to, &[], &subject, &text, &iso_part(method, &ev))?;
-    send_message(db, acc, msg)
+    let text = body_text(&display_name(&m.account), verb, &evs[0]);
+    let part = crate::smtp::CalendarPart { method: m.method.into(), ics: ical::to_ics(Some(m.method), &evs) };
+    let msg = crate::smtp::build_calendar_mail(&m.account, &to, &[], &subject, &text, &part)?;
+    send_message(db, &m.account, msg)
+}
+
+/// The attendees of an event you organize: you as the chair, then the guests without duplicates. A guest who already answered keeps the answer
+/// when `keep` (the stored event) is given.
+pub(crate) fn organized(acc: &Account, guests: &[&CalAttendee], keep: Option<&CalEvent>) -> Vec<CalAttendee> {
+    let mut attendees = vec![CalAttendee { email: acc.email.to_ascii_lowercase(), name: Some(display_name(acc)), role: "chair".into(), status: "accepted".into(), is_you: true }];
+    for x in guests {
+        let email = x.email.trim().to_ascii_lowercase();
+        if email.is_empty() || attendees.iter().any(|y| y.email == email) {
+            continue;
+        }
+        let status = keep.and_then(|ex| ex.attendees.iter().find(|y| y.email.eq_ignore_ascii_case(&email)).map(|y| y.status.clone())).unwrap_or_else(|| "needs-action".into());
+        attendees.push(CalAttendee { email, name: x.name.clone().filter(|n| !n.trim().is_empty()), role: if x.role == "optional" { "optional".into() } else { "required".into() }, status, is_you: false });
+    }
+    attendees
 }
 
 /// Create or change a local event. Returns the saved event and the account to notify (when the event has attendees).
@@ -1091,23 +1175,10 @@ pub fn save_local(c: &Connection, inp: &CalEventInput) -> R<(CalEvent, Option<Ac
         return Err("CAL_NO_ACCOUNT: Choose the account to send the invitation from.".into());
     }
     let same_time = existing.as_ref().map(|x| x.start == inp.start && x.end == inp.end && x.rrule == inp.rrule).unwrap_or(false);
-    let mut attendees: Vec<CalAttendee> = vec![];
-    if let (Some(a), false) = (&acc, attendees_in.is_empty()) {
-        attendees.push(CalAttendee { email: a.email.to_ascii_lowercase(), name: Some(display_name(a)), role: "chair".into(), status: "accepted".into(), is_you: true });
-        for x in attendees_in {
-            let email = x.email.trim().to_ascii_lowercase();
-            if email.is_empty() || attendees.iter().any(|y| y.email == email) {
-                continue;
-            }
-            // answers are kept while the time stays the same
-            let status = existing
-                .as_ref()
-                .filter(|_| same_time)
-                .and_then(|ex| ex.attendees.iter().find(|y| y.email == email).map(|y| y.status.clone()))
-                .unwrap_or_else(|| "needs-action".into());
-            attendees.push(CalAttendee { email, name: x.name.clone().filter(|n| !n.trim().is_empty()), role: if x.role == "optional" { "optional".into() } else { "required".into() }, status, is_you: false });
-        }
-    }
+    let attendees: Vec<CalAttendee> = match (&acc, attendees_in.is_empty()) {
+        (Some(a), false) => organized(a, &attendees_in, existing.as_ref().filter(|_| same_time)),
+        _ => vec![],
+    };
     let has_att = attendees.len() > 1;
     let sequence = existing.as_ref().map(|x| x.sequence + if has_att { 1 } else { 0 }).unwrap_or(0);
     let uid = existing.as_ref().map(|x| x.uid.clone()).unwrap_or_else(|| format!("{}@heylook", uuid::Uuid::new_v4()));
@@ -1147,6 +1218,10 @@ pub fn save_local(c: &Connection, inp: &CalEventInput) -> R<(CalEvent, Option<Ac
         rdates: existing.as_ref().map(|x| x.rdates.clone()).unwrap_or_default(),
         has_rdates: existing.as_ref().map(|x| !x.rdates.is_empty()).unwrap_or(false),
         prev: None,
+        series: false,
+        occurrence_start: None,
+        changed_occurrence: false,
+        first_occurrence: false,
     };
     e.join_url = ical::join_url(&to_ics_event(&e));
     e.recurrence_text = e.rrule.as_deref().and_then(|r| ical::describe_rrule(r, e.start));
@@ -1188,6 +1263,8 @@ pub fn prepare_meeting(c: &Connection, d: &mut crate::smtp::Draft) -> R<()> {
             rrule: m.rrule.clone(),
             reminder_min: default_reminder(c),
             calendar_id: None,
+            scope: None,
+            occurrence_start: None,
         },
     )?;
     d.calendar = Some(iso_part("REQUEST", &to_ics_event(&e)));
@@ -1349,19 +1426,20 @@ pub fn calendar_list_calendars(state: tauri::State<crate::AppState>) -> R<Vec<Ca
 /// My events, each mailbox's invitations, then the synced calendars of the mailboxes that sync.
 pub fn list_calendars(c: &Connection) -> R<Vec<CalendarInfo>> {
     let hidden = hidden_calendars(c);
-    let mut out = vec![CalendarInfo { id: LOCAL.into(), name: "My events".into(), color: "#8764b8".into(), account_id: None, visible: !hidden.contains(LOCAL), remote: false, writable: true, service: None, folded_into: None }];
+    let mut out = vec![CalendarInfo { id: LOCAL.into(), name: "My events".into(), color: "#8764b8".into(), account_id: None, visible: !hidden.contains(LOCAL), remote: false, writable: true, service: None, app_invites: false, moves_guests: false, folded_into: None }];
     let accounts = db::list_accounts(c)?;
     let folds = fold_targets(c);
     for a in &accounts {
         let id = format!("invites:{}", a.id);
         let folded_into = folds.get(&id).cloned();
-        out.push(CalendarInfo { visible: !hidden.contains(folded_into.as_ref().unwrap_or(&id)), id, name: format!("Invitations · {}", a.email), color: a.color.clone().unwrap_or_default(), account_id: Some(a.id.clone()), remote: false, writable: false, service: None, folded_into });
+        out.push(CalendarInfo { visible: !hidden.contains(folded_into.as_ref().unwrap_or(&id)), id, name: format!("Invitations · {}", a.email), color: a.color.clone().unwrap_or_default(), account_id: Some(a.id.clone()), remote: false, writable: false, service: None, app_invites: false, moves_guests: false, folded_into });
     }
     // the calendars of the mailboxes that sync, in account order, with the provider's colours
     for a in &accounts {
         let Some(src) = crate::calsync::store::source_of_account(c, &a.id) else { continue };
         for cal in crate::calsync::store::calendars_of(c, &src.id)?.into_iter().filter(|x| x.sync_on) {
-            let color = if cal.color.is_empty() { a.color.clone().unwrap_or_default() } else { cal.color.clone() };
+            let shown = cal.shown_color();
+            let color = if shown.is_empty() { a.color.clone().unwrap_or_default() } else { shown };
             out.push(CalendarInfo {
                 visible: !hidden.contains(&cal.id),
                 name: format!("{} · {}", cal.name, a.email),
@@ -1370,7 +1448,13 @@ pub fn list_calendars(c: &Connection) -> R<Vec<CalendarInfo>> {
                 account_id: Some(a.id.clone()),
                 remote: true,
                 writable: !cal.read_only,
-                service: Some(src.kind.service().to_string()),
+                service: Some(src.service_name()),
+                app_invites: src.kind == crate::calsync::Kind::CalDav && src.dav.as_ref().is_some_and(|d| !d.scheduling),
+                moves_guests: match src.kind {
+                    crate::calsync::Kind::Google => true,
+                    crate::calsync::Kind::Microsoft => false,
+                    crate::calsync::Kind::CalDav => src.dav.as_ref().is_some_and(|d| !d.scheduling),
+                },
                 folded_into: None,
             });
         }
@@ -1400,13 +1484,30 @@ pub fn calendar_list_events(state: tauri::State<crate::AppState>, from: i64, to:
     list_range(&lock(&state.db), from, to)
 }
 
+/// The form's values for an event, or for one part of its series (`scope`, with the slot of the occurrence it starts at). Outlook's series master is fetched
+/// from the service for "this and following" and "the whole series", so the call may wait for the network.
 #[tauri::command]
-pub fn calendar_get_event(state: tauri::State<crate::AppState>, id: String) -> R<CalEvent> {
-    let c = lock(&state.db);
-    let mut e = get_event(&c, &id)?;
-    let mine = account_emails(&c);
-    mark_you(&mut e, &mine);
-    Ok(e)
+pub async fn calendar_get_event(state: tauri::State<'_, crate::AppState>, id: String, scope: Option<String>, occurrence_start: Option<i64>) -> R<CalEventDetail> {
+    let db = state.db.clone();
+    crate::blocking(move || {
+        let scope = crate::calseries::Scope::parse(scope.as_deref())?;
+        let mut d = {
+            let c = lock(&db);
+            let e = get_event(&c, &id)?;
+            match scope {
+                None => CalEventDetail { event: e, changed_count: 0, pattern_unsupported: false },
+                Some(sc) if crate::calsync::is_remote_calendar_id(&e.calendar_id) => {
+                    drop(c);
+                    crate::calsync::series::get(&db, &crate::calsync::cmds::AppFactory { db: db.clone() }, &id, sc, occurrence_start)?
+                }
+                Some(sc) => crate::calseries::get(&c, &id, sc, occurrence_start)?,
+            }
+        };
+        let mine = account_emails(&lock(&db));
+        mark_you(&mut d.event, &mine);
+        Ok(d)
+    })
+    .await
 }
 
 /// The synced calendar an event input is for: the calendar of the event being edited, or the one chosen for a new event.
@@ -1418,13 +1519,77 @@ fn remote_calendar_of(c: &Connection, inp: &CalEventInput) -> Option<String> {
     crate::calsync::is_remote_calendar_id(&id).then_some(id)
 }
 
+/// The part of a series a save is for: the one the form asked for, or, for a changed occurrence saved without a scope, that occurrence.
+fn scope_of(c: &Connection, inp: &CalEventInput) -> R<Option<crate::calseries::Scope>> {
+    if let Some(s) = crate::calseries::Scope::parse(inp.scope.as_deref())? {
+        return Ok(Some(s));
+    }
+    Ok(inp.id.as_deref().and_then(|id| get_event(c, id).ok()).filter(|e| !e.recurrence_id.is_empty() && e.remote_kind.is_none()).map(|_| crate::calseries::Scope::Occurrence))
+}
+
+/// Send the mails a scoped change made; the change itself is stored already. `v` = "saved" | "deleted" (the words of the failure text).
+/// The mailbox that sends the invitations of the events of a synced calendar itself: a CalDAV calendar of a server that does not send them (D-7.4j). The other services send their own.
+pub(crate) fn app_inviter(c: &Connection, calendar_id: &str) -> Option<Account> {
+    let cal = crate::calsync::store::get_calendar(c, calendar_id)?;
+    let src = crate::calsync::store::get_source(c, &cal.source_id)?;
+    if src.kind != crate::calsync::Kind::CalDav || src.dav.as_ref().is_none_or(|d| d.scheduling) {
+        return None;
+    }
+    db::get_account(c, &src.account_id).ok()
+}
+
+/// The event as its guests get it: this mailbox as the organizer and chair, then the guests with the answers they gave.
+pub(crate) fn invitation_of(acc: &Account, e: &CalEvent) -> CalEvent {
+    let me = acc.email.to_ascii_lowercase();
+    let guests: Vec<&CalAttendee> = e.attendees.iter().filter(|a| a.role != "chair" && a.email.to_ascii_lowercase() != me).collect();
+    let mut m = e.clone();
+    m.attendees = organized(acc, &guests, Some(e));
+    m.organizer = Some(CalPerson { email: me, name: Some(display_name(acc)) });
+    m.my_status = Some("organizer".into());
+    m
+}
+
+fn send_all(db: &Db, mails: &[Mail], v: &str) -> R<()> {
+    for m in mails {
+        send_mail(db, m).map_err(|e| {
+            if v == "saved" {
+                crate::i18n::coded("CAL_SEND_FAILED", &[("v", "saved"), ("detail", &e)], &format!("The event was saved, but the invitations weren't sent: {e}"))
+            } else {
+                crate::i18n::coded("CAL_SEND_FAILED", &[("v", "deleted"), ("detail", &e)], &format!("The event was deleted, but the cancellation wasn't sent: {e}"))
+            }
+        })?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn calendar_save_event(app: tauri::AppHandle, state: tauri::State<'_, crate::AppState>, event: CalEventInput, notify: bool) -> R<CalEvent> {
     let db = state.db.clone();
     let out = crate::blocking(move || {
         // an event of a synced calendar goes to its provider (which sends the invitations, not this app)
         if remote_calendar_of(&lock(&db), &event).is_some() {
-            return crate::calsync::write::save(&db, &crate::calsync::cmds::AppFactory { db: db.clone() }, &event);
+            let saved = crate::calsync::write::save(&db, &crate::calsync::cmds::AppFactory { db: db.clone() }, &event)?;
+            // (a CalDAV server that does not send invitations: this app does, from the mailbox of the calendar)
+            let inviter = if notify { app_inviter(&lock(&db), &saved.calendar_id) } else { None };
+            if let Some(acc) = inviter {
+                let m = invitation_of(&acc, &saved);
+                if m.attendees.len() > 1 {
+                    send_organizer_mail(&db, &acc, &m, "REQUEST").map_err(|d| crate::i18n::coded("CAL_SEND_FAILED", &[("v", "saved"), ("detail", &d)], &format!("The event was saved, but the invitations weren't sent: {d}")))?;
+                }
+            }
+            return Ok(saved);
+        }
+        let scope = scope_of(&lock(&db), &event)?;
+        if let Some(sc) = scope {
+            let mut event = event;
+            if event.occurrence_start.is_none() {
+                event.occurrence_start = event.id.as_deref().and_then(|id| get_event(&lock(&db), id).ok()).and_then(|e| e.recurrence_id.parse().ok());
+            }
+            let saved = crate::calseries::save(&lock(&db), &event, sc)?;
+            if notify {
+                send_all(&db, &saved.mails, "saved")?;
+            }
+            return Ok(saved.event);
         }
         let (e, acc) = save_local(&lock(&db), &event)?;
         if let (true, Some(acc)) = (notify, acc) {
@@ -1438,9 +1603,10 @@ pub async fn calendar_save_event(app: tauri::AppHandle, state: tauri::State<'_, 
 }
 
 #[tauri::command]
-pub async fn calendar_delete_event(app: tauri::AppHandle, state: tauri::State<'_, crate::AppState>, id: String, notify: bool) -> R<()> {
+pub async fn calendar_delete_event(app: tauri::AppHandle, state: tauri::State<'_, crate::AppState>, id: String, notify: bool, scope: Option<String>, occurrence_start: Option<i64>) -> R<()> {
     let db = state.db.clone();
     let out = crate::blocking(move || {
+        let scope = crate::calseries::Scope::parse(scope.as_deref())?;
         let (e, acc) = {
             let c = lock(&db);
             let e = get_event(&c, &id)?;
@@ -1448,7 +1614,27 @@ pub async fn calendar_delete_event(app: tauri::AppHandle, state: tauri::State<'_
             (e, acc)
         };
         if crate::calsync::is_remote_calendar_id(&e.calendar_id) {
-            return crate::calsync::write::delete(&db, &crate::calsync::cmds::AppFactory { db: db.clone() }, &id);
+            crate::calsync::write::delete(&db, &crate::calsync::cmds::AppFactory { db: db.clone() }, &id, scope, occurrence_start)?;
+            // (a CalDAV server that does not send cancellations: this app does, for the whole event or the one occurrence; not for a cut series)
+            let inviter = if notify && scope != Some(crate::calseries::Scope::Following) { app_inviter(&lock(&db), &e.calendar_id) } else { None };
+            if let Some(acc) = inviter {
+                let mut gone = match (scope, occurrence_start) {
+                    (Some(crate::calseries::Scope::Occurrence), Some(slot)) if e.recurrence_id.is_empty() => crate::calseries::instance_of(&e, slot),
+                    _ => e.clone(),
+                };
+                gone.attendees = e.attendees.clone();
+                let mut m = invitation_of(&acc, &gone);
+                if m.attendees.len() > 1 && e.my_status.as_deref() == Some("organizer") {
+                    m.sequence += 1;
+                    m.status = "cancelled".into();
+                    send_organizer_mail(&db, &acc, &m, "CANCEL").map_err(|d| crate::i18n::coded("CAL_SEND_FAILED", &[("v", "deleted"), ("detail", &d)], &format!("The event was deleted, but the cancellation wasn't sent: {d}")))?;
+                }
+            }
+            return Ok(());
+        }
+        if let Some(sc) = scope {
+            let gone = crate::calseries::delete(&lock(&db), &id, sc, occurrence_start, notify)?;
+            return send_all(&db, &gone.mails, "deleted");
         }
         let mut result = Ok(());
         let organizer_is_me = e.calendar_id == LOCAL && e.my_status.as_deref() == Some("organizer") && e.attendees.len() > 1;
@@ -1696,6 +1882,8 @@ ATTENDEE;CN=Bao Tran;PARTSTAT=ACCEPTED:mailto:bao@contoso.com\r\n{extra}END:VEVE
             rrule: None,
             reminder_min: None,
             calendar_id: None,
+            scope: None,
+            occurrence_start: None,
         };
         let (e, _) = save_local(&c, &input).unwrap();
         let req = ical::to_ics(Some("REQUEST"), &[to_ics_event(&e)]);
@@ -1846,6 +2034,8 @@ END:VCALENDAR
             rrule: None,
             reminder_min: Some(10),
             calendar_id: None,
+            scope: None,
+            occurrence_start: None,
         };
         let (e, acc) = save_local(&c, &input).unwrap();
         assert!(acc.is_some(), "attendees: an invitation has to be sent");
@@ -1899,15 +2089,15 @@ END:VCALENDAR
         let (c, _) = setup();
         let (e, acc) = save_local(
             &c,
-            &CalEventInput { id: None, account_id: None, summary: "  ".into(), start: ts(2026, 10, 20, 9, 0), end: ts(2026, 10, 20, 9, 30), all_day: false, tzid: Some("Nowhere".into()), location: Some(" ".into()), description: None, attendees: vec![], rrule: None, reminder_min: None, calendar_id: None },
+            &CalEventInput { id: None, account_id: None, summary: "  ".into(), start: ts(2026, 10, 20, 9, 0), end: ts(2026, 10, 20, 9, 30), all_day: false, tzid: Some("Nowhere".into()), location: Some(" ".into()), description: None, attendees: vec![], rrule: None, reminder_min: None, calendar_id: None, scope: None, occurrence_start: None  },
         )
         .unwrap();
         assert!(acc.is_none());
         assert_eq!(e.summary, "(No title)");
         assert!(e.tzid.is_none() && e.location.is_none() && e.my_status.is_none());
-        assert!(save_local(&c, &CalEventInput { id: None, account_id: None, summary: "x".into(), start: 10, end: 5, all_day: false, tzid: None, location: None, description: None, attendees: vec![], rrule: None, reminder_min: None, calendar_id: None }).is_err());
+        assert!(save_local(&c, &CalEventInput { id: None, account_id: None, summary: "x".into(), start: 10, end: 5, all_day: false, tzid: None, location: None, description: None, attendees: vec![], rrule: None, reminder_min: None, calendar_id: None, scope: None, occurrence_start: None  }).is_err());
         // attendees need an account to send from
-        let r = save_local(&c, &CalEventInput { id: None, account_id: None, summary: "x".into(), start: 1, end: 2, all_day: false, tzid: None, location: None, description: None, attendees: vec![CalAttendee { email: "a@b.c".into(), name: None, role: "required".into(), status: "needs-action".into(), is_you: false }], rrule: None, reminder_min: None, calendar_id: None });
+        let r = save_local(&c, &CalEventInput { id: None, account_id: None, summary: "x".into(), start: 1, end: 2, all_day: false, tzid: None, location: None, description: None, attendees: vec![CalAttendee { email: "a@b.c".into(), name: None, role: "required".into(), status: "needs-action".into(), is_you: false }], rrule: None, reminder_min: None, calendar_id: None, scope: None, occurrence_start: None  });
         assert!(r.unwrap_err().starts_with("CAL_NO_ACCOUNT"));
     }
 
@@ -1917,7 +2107,7 @@ END:VCALENDAR
         let mk = |summary: &str, start: i64, end: i64, all_day: bool, rrule: Option<&str>| {
             save_local(
                 &c,
-                &CalEventInput { id: None, account_id: None, summary: summary.into(), start, end, all_day, tzid: None, location: None, description: None, attendees: vec![], rrule: rrule.map(|s| s.to_string()), reminder_min: None, calendar_id: None },
+                &CalEventInput { id: None, account_id: None, summary: summary.into(), start, end, all_day, tzid: None, location: None, description: None, attendees: vec![], rrule: rrule.map(|s| s.to_string()), reminder_min: None, calendar_id: None, scope: None, occurrence_start: None  },
             )
             .unwrap()
             .0
@@ -2131,6 +2321,8 @@ END:VCALENDAR
             rrule: None,
             reminder_min: None,
             calendar_id: None,
+            scope: None,
+            occurrence_start: None,
         };
         save_local(c, &input).unwrap().0
     }
@@ -2314,6 +2506,8 @@ END:VCALENDAR
                 rrule: None,
                 reminder_min: None,
                 calendar_id: None,
+                scope: None,
+                occurrence_start: None,
             },
         )
         .unwrap();
@@ -2357,6 +2551,8 @@ END:VCALENDAR
                 rrule: None,
                 reminder_min: None,
                 calendar_id: None,
+                scope: None,
+                occurrence_start: None,
             },
         )
         .unwrap();
@@ -2705,6 +2901,8 @@ END:VCALENDAR
                 rrule: None,
                 reminder_min: None,
                 calendar_id: calendar.map(String::from),
+                scope: None,
+                occurrence_start: None,
             };
             assert_eq!(remote_calendar_of(&c, &mk(None, Some(&cal.id))), Some(cal.id.clone()));
             assert_eq!(remote_calendar_of(&c, &mk(None, Some("local"))), None);
@@ -2849,6 +3047,8 @@ RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=2\r\nRDATE;TZID=Europe/Berlin:20261029T100000\r
             rrule: row.rrule.clone(),
             reminder_min: None,
             calendar_id: None,
+            scope: None,
+            occurrence_start: None,
         };
         save_local(&c, &input).unwrap();
         assert_eq!(get_event(&c, &id).unwrap().rdates, row.rdates);
@@ -2982,6 +3182,8 @@ ATTENDEE;CN=Nam Hoang;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:nam@example.com\r\n
             rrule: None,
             reminder_min: None,
             calendar_id: None,
+            scope: None,
+            occurrence_start: None,
         };
         let (e, _) = save_local(&c, &input).unwrap();
         let reply = format!(

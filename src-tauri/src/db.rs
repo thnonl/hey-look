@@ -107,11 +107,33 @@ pub fn migrate(conn: &Connection) -> R<()> {
     // Google: the token of the calendar list (changes only, 1.0.7 W7.6) and when a calendar over the event cap was last downloaded in full
     add_column(conn, "ALTER TABLE cal_sources ADD COLUMN list_state TEXT")?;
     add_column(conn, "ALTER TABLE calendars ADD COLUMN full_at INTEGER")?;
+    // the colour the person chose for a synced calendar (1.0.7 W7.5); NULL = the service's colour. Kept across syncs, never sent to the service
+    add_column(conn, "ALTER TABLE calendars ADD COLUMN color_override TEXT")?;
     // extra dates of a series (iCalendar RDATE, a JSON array of UTC seconds), 1.0.7 W7.2
     add_column(conn, "ALTER TABLE events ADD COLUMN rdates TEXT NOT NULL DEFAULT '[]'")?;
     // the provider's own UID of a synced event whose `uid` was worked out from it (Graph: the Global Object ID of a meeting from another service)
     add_column(conn, "ALTER TABLE events ADD COLUMN ext_uid TEXT")?;
+    // CalDAV (1.0.7 W7.4): the server of a source and the iCalendar text of its resources (the source of later writes)
+    for ddl in [
+        "ALTER TABLE cal_sources ADD COLUMN dav_url TEXT",
+        "ALTER TABLE cal_sources ADD COLUMN dav_user TEXT",
+        "ALTER TABLE cal_sources ADD COLUMN dav_preset TEXT",
+        "ALTER TABLE cal_sources ADD COLUMN dav_homes TEXT",
+        "ALTER TABLE cal_sources ADD COLUMN dav_addresses TEXT",
+        "ALTER TABLE cal_sources ADD COLUMN dav_sched INTEGER",
+        "ALTER TABLE cal_sources ADD COLUMN dav_trust INTEGER",
+    ] {
+        add_column(conn, ddl)?;
+    }
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS cal_resources(
+           calendar_id TEXT NOT NULL, href TEXT NOT NULL, etag TEXT NOT NULL DEFAULT '', uid TEXT NOT NULL DEFAULT '', raw TEXT NOT NULL, updated_at INTEGER NOT NULL DEFAULT 0,
+           PRIMARY KEY(calendar_id, href)
+         );",
+    )
+    .map_err(err)?;
     conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_events_remote ON events(calendar_id, remote_id);").map_err(err)?;
+    series_unlock(conn)?;
     // the message being written, kept until it is sent, discarded or saved (crash recovery, see recover.rs)
     crate::recover::create_tables(conn)?;
     // the version of a draft as it was opened, for Discard (draftmail.rs)
@@ -133,6 +155,17 @@ pub fn migrate(conn: &Connection) -> R<()> {
         add_column(conn, &format!("ALTER TABLE {t} ADD COLUMN account_id TEXT"))?;
     }
     Ok(())
+}
+
+/// 1.0.7 W7.1: repeating events of Google and Outlook calendars can be changed. Rows stored by 1.0.6 as read-only because they repeat (code 2) become editable, and every
+/// synced calendar is downloaded again once (its sync token is cleared), so each row is stored with what the service says about it now.
+fn series_unlock(conn: &Connection) -> R<()> {
+    if get_setting(conn, "cal_series_unlocked").is_some() {
+        return Ok(());
+    }
+    conn.execute("UPDATE events SET read_only=0 WHERE read_only=2", []).map_err(err)?;
+    conn.execute("UPDATE calendars SET sync_state=NULL", []).map_err(err)?;
+    set_setting(conn, "cal_series_unlocked", "1")
 }
 
 /// Run one `ALTER TABLE ... ADD COLUMN`. Only "duplicate column name" (an already migrated database) is ignored: any other

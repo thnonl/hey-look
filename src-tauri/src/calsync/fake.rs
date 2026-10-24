@@ -20,6 +20,9 @@ struct Inner {
     fail_pull: HashMap<String, Vec<SyncErr>>,
     fail_pull_forever: HashMap<String, SyncErr>,
     fail_write: Vec<SyncErr>,
+    /// fail the n-th write from now (counted over every write call), once
+    fail_number: Option<(usize, SyncErr)>,
+    write_calls: usize,
     writes: Vec<String>,
     next_id: usize,
     version: usize,
@@ -111,6 +114,13 @@ impl FakeProvider {
         self.g().fail_pull_forever.insert(cal.to_string(), e);
     }
 
+    /// The `n`-th write call from now on (1 = the next one) fails with `e`; the others go through.
+    pub fn fail_write_number(&self, n: usize, e: SyncErr) {
+        let mut g = self.g();
+        g.write_calls = 0;
+        g.fail_number = Some((n, e));
+    }
+
     pub fn fail_next_write(&self, e: SyncErr) {
         self.g().fail_write.push(e);
     }
@@ -176,6 +186,12 @@ impl FakeProvider {
 
     fn check_write(&self) -> Result<(), SyncErr> {
         let mut g = self.g();
+        g.write_calls += 1;
+        if let Some((n, _)) = &g.fail_number {
+            if *n == g.write_calls {
+                return Err(g.fail_number.take().map(|(_, e)| e).unwrap());
+            }
+        }
         if g.fail_write.is_empty() { Ok(()) } else { Err(g.fail_write.remove(0)) }
     }
 }
@@ -243,7 +259,7 @@ impl CalProvider for FakeProvider {
         let truncated = g.truncated;
         let all = g.events.get(&cal.id).cloned().unwrap_or_default();
         let pull = match &req.state {
-            None => Pull { upserts: all, removed: vec![], next_state: Some(token.clone()).filter(|_| !truncated), full: true, truncated },
+            None => Pull { upserts: all, removed: vec![], next_state: Some(token.clone()).filter(|_| !truncated), full: true, truncated, ..Default::default() },
             Some(t) => {
                 let from = *g.tokens.get(t).ok_or(SyncErr::Gone)?;
                 let log = g.log.get(&cal.id).cloned().unwrap_or_default();
@@ -260,7 +276,7 @@ impl CalProvider for FakeProvider {
                         removed.push(id.clone());
                     }
                 }
-                Pull { upserts, removed, next_state: Some(token.clone()), full: false, truncated }
+                Pull { upserts, removed, next_state: Some(token.clone()), full: false, truncated, ..Default::default() }
             }
         };
         g.tokens.insert(token, log_len);
@@ -282,7 +298,12 @@ impl CalProvider for FakeProvider {
         re.attendees = ev.attendees.clone();
         re.reminder_min = ev.reminder_min;
         re.uid = format!("{id}@fake");
-        self.g().writes.push(format!("create:{}:{}", cal.id, ev.summary));
+        if let Some(r) = &ev.rrule {
+            re.rrule = Some(r.clone());
+            re.exdates = ev.exdates.clone();
+            re.kind = EventKind::Master;
+        }
+        self.g().writes.push(format!("create:{}:{}:{}", cal.id, ev.summary, ev.rrule.clone().unwrap_or_default()));
         self.add_event(&cal.id, re);
         Ok(self.event(&cal.id, &id).unwrap())
     }
@@ -314,6 +335,12 @@ impl CalProvider for FakeProvider {
         if let Some(r) = &changed.reminder_min {
             cur.reminder_min = *r;
         }
+        if let Some(rec) = &changed.recurrence {
+            cur.rrule = rec.rrule.clone();
+            cur.exdates = rec.exdates.clone();
+            cur.rdates = rec.rdates.clone();
+            cur.kind = if rec.rrule.is_some() || !rec.rdates.is_empty() { EventKind::Master } else { EventKind::Single };
+        }
         cur.etag.clear();
         self.g().writes.push(format!("update:{}:{remote_id}:{etag}:{changed:?}", cal.id));
         self.add_event(&cal.id, cur);
@@ -328,7 +355,104 @@ impl CalProvider for FakeProvider {
         }
         self.g().writes.push(format!("delete:{}:{remote_id}:{etag}", cal.id));
         self.delete_event(&cal.id, remote_id);
+        // (a series takes its exceptions along)
+        let kids: Vec<String> = self.g().events.get(&cal.id).map(|l| l.iter().filter(|e| e.series_id.as_deref() == Some(remote_id)).map(|e| e.id.clone()).collect()).unwrap_or_default();
+        for k in kids {
+            self.delete_event(&cal.id, &k);
+        }
         Ok(())
+    }
+
+    fn move_event(&self, cal: &RemoteCalendar, remote_id: &str, etag: &str, target: &RemoteCalendar) -> Result<RemoteEvent, SyncErr> {
+        self.check_write()?;
+        let cur = self.event(&cal.id, remote_id).ok_or(SyncErr::NotFound)?;
+        if !etag.is_empty() && cur.etag != etag {
+            return Err(SyncErr::Conflict);
+        }
+        let kids: Vec<RemoteEvent> = self.g().events.get(&cal.id).map(|l| l.iter().filter(|e| e.series_id.as_deref() == Some(remote_id)).cloned().collect()).unwrap_or_default();
+        self.g().writes.push(format!("move:{}:{remote_id}:{}", cal.id, target.id));
+        self.delete_event(&cal.id, remote_id);
+        for k in &kids {
+            self.delete_event(&cal.id, &k.id);
+        }
+        let mut moved = cur;
+        moved.etag.clear();
+        self.add_event(&target.id, moved);
+        for mut k in kids {
+            k.etag.clear();
+            self.add_event(&target.id, k);
+        }
+        Ok(self.event(&target.id, remote_id).unwrap())
+    }
+
+    fn create_calendar(&self, name: &str) -> Result<RemoteCalendar, SyncErr> {
+        self.check_write()?;
+        let n = self.g().calendars.len() + 1;
+        let rc = RemoteCalendar { id: format!("cal-{n}"), name: name.to_string(), color: "#112233".into(), selected: true, ..Default::default() };
+        self.g().writes.push(format!("create_calendar:{name}"));
+        self.add_calendar(rc.clone());
+        Ok(rc)
+    }
+
+    fn get_series(&self, cal: &RemoteCalendar, series_id: &str) -> Result<RemoteEvent, SyncErr> {
+        self.g().writes.push(format!("get_series:{}:{series_id}", cal.id));
+        self.event(&cal.id, series_id).filter(|e| e.kind == EventKind::Master).ok_or(SyncErr::NotFound)
+    }
+
+    fn update_occurrence(&self, cal: &RemoteCalendar, series_id: &str, original_start: i64, all_day: bool, changed: &EventPatch) -> Result<RemoteEvent, SyncErr> {
+        self.check_write()?;
+        let master = self.event(&cal.id, series_id).ok_or(SyncErr::NotFound)?;
+        let id = format!("{series_id}_{original_start}");
+        let mut cur = self.event(&cal.id, &id).unwrap_or_else(|| {
+            let mut i = master.clone();
+            i.id = id.clone();
+            i.kind = EventKind::Exception;
+            i.series_id = Some(series_id.to_string());
+            i.recurrence_id = Some(original_start);
+            i.start = original_start;
+            i.end = original_start + (master.end - master.start);
+            i.all_day = all_day;
+            i.rrule = None;
+            i.exdates = vec![];
+            i.rdates = vec![];
+            i
+        });
+        if let Some(s) = &changed.summary {
+            cur.summary = s.clone();
+        }
+        if let Some(w) = &changed.when {
+            cur.start = w.start;
+            cur.end = w.end;
+        }
+        if let Some(l) = &changed.location {
+            cur.location = l.clone();
+        }
+        if let Some(d) = &changed.description {
+            cur.description = d.clone();
+        }
+        cur.etag.clear();
+        self.g().writes.push(format!("update_occurrence:{}:{series_id}:{original_start}:{changed:?}", cal.id));
+        self.add_event(&cal.id, cur);
+        Ok(self.event(&cal.id, &id).unwrap())
+    }
+
+    fn delete_occurrence(&self, cal: &RemoteCalendar, series_id: &str, original_start: i64, all_day: bool) -> Result<String, SyncErr> {
+        self.check_write()?;
+        let master = self.event(&cal.id, series_id).ok_or(SyncErr::NotFound)?;
+        let id = format!("{series_id}_{original_start}");
+        let mut gone = master.clone();
+        gone.id = id.clone();
+        gone.kind = EventKind::Exception;
+        gone.series_id = Some(series_id.to_string());
+        gone.recurrence_id = Some(original_start);
+        gone.start = original_start;
+        gone.all_day = all_day;
+        gone.rrule = None;
+        gone.status = "cancelled".into();
+        gone.etag.clear();
+        self.g().writes.push(format!("delete_occurrence:{}:{series_id}:{original_start}", cal.id));
+        self.add_event(&cal.id, gone);
+        Ok(id)
     }
 
     fn respond(&self, cal: &RemoteCalendar, remote_id: &str, etag: &str, status: Rsvp, me: &str, _attendees: &[CalAttendee]) -> Result<(), SyncErr> {

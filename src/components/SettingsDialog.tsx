@@ -10,7 +10,10 @@ import { Account, api, AutostartInfo, CalSource, Discovered, NotifyPermission, P
 import { singleLabelHostsOf } from "../addresses";
 import { backendText } from "../backendErrors";
 import { parseReplyTo } from "../replyTo";
-import { calendarErrorCode, calendarStepFailure, calendarSyncKind, providerName, serviceName, statusLine, truncatedNote } from "../calendarSync";
+import { calendarDavEligible, calendarErrorCode, calendarStepFailure, calendarSyncKind, canCreateCalendar, providerName, serviceName, sourceService, statusLine, truncatedNote } from "../calendarSync";
+import { CalDavDialog } from "./CalDavDialog";
+import { CalColorChoice } from "./CalColorChoice";
+import { NewCalendarDialog } from "./NewCalendarDialog";
 import { ACCENT_PRESETS, ACCOUNT_PALETTE, accountColor, DEFAULT_PREFS, eff, folderLabel, folderTitle, isOverridden, MAX_DOWNLOAD_PRESETS, NOTIFY_ACTIONS, Overridable, Prefs, staleAccountPrefs, validHex } from "../prefs";
 import { aiSettingsSaved } from "../aiGuide";
 import { normalizeSidebar } from "../sidebarState";
@@ -1410,10 +1413,156 @@ function ServerPanel({ account, close }: { account: Account; close: () => void }
   );
 }
 
-/** Settings > mailbox > Calendar: sync this mailbox's Google / Outlook calendars (a separate, calendar-only consent in the browser). */
+/** Settings > mailbox > Calendar: a Google / Outlook mailbox syncs through its own service (a separate, calendar-only consent in the browser); any other mailbox through a CalDAV server (W7.4). */
 function CalendarPanel({ account }: { account: Account }) {
+  return calendarSyncKind(account) ? <OauthCalendarPanel account={account} /> : <DavCalendarPanel account={account} />;
+}
+
+/** The calendars of a synced mailbox with their Sync switches (the same list for every service), the colour of each, and New calendar where the service can make one. */
+function CalendarsList({ account, src, onError }: { account: Account; src: CalSource; onError: (e: string | null) => void }) {
   const t = useT();
-  const { confirm, showToast, calSources, loadCalSources, bumpCal, prefs } = useStore();
+  const { bumpCal, loadCalSources, prefs } = useStore();
+  const [colorOf, setColorOf] = useState<string | null>(null);
+  const [making, setMaking] = useState(false);
+  const newBtn = useRef<HTMLButtonElement>(null);
+  const service = sourceService(src);
+  const setColor = (id: string, hex: string | null) => {
+    onError(null);
+    void api.calendarSetColor(id, hex).then(() => { bumpCal(); return loadCalSources(); }).catch((e) => onError(friendlyError(e)));
+  };
+  if (src.calendars.length === 0 && !canCreateCalendar(src.kind)) return null;
+  return (
+    <>
+      <h4 style={{ margin: "16px 0 2px" }}>{t("settings.calendar.calendars")}</h4>
+      <div className="muted small">{t("settings.calendar.calendarsHint")}</div>
+      {src.calendars.map((c) => {
+        const shown = c.color || accountColor(account, prefs.accent);
+        return (
+          <Fragment key={c.id}>
+            <div className="set-row">
+              <div className="set-lbl">
+                <div>
+                  <button type="button" className="dot-btn" aria-label={t("settings.calendar.colorOf", { name: c.name })} aria-expanded={colorOf === c.id} aria-controls={`cal-color-${c.id}`} onClick={() => setColorOf(colorOf === c.id ? null : c.id)}>
+                    <span className="dot" style={{ background: shown }} aria-hidden />
+                  </button>
+                  {c.name}
+                  {c.primary && <span className="muted small"> · {t("settings.calendar.primary")}</span>}
+                  {c.readOnly && <span className="muted small"> · {t("settings.calendar.readOnly")}</span>}
+                </div>
+              </div>
+              <div className="set-ctl">
+                <Switch checked={c.syncOn} ariaLabel={t("settings.calendar.syncCal", { name: c.name })} onChange={(v) => { onError(null); void api.calendarSetSync(c.id, v).then(() => { bumpCal(); return loadCalSources(); }).catch((e) => onError(friendlyError(e))); }} />
+              </div>
+            </div>
+            {colorOf === c.id && (
+              <div className="cal-color-row" id={`cal-color-${c.id}`}>
+                <CalColorChoice value={c.customColor ? c.color : null} label={t("settings.calendar.colorOf", { name: c.name })} service={service} onChange={(hex) => setColor(c.id, hex)} />
+              </div>
+            )}
+          </Fragment>
+        );
+      })}
+      {canCreateCalendar(src.kind) && (
+        <div className="row-inline set-actions">
+          <button ref={newBtn} className="btn small" onClick={() => setMaking(true)}>{t("settings.calendar.newCalendar")}</button>
+        </div>
+      )}
+      {making && (
+        <NewCalendarDialog
+          account={account}
+          service={service}
+          onClose={() => (setMaking(false), requestAnimationFrame(() => newBtn.current?.focus()))}
+          onDone={() => (setMaking(false), bumpCal(), void loadCalSources(), requestAnimationFrame(() => newBtn.current?.focus()))}
+        />
+      )}
+    </>
+  );
+}
+
+/** Settings > mailbox > Calendar for a mailbox with no calendar service of its own: connect a CalDAV server (iCloud, Fastmail, Nextcloud, any), then the usual switch, status and calendars. */
+function DavCalendarPanel({ account }: { account: Account }) {
+  const t = useT();
+  const { confirm, showToast, calSources, loadCalSources, bumpCal, calKinds, loadCalKinds } = useStore();
+  const src: CalSource | undefined = calSources.find((s) => s.accountId === account.id && s.kind === "caldav");
+  const [dialog, setDialog] = useState<"connect" | "password" | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
+  const setUp = useRef<HTMLButtonElement>(null);
+  const passwordBtn = useRef<HTMLButtonElement>(null);
+  useEffect(() => void loadCalSources(), [loadCalSources]);
+  useEffect(() => void (calKinds === null && loadCalKinds()), [calKinds, loadCalKinds]);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 20_000);
+    return () => clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    setErr(null);
+  }, [src?.status]);
+  const clock = (sec: number) => new Intl.DateTimeFormat(intlLocale(), { hour: "2-digit", minute: "2-digit", timeZone: systemTz() }).format(new Date(sec * 1000));
+  if (!src && !(calKinds ?? []).includes("caldav")) return <div className="muted">{t("settings.calendar.none")}</div>;
+  const label = src?.dav ? src.dav.label || src.dav.host : "";
+  const done = () => {
+    const again = dialog === "password";
+    setDialog(null);
+    if (!again) showToast(t("settings.calendar.syncOn", { email: account.email }), undefined, "success");
+    void loadCalSources();
+    bumpCal();
+  };
+  const stop = async () => {
+    const ok = await confirm({ title: t("settings.calendar.stopTitle", { email: account.email }), body: t("settings.calendar.stopBody", { service: label }), confirmLabel: t("settings.calendar.stopLabel"), danger: true });
+    if (!ok) return;
+    setErr(null);
+    try {
+      await api.calendarDisconnect(account.id);
+    } catch (e) {
+      setErr(friendlyError(e));
+    }
+    await loadCalSources();
+    bumpCal();
+    requestAnimationFrame(() => setUp.current?.focus());
+  };
+  const line = src ? statusLine(src, { email: account.email, nowSec: now, fmtTime: clock }) : null;
+  const note = src ? truncatedNote(src) : null;
+  return (
+    <>
+      {!src ? (
+        <Row label={t("settings.calendar.davLabel")} hint={t("settings.calendar.davHint")} id="calendar">
+          <button ref={setUp} className="btn small" onClick={() => setDialog("connect")}>{t("settings.calendar.davSetUp")}</button>
+        </Row>
+      ) : (
+        <>
+          <Row label={t("settings.calendar.syncWith", { provider: label })} hint={t("settings.calendar.syncHint", { service: label })} id="calendar">
+            <Switch checked onChange={(v) => void (!v && stop())} />
+          </Row>
+          <div className="muted small dav-who">{src.dav?.username} · {src.dav?.host}</div>
+          <div className="row-inline set-actions">
+            {line?.enterPassword && <button ref={passwordBtn} className="btn primary" onClick={() => setDialog("password")}>{t("settings.calendar.davEnterPassword")}</button>}
+            {line && line.syncNow !== "off" && (
+              <button className="btn small" disabled={line.syncNow === "disabled"} onClick={() => void api.calendarSyncNow(account.id).then(() => loadCalSources())}>{t("settings.calendar.syncNow")}</button>
+            )}
+          </div>
+        </>
+      )}
+      <div role="status" aria-live="polite" className="set-status">
+        {err ? (
+          <div className="field-err" role="alert">{err}</div>
+        ) : line ? (
+          <div className={line.tone === "bad" ? "notice bad" : "muted small"}>
+            {line.text}
+            {line.detail && <div style={{ marginTop: 2, fontSize: "0.9em", opacity: 0.8 }}>{line.detail}</div>}
+            {note && <div>{note}</div>}
+          </div>
+        ) : null}
+      </div>
+      {src && <CalendarsList account={account} src={src} onError={setErr} />}
+      {dialog && <CalDavDialog account={account} mode={dialog} source={src} onClose={() => setDialog(null)} onDone={done} />}
+    </>
+  );
+}
+
+function OauthCalendarPanel({ account }: { account: Account }) {
+  const t = useT();
+  const { confirm, showToast, calSources, loadCalSources, bumpCal } = useStore();
   const kind = calendarSyncKind(account);
   const src: CalSource | undefined = calSources.find((s) => s.accountId === account.id);
   const [connecting, setConnecting] = useState(false);
@@ -1557,27 +1706,7 @@ function CalendarPanel({ account }: { account: Account }) {
           <div className="muted small">{t("calendar.err.noClient", { provider: providerName(kind) })}</div>
         ) : null}
       </div>
-      {src && src.calendars.length > 0 && (
-        <>
-          <h4 style={{ margin: "16px 0 2px" }}>{t("settings.calendar.calendars")}</h4>
-          <div className="muted small">{t("settings.calendar.calendarsHint")}</div>
-          {src.calendars.map((c) => (
-            <div className="set-row" key={c.id}>
-              <div className="set-lbl">
-                <div>
-                  <span className="dot" style={{ background: c.color || accountColor(account, prefs.accent), marginRight: 8 }} aria-hidden />
-                  {c.name}
-                  {c.primary && <span className="muted small"> · {t("settings.calendar.primary")}</span>}
-                  {c.readOnly && <span className="muted small"> · {t("settings.calendar.readOnly")}</span>}
-                </div>
-              </div>
-              <div className="set-ctl">
-                <Switch checked={c.syncOn} ariaLabel={t("settings.calendar.syncCal", { name: c.name })} onChange={(v) => { setErr(null); void api.calendarSetSync(c.id, v).then(() => { bumpCal(); return loadCalSources(); }).catch((e) => setErr(friendlyError(e))); }} />
-              </div>
-            </div>
-          ))}
-        </>
-      )}
+      {src && <CalendarsList account={account} src={src} onError={setErr} />}
     </>
   );
 }
@@ -1640,8 +1769,9 @@ export type MbTab = "profile" | "composing" | "signatures" | "templates" | "filt
 
 /** The sections of a mailbox (scope = account id) or of "All accounts" (null). They are listed under the mailbox in the Settings navigation. */
 function mailboxSections(scope: string | null, accounts: Account[]): [MbTab, Key][] {
-  // only a Google / Gmail (and later Microsoft) mailbox has a calendar to sync
-  const calendar = scope !== null && accounts.some((a) => a.id === scope && calendarSyncKind(a) !== null);
+  // a Google / Gmail / Microsoft mailbox has its own service to sync; any other mailbox can use a CalDAV server where this build offers it (W7.4)
+  const dav = (useStore.getState().calKinds ?? []).includes("caldav");
+  const calendar = scope !== null && accounts.some((a) => a.id === scope && (calendarSyncKind(a) !== null || (dav && calendarDavEligible(a))));
   return [
     ...(scope ? ([["profile", "settings.section.profile"]] as [MbTab, Key][]) : []),
     ["composing", "settings.section.composing"], ["signatures", "settings.section.signatures"], ["templates", "settings.section.templates"], ["filters", "settings.section.filters"],
@@ -2147,6 +2277,8 @@ export function Settings({ initial, focus, nonce, section, windowed }: { initial
   const t = useT();
   const trayHost = usePlatform((s) => s.tray);
   const { setDialog, accounts, prefs } = useStore();
+  // (which mailboxes get a Calendar section depends on what this build can connect)
+  useEffect(() => void useStore.getState().loadCalKinds(), []);
   const start = initial === "accounts" ? "mb:all" : initial === "notifications" ? "tray" : initial;
   const [tab, setTab] = useState<string>(start || (accounts.length === 0 ? "add-account" : "general"));
   const [mbTab, setMbTab] = useState<MbTab>(section ?? (focus === "loadRemote" || focus === "maxDownload" ? "reading" : focus === "security" ? "security" : focus === "calendar" ? "calendar" : "composing"));

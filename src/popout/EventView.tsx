@@ -20,6 +20,9 @@ type EventWindowHooks = import("../components/Calendar").EventWindowHooks;
 
 interface Spec {
   eventId?: string;
+  /** the part of a series the form is for (W7.1) and the occurrence it starts at */
+  scope?: "occurrence" | "following" | "series";
+  occurrenceStart?: number | null;
   init?: EventInit;
   draft?: EventDraft;
 }
@@ -30,6 +33,8 @@ function specOf(raw: unknown): Spec {
   const obj = (v: unknown) => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
   return {
     eventId: typeof r.eventId === "string" && r.eventId ? r.eventId : undefined,
+    scope: r.scope === "occurrence" || r.scope === "following" || r.scope === "series" ? r.scope : undefined,
+    occurrenceStart: typeof r.occurrenceStart === "number" && Number.isFinite(r.occurrenceStart) ? r.occurrenceStart : null,
     init: (obj(r.init) as EventInit | null) ?? undefined,
     draft: (obj(r.draft) as EventDraft | null) ?? undefined,
   };
@@ -106,7 +111,7 @@ export default function EventView({ init }: PopoutViewProps) {
   if (!ready) return <div className="popout-root" data-popout="loading" />;
   return (
     <div data-popout="event">
-      <LazyEventWindowForm eventId={spec.eventId} init={spec.init} draft={spec.draft} windowed={hooks} />
+      <LazyEventWindowForm eventId={spec.eventId} init={spec.init} draft={spec.draft} windowed={hooks} scope={spec.scope} occurrenceStart={spec.occurrenceStart} />
     </div>
   );
 }
