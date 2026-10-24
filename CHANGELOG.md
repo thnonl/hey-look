@@ -38,6 +38,8 @@
 - Search on the server: below the results of a search, "Search on the server" also looks for mail that is not downloaded to this computer (the mailbox you search in, or every mailbox for "All mailboxes"; the folder, or every folder except Trash and Junk). It needs a word or more to search, shows up to 200 of the newest results marked "On the server" and says when more were found; a result opens like any message (the body is fetched on demand and the row stays out of the local list). Pinned and snoozed are known only on this computer, so the server search leaves them out and says so. Gmail searches use its own search words
 - Link warning: besides a link whose text is another web address, Hey Look! now also asks before it opens a link whose text is an e-mail address but goes to another site, a link to an address that uses look-alike letters of another alphabet (Cyrillic or Greek letters in a Latin name, shown in its `xn--` form) and a link that hides its real address behind a user name (`https://bank.test@evil.test/`). Ordinary links, mailto: and tel: links, tracking redirects behind plain words and a sub-domain of the shown site (`bank.test` to `login.bank.test`) are not warned about
 - Search in Settings: a box at the top of the Settings navigation (Ctrl+F, Cmd+F on a Mac, or / outside a field) finds a setting by the words you would use, in the language of the app, with or without accents ("chu ky" finds Chữ ký, "dark mode" finds Theme); Enter or a click shows its page, scrolls to it, lights it up and puts the cursor on it. The "Open settings" link of the remote-pictures banner lights its row the same way, also when animations are turned off
+- Text menu in the reading areas: right-click selected text of a message (or press Shift+F10) to search your mail for it (the box shows the words, the list the results, the scope you chose stays), and right-click the subject to copy it, also in a message window
+- An email link in a message opens a new message in Hey Look! with its address, Cc, Bcc, subject and text (instead of another mail program); Shift opens it in the other place, and a message window opens a compose window
 
 ### Changed
 
@@ -73,6 +75,8 @@
 - Lowering the limit of downloaded mail (Settings > Reading) removes the extra local mail at once, oldest first, keeping flagged, pinned and snoozed mail and drafts (it stays on the server); the notice at the end of the list follows every removal
 - Secret keys of OpenPGP are locked with the strongest iterated S2K (SHA-256, 65,011,712 bytes per try, as GnuPG does) when you generate a key, import one that has no passphrase or change a passphrase; keys stored earlier keep the S2K they have until their passphrase is changed. The keys stay in the app's database, each locked by its own passphrase (a test pins it)
 - Opening a file of a type that can run code asks first on macOS and Linux too: `.webloc`, `.inetloc`, `.fileloc`, `.kext`, `.prefpane`, `.dylib`, `.plugin`, `.osax`, `.bash`, `.zsh`, `.csh`, `.ksh`, `.fish`, `.flatpakref`, `.flatpak`, `.snap`, `.apk` and `.xpi`
+- The Website link of Settings > About and the help link of a Google sign-in that ended open the website in the language of the app
+- Search in Gmail from the Archive folder (or from all mailboxes) searches Gmail's All Mail, like the app's own Archive search: it no longer reaches Spam and Trash
 
 ### Fixed
 
@@ -179,6 +183,7 @@
 - A failed secure connection (SSL/TLS or STARTTLS on a plain port) is explained in the language of the app, with the host and port, for IMAP and SMTP; the library's own words (such as "The token supplied to the function is invalid") are written to the log only
 - Notification and list previews no longer start with "Xem thư này trên trình duyệt" typed with combining marks (NFD Vietnamese), Korean jamo or similar, and the "view in browser", "click here" and "unsubscribe" lines of Portuguese, Italian, Dutch, Polish, Turkish, Korean, Indonesian and Traditional Chinese newsletters are left out too
 - Linux: the file pickers for PGP keys and calendar files list upper-case extensions too (`KEY.ASC`, `INVITE.ICS`)
+- A right-click on a link in a message no longer opens the link in the browser: it shows the link menu (Open link, Copy link address)
 
 ## 1.0.6 — 2026-10-18
 
