@@ -14,7 +14,7 @@ import { shiftNow } from "../popout/modifier";
 import { api, MessageFull } from "../api";
 import { copyToClipboard } from "../open";
 import { revealSaved } from "../reveal";
-import { mailKey, setMailDark } from "../darkMail";
+import { mailKey, setMailDark, taggedMailDocument } from "../darkMail";
 import { LANGS, t, type Key, type Lang } from "../i18n";
 import { useLang, useT } from "../i18n/react";
 import { fmtNumber } from "../i18n/format";
@@ -511,7 +511,11 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     if (pane) paneRo?.observe(pane);
     window.addEventListener("resize", measure);
     void doc.fonts?.ready.then(measure);
-    doc.querySelectorAll<HTMLAnchorElement>("a[href]").forEach((a) => (a.title = a.href)); // show the real target on hover
+    // show the real target on hover (set when the pointer reaches the link: no list of the mail's links, no wrapper of each of them)
+    doc.addEventListener("mouseover", (e) => {
+      const a = (e.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
+      if (a && a.title !== a.href) a.title = a.href;
+    });
     const onClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       const ph = target.closest?.(".hl-ph[data-cid]") as HTMLElement | null;
@@ -579,7 +583,9 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     if (!frame) return;
     hooked.current = null;
     stopObserve.current();
-    if (!writeMailDocument(frame, docParts)) {
+    // a dark mail is written with its dark rules already in it (darkMail.ts taggedMailDocument, fix44): the frame's elements are never listed or wrapped for the dark mode
+    const tagged = darkNow.current ? taggedMailDocument(darkMailRef.current(), DARK_CANVAS) : null;
+    if (!writeMailDocument(frame, tagged ? [tagged] : docParts)) {
       frame.srcdoc = docParts.join(""); // (no document to write into: the old way)
       mailFrameStats.fallbacks++;
     }
