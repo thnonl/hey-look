@@ -436,3 +436,7 @@ ui-b | node scripts/test-update-toast.mjs --require-browser
 ui-b | node scripts/test-prune-limit.mjs --require-browser
 # 1.0.7 W6.7: "Search on the server" in the real page - the button at the end of a search (never started by itself, hint, before the webmail buttons), Enter starts it, the running state and Cancel, the heading and the rows (unread, attachment, flag, no snippet), arrows / Home / End between the rows and Enter opens one, a different search or scope drops the results, the capped / nothing more / failed mailbox / pinned notes, a row whose message is gone
 ui-b | node scripts/test-server-search-ui.mjs --require-browser
+# 1.0.7 W8.12 (Search in Settings): the folding of text (tones, accents, ß, ё, full-width, kana), the ranking tiers, the index of the 8 languages on 4 systems (no raw key, every entry first for its own label, the gates, the words of AC-8.12.11 to 14), the source guard (every Row has a registered id, the labels agree), 5 ms per search
+static | node --experimental-strip-types scripts/test-settings-index.mjs
+# 1.0.7 W8.12 in the real page: every page and section compared with the index (en Windows, ja macOS, ru Linux without a tray; the full run has 24 combinations and every entry), the jump (first result, page, middle of the body, lit, focus, 300 ms scaled), Ctrl/Cmd+F and /, the Esc sequence, an input method's Enter, ARIA and the live region, nothing moves while typing, the deep link with reduced motion, 960x560
+ui-a | node --experimental-strip-types scripts/test-settings-search.mjs --quick --require-browser

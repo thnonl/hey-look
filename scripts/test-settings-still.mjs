@@ -50,4 +50,15 @@ assert.match(css, /\.signin-slot \{[^}]*\bmin-height: [\d.]+em;/, "the sign-in s
 assert.match(css, /\.set-status \{[^}]*\bmin-height: [\d.]+em;/, "the calendar status slot has a fixed minimum height");
 assert.match(css, /\.signin-slot > \.notice, \.set-status > \.notice \{ margin-bottom: 0; \}/, "a notice in a slot adds no margin of its own");
 assert.match(css, /\.set-actions \{[^}]*min-height: 33px;/, "the action row keeps the height of a primary button");
+// 5. Search in Settings (W8.12): the box is the first child of the navigation, sticky at its top, a text field (a search field gets WebKit's own cancel button and Esc behaviour), and Esc never closes Settings from it
+const searchTsx = read("../src/components/SettingsSearch.tsx");
+const searchCss = read("../src/settingsSearch.css");
+assert.match(tsx, /<nav className="settings-nav"[^>]*>\s*<SearchBox s=\{search\} onPick=\{pick\} \/>/, "the search box is the first child of .settings-nav");
+assert.match(searchTsx, /<div className="set-search">/, "the wrapper of the box is .set-search");
+assert.match(searchCss, /\.settings-nav \.set-search \{[^}]*position: sticky;[^}]*top: 0;/, ".set-search is sticky at the top of the navigation");
+assert.match(searchTsx, /<input\s[^>]*type="text"/, "the box is type=text");
+assert.doesNotMatch(searchTsx, /type="search"/, "and never type=search");
+assert.match(searchTsx, /e\.key === "Escape"\) \{[^}]*e\.preventDefault\(\);/, "Esc in the box calls preventDefault (Settings stays open)");
+assert.match(searchTsx, /if \(isImeEvent\(e\)\) return;/, "an Enter of an input method is not a jump");
+assert.doesNotMatch(css, /\.set-row\.flash|@keyframes flash/, "the old flash is gone: the jump and the deep link use .set-hit (settingsSearch.css)");
 console.log("ok - test-settings-still");

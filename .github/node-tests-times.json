@@ -254,6 +254,8 @@
   "node scripts/test-folder-reset.mjs --require-browser": 20,
   "node scripts/test-update-toast.mjs --require-browser": 25,
   "node scripts/test-prune-limit.mjs --require-browser": 20,
-  "node scripts/test-server-search-ui.mjs --require-browser": 40
+  "node scripts/test-server-search-ui.mjs --require-browser": 40,
+  "node --experimental-strip-types scripts/test-settings-index.mjs": 2,
+  "node --experimental-strip-types scripts/test-settings-search.mjs --quick --require-browser": 40
  }
 }

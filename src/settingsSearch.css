@@ -5,8 +5,10 @@
 :root[data-os="macos"] .modal.windowed .settings-nav .set-search { background: var(--bg); } /* (the Settings window of macOS has the page colour behind the navigation) */
 .settings-nav { scroll-padding-top: 46px; } /* (what is scrolled into view stays clear of the sticky box) */
 .set-box { position: relative; }
-.set-box .set-ico { position: absolute; left: 10px; top: 50%; margin-top: -7px; color: var(--muted); pointer-events: none; }
-.set-box input { width: 100%; height: 32px; box-sizing: border-box; padding: 0 30px 0 30px; }
+.set-box .set-ico { position: absolute; left: 8px; top: 50%; margin-top: -7px; color: var(--muted); pointer-events: none; }
+/* 13 px and a narrow right edge while empty: the longest placeholder (German, "Einstellungen durchsuchen") has to fit the 204 px box at 960x560 in every font; the clear button's room is only taken once there is text */
+.set-box input { width: 100%; height: 32px; box-sizing: border-box; padding: 0 8px 0 26px; font-size: 13px; }
+.set-box input:not(:placeholder-shown) { padding-right: 30px; }
 .settings-nav .set-search .set-clear { position: absolute; right: 3px; top: 50%; margin: -12px 0 0; width: 24px; height: 24px; padding: 0; background: none; }
 .settings-nav .set-search .set-clear:hover { background: var(--bg3); }
 

@@ -13,6 +13,7 @@
 //   node scripts/test-settings-search.mjs                   all 8 languages x Windows / macOS / Linux without a tray; every entry is jumped to in English on Windows
 //   node scripts/test-settings-search.mjs --quick           en on Windows, ja on macOS, ru on Linux without a tray; 13 sample entries each (what CI runs)
 //   node scripts/test-settings-search.mjs --lang=de --os=macos --shots=<dir>
+//   node scripts/test-settings-search.mjs --lang=en --os=windows --ids=undoSend,pictures   only the jumps to those entries
 //   node scripts/test-settings-search.mjs --url=http://127.0.0.1:1420/    use a dev server that is already running
 //   node scripts/test-settings-search.mjs --require-browser   fail (instead of skipping) when no Chrome/Chromium/Edge is installed
 import { fold } from '../src/settingsIndex.ts';
@@ -176,6 +177,8 @@ async function jump(c, entries, e) {
   if (!await waitFor(`window.__hit.t !== null`, 3000)) return fail(`${label}: nothing was lit up after Enter`);
   const ms = await evaluate(`window.__hit.t - window.__hit.enter`);
   check(ms <= budget(300), `${label}: the jump took ${Math.round(ms)} ms, the budget is ${budget(300)} ms (300 ms x scale ${scale.toFixed(2)})`);
+  // (a page that was still drawing when it was centred - a list that is read - is centred again at its next frame: look after that)
+  await evaluate(`new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(done, 80))))`);
   const r = await evaluate(`(() => {
     const el = document.getElementById('set-${e.id}'), body = document.querySelector('.settings-body');
     if (!el) return null;
@@ -186,14 +189,14 @@ async function jump(c, entries, e) {
       dy: Math.abs(r.top + r.height / 2 - (b.top + body.clientHeight / 2)), visible: r.top >= b.top - 1 && r.bottom <= b.bottom + 1 || r.height >= body.clientHeight && r.top <= b.top + 12 && r.bottom > b.top,
       atEdge: body.scrollTop <= 1 || body.scrollTop + body.clientHeight >= body.scrollHeight - 1, outline: cs.outlineStyle + ' ' + cs.outlineWidth, active: document.activeElement.tagName + '#' + document.activeElement.id,
       listed: document.querySelectorAll('.set-opt').length, sel: document.querySelectorAll('.set-opt[aria-selected=true]').length, query: document.querySelector(${JSON.stringify(BOX)}).value,
-      tabindex: el.getAttribute('tabindex'),
+      tabindex: el.getAttribute('tabindex'), top: Math.round(r.top), bottom: Math.round(r.bottom), bodyTop: Math.round(b.top), bodyBottom: Math.round(b.bottom), scrollTop: body.scrollTop, scrollHeight: body.scrollHeight,
     };
   })()`);
   if (!check(!!r, `${label}: the target set-${e.id} is not on the page after the jump`)) return;
   check(r.hit, `${label}: the target is not lit`);
   check(r.inBody, `${label}: the target is not in the settings body`);
   check(r.focusIn, `${label}: the focus is not in the target (it is on ${r.active})`);
-  check(r.visible && (r.dy <= 24 || r.atEdge || r.tall), `${label}: the target is not in the middle of the page (off by ${Math.round(r.dy)} px, scrolled to an edge: ${r.atEdge})`);
+  check(r.visible && (r.dy <= 24 || r.atEdge || r.tall), `${label}: the target is not in the middle of the page (off by ${Math.round(r.dy)} px, scrolled to an edge: ${r.atEdge}; ${JSON.stringify(r)})`);
   check(r.outline.startsWith('solid') && !r.outline.endsWith(' 0px'), `${label}: the lit target has no outline (${r.outline})`);
   check(r.listed > 0 && r.sel === 1 && r.query === e.label, `${label}: the results must stay listed with the chosen one marked (${r.listed} options, ${r.sel} marked, text "${r.query}")`);
   if (e.kind === 'page') check(r.tabindex === '-1', `${label}: a heading takes the focus with tabindex -1`);
@@ -209,7 +212,8 @@ async function jumps(c) {
     entries.find((e) => e.id === 'taskbarBadge') ?? entries.find((e) => e.id === 'autostart'), entries.find((e) => e.id === 'act-flag'),
   ].filter(Boolean);
   check(some.length >= 12, `${some.length} sample entries`);
-  const list = !QUICK && c.lang === 'en' && c.os === 'windows' ? entries : some;
+  const only = arg('ids') ? arg('ids').split(',') : null; // (--ids=undoSend,pictures: only those entries, for a look at one jump)
+  const list = only ? entries.filter((e) => only.includes(e.id)) : !QUICK && c.lang === 'en' && c.os === 'windows' ? entries : some;
   for (const e of list) await jump(c, entries, e);
   return list.length;
 }
@@ -445,7 +449,7 @@ async function small(c) {
     const modal = document.querySelector('.modal').getBoundingClientRect(), nav = document.querySelector('.settings-nav').getBoundingClientRect();
     return { text: cv.measureText(b.placeholder).width, room, fits: modal.bottom <= innerHeight + 1 && modal.right <= innerWidth + 1, navScrollW: document.querySelector('.settings-nav').scrollWidth, navW: nav.width };
   })()`);
-  check(m.text <= m.room + 0.5, `the placeholder is cut: it needs ${Math.round(m.text)} px and the box has ${Math.round(m.room)} px`);
+  check(m.text <= m.room - 8, `the placeholder is cut or nearly: it needs ${Math.round(m.text)} px and the box has ${Math.round(m.room)} px (8 px to spare are wanted: another font may be wider)`);
   check(m.fits, 'the dialog does not fit the window');
   await ctrlF(c);
   await paste('qqqzz');
@@ -463,6 +467,11 @@ async function small(c) {
 
 // ---------------------------------------------------------------------------------------------- run
 try {
+  // (the first request of a language chunk can make a cold dev server optimise a dependency and reload the page once: that happens here, not in the middle of a check)
+  for (let i = 0; i < 3; i++) {
+    await H.openApp('lang=en', 1280, 800);
+    try { await evaluate(`Promise.all(['de', 'ja', 'ru', 'vi', 'fr', 'es', 'zh-Hans'].map((l) => import('/src/i18n/lang-' + l + '.ts'))).then(() => 1)`); await sleep(1500); break; } catch { await sleep(1500); }
+  }
   await H.openApp('lang=en', 1280, 800);
   const cal = await evaluate(CALIBRATE);
   scale = Math.min(Math.max(1, cal.cpu / CPU_REF), 8);
