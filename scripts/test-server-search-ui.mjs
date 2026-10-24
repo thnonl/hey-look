@@ -19,8 +19,8 @@ const calls = () => json('window.__serverCalls || []');
 const section = () => json(`(() => { const s = document.querySelector('.ml-srv'); if (!s) return null; return { phase: s.dataset.serverSearch, text: s.innerText, rows: s.querySelectorAll('.ml-srv-rows .ml-row').length, heading: s.querySelector('.ml-srv-head')?.textContent ?? null }; })()`);
 /** the list scrolled to its end, so the footer is drawn */
 const toEnd = () => evaluate(`(() => { const row = document.querySelector('.ml-row'); if (!row) return 0; for (let p = row.parentElement; p; p = p.parentElement) { if (p.scrollHeight > p.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(p).overflowY)) { p.scrollTop = p.scrollHeight; break; } } return 1; })()`);
-const search = async (q, hash = 'serversearch') => {
-  await H.openApp(`lang=en&${hash}`, 1280, 800);
+const search = async (q, hash = 'serversearch', lang = 'en', w = 1280, h = 800) => {
+  await H.openApp(`lang=${lang}&${hash}`, w, h);
   assert.ok(await waitFor(`${S}.threads.length > 2`, 20000), 'the Inbox has conversations');
   await evaluate(`${S}.setSearch(${JSON.stringify(q)}); 1`);
   assert.ok(await waitFor(`${S}.search === ${JSON.stringify(q)} && ${S}.threads.length >= 0`));
@@ -70,7 +70,7 @@ try {
     const s = await section();
     assert.equal(s.heading, 'On the server');
     assert.equal(s.rows, 7);
-    const detail = await json(`[...document.querySelectorAll('.ml-srv-rows .ml-row')].map((r) => ({ subject: r.querySelector('.subject')?.textContent, unread: r.classList.contains('unread'), attach: !!r.querySelector('[aria-label="Has attachments"], svg.lucide-paperclip'), flagged: !!r.querySelector('.flag-on'), preview: !!r.querySelector('.preview') }))`);
+    const detail = await json(`[...document.querySelectorAll('.ml-srv-rows .ml-row')].map((r) => ({ subject: r.querySelector('.subject')?.textContent, unread: r.classList.contains('unread'), attach: !!r.querySelector('[aria-label="Has attachments"], svg.lucide-paperclip'), flagged: !!r.querySelector('.flag-on'), preview: (r.querySelector('.preview')?.textContent ?? '').trim() }))`);
     assert.equal(detail[0].subject, 'Báo cáo quý 3');
     assert.equal(detail[0].unread, false);
     assert.equal(detail[1].unread, true, 'an unread message is drawn unread');
@@ -121,6 +121,65 @@ try {
     const last = (await calls()).filter((c) => c.cmd === 'search').at(-1);
     assert.equal(last.filter.scope, 'account');
   });
+
+  // WK-37.02: starting the search does not move the list - the footer is as tall in the running state and in the one-line states as it is with the button alone
+  for (const [lang, w, h] of [['en', 960, 560], ['en', 1280, 800], ['de', 960, 560], ['ru', 960, 560], ['ru', 1280, 800]]) {
+    await check(`the footer keeps its height from the button to the running state to "nothing more" (${lang} ${w}x${h})`, async () => {
+      await search('invoice', 'serversearch=none&serversearchdelay=1500', lang, w, h);
+      const height = () => evaluate(`document.querySelector('.ml-srv').getBoundingClientRect().height`);
+      const idle = await height();
+      await evaluate(`document.querySelector('.ml-srv button').click(); 1`);
+      assert.ok(await waitFor(`document.querySelector('.ml-srv')?.dataset.serverSearch === 'running'`, 3000));
+      const running = await height();
+      assert.ok(await waitFor(`document.querySelector('.ml-srv')?.dataset.serverSearch === 'done'`, 6000));
+      const done = await height();
+      assert.ok(Math.abs(running - idle) <= 6, `idle ${idle} -> running ${running}`);
+      assert.ok(Math.abs(done - idle) <= 6, `idle ${idle} -> nothing more ${done}`);
+      assert.ok(idle >= 40 && idle <= 70, `idle ${idle}`);
+      // one line: the text and Cancel side by side (same row) unless the list is too narrow for both
+      const sameRow = await evaluate(`(() => { const l = document.querySelector('.ml-srv-line'); return !l; })()`);
+      assert.equal(sameRow, true, 'the done state has no running line');
+    });
+  }
+
+  // WK-37.03: a server row is exactly as tall as a row of the list itself (same component, same density, the snippet line kept as room), whatever the language, size and density
+  for (const [lang, w, h, density] of [['en', 960, 560, 'full'], ['en', 1280, 800, 'full'], ['de', 960, 560, 'full'], ['ru', 960, 560, 'full'], ['ru', 1280, 800, 'full'], ['en', 1280, 800, 'medium'], ['en', 1280, 800, 'compact']]) {
+    await check(`server rows are as tall as the rows of the list (${lang} ${w}x${h} ${density})`, async () => {
+      await search('invoice', 'serversearch', lang, w, h);
+      await evaluate(`${S}.setPrefs({ density: ${JSON.stringify(density)} }); 1`);
+      await sleep(400);
+      await evaluate(`document.querySelector('.ml-srv button').click(); 1`);
+      assert.ok(await waitFor(`document.querySelector('.ml-srv')?.dataset.serverSearch === 'done'`, 6000));
+      await toEnd();
+      await sleep(300);
+      const m = await json(`(() => { const hh = (e) => Math.round(e.getBoundingClientRect().height * 10) / 10; const local = [...document.querySelectorAll('.ml-row')].filter((r) => !r.closest('.ml-srv')); const srv = [...document.querySelectorAll('.ml-srv .ml-row')]; return { local: local.slice(0, 3).map(hh), srv: srv.map(hh) }; })()`);
+      assert.ok(m.local.length > 0 && m.srv.length === 7, JSON.stringify(m));
+      for (const x of m.srv) assert.ok(Math.abs(x - m.local[0]) <= 1, `server row ${x} px, list row ${m.local[0]} px (all: ${JSON.stringify(m)})`);
+    });
+  }
+
+  // WK-37.04: the notes do not overflow the narrowest list (280 px asked, the least the splitter allows is used), in de and ru, with a 300-character server text
+  for (const lang of ['en', 'de', 'ru']) {
+    for (const mode of ['fail', 'capped', 'local', 'none']) {
+      await check(`the ${mode} note stays inside a narrow list (${lang})`, async () => {
+        await search('invoice', `serversearch=${mode}&serversearchlong`, lang, 960, 560);
+        await evaluate(`${S}.setPrefs({ listW: 280 }); 1`);
+        await sleep(500);
+        await evaluate(`document.querySelector('.ml-srv button').click(); 1`);
+        assert.ok(await waitFor(`document.querySelector('.ml-srv')?.dataset.serverSearch === 'done'`, 6000));
+        await toEnd();
+        await sleep(300);
+        const m = await json(`(() => { const q = document.querySelector('.ml-srv'); const list = q.closest('.ml-list, .message-list, .list') || q.parentElement; const notes = [...q.querySelectorAll('.muted')]; const lh = (e) => parseFloat(getComputedStyle(e).lineHeight) || 18; return { w: Math.round(q.getBoundingClientRect().width), overflowX: q.scrollWidth > q.clientWidth + 1, notes: notes.map((n) => ({ over: n.scrollWidth > n.clientWidth + 1, lines: Math.round(n.getBoundingClientRect().height / lh(n)), right: Math.round(n.getBoundingClientRect().right), qRight: Math.round(q.getBoundingClientRect().right) })) }; })()`);
+        assert.ok(m.w <= 420, `the list is ${m.w} px wide (the case wants a narrow one)`);
+        assert.equal(m.overflowX, false, JSON.stringify(m));
+        for (const n of m.notes) {
+          assert.equal(n.over, false, JSON.stringify(m));
+          assert.ok(n.right <= n.qRight + 1, `a note sticks out: ${JSON.stringify(m)}`);
+          assert.ok(n.lines <= (mode === 'fail' ? 8 : 5), `${n.lines} lines: ${JSON.stringify(m)}`);
+        }
+      });
+    }
+  }
 
   for (const [mode, expect] of [
     ['capped', /Showing the newest 200 results from the server\. Add words to narrow the search\./],
