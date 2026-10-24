@@ -14,7 +14,7 @@ import { shiftNow } from "../popout/modifier";
 import { api, MessageFull } from "../api";
 import { copyToClipboard } from "../open";
 import { revealSaved } from "../reveal";
-import { setMailDark } from "../darkMail";
+import { mailKey, setMailDark } from "../darkMail";
 import { LANGS, t, type Key, type Lang } from "../i18n";
 import { useLang, useT } from "../i18n/react";
 import { fmtNumber } from "../i18n/format";
@@ -372,6 +372,11 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     ],
     [html, csp, m.confidential], // eslint-disable-line react-hooks/exhaustive-deps
   );
+  // the name of this document for the dark walk's cache (darkMail.ts, fix42): the same mail in a new frame is dressed again without reading a style
+  const darkKey = useMemo(() => mailKey(docParts[0], docParts[1]), [docParts]);
+  const darkMail = () => ({ key: darkKey, parts: docParts, frame: frameRef.current });
+  const darkMailRef = useRef(darkMail);
+  darkMailRef.current = darkMail;
   // macOS Print (W5.3) builds its document from the same inputs as the frame: the HTML as shown now, its CSP and the subject
   const printHtmlRef = useRef(html);
   printHtmlRef.current = html;
@@ -386,7 +391,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   useEffect(() => {
     const doc = frameRef.current?.contentDocument;
     if (doc?.documentElement?.hasAttribute("data-hm-doc")) {
-      setMailDark(doc, dark, DARK_CANVAS);
+      setMailDark(doc, dark, DARK_CANVAS, darkMailRef.current());
       // what the mail's own prefers-color-scheme rules mean follows the background (W5.5), in place: the frame is not reloaded
       reapplyColorScheme(doc, dark);
     }
@@ -489,7 +494,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     hooked.current = doc;
     stopObserve.current();
     hlMark("open:dark:start");
-    setMailDark(doc, darkNow.current, DARK_CANVAS);
+    setMailDark(doc, darkNow.current, DARK_CANVAS, darkMailRef.current());
     hlMark("open:dark:end");
     measure();
     // images without a height attribute (common in newsletters) only get their size once they load
