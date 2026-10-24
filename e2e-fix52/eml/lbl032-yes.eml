@@ -1,0 +1,11 @@
+MIME-Version: 1.0
+From: Label Fixtures <labels@heylook.qa>
+To: qa@heylook.qa
+Subject: LBL032 YES vi Bao mat b64
+Date: Sat, 24 Oct 2026 14:30:51 GMT
+Message-ID: <lbl-32-1792852251445@heylook.qa>
+msip_labels: MSIP_Label_1f2e_Enabled=true; MSIP_Label_1f2e_Name==?utf-8?b?QuG6o28gbeG6rXQ=?=; MSIP_Label_1f2e_Method=Standard
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Label fixture 32: vi Bao mat b64

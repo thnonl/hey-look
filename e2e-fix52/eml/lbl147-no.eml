@@ -1,0 +1,11 @@
+MIME-Version: 1.0
+From: Label Fixtures <labels@heylook.qa>
+To: qa@heylook.qa
+Subject: LBL147 NO zh fei-jimi q
+Date: Sat, 24 Oct 2026 14:30:51 GMT
+Message-ID: <lbl-147-1792852251491@heylook.qa>
+msip_labels: MSIP_Label_1f2e_Enabled=true; MSIP_Label_1f2e_Name==?utf-8?q?=E9=9D=9E=E6=9C=BA=E5=AF=86?=; MSIP_Label_1f2e_Method=Standard
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Label fixture 147: zh fei-jimi q

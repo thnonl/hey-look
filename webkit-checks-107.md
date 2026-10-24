@@ -2590,3 +2590,25 @@ Probes (bridge `/eval`):
 | WK-44.30 | Linux | Banner of a Confidential message in en, de, ja, ru at 960 x 560 | P-banner | `text` is reading.protect.noteLinux (ends with the Linux limit sentence); `over` <= 1; `h` < 5 lines | OPEN |
 | WK-44.31 | Linux | Press Print Screen with a Confidential message open | `document.querySelector('.toasts').textContent` after 0.5 s | no "Screen capture is turned off" text | OPEN |
 | WK-44.32 | Mac, Linux | Mails with the labels of the 8 fixtures of AC-8.8a.1 arrive (kit) | list row shield + P-banner | each shows the shield and the banner; the 10 negated/never fixtures show neither | OPEN |
+
+## Section 52 (fix51: calendar create-failure sentences)
+
+| Row | What to look at | Probe (`eval`) | Pass criteria | Engine features |
+|---|---|---|---|---|
+| WK-52.01 | New calendar dialog (Settings > mailbox > Calendar > New calendar), after the service refuses the create (CalDAV 403 on MKCALENDAR, Outlook 409, or dev preview name `[fail]` / `[denied]`), Mac WKWebView and Linux WebKitGTK, languages ru, de, fr, ja | `(() => { const m = [...document.querySelectorAll('.modal')].at(-1); const e = m.querySelector('.field-err'); const r = m.getBoundingClientRect(); return JSON.stringify({ text: e?.textContent, h: e && Math.round(e.getBoundingClientRect().height), overflowX: m.scrollWidth - m.clientWidth, inside: r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight }); })()` | text is the create sentence of the language (no "save" wording, no "<name> is read only"); overflowX <= 1; inside true; h <= 60 px (3 lines) | none new (existing .field-err) |
+
+## Section 51 (fix52, `feature/v107-fix52`, D-110 / D-111: Confidential labels in encoded words, negated labels)
+
+No CSS, layout or text change: the Rust header parsing decides whether a message gets the Confidential look. What can differ on Mac / Linux is only the real path (IMAP server -> app -> list / banner), not WebKit. Engine features relied on: none new (the shield, the banner and the Print / Forward state are the WP8c ones, WK-44.29 / WK-44.32).
+
+How to get the mails into the Mac / Linux mailbox (a throw-away IMAP account, no TLS, the QA stub / GreenMail): `node E:\hey-mail\e2e-fix52\append-labels.mjs <host> <port> <user> <password> [INBOX]` (copy the script to the VM; or `--dry <dir>` writes the 160 `.eml` files to append with any IMAP client). It APPENDs 160 mails (80 YES, 80 NO) AFTER the build of this branch is installed (only new mail is scanned). Subject = `LBLnnn YES|NO <language> <name> <shape>`; shapes: `raw` (8-bit UTF-8), `b64`, `q`, `fold` (two folded encoded words), `whole` (the whole msip_labels value encoded), `own` (a `MSIP_Label_..._Name:` header of its own), `cut` (a character cut between two encoded words), charsets `iso-8859-1`, `windows-1251`, `shift_jis`, `euc-jp`, `iso-2022-jp`, `gb2312`, `gbk`.
+
+Probe for the list (bridge `eval`, English UI; the shield of a Confidential row is the `ShieldAlert` icon in `.ml-main .flags` with `aria-label="Confidential"`, MessageList.tsx) and for the open message (P-banner of section 44). Scroll the list to the end first (all 160 rows loaded; the sync of 160 mails may need a minute):
+- P-lbl: `(()=>{const rows=[...document.querySelectorAll('.ml-main')].map(r=>({s:(r.querySelector('.subject')||{textContent:''}).textContent.trim(),shield:!!r.querySelector('.flags svg[aria-label="Confidential"]')})).filter(x=>/^LBL\d{3} (YES|NO) /.test(x.s));const wrong=rows.filter(x=>/^LBL\d{3} YES/.test(x.s)!==x.shield).map(x=>x.s);return JSON.stringify({rows:rows.length,yesShield:rows.filter(x=>x.shield).length,wrong})})()`; PASS = `wrong` is `[]`, `rows` 160 (the list may virtualise: then count after scrolling or search `LBL`), `yesShield` 80.
+- Per mail opened: P-banner (section 44) -> YES: `.conf-banner` exists, `over` <= 1, `h` < 90 px, `right` <= `vw`; NO: `document.querySelector('.conf-banner')` is null; Print disabled (Cmd/Ctrl+P opens no sheet) only for YES.
+
+| ID | Platform | Look at | Probe | PASS (numbers) | Status |
+|---|---|---|---|---|---|
+| WK-51.01 | Mac, Linux | All 80 YES mails after the sync (raw, b64, q, fold, whole, own, cut + the charset mails) | P-lbl | `wrong` = [] ; `yesShield` = 80 of 80 YES rows, 0 of 80 NO rows with the shield | OPEN |
+| WK-51.02 | Mac, Linux | Open 6 YES mails: `vi Bao mat b64`, `ru Konfidentsialno q`, `ja kimitsu b64`, `zh jimi fold`, `ja kimitsu shift_jis`, `zh jimi gbk` | P-banner | banner present, `over` <= 1, `h` < 90 px, Print / Forward off | OPEN |
+| WK-51.03 | Mac, Linux | Open `en Never confidential b64`, `en Not confidential raw`, `fr Non confidentiel q`, `ru Nikogda ne sekretno b64`, `ja hi-kimitsu shift_jis` | P-banner | `.conf-banner` null (5 of 5), Print enabled | OPEN |

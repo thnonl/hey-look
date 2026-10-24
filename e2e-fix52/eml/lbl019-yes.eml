@@ -1,0 +1,11 @@
+MIME-Version: 1.0
+From: Label Fixtures <labels@heylook.qa>
+To: qa@heylook.qa
+Subject: LBL019 YES es Altamente confidencial raw
+Date: Sat, 24 Oct 2026 14:30:51 GMT
+Message-ID: <lbl-19-1792852251443@heylook.qa>
+msip_labels: MSIP_Label_1f2e_Enabled=true; MSIP_Label_1f2e_Name=Altamente confidencial; MSIP_Label_1f2e_Method=Standard
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Label fixture 19: es Altamente confidencial raw

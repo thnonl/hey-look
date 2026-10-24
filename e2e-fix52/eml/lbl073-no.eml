@@ -1,0 +1,11 @@
+MIME-Version: 1.0
+From: Label Fixtures <labels@heylook.qa>
+To: qa@heylook.qa
+Subject: LBL073 NO en Never confidential raw
+Date: Sat, 24 Oct 2026 14:30:51 GMT
+Message-ID: <lbl-73-1792852251461@heylook.qa>
+msip_labels: MSIP_Label_1f2e_Enabled=true; MSIP_Label_1f2e_Name=Never confidential; MSIP_Label_1f2e_Method=Standard
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Label fixture 73: en Never confidential raw

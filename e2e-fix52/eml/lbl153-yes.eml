@@ -1,0 +1,11 @@
+MIME-Version: 1.0
+From: Label Fixtures <labels@heylook.qa>
+To: qa@heylook.qa
+Subject: LBL153 YES ru Konfidentsialno windows-1251
+Date: Sat, 24 Oct 2026 14:30:51 GMT
+Message-ID: <lbl-153-1792852251493@heylook.qa>
+msip_labels: MSIP_Label_1f2e_Enabled=true; MSIP_Label_1f2e_Name==?windows-1251?q?=CA=EE=ED=F4=E8=E4=E5=ED=F6=E8=E0=EB=FC=ED=EE?=; MSIP_Label_1f2e_Method=Standard
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Label fixture 153: ru Konfidentsialno windows-1251

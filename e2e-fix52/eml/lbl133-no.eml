@@ -1,0 +1,11 @@
+MIME-Version: 1.0
+From: Label Fixtures <labels@heylook.qa>
+To: qa@heylook.qa
+Subject: LBL133 NO ru Nikogda ne sekretno raw
+Date: Sat, 24 Oct 2026 14:30:51 GMT
+Message-ID: <lbl-133-1792852251483@heylook.qa>
+msip_labels: MSIP_Label_1f2e_Enabled=true; MSIP_Label_1f2e_Name=Никогда не секретно; MSIP_Label_1f2e_Method=Standard
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Label fixture 133: ru Nikogda ne sekretno raw

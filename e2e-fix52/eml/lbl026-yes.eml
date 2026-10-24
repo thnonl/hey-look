@@ -1,0 +1,11 @@
+MIME-Version: 1.0
+From: Label Fixtures <labels@heylook.qa>
+To: qa@heylook.qa
+Subject: LBL026 YES vi Tuyet mat b64
+Date: Sat, 24 Oct 2026 14:30:51 GMT
+Message-ID: <lbl-26-1792852251444@heylook.qa>
+msip_labels: MSIP_Label_1f2e_Enabled=true; MSIP_Label_1f2e_Name==?utf-8?b?VHV54buHdCBt4bqtdA==?=; MSIP_Label_1f2e_Method=Standard
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Label fixture 26: vi Tuyet mat b64

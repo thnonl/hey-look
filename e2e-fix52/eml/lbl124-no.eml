@@ -1,0 +1,14 @@
+MIME-Version: 1.0
+From: Label Fixtures <labels@heylook.qa>
+To: qa@heylook.qa
+Subject: LBL124 NO vi Khong bi mat fold
+Date: Sat, 24 Oct 2026 14:30:51 GMT
+Message-ID: <lbl-124-1792852251478@heylook.qa>
+msip_labels: MSIP_Label_1f2e_Enabled=true;
+ MSIP_Label_1f2e_Name==?utf-8?b?S2jDtG5nIA==?=
+ =?utf-8?b?YsOtIG3huq10?=;
+ MSIP_Label_1f2e_Method=Standard
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Label fixture 124: vi Khong bi mat fold

@@ -1,0 +1,11 @@
+MIME-Version: 1.0
+From: Label Fixtures <labels@heylook.qa>
+To: qa@heylook.qa
+Subject: LBL014 YES de Streng vertraulich b64
+Date: Sat, 24 Oct 2026 14:30:51 GMT
+Message-ID: <lbl-14-1792852251442@heylook.qa>
+msip_labels: MSIP_Label_1f2e_Enabled=true; MSIP_Label_1f2e_Name==?utf-8?b?U3RyZW5nIHZlcnRyYXVsaWNo?=; MSIP_Label_1f2e_Method=Standard
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Label fixture 14: de Streng vertraulich b64

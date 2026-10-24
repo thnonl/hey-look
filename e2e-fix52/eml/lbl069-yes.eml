@@ -1,0 +1,11 @@
+MIME-Version: 1.0
+From: Label Fixtures <labels@heylook.qa>
+To: qa@heylook.qa
+Subject: LBL069 YES en Confidential All Employees q
+Date: Sat, 24 Oct 2026 14:30:51 GMT
+Message-ID: <lbl-69-1792852251458@heylook.qa>
+msip_labels: MSIP_Label_1f2e_Enabled=true; MSIP_Label_1f2e_Name==?utf-8?q?Confidential=20=5C=20All=20Employees?=; MSIP_Label_1f2e_Method=Standard
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Label fixture 69: en Confidential All Employees q

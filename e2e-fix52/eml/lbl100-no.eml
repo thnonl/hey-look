@@ -1,0 +1,14 @@
+MIME-Version: 1.0
+From: Label Fixtures <labels@heylook.qa>
+To: qa@heylook.qa
+Subject: LBL100 NO de Nicht vertraulich fold
+Date: Sat, 24 Oct 2026 14:30:51 GMT
+Message-ID: <lbl-100-1792852251466@heylook.qa>
+msip_labels: MSIP_Label_1f2e_Enabled=true;
+ MSIP_Label_1f2e_Name==?utf-8?b?TmljaHQgdmVy?=
+ =?utf-8?b?dHJhdWxpY2g=?=;
+ MSIP_Label_1f2e_Method=Standard
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Label fixture 100: de Nicht vertraulich fold

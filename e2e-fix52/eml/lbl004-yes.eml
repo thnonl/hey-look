@@ -1,0 +1,14 @@
+MIME-Version: 1.0
+From: Label Fixtures <labels@heylook.qa>
+To: qa@heylook.qa
+Subject: LBL004 YES fr Confidentiel fold
+Date: Sat, 24 Oct 2026 14:30:51 GMT
+Message-ID: <lbl-4-1792852251440@heylook.qa>
+msip_labels: MSIP_Label_1f2e_Enabled=true;
+ MSIP_Label_1f2e_Name==?utf-8?b?Q29uZmlk?=
+ =?utf-8?b?ZW50aWVs?=;
+ MSIP_Label_1f2e_Method=Standard
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Label fixture 4: fr Confidentiel fold

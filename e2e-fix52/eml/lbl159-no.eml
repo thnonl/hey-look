@@ -1,0 +1,11 @@
+MIME-Version: 1.0
+From: Label Fixtures <labels@heylook.qa>
+To: qa@heylook.qa
+Subject: LBL159 NO ja hi-kimitsu shift_jis
+Date: Sat, 24 Oct 2026 14:30:51 GMT
+Message-ID: <lbl-159-1792852251494@heylook.qa>
+msip_labels: MSIP_Label_1f2e_Enabled=true; MSIP_Label_1f2e_Name==?shift_jis?q?=94=F1=8B=40=96=A7?=; MSIP_Label_1f2e_Method=Standard
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Label fixture 159: ja hi-kimitsu shift_jis

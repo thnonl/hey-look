@@ -1,0 +1,14 @@
+MIME-Version: 1.0
+From: Label Fixtures <labels@heylook.qa>
+To: qa@heylook.qa
+Subject: LBL076 NO en Never confidential fold
+Date: Sat, 24 Oct 2026 14:30:51 GMT
+Message-ID: <lbl-76-1792852251461@heylook.qa>
+msip_labels: MSIP_Label_1f2e_Enabled=true;
+ MSIP_Label_1f2e_Name==?utf-8?b?TmV2ZXIgY29u?=
+ =?utf-8?b?ZmlkZW50aWFs?=;
+ MSIP_Label_1f2e_Method=Standard
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Label fixture 76: en Never confidential fold

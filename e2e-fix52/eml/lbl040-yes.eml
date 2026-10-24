@@ -1,0 +1,14 @@
+MIME-Version: 1.0
+From: Label Fixtures <labels@heylook.qa>
+To: qa@heylook.qa
+Subject: LBL040 YES ru Konfidentsialno fold
+Date: Sat, 24 Oct 2026 14:30:51 GMT
+Message-ID: <lbl-40-1792852251448@heylook.qa>
+msip_labels: MSIP_Label_1f2e_Enabled=true;
+ MSIP_Label_1f2e_Name==?utf-8?b?0JrQvtC90YTQuNC00LXQvQ==?=
+ =?utf-8?b?0YbQuNCw0LvRjNC90L4=?=;
+ MSIP_Label_1f2e_Method=Standard
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Label fixture 40: ru Konfidentsialno fold

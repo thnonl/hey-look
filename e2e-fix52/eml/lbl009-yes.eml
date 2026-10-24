@@ -1,0 +1,11 @@
+MIME-Version: 1.0
+From: Label Fixtures <labels@heylook.qa>
+To: qa@heylook.qa
+Subject: LBL009 YES fr Tres confidentiel q
+Date: Sat, 24 Oct 2026 14:30:51 GMT
+Message-ID: <lbl-9-1792852251441@heylook.qa>
+msip_labels: MSIP_Label_1f2e_Enabled=true; MSIP_Label_1f2e_Name==?utf-8?q?Tr=C3=A8s=20confidentiel?=; MSIP_Label_1f2e_Method=Standard
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Label fixture 9: fr Tres confidentiel q

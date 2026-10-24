@@ -1,0 +1,14 @@
+MIME-Version: 1.0
+From: Label Fixtures <labels@heylook.qa>
+To: qa@heylook.qa
+Subject: LBL130 NO ru Nesekretno fold
+Date: Sat, 24 Oct 2026 14:30:51 GMT
+Message-ID: <lbl-130-1792852251481@heylook.qa>
+msip_labels: MSIP_Label_1f2e_Enabled=true;
+ MSIP_Label_1f2e_Name==?utf-8?b?0J3QtdGB0LXQug==?=
+ =?utf-8?b?0YDQtdGC0L3Qvg==?=;
+ MSIP_Label_1f2e_Method=Standard
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Label fixture 130: ru Nesekretno fold

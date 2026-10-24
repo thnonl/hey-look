@@ -1,0 +1,11 @@
+MIME-Version: 1.0
+From: Label Fixtures <labels@heylook.qa>
+To: qa@heylook.qa
+Subject: LBL097 NO de Nicht vertraulich raw
+Date: Sat, 24 Oct 2026 14:30:51 GMT
+Message-ID: <lbl-97-1792852251466@heylook.qa>
+msip_labels: MSIP_Label_1f2e_Enabled=true; MSIP_Label_1f2e_Name=Nicht vertraulich; MSIP_Label_1f2e_Method=Standard
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Label fixture 97: de Nicht vertraulich raw

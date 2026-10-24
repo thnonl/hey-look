@@ -1,0 +1,11 @@
+MIME-Version: 1.0
+From: Label Fixtures <labels@heylook.qa>
+To: qa@heylook.qa
+Subject: LBL110 NO es No confidencial b64
+Date: Sat, 24 Oct 2026 14:30:51 GMT
+Message-ID: <lbl-110-1792852251469@heylook.qa>
+msip_labels: MSIP_Label_1f2e_Enabled=true; MSIP_Label_1f2e_Name==?utf-8?b?Tm8gY29uZmlkZW5jaWFs?=; MSIP_Label_1f2e_Method=Standard
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Label fixture 110: es No confidencial b64
