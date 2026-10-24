@@ -30,6 +30,9 @@ mod linuxview;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod linuxtheme;
 mod macnotify;
+// macOS Print (W5.3): the rules are compiled everywhere and tested everywhere, the AppKit calls only on macOS
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod macprint;
 // the macOS Dock badge: the call's rules and record (D-056); compiled everywhere so that they are tested everywhere
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod dockbadge;
@@ -1973,6 +1976,14 @@ async fn notify_permission(state: tauri::State<'_, AppState>, ask: Option<String
 #[tauri::command]
 async fn os_color_scheme() -> R<linuxtheme::OsScheme> {
     blocking(|| Ok(linuxtheme::command_value())).await
+}
+
+/// Print a message (macOS, W5.3): `html` is the print document the page built (`src/printDoc.ts`); the system print sheet opens on the window that called. Windows and Linux print the frame
+/// themselves and never call this (it answers an error there). Async: it waits for the document to load (up to 10 s) and must not hold the main thread.
+#[tauri::command]
+async fn print_html(app: tauri::AppHandle, window: tauri::WebviewWindow, html: String, title: String) -> R<()> {
+    let label = window.label().to_string();
+    blocking(move || macprint::print(&app, &label, html, title)).await
 }
 
 /// Settings > Notifications & tray > "Open System Settings" (macOS, notifications turned off for the app): the Notifications pane of System Settings.
@@ -6037,6 +6048,7 @@ pub fn run() {
             notify_permission,
             os_color_scheme,
             open_notification_settings,
+            print_html,
             play_notify_sound,
             create_mail_folder,
             open_external,
