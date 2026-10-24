@@ -3,6 +3,8 @@
 // with a dark counterpart in a generated stylesheet. Nothing in the mail is edited: switching back to the original is
 // disabling that stylesheet, and printing (@media screen only) always uses the original colours.
 
+import { frameSandbox } from "./frameSandbox.ts";
+
 type RGB = [number, number, number];
 type RGBA = [number, number, number, number];
 
@@ -502,5 +504,4 @@ export function mailKey(...parts: readonly string[]): string {
 export function appSurface(): RGB {
   const c = parseColor(getComputedStyle(document.body).backgroundColor);
   return c ? [c[0], c[1], c[2]] : [27, 28, 32];
-}import { frameSandbox } from "./frameSandbox";
-
+}
