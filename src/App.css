@@ -493,7 +493,10 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
 .ml-foot { padding: 14px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .ml-foot .spin { margin-right: 4px; }
 /* Search on the server (W6.7): the button, the running line, the heading and the rows at the end of the results */
-.ml-srv { padding: 12px 14px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+/* every state of the footer is at least as tall as the idle one (the button), and the running state is one line like it: starting a search does not move the list (WK-37.02) */
+.ml-srv { padding: 12px 14px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; box-sizing: border-box; min-height: 48px; }
+.ml-srv .ml-row { content-visibility: visible; } /* the rows below the fold are drawn at their real height, like the list's own (the skipped ones took the 78 px of .ml-row) */
+.ml-srv-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 10px; min-height: 24px; }
 .ml-srv section { width: 100%; text-align: left; }
 .ml-srv-head { margin: 4px 0 6px; padding: 0 2px; font-size: 12px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--muted); }
 .ml-srv-rows { display: block; }

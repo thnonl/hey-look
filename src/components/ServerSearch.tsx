@@ -40,12 +40,15 @@ export function ServerSearchSection() {
   if (phase === "running") {
     return (
       <div className="ml-srv" data-server-search="running" role="status">
-        <span className="muted">
-          <span className="spin" aria-hidden /> {tr("mail.server.searching")}
-        </span>{" "}
-        <button className="btn small" onClick={cancel}>
-          {tr("common.cancel")}
-        </button>
+        {/* one line (the text and the button side by side), so starting the search does not make the footer taller than the button alone */}
+        <div className="ml-srv-line">
+          <span className="muted">
+            <span className="spin" aria-hidden /> {tr("mail.server.searching")}
+          </span>
+          <button className="btn small" onClick={cancel}>
+            {tr("common.cancel")}
+          </button>
+        </div>
       </div>
     );
   }
@@ -68,7 +71,8 @@ export function ServerSearchSection() {
                 <ThreadRow
                   key={k}
                   t={summaryOf(r)}
-                  prefs={{ ...prefs, preview: false }}
+                  prefs={prefs}
+                  reservePreview
                   showFolder
                   accountColor={acct?.color ?? null}
                   accountLabel={acct?.email}

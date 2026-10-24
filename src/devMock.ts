@@ -1636,10 +1636,10 @@ export function installMock() {
           accountId: "a1", role: i % 3 === 2 ? "archive" : "inbox", uid: 5000 - i, validity: 1, subject: i === 0 ? "Báo cáo quý 3" : `Old invoice ${i + 1}`, fromName: i % 2 ? "Ann Lee" : "", fromEmail: "ann@x.test",
           date: Math.floor(Date.now() / 1000) - 86400 * 400 - i * 3600, seen: i % 2 === 0, flagged: i === 3, hasAttach: i === 1,
         }));
-        return later(mode === "slow" ? 6000 : 300, () => ({
+        return later(hashNum("serversearchdelay", mode === "slow" ? 6000 : 300), () => ({
           rows: gen === mockServerRun ? rows : [],
           capped: mode === "capped",
-          errors: mode === "fail" ? [{ accountId: "a2", error: "IMAP login failed: the mock server is down" }] : [],
+          errors: mode === "fail" ? [{ accountId: "a2", error: hashTokens().has("serversearchlong") ? "The server said: " + "unbroken-reply-text-".repeat(15) : "IMAP login failed: the mock server is down" }] : [], // (`#serversearchlong`: 300 characters without a space)
           localOnly: mode === "local",
           cancelled: gen !== mockServerRun,
         }));
