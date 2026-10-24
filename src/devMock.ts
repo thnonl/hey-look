@@ -1677,7 +1677,7 @@ export function installMock() {
         return null;
       }
       case "mac_menu_state": // (macOS File > Print…, W5.11) what the page said last and how often, for a check
-        (window as unknown as { __macMenu?: boolean[] }).__macMenu = [...((window as unknown as { __macMenu?: boolean[] }).__macMenu ?? []), a.canPrint === true];
+        (window as unknown as { __macMenu?: { can: boolean; at: number }[] }).__macMenu = [...((window as unknown as { __macMenu?: { can: boolean; at: number }[] }).__macMenu ?? []), { can: a.canPrint === true, at: Math.round(performance.now()) }];
         return null;
       case "plugin:opener|open_url": // (Linux asks the backend: open_external)
       case "open_external":

@@ -4,6 +4,7 @@
 
 ### Added
 
+- macOS: the menu bar has the standard items of a Mac mail app: Hey Look! > Settings… (Cmd+,), File > Print… (Cmd+P, on while the window with the focus shows a message you can print; off for Confidential mail, a message being written and Settings) and Help > Hey Look! Help (the help page in the language of the app). They follow the language of the app at once. The first time you print, macOS may ask about the local network (the print window looks for printers); the question now says why, in the 8 languages of the app.
 - Linux: a new-mail notification has the buttons of the mailbox's Notifications > Buttons setting (Archive, Delete, Mark as read by default) when the desktop's notification service draws buttons, and a click on the notification opens the conversation; a button works also while the window is hidden. Settings says so when the desktop has no buttons.
 - macOS: Print is in the More menu of a message (main window and message window) and Cmd+P prints in a message window; the system print sheet opens on that window with the message only, in the light colours, across as many pages as it needs.
 - Linux: with the theme set to System the app follows the desktop's light or dark setting (read from the desktop portal, or from the GTK settings when there is no portal), also while it runs; the title bar, scroll bars and pop-up lists of the system follow too. Light and Dark chosen in Settings still win.
@@ -71,6 +72,7 @@
 
 ### Fixed
 
+- macOS and Linux: a window logged an "is_permission_granted not allowed" error on every start because the notification permission check the system adds to every window was not allowed (no effect on notifications).
 - Linux without a tray (for example KDE with the System Tray widget removed): Welcome, the quit question, the Send later picker, Settings > Filters and the Settings tab no longer talk about the tray; "Send test" says at once when no notification service is running. The macOS Welcome screen says "menu bar".
 - Linux: a log out, a shut down or a `kill` (SIGTERM, SIGHUP, SIGINT) closes the push connections and saves the queued actions before Hey Look! ends, like a macOS log out.
 - A newsletter that has a dark design (`prefers-color-scheme: dark`) now follows the message background (Original = its light design, Dark = its dark design, as the button in the reading pane says), not the colour setting of the system or of the app; switching the background changes it at once without reloading the message, and printing is always light.

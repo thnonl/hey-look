@@ -1372,7 +1372,7 @@ mod platform_tests {
         // File > Print…: Cmd+P, after Close Window behind a separator, off until a page says it can
         let print = body("fn add_print_item(");
         assert!(print.contains("MAC_PRINT_ID, crate::i18n::tr(crate::i18n::K::MacPrint), false, Some(\"CmdOrCtrl+P\")"), "{print}");
-        assert!(print.contains("== \"File\"") && print.find("file.append(&PredefinedMenuItem::separator").unwrap() < print.find("file.append(&ours)").unwrap(), "{print}");
+        assert!(print.contains("!= \"File\"") && print.find("file.append(&PredefinedMenuItem::separator").unwrap() < print.find("file.append(&ours)").unwrap(), "{print}");
         // Help > Hey Look! Help: in the Help menu tauri registers with the system (the search field stays)
         let help = body("fn add_help_item(");
         assert!(help.contains("tauri::menu::HELP_SUBMENU_ID") && help.contains("MAC_HELP_ID, crate::i18n::tr(crate::i18n::K::MacHelp)"), "{help}");

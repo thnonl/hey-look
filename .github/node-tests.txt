@@ -380,6 +380,12 @@ ui-d | node scripts/test-os-theme-ui.mjs --require-browser
 static | node --experimental-strip-types scripts/test-print-doc.mjs
 # 1.0.7 W5.3: Print on macOS in the dev preview (per-message menu, reader Cmd+P, failure toast)
 ui-c | node scripts/test-print-ui.mjs --require-browser
+# 1.0.7 W5.11 (DEC-026): the macOS menu bar items: Info.plist reason text without NSBonjourServices and the 7 translated InfoPlist.strings placed by tauri.conf.json, no Cmd+P handler in the page on macOS, the wiring (command in the three places, capabilities, listeners)
+static | node --experimental-strip-types scripts/test-mac-menu.mjs
+# 1.0.7 W5.11 (AC-5.11.1 to AC-5.11.4 page part): the page tells the menu when a message can be printed (within 200 ms, once per change, off for Confidential mail, a dialog in front, nothing selected), the menu events print once / open Help in the language / open Settings, Windows never reports
+ui-c | node scripts/test-mac-menu-ui.mjs --require-browser
+# 1.0.7 D-104: every plugin command a page sends, or a plugin sends for it (the notification plugin asks is_permission_granted in every window), is granted to the windows that run it; the plugin grant is for macOS and Linux only
+static | node scripts/test-plugin-capabilities.mjs
 # 1.0.7 W5.6: the five tray places pick the no-tray / menu-bar text
 static | node --experimental-strip-types scripts/test-no-tray-texts.mjs
 # 1.0.7 W5.6: no-tray texts and the Mac Welcome bullet in the dev preview, 8 languages

@@ -7444,7 +7444,7 @@ mod capability_tests {
         let never = [
             "quit_now", "quit_cancelled", "sends_flushed", "quit_page_alive", "quit_dialog", "frontend_ready", "page_state", "page_pong", "popout_reply", "popout_save_all", "update_install",
             "thread_action", "queue_action", "cancel_action", "sender_action", "prepare_action", "load_older", "prune_to_limit", "server_search", "server_search_cancel", "server_open", "frame_info", "frame_caption_rect", "frame_system_menu", "show_window", "set_mail_available",
-            "take_tray_compose", "idle_states", "window_caption_colors", "update_startup_state", "update_startup_ack", "refresh_badge", "sync_account", "popout_show", "popout_park", "popout_set_key",
+            "take_tray_compose", "idle_states", "window_caption_colors", "update_startup_state", "update_startup_ack", "refresh_badge", "sync_account", "popout_show", "popout_park", "popout_set_key", "mac_menu_state",
             "drag_begin", "drag_take", "send_message", "save_draft", "discard_draft", "recovery_save", "recovery_clear", "outbox_hold", "outbox_hold_send", "outbox_update", "outbox_reschedule", "create_mail_folder",
         ];
         // (kind, capability file, window pattern, what the view needs on top of the basics, what it must not get on top of `never`)
