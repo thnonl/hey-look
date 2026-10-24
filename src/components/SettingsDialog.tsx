@@ -6,7 +6,7 @@ import { openUpdateLink } from "../updates";
 import { Grip, useAccountReorder } from "./AccountReorder";
 import { ABOUT_LINKS, siteUrl } from "../aboutLinks";
 import { Fragment, ReactNode, useEffect, useRef, useState } from "react";
-import { Account, api, AutostartInfo, CalSource, Discovered, PgpKey, PROVIDERS, Rule, Signature, Template } from "../api";
+import { Account, api, AutostartInfo, CalSource, Discovered, NotifyPermission, PgpKey, PROVIDERS, Rule, Signature, Template } from "../api";
 import { singleLabelHostsOf } from "../addresses";
 import { backendText } from "../backendErrors";
 import { parseReplyTo } from "../replyTo";
@@ -1649,8 +1649,30 @@ function TrayTab() {
   // (in the Microsoft Store version the switch is the package's startup task: Windows or the organisation may have turned it off for good, `locked`)
   const [autostart, setAutostart] = useState<AutostartInfo>({ enabled: false, locked: null });
   useEffect(() => void api.getAutostart().then(setAutostart).catch(() => undefined), []);
+  // macOS: what the system lets the app do with notifications. Read when the tab opens and each time the window comes back to the front (the person may have changed it in System Settings)
+  const [perm, setPerm] = useState<NotifyPermission>("unsupported");
+  useEffect(() => {
+    if (os !== "macos") return;
+    let live = true;
+    const read = () => void api.notifyPermission().then((s) => live && setPerm(s)).catch(() => undefined);
+    read();
+    window.addEventListener("focus", read);
+    return () => {
+      live = false;
+      window.removeEventListener("focus", read);
+    };
+  }, [os]);
   const test = async () => {
     try {
+      if (os === "macos") {
+        // never asked: this asks (the system shows its dialog once); denied: nothing is sent, the note says why
+        const state = await api.notifyPermission("sendTest");
+        setPerm(state);
+        if (state === "denied") {
+          showToast(() => t("settings.tray.macDenied"), undefined, "info");
+          return;
+        }
+      }
       await api.testNotification();
     } catch (e) {
       showToast(() => os === "windows" ? friendlyError(e) : t("settings.tray.testFailed", { error: friendlyError(e) }), undefined, "error");
@@ -1668,9 +1690,14 @@ function TrayTab() {
   return (
     <div>
       <h3>{t("settings.tray.title")}</h3>
-      {os === "macos" && <div className="muted small" style={{ marginBottom: 6 }}>{t("settings.tray.macUnavailable")}</div>}
       <div className="muted small">{os === "windows" ? t("settings.tray.introWindows") : t("settings.tray.intro")}</div>
       <Row label={t("settings.tray.test")}><button className="btn" onClick={() => void test()}>{t("settings.tray.sendTest")}</button></Row>
+      {os === "macos" && perm === "denied" && (
+        <div className="mac-notify-denied">
+          <div className="muted small">{t("settings.tray.macDenied")}</div>
+          <button className="btn" onClick={() => void api.openNotificationSettings().catch((e) => showToast(() => friendlyError(e), undefined, "error"))}>{t("settings.tray.macOpenSettings")}</button>
+        </div>
+      )}
       <Row label={t("settings.tray.sentSound")}><Switch checked={prefs.sentSound} onChange={(v) => setPrefs({ sentSound: v })} /></Row>
       <Row
         label={t("settings.tray.keepRunning")}

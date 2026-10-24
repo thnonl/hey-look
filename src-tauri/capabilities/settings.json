@@ -51,6 +51,8 @@
     "allow-get-autostart",
     "allow-set-autostart",
     "allow-test-notification",
+    "allow-notify-permission",
+    "allow-open-notification-settings",
     "allow-play-notify-sound",
     "allow-pick-folder",
     "allow-list-signatures",

@@ -911,14 +911,90 @@ fn tray_hint_text(os: &str) -> &'static str {
     crate::i18n::tray_hint(os)
 }
 
+/// macOS: the facts the permission rules need: the number of accounts, whether desktop notifications are on for at least one mailbox, and whether the Dock badge is not "None"
+/// (REQ-5.10.2). The "all mailboxes" switch and the per-mailbox override are read the way `notify_new` reads them.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn mac_notify_flags(db: &Db) -> (usize, bool, bool) {
+    let ids: Vec<String> = db::list_accounts(&lock(db)).map(|a| a.into_iter().map(|x| x.id).collect()).unwrap_or_default();
+    let (notify, dock) = mac_notify_reasons(&prefs(db), &ids);
+    (ids.len(), notify, dock)
+}
+
+/// (notifications on for some mailbox, Dock badge on) for these preferences. Pure.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn mac_notify_reasons(p: &Value, account_ids: &[String]) -> (bool, bool) {
+    let notify = pbool(p, "notifications", true) && account_ids.iter().any(|id| eff(p, id, "notifications").and_then(|v| v.as_bool()).unwrap_or(true));
+    (notify, badge_styles(p).1 == "number")
+}
+
+/// Whether a change of the preferences turned notifications or the Dock badge on (REQ-5.10.2 c). Pure.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn turned_on(before: (bool, bool), after: (bool, bool)) -> bool {
+    (after.0 && !before.0) || (after.1 && !before.1)
+}
+
+/// macOS: the answer of "ask for permission" for a start / first account (REQ-5.10.2 a). Runs on a thread of its own (the system dialog blocks until the person answers) and
+/// stops asking once macOS has an answer; called at start and every sync round, so an account added later is covered.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn mac_notify_start(db: &Db) {
+    use crate::macnotify::{ensure, State, Trigger};
+    static SETTLED: AtomicBool = AtomicBool::new(false);
+    static BUSY: AtomicBool = AtomicBool::new(false);
+    if SETTLED.load(Ordering::Relaxed) || BUSY.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let db = db.clone();
+    std::thread::spawn(move || {
+        let (accounts, notify, dock) = mac_notify_flags(&db);
+        if ensure(Trigger::Start, accounts, notify, dock) != State::Undetermined {
+            SETTLED.store(true, Ordering::Relaxed);
+        }
+        BUSY.store(false, Ordering::SeqCst);
+    });
+}
+
+/// macOS: notifications or the Dock badge were turned on in Settings: ask now if macOS was never asked (REQ-5.10.2 c).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn mac_notify_setting_on(db: &Db) {
+    let db = db.clone();
+    std::thread::spawn(move || {
+        let (accounts, notify, dock) = mac_notify_flags(&db);
+        crate::macnotify::ensure(crate::macnotify::Trigger::SettingOn, accounts, notify, dock);
+    });
+}
+
+/// macOS: the main window gained focus: read the state again (a change made in System Settings shows without a restart; the log gets a line when it changed).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn mac_notify_focus() {
+    static BUSY: AtomicBool = AtomicBool::new(false);
+    if BUSY.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    std::thread::spawn(|| {
+        crate::macnotify::read();
+        BUSY.store(false, Ordering::SeqCst);
+    });
+}
+
+/// The command `notify_permission`: the state macOS reports for this app (`unsupported` anywhere else). `ask` (the "Send test" button) asks first while macOS was never asked.
+pub fn notify_permission(db: &Db, ask: bool) -> crate::macnotify::State {
+    if ask {
+        let (accounts, notify, dock) = mac_notify_flags(db);
+        crate::macnotify::ensure(crate::macnotify::Trigger::SendTest, accounts, notify, dock)
+    } else {
+        crate::macnotify::read()
+    }
+}
+
 pub fn test_notification(app: &AppHandle, db: &Db) -> Result<(), String> {
-    // macOS: the notification backend of the plugin (the old NSUserNotification API) shows nothing on current macOS for an ad-hoc
-    // signed app and cannot ask for permission; Send test says so instead of pretending (QA BUG-M5, owner decision: documented limit)
-    // (a debug build started with HEYLOOK_MAC_NOTIFY=1 makes the attempt instead, for the Mac QA session: macnotify.rs)
+    // macOS: macOS is asked for permission first when it never was (REQ-5.10.5); with the permission turned off nothing is sent (the page shows the note)
     #[cfg(target_os = "macos")]
-    if crate::macnotify::mode().is_none() {
-        let _ = (app, db);
-        return Err(crate::i18n::coded("NOTIFY_MAC_UNAVAILABLE", &[], "not available on macOS in this version"));
+    {
+        let (accounts, notify, dock) = mac_notify_flags(db);
+        if crate::macnotify::ensure(crate::macnotify::Trigger::SendTest, accounts, notify, dock) == crate::macnotify::State::Denied {
+            crate::startup::line("notify", "macos: send test skipped (notifications are turned off in macOS)");
+            return Ok(());
+        }
     }
     let p = prefs(db);
     toast(
@@ -1000,6 +1076,42 @@ mod platform_tests {
         for id in ["\"compose\" if MAIL_AVAILABLE", "\"sync\" if MAIL_AVAILABLE"] {
             assert!(src.contains(id), "{id}");
         }
+    }
+
+    #[test]
+    fn the_macos_permission_reasons_are_notifications_on_for_some_mailbox_and_the_dock_badge() {
+        let ids = vec!["a".to_string(), "b".to_string()];
+        let p = |j: &str| serde_json::from_str::<Value>(j).unwrap();
+        assert_eq!(mac_notify_reasons(&Value::Null, &ids), (true, true), "defaults: notifications on, the Dock badge shows the number");
+        assert_eq!(mac_notify_reasons(&Value::Null, &[]), (false, true), "no mailbox, nothing to notify about");
+        assert_eq!(mac_notify_reasons(&p(r#"{"notifications":false}"#), &ids), (false, true), "the all-mailboxes switch is off");
+        assert_eq!(mac_notify_reasons(&p(r#"{"accountPrefs":{"a":{"notifications":false}}}"#), &ids), (true, true), "one mailbox is enough");
+        assert_eq!(mac_notify_reasons(&p(r#"{"accountPrefs":{"a":{"notifications":false},"b":{"notifications":false}}}"#), &ids), (false, true));
+        assert_eq!(mac_notify_reasons(&p(r#"{"taskbarBadge":"off"}"#), &ids), (true, false));
+        assert_eq!(mac_notify_reasons(&p(r#"{"showUnreadCount":false}"#), &ids), (true, false), "the older switch counts too");
+        // turning one on asks; turning one off or changing something else does not
+        assert!(turned_on((false, true), (true, true)));
+        assert!(turned_on((true, false), (true, true)));
+        assert!(turned_on((false, false), (false, true)));
+        assert!(!turned_on((true, true), (false, true)));
+        assert!(!turned_on((true, true), (true, true)));
+        assert!(!turned_on((true, false), (true, false)));
+    }
+
+    /// W5.10: the callers of the permission flow. The sources are read like the quit tests do (the Objective-C code is macOS-only).
+    #[test]
+    fn the_macos_permission_is_asked_at_the_agreed_moments_and_the_old_unavailable_answer_is_gone() {
+        let shell = crate::test_guard::non_test_code(include_str!("shell.rs"));
+        let send = &shell[shell.find("pub fn test_notification(").unwrap()..];
+        let send = &send[..send.find("
+}
+").unwrap()];
+        assert!(send.contains("Trigger::SendTest") && send.contains("State::Denied"), "Send test asks, and sends nothing when macOS refuses: {send}");
+        assert!(!shell.contains(concat!("NOTIFY_MAC", "_UNAVAILABLE")));
+        let lib = crate::test_guard::non_test_code(include_str!("lib.rs"));
+        assert!(lib.contains("shell::mac_notify_start(&db)"), "start and every sync round");
+        assert!(lib.contains("shell::mac_notify_focus()"), "the main window gaining focus reads the state again");
+        assert!(lib.contains("shell::turned_on(before"), "turning notifications or the Dock badge on asks");
     }
 
     #[test]

@@ -77,6 +77,9 @@ keyring = { version = "3", features = ["apple-native"] }
 objc2 = "0.6"
 # macquit.rs: the block for the power-off notice (already in the lock file, tao and muda use it)
 block2 = "0.6"
+# macnotify.rs (W5.10): the permission for notifications and the Dock badge (UNUserNotificationCenter); versions already in the lock file (wry / tauri-plugin use them)
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSBundle", "NSString", "NSError"] }
+objc2-user-notifications = { version = "0.3", default-features = false, features = ["std", "block2", "UNUserNotificationCenter", "UNNotificationSettings"] }
 
 # quit watchdog (lib.rs `exit_watchdog`): a last way to end the process that skips the exit handlers of the libraries; already in the lock file
 [target.'cfg(unix)'.dependencies]

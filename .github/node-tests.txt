@@ -352,3 +352,7 @@ static | node --experimental-strip-types scripts/test-drag-drop.mjs
 ui-d | node scripts/test-popout-kinds.mjs --require-browser
 # 1.0.7 W4.2 / W4.6 / W4.9: the windows in a real debug build (skipped here: it needs --exe=<debug build with its own identifier>; QA and the coder run it): every kind opens with its title and kind, the cap of 8 counts all kinds, the ACL refuses what a kind may not call, set_setting(prefs) is main's alone, GET /native, and (Windows) a crashed page process reloads the window once and the second crash ends it
 static | node scripts/test-popout-real.mjs
+# 1.0.7 W5.10 (DEC-017): the two agreed texts of the macOS notification note in 8 languages, the old unavailable text and key gone from every dictionary and source, the two commands in the three places (main and settings windows only), the page asks before Send test on macOS only and shows the note only for denied, the debug seam
+static | node --experimental-strip-types scripts/test-mac-notify-texts.mjs
+# 1.0.7 W5.10 (AC-5.10.3, AC-5.10.4, AC-5.10.7, AC-5.10.9 page part): macOS Settings > Notifications & tray in the dev preview: the note and Open System Settings only for denied, Send test asks first when undetermined and sends nothing when denied, the note follows a change made in System Settings at the next focus, Windows and Linux never ask, 8 languages at 960x560 and 1280x800, light and dark
+ui-e | node scripts/test-mac-notify-ui.mjs --require-browser

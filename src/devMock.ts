@@ -1644,6 +1644,21 @@ export function installMock() {
       }
       case "test_notification":
         if (hashTokens().has("nonotify")) throw "no notification server is running";
+        ((window as unknown as { __notifyLog?: string[] }).__notifyLog ??= []).push("test");
+        return null;
+      // macOS notification permission (W5.10): `#macnotify-denied` / `#macnotify-undetermined` (default granted); a check sets window.__mockPerm to change it ("System Settings"), window.__mockPermAnswer is what the
+      // person answers when asked (default granted); window.__notifyLog lists the asks and the tests
+      case "notify_permission": {
+        const w = window as unknown as { __mockPerm?: string; __mockPermAnswer?: string; __notifyLog?: string[] };
+        w.__mockPerm ??= hashTokens().has("macnotify-denied") ? "denied" : hashTokens().has("macnotify-undetermined") ? "undetermined" : "granted";
+        if (a.ask === "sendTest" && w.__mockPerm === "undetermined") {
+          (w.__notifyLog ??= []).push("ask");
+          w.__mockPerm = w.__mockPermAnswer ?? "granted";
+        }
+        return w.__mockPerm;
+      }
+      case "open_notification_settings":
+        ((window as unknown as { __notifyLog?: string[] }).__notifyLog ??= []).push("open-settings");
         return null;
       // `#nosound`: the preview cannot play (the toast "Couldn't play the sound"); `window.__mockSoundPlays` counts the calls
       case "play_notify_sound":

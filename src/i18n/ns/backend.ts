@@ -41,7 +41,6 @@ export default define({
     "backend.SCHEDULE_IN_PAST": "That time has passed. Pick a later time, or send now.",
     "backend.SCHEDULE_TOO_FAR": "Pick a date within a year.",
     "backend.NOTIFY_NO_SERVICE": "No notification service is running in this desktop environment.",
-    "backend.NOTIFY_MAC_UNAVAILABLE": "not available on macOS in this version",
     "backend.PGP_LOCKED_OUT": "Too many attempts. Wait 30 seconds.",
     "backend.PGP_NO_KEY": "You have no PGP key for {email}.",
     "backend.PGP_BAD_PASSPHRASE": "Wrong passphrase.",

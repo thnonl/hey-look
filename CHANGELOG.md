@@ -54,6 +54,7 @@
 
 ### Fixed
 
+- macOS: the app now asks macOS for permission to show notifications (banners, sound and the Dock badge), once, when you have an account and notifications or the Dock badge are on, when you press Send test, or when you turn them on in Settings. Without that permission macOS never registered Hey Look! in System Settings > Notifications and the Dock showed no unread number. If notifications are turned off for the app, Settings > Notifications & tray says so and has an "Open System Settings" button; Send test works in every state (the old "not available on macOS" message is gone).
 - macOS: a window that is closed no longer leaves an invisible native window and about 1.4 MB behind (the window toolkit's release bug, fixed upstream, is built in), and the title bar of every window is the colour of the app in the dark theme instead of a lighter grey strip
 - Windows 11: the title bar of the message, reader and other windows has the colour of the main window's top bar in Light and in Dark, and its text stays readable on any top bar colour
 - A window whose page stops working is reloaded once with what it showed (a message as of its last automatic copy); if it stops again it is closed with a message and what you wrote is saved to Drafts

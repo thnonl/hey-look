@@ -28,6 +28,9 @@ export interface Account {
   /** Own Reply-To of the mail sent from this mailbox: one bare address, empty or missing = none (Settings > mailbox). */
   replyTo?: string;
 }
+/** What macOS lets the app do with notifications (W5.10); `unsupported` on every other system and for a process that is not an app bundle. */
+export type NotifyPermission = "granted" | "denied" | "undetermined" | "unsupported";
+
 export type AccountInput = Omit<Account, "id" | "auth" | "color" | "replyTo">;
 
 export interface ThreadSummary {
@@ -609,6 +612,10 @@ export const api = {
   removeAccount: (accountId: string) => invoke<void>("remove_account", { accountId }),
   refreshBadge: () => invoke<void>("refresh_badge"),
   testNotification: () => invoke<void>("test_notification"),
+  /** macOS: what the system lets this app do with notifications (`unsupported` elsewhere); `"sendTest"` asks macOS first while it was never asked (W5.10) */
+  notifyPermission: (ask?: "sendTest") => invoke<NotifyPermission>("notify_permission", { ask }),
+  /** macOS: the Notifications pane of System Settings */
+  openNotificationSettings: () => invoke<void>("open_notification_settings"),
   /** the new-mail sound once (Settings > Notifications > Play sound) */
   playNotifySound: () => invoke<void>("play_notify_sound"),
   /** a link in the default browser or mail program, with a checked launch (Linux only; see open.ts) */

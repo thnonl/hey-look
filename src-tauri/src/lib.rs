@@ -1218,6 +1218,9 @@ fn sync_worker(app: tauri::AppHandle) {
         std::thread::sleep(std::time::Duration::from_secs(30));
         let db = app.state::<AppState>().db.clone();
         shell::check_snoozes(&app, &db);
+        // macOS: asks for notification permission once there is an account and a reason to notify (a no-op after macOS has answered)
+        #[cfg(target_os = "macos")]
+        shell::mac_notify_start(&db);
         let p = shell::prefs(&db);
         let ids: Vec<String> = db::list_accounts(&lock(&db)).map(|a| a.into_iter().map(|x| x.id).collect()).unwrap_or_default();
         let mut any = false;
@@ -1948,9 +1951,27 @@ fn refresh_badge(app: tauri::AppHandle, state: tauri::State<AppState>) {
     shell::update_badge(&app, &state.db);
 }
 
+/// "Send test". Async: on macOS it may wait for the person to answer the system's permission dialog, on Linux for the notification service (up to 5 s); neither may hold the
+/// main thread.
 #[tauri::command]
-fn test_notification(app: tauri::AppHandle, state: tauri::State<AppState>) -> R<()> {
-    shell::test_notification(&app, &state.db)
+async fn test_notification(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> R<()> {
+    let db = state.db.clone();
+    blocking(move || shell::test_notification(&app, &db)).await
+}
+
+/// What macOS lets this app do with notifications: `granted`, `denied`, `undetermined` or `unsupported` (every other system, or a process that is not an app bundle). `ask` =
+/// `"sendTest"` (the Send test button) asks macOS first while it was never asked (W5.10). A debug build may fake the answer (HEYLOOK_TEST_NOTIFY_PERMISSION).
+#[tauri::command]
+async fn notify_permission(state: tauri::State<'_, AppState>, ask: Option<String>) -> R<String> {
+    let db = state.db.clone();
+    blocking(move || Ok(shell::notify_permission(&db, ask.as_deref() == Some("sendTest")).as_str().to_string())).await
+}
+
+/// Settings > Notifications & tray > "Open System Settings" (macOS, notifications turned off for the app): the Notifications pane of System Settings.
+#[tauri::command]
+async fn open_notification_settings(app: tauri::AppHandle) -> R<()> {
+    let id = app.config().identifier.clone();
+    blocking(move || macnotify::open_settings(&id)).await
 }
 
 /// Right-click a mailbox > "New folder…" / a folder of the person > "New subfolder…" (W13.10): CREATE and SUBSCRIBE on the server, the saved list is refreshed, the new folder is returned.
@@ -5523,7 +5544,16 @@ fn set_setting(app: tauri::AppHandle, window: tauri::Window, state: tauri::State
     if !may_write_setting(window.label(), &key) {
         return Err(format!("only the main window writes {key}"));
     }
+    // macOS: what the notification settings were before this write (turning notifications or the Dock badge on asks macOS for permission, W5.10)
+    #[cfg(target_os = "macos")]
+    let notify_before = (key == "prefs").then(|| shell::mac_notify_reasons(&shell::prefs(&state.db), &mac_account_ids(&state.db)));
     db::set_setting(&lock(&state.db), &key, &value)?;
+    #[cfg(target_os = "macos")]
+    if let Some(before) = notify_before {
+        if shell::turned_on(before, shell::mac_notify_reasons(&shell::prefs(&state.db), &mac_account_ids(&state.db))) {
+            shell::mac_notify_setting_on(&state.db);
+        }
+    }
     // the preferences changed: every other window re-reads them (the main page is the only writer, popout.rs)
     if key == "prefs" {
         let _ = app.emit(popout::PREFS_EVENT, serde_json::json!({ "writer": window.label() }));
@@ -5537,6 +5567,11 @@ fn set_setting(app: tauri::AppHandle, window: tauri::Window, state: tauri::State
         shell::refresh_language(&app, &state.db);
     }
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn mac_account_ids(db: &Db) -> Vec<String> {
+    db::list_accounts(&lock(db)).map(|a| a.into_iter().map(|x| x.id).collect()).unwrap_or_default()
 }
 
 /// When this computer first used the app, as far as the system can tell: the creation time of the main database file, in milliseconds
@@ -5885,6 +5920,9 @@ pub fn run() {
                 let noticed = macquit::observe_power_off();
                 startup::stage(Some(app.handle()), &format!("macos: power-off notice (log out / restart / shut down): {}", noticed.err().unwrap_or_else(|| "observed".into())));
             }
+            // macOS: the notification permission is read (logged) and, with an account and a reason to notify, asked for (W5.10)
+            #[cfg(target_os = "macos")]
+            shell::mac_notify_start(&db);
             let handle = app.handle().clone();
             std::thread::spawn(move || sync_worker(handle));
             idle::start(app.handle().clone());
@@ -5915,6 +5953,11 @@ pub fn run() {
             if window.label() != "main" {
                 popout::on_window_event(window, event);
                 return;
+            }
+            // macOS: the main window came back to the front: the notification permission may have been changed in System Settings (read again, logged when it changed)
+            #[cfg(target_os = "macos")]
+            if let tauri::WindowEvent::Focused(true) = event {
+                shell::mac_notify_focus();
             }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let db = window.app_handle().state::<AppState>().db.clone();
@@ -5952,6 +5995,8 @@ pub fn run() {
             sync_account,
             refresh_badge,
             test_notification,
+            notify_permission,
+            open_notification_settings,
             play_notify_sound,
             create_mail_folder,
             open_external,
@@ -6794,7 +6839,7 @@ mod capability_tests {
             "quit_now", "quit_cancelled", "sends_flushed", "quit_page_alive", "quit_dialog", "frontend_ready", "page_state", "page_pong", "show_window", "set_mail_available", "take_tray_compose",
             // calendar connections, sync triggers, mail actions that belong to the main page's intent layer
             "calendar_connect", "calendar_disconnect", "calendar_sources", "calendar_set_sync", "calendar_sync_now", "sync_account", "refresh_badge", "thread_action",
-            "queue_action", "cancel_action", "sender_action", "load_older", "idle_states", "frame_info", "frame_caption_rect", "frame_system_menu", "test_notification", "play_notify_sound", "create_mail_folder",
+            "queue_action", "cancel_action", "sender_action", "load_older", "idle_states", "frame_info", "frame_caption_rect", "frame_system_menu", "test_notification", "notify_permission", "open_notification_settings", "play_notify_sound", "create_mail_folder",
             // the caption colours are the main page's to hand over (W4.3): a window never sets its own
             "window_caption_colors",
             // a secondary window asks the main page (popout_request); only the main page answers
