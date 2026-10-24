@@ -3,6 +3,7 @@ import { blockedPictureBox } from "../blockedPicture";
 import { frameCsp, frameSandbox } from "../frameSandbox";
 import { openUpdateLink } from "../updates";
 import { guardFrame } from "../contextGuard";
+import { guardFrameQuitKey } from "../quitKey";
 import { Archive, Clock, ExternalLink, Flag, Forward, MailX, MoreHorizontal, Moon, Pin, Reply, ReplyAll, Sparkles, Sun, Trash2, ChevronsDownUp, ChevronsUpDown, Mail, ShieldAlert, AlertTriangle } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { mailFrameStats, writeMailDocument } from "../mailFrame";
@@ -565,7 +566,8 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     win?.addEventListener("afterprint", afterPrint);
     const unlock = lockedNow.current ? lockDocument(doc) : undefined;
     // no native webview menu in the mail either: Copy on selected text, Open link / Copy link address on a link (confidential mail has no menu at all)
-    const unguard = lockedNow.current ? undefined : guardFrame(frame, doc, { search: true });
+    // (Confidential mail has no menu at all, but the frame still passes Ctrl+Q on Linux: a key pressed in a frame never reaches the window, D-112)
+    const unguard = lockedNow.current ? guardFrameQuitKey(doc) : guardFrame(frame, doc, { search: true });
     stopObserve.current = () => {
       unlock?.();
       unguard?.();
