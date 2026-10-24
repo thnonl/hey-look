@@ -429,6 +429,8 @@ export default defineLocale<typeof ns.en>({
   "compose.popout.newTitle": "Thư mới",
   "compose.popout.popOut": "Mở ra cửa sổ riêng",
   "compose.popout.popOutTip": "Mở trong cửa sổ mới (Ctrl+Shift+O)",
+  "compose.popout.popIn": "Chuyển về cửa sổ chính",
+  "compose.popout.popInTip": "Chuyển về cửa sổ chính (Ctrl+Shift+O)",
   "compose.popout.sending": "Đang gửi… {n} giây",
   "compose.popout.closeTitle": "Lưu thư của bạn?",
   "compose.popout.closeBody": "Thư này chưa được gửi. Hãy lưu vào Thư nháp hoặc loại bỏ.",

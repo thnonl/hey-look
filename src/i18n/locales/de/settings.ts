@@ -493,6 +493,7 @@ export default defineLocale<typeof ns.en>({
   "settings.keys.closeWindow": "Nachrichtenfenster schließen",
   "settings.keys.shiftCompose": "Neue Nachricht, Antworten, Allen antworten oder Weiterleiten in einem neuen Fenster",
   "settings.keys.popOutCompose": "Die Nachricht, die Sie schreiben, in ein neues Fenster verschieben",
+  "settings.keys.popInCompose": "Nachricht zurück ins Hauptfenster verschieben",
   "settings.about.title": "Info",
   "settings.about.tagline": "{name} – ein E-Mail-Programm für den Desktop, entwickelt mit Tauri, React und Rust.",
   "settings.about.testBuild": "Testversion: Ihre E-Mails, Konten und Einstellungen werden in {dir} gespeichert, nicht im normalen Datenordner.",

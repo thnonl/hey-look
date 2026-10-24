@@ -22,7 +22,11 @@ export type ComposeReq =
   | { kind: "sync" }
   | { kind: "refresh" }
   /** the window of a Reply / Forward that was opened as a shell listens for its finished message (composeFill.ts, W13.13) */
-  | { kind: "fill-ready" };
+  | { kind: "fill-ready" }
+  /** move this message back to the main window (W4.5): the message as the window holds it; answered with `{ state: "asking" }` when the main window is asking its question, else `{ opened }` */
+  | { kind: "pop-in"; init: Record<string, unknown> }
+  /** the answer of the question of a `pop-in` that said "asking": `{ opened }` */
+  | { kind: "pop-in-result" };
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
@@ -65,6 +69,10 @@ export function parseComposeRequest(kind: string, payload: unknown): ComposeReq 
       return { kind: "refresh" };
     case "fill-ready":
       return { kind: "fill-ready" };
+    case "pop-in":
+      return isObj(p.init) ? { kind: "pop-in", init: p.init } : { error: "pop-in: no message" };
+    case "pop-in-result":
+      return { kind: "pop-in-result" };
     default:
       return { error: `unknown compose request: ${kind.slice(0, 40)}` };
   }

@@ -16,6 +16,8 @@ import { wantsWindow } from "../popout/composeOpen";
 import { shiftNow } from "../popout/modifier";
 import { openReader } from "../popout/openReader";
 import { rowWindowTarget } from "../popout/readerLogic";
+import { dragIds, mayDragRow } from "../dragDrop";
+import { endDrag, startMailDrag } from "../dragWire";
 import { ImportanceMark } from "./Importance";
 import { AcctName } from "./AcctName";
 import { useRowContextMenu } from "./ListContextMenu";
@@ -26,6 +28,17 @@ import { downloadLine } from "../backfill";
 import { useDelayedFlag } from "../delayedFlag";
 import { badgeText, tabCounts, tabLabels } from "../focusCounts";
 import { VirtualList, VItem } from "./VirtualList";
+
+/** A drag from a row (W4.7): all the checked conversations when the row is one of them, else the row alone; the drag data is a token (dragDrop.ts). */
+function startRowDrag(e: React.DragEvent, rowId: string) {
+  const st = useStore.getState();
+  const items = dragIds(rowId, st.checked)
+    .map((id) => st.threads.find((x) => x.threadId === id))
+    .filter((x): x is ThreadSummary => !!x && mayDragRow(st.folder, x.folder))
+    .map((x) => ({ threadId: x.threadId, accountId: x.accountId, folder: x.folder }));
+  if (!items.length) return e.preventDefault();
+  startMailDrag(e, items, st.folder);
+}
 
 export interface ThreadRowProps {
   t: ThreadSummary;
@@ -49,10 +62,13 @@ export interface ThreadRowProps {
   inPreview?: boolean;
   /** the draft of this row is being opened (REQ-13.7.1): a small ring takes the place of its date and the row is `aria-busy` */
   opening?: boolean;
+  /** the row can be dragged onto a folder (W4.7): the drag starts here */
+  onDragStart?: (e: React.DragEvent) => void;
+  onDragEnd?: () => void;
 }
 
 /** One conversation in the list. Pure: the real list and the Appearance preview both render it. */
-export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColor, accountLabel, hover, onOpen, onOpenWindow, onToggle, posInSet, setSize, inPreview, opening }: ThreadRowProps) {
+export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColor, accountLabel, hover, onOpen, onOpenWindow, onToggle, posInSet, setSize, inPreview, opening, onDragStart, onDragEnd }: ThreadRowProps) {
   const tr = useT();
   const who = t.participants.join(", ");
   const dense = prefs.density === "compact";
@@ -66,6 +82,9 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
       tabIndex={inPreview ? -1 : 0}
       data-thread={t.threadId}
       className={`ml-row ${selected ? "selected" : ""} ${t.unread ? "unread" : ""} ${checked ? "checked" : ""}`}
+      draggable={onDragStart && !inPreview ? true : undefined}
+      onDragStart={inPreview ? undefined : onDragStart}
+      onDragEnd={inPreview ? undefined : onDragEnd}
       onClick={inPreview ? undefined : onOpen}
       onDoubleClick={(e) => {
         if (!inPreview && onOpenWindow && !(e.target as Element).closest(".ml-lead, .hover-actions")) onOpenWindow();
@@ -359,6 +378,8 @@ export function MessageList({ hidden = false }: { hidden?: boolean } = {}) {
         onOpen={() => openThread(it.t)}
         onOpenWindow={rowWindowTarget(folder, it.t.folder) === "draft" ? () => void openDraftInWindow(it.t.threadId) : rowWindowTarget(folder, it.t.folder) === "reader" ? () => void openReader(it.t, folder) : undefined}
         onToggle={() => toggleCheck(it.t.threadId)}
+        onDragStart={mayDragRow(folder, it.t.folder) ? (e) => startRowDrag(e, it.t.threadId) : undefined}
+        onDragEnd={endDrag}
         posInSet={it.pos}
         setSize={threads.length}
       />

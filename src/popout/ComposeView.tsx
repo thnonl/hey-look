@@ -33,10 +33,15 @@ import { composeFlush, runClose, secondsLeft, START, step, type Ev, type Fx, typ
 import { composeFromSnapshot } from "../recovery";
 import { draftKey } from "./entry";
 import { registerFlushHandler } from "./flush";
+import { Requester, UNREACHABLE } from "./request";
 import { popoutTitle } from "./route";
 import type { PopoutViewProps } from "./views";
 
 const quiet = () => undefined;
+/** The requests of this window that the main window answers (Move to main window, W4.5); the answers come on `popout-reply`. */
+const requester = new Requester({ send: (id, kind, payload) => api.popoutRequest(id, kind, payload) }, "cp");
+/** The main window may be asking its "unsent" question: the window waits for the person's answer for as long as that takes (10 minutes at most). */
+const POP_IN_WAIT_MS = 600_000;
 /** The one toast of a message that is being sent from this window: "Sending... n s" with Undo, then "Sending...". */
 const SEND_TOAST = "compose-send";
 type Level = "info" | "success" | "error";
@@ -192,6 +197,25 @@ export default function ComposeView({ label, init, reloaded, recoveryId: handedR
       },
       title: setTitle,
       recovery: (id) => void api.popoutNote("recovery", id).catch(quiet),
+      popIn: async (moved) => {
+        // the main window opens the message in its inline Compose, asking its question first when its pane holds a message with changes (REQ-4.5.3)
+        try {
+          let r = await requester.ask<{ state?: string; opened?: boolean } | null>("cw-pop-in", { init: moved }, 5000);
+          if (r?.state === "asking") r = await requester.ask<{ opened?: boolean } | null>("cw-pop-in-result", {}, POP_IN_WAIT_MS);
+          if (!r?.opened) return false; // the person chose Keep writing: this window is as it was
+        } catch (e) {
+          st.getState().showToast(() => (e instanceof Error && e.message === UNREACHABLE ? tNow("app.popout.mainUnreachable") : friendlyError(e)), undefined, "error");
+          return false;
+        }
+        // the main window shows the message: this window ends without a question, a toast or a save; its snapshot goes (the pane writes its own), the pause of a
+        // scheduled message passes to the pane (REQ-4.5.4)
+        held.current = null;
+        raised.current = [];
+        await st.getState().composeEnd?.();
+        st.setState({ composeDirty: false });
+        dispatchRef.current({ t: "end" });
+        return true;
+      },
     };
     const unseam = setComposeSeam(seam);
 
@@ -333,6 +357,7 @@ export default function ComposeView({ label, init, reloaded, recoveryId: handedR
       }, WINDOW_SAFETY_MS);
     }
     const fillSub = listen<{ id: string; data: unknown }>("popout-reply", (e) => {
+      requester.answer(e.payload as never); // (the answers to Move to main window)
       if (e.payload?.id === FILL_ID && isObj(e.payload.data)) void fillWith(e.payload.data as ComposeInit);
     });
     void fillSub.then(() => shellId.current && notifyMain("fill-ready")).catch(quiet);

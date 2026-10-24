@@ -1653,6 +1653,10 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 .reader-bar .rb { padding: 7px 8px; gap: 6px; flex: none; }
 .reader-bar .dd { flex: none; }
 .reader-bar .sep { align-self: stretch; width: 1px; margin: 4px 5px; background: var(--border); flex: none; }
+.reader-bar .rb.nav { padding: 8px; }
+/* (W4.7) a folder under a dragged conversation that it accepts shows the selected look; one that does not accept shows nothing (the pointer says "not allowed") */
+.fp-row.drop-hot { background: var(--sel); outline: 2px solid var(--accent); outline-offset: -2px; }
+.compose-pane.chip-over { outline: 2px dashed var(--accent); outline-offset: -3px; }
 .reader-bar .rb.grow { margin-left: auto; }
 .reader-bar .ai-btn { color: var(--accent-text); }
 .reader-bar .rb:disabled { opacity: .5; cursor: default; }

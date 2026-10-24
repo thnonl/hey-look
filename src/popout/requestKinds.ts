@@ -32,6 +32,16 @@ export interface ThreadActionReq {
   view?: string;
 }
 
+/** Next / Previous of a reader window (W4.4): the conversation it shows and where it was opened from, so the main page can read the list when its own no longer has it. */
+export interface NeighborsReq {
+  threadId: string;
+  view: string;
+  accountId: string;
+  folder: string;
+  /** the mailbox selection of the main window when the window was opened (null: all mailboxes) */
+  listAccount: string | null;
+}
+
 export type ComposeMode = "reply" | "replyAll" | "forward";
 
 export interface ComposeReq {
@@ -61,7 +71,8 @@ export type Parsed =
   | { kind: "import-key"; messageId: string; index: number }
   | { kind: "dialog"; req: DialogReq }
   | { kind: "calendar"; day: { y: number; m: number; d: number } | null }
-  | { kind: "show-main" };
+  | { kind: "show-main" }
+  | { kind: "neighbors"; req: NeighborsReq };
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
@@ -131,6 +142,11 @@ export function parseRequest(kind: string, payload: unknown): Parsed | { error: 
     }
     case "show-main":
       return { kind: "show-main" };
+    case "neighbors": {
+      const threadId = str(p.threadId);
+      if (!threadId) return { error: "neighbors: no conversation" };
+      return { kind: "neighbors", req: { threadId, view: (str(p.view) ?? "").slice(0, 120), accountId: (str(p.accountId) ?? "").slice(0, 200), folder: (str(p.folder) ?? "").slice(0, 120), listAccount: str(p.listAccount) ?? null } };
+    }
     default:
       return { error: `unknown request: ${kind.slice(0, 40)}` };
   }

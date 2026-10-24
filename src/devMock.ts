@@ -1679,6 +1679,8 @@ export function installMock() {
       }
       case "popout_park": case "popout_set_key": ((window as unknown as { __popoutCalls?: string[] }).__popoutCalls ??= []).push(cmd); return true;
       case "popout_note": case "window_theme_refresh": return null;
+      // a reader goes on to show another conversation (W4.4): logged (window.__popoutShown); `#showother` answers that another window has it
+      case "popout_show": ((window as unknown as { __popoutShown?: unknown[] }).__popoutShown ??= []).push({ key: a.key, init: a.init }); return hashHas("showother") ? { status: "focused", label: "reader-9" } : { status: "shown", label: null };
       case "popout_init": {
         const q = new URLSearchParams(window.location.search);
         const kind = q.get("w") ?? "compose";
@@ -1724,7 +1726,26 @@ export function installMock() {
           }
           later(200, () => void emit("thread-state", { threadIds: [p.threadId], action: p.action }));
         }
-        if (!hashHas("reqsilent")) later(hashHas("reqslow") ? 1500 : 150, () => void emit("popout-reply", { id: a.id, ok: !hashHas("reqfail"), data: null, error: hashHas("reqfail") ? "mock: the main window refused" : null }));
+        // Next / Previous of a reader (W4.4): the rows of the list the window was opened from, in the order of the mock list; drafts and Scheduled are skipped by the caller's rule
+        let data: unknown = null;
+        // Move to main window (W4.5): `#popinkeep` = the person chose Keep writing; `#popinasking` = the main window asks its question first (the result comes 800 ms later)
+        if (a.kind === "cw-pop-in") data = hashHas("popinasking") ? { state: "asking" } : { opened: !hashHas("popinkeep") };
+        if (a.kind === "cw-pop-in-result") {
+          later(800, () => void emit("popout-reply", { id: a.id, ok: true, data: { opened: !hashHas("popinkeep") }, error: null }));
+          return null;
+        }
+        if (a.kind === "neighbors" && !hashHas("reqsilent")) {
+          // (the list the way the mock backend lists it; a conversation in `__mockGone` is not in it)
+          const view = String(p.view || p.folder || "inbox");
+          void (window as unknown as { __TAURI_INTERNALS__: { invoke: (c: string, a: unknown) => Promise<typeof threads> } }).__TAURI_INTERNALS__.invoke("list_threads", { filter: { accountId: null, folder: view, search: "", focus: null, flat: false, unreadOnly: false, flaggedOnly: false, sortAsc: false, scope: "current" } }).then((all) => {
+            const rows = all.filter((x) => !mockGone.has(x.threadId) && x.folder !== "drafts");
+            const at = rows.findIndex((x) => x.threadId === p.threadId);
+            const one = (x?: (typeof rows)[number]) => (x ? { threadId: x.threadId, accountId: x.accountId, folder: x.folder, subject: x.subject, view } : null);
+            void emit("popout-reply", { id: a.id, ok: true, data: at < 0 ? { prev: null, next: null } : { prev: one(rows[at - 1]), next: one(rows[at + 1]) }, error: null });
+          });
+          return null;
+        }
+        if (!hashHas("reqsilent")) later(hashHas("reqslow") ? 1500 : 150, () => void emit("popout-reply", { id: a.id, ok: !hashHas("reqfail"), data: hashHas("reqfail") ? null : data, error: hashHas("reqfail") ? "mock: the main window refused" : null }));
         return null;
       }
       case "thread_meta": return { pinned: !!threads.find((x) => x.threadId === a.threadId)?.pinned, snoozedUntil: null };
@@ -1742,6 +1763,16 @@ export function installMock() {
         return { status: "created", label: "compose-1" };
       }
       case "popout_save_all": return true;
+      // drag and drop between windows (W4.7): the registry of the backend (src-tauri/src/drag.rs), here in the memory of the page; `window.__dragCalls` logs the calls
+      case "drag_begin": case "drag_peek": case "drag_take": case "drag_end": {
+        const w = window as unknown as { __dragReg?: Map<string, unknown>; __dragCalls?: { cmd: string; token: unknown }[] };
+        const reg = (w.__dragReg ??= new Map());
+        (w.__dragCalls ??= []).push({ cmd, token: a.token });
+        if (cmd === "drag_begin") reg.set(String(a.token), a.payload);
+        const got = reg.get(String(a.token)) ?? null;
+        if (cmd === "drag_take" || cmd === "drag_end") reg.delete(String(a.token));
+        return cmd === "drag_peek" || cmd === "drag_take" ? got : null;
+      }
       case "popout_focus": ((window as unknown as { __popoutCalls?: string[] }).__popoutCalls ??= []).push(cmd); return null;
       case "popout_ready": case "popout_flush_alive": case "popout_flush_dialog": case "popout_flush_done": case "popout_close": return null;
       case "update_defer": logUpdateCall({ cmd: "defer" }).kind = a.deferred ? "later" : "now"; return null;

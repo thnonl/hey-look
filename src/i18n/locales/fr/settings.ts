@@ -493,6 +493,7 @@ export default defineLocale<typeof ns.en>({
   "settings.keys.closeWindow": "Fermer une fenêtre de message",
   "settings.keys.shiftCompose": "Nouveau message, réponse, réponse à tous ou transfert dans une nouvelle fenêtre",
   "settings.keys.popOutCompose": "Déplacer le message en cours de rédaction vers une nouvelle fenêtre",
+  "settings.keys.popInCompose": "Déplacer un message vers la fenêtre principale",
   "settings.about.title": "À propos",
   "settings.about.tagline": "{name} — un client de messagerie de bureau conçu avec Tauri, React et Rust.",
   "settings.about.testBuild": "Version de test : vos e-mails, comptes et paramètres sont conservés dans {dir}, et non dans le dossier de données habituel.",

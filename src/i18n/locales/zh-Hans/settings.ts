@@ -493,6 +493,7 @@ export default defineLocale<typeof ns.en>({
   "settings.keys.closeWindow": "关闭邮件窗口",
   "settings.keys.shiftCompose": "在新窗口中写新邮件、回复、全部回复或转发",
   "settings.keys.popOutCompose": "将正在写的邮件移到新窗口",
+  "settings.keys.popInCompose": "将邮件移回主窗口",
   "settings.about.title": "关于",
   "settings.about.tagline": "{name}是一款使用Tauri、React和Rust构建的桌面邮件客户端。",
   "settings.about.testBuild": "测试版本：您的邮件、账户和设置保存在{dir}中，而不是通常的数据文件夹。",

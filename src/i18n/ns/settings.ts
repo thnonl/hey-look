@@ -492,6 +492,7 @@ export default define({
     "settings.keys.closeWindow": "Close a message window",
     "settings.keys.shiftCompose": "New mail, reply, reply all or forward in a new window",
     "settings.keys.popOutCompose": "Move the message you are writing to a new window",
+    "settings.keys.popInCompose": "Move a message back to the main window",
     "settings.about.title": "About",
     "settings.about.tagline": "{name} — a desktop mail client built with Tauri, React and Rust.",
     "settings.about.testBuild": "Test build: your mail, accounts and settings are kept in {dir}, not in the normal data folder.",

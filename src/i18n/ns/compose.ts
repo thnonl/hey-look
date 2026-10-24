@@ -440,6 +440,8 @@ export default define({
     "compose.popout.newTitle": "New message",
     "compose.popout.popOut": "Pop out",
     "compose.popout.popOutTip": "Open in a new window (Ctrl+Shift+O)",
+    "compose.popout.popIn": "Move to main window",
+    "compose.popout.popInTip": "Move to the main window (Ctrl+Shift+O)",
     "compose.popout.sending": "Sending… {n} s",
     "compose.popout.closeTitle": "Save your message?",
     "compose.popout.closeBody": "This message hasn’t been sent. Save it to Drafts, or discard it.",

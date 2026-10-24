@@ -17,6 +17,9 @@ import { useT } from "../i18n/react";
 import { kbd } from "../platform";
 import { folderVisible } from "../junk";
 import { useStore } from "../store";
+import { dropAllowed, tokenIn } from "../dragDrop";
+import { peekDrag, takeDrag } from "../dragWire";
+import { moveChoices } from "../rowMenu";
 import { hasNew, hasNewMailbox } from "../newMail";
 import { useSidebarPeek } from "../sidebarPeek";
 import { sidebarControlOpen, toggleSidebar } from "../sidebarState";
@@ -53,6 +56,41 @@ export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
   const toggleReq = useStore((s) => s.sidebarToggle);
   useWindowWidth(); // (the control follows the window: whether the full menu would fit next to the panes)
   const tree = useRef<HTMLDivElement>(null);
+  // (W4.7) a conversation dragged onto a folder of a mailbox moves there; the folder the pointer is over shows the selected look while it accepts
+  const [dropHot, setDropHot] = useState<string | null>(null);
+  const [, redrawDrop] = useState(0);
+  const moveKeys = (accountId: string) => moveChoices(folders, accountId, undefined).map((f) => f.key);
+  const dropProps = (acct: string | null, key: string) => {
+    if (!acct) return {};
+    const id = `${acct}|${key}`;
+    return {
+      onDragOver: (e: React.DragEvent) => {
+        const token = tokenIn(e.dataTransfer.types, "mail");
+        if (!token) return; // not a conversation (a file from outside, text): not a target, the pointer says so
+        const p = peekDrag(token, () => redrawDrop((n) => n + 1));
+        // (until the registry has answered the folder takes it; the drop looks again)
+        if (p && (p.kind !== "mail" || !dropAllowed(p.items, { accountId: acct, key }, moveKeys))) {
+          e.dataTransfer.dropEffect = "none";
+          if (dropHot === id) setDropHot(null);
+          return;
+        }
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        if (dropHot !== id) setDropHot(id);
+      },
+      onDragLeave: (e: React.DragEvent) => {
+        if (!(e.currentTarget as Element).contains(e.relatedTarget as Node | null)) setDropHot((h) => (h === id ? null : h));
+      },
+      onDrop: (e: React.DragEvent) => {
+        const token = tokenIn(e.dataTransfer.types, "mail");
+        setDropHot(null);
+        if (!token) return;
+        e.preventDefault();
+        const taken = takeDrag(token); // (asked now: the drag ends right after the drop, and the source forgets the token then)
+        void import("../dropMail").then((m) => m.dropMail(taken, acct, key));
+      },
+    };
+  };
   // "New folder…" is the last entry of the menu of a mailbox heading; a mailbox that needs a new sign-in cannot make one (W13.10)
   const reorder = useAccountReorder(tree, (id) => {
     const again = !!reauth[id];
@@ -151,7 +189,10 @@ export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
         aria-expanded={expandable ? expanded : undefined}
         aria-label={tip && rail ? tip.replace(/\n/g, ", ") : undefined}
         tabIndex={0}
-        className={`fp-row ${active ? "active" : ""} ${fresh ? "fresh" : ""}`}
+        className={`fp-row ${active ? "active" : ""} ${fresh ? "fresh" : ""} ${dropHot === `${acct}|${key}` ? "drop-hot" : ""}`}
+        {...dropProps(acct, key)}
+        data-acct={acct ?? undefined}
+        data-key={key}
         style={rail ? undefined : { paddingLeft: 12 + indent * 16 }}
         data-fkey={ckey || undefined}
         data-own-menu={hasMenu ? "" : undefined}

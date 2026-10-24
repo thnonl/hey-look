@@ -10,7 +10,7 @@ import { MODIFIER_WINDOW_MS, noteInput, resetModifier, shiftNow } from "../src/p
 import { closeAction, composeFlush, GRACE_MS, runClose, secondsLeft, START, step, UNDO_SETTLE_MS } from "../src/popout/composeWindow.ts";
 import { carryToasts, parseComposeRequest } from "../src/popout/composeRequests.ts";
 import {
-  allowedWhenGone, isFlagged, isGone, isUnread, markReadPlan, readerAllowed, readerInit, readerKey, readerTitleText, scopeOfView, threadScope, withWanted,
+  allowedWhenGone, isFlagged, isGone, isUnread, markReadPlan, neighborOf, neighborsOf, readerAllowed, readerInit, readerKey, readerTitleText, scopeOfView, threadScope, withWanted,
 } from "../src/popout/readerLogic.ts";
 import { Coalescer, OPEN_COALESCE_MS, openId } from "../src/popout/coalesce.ts";
 import { rowWindowTarget } from "../src/popout/readerLogic.ts";
@@ -128,7 +128,8 @@ assert.equal(shiftOnly(ev({ shiftKey: true, altKey: true })), false);
 assert.equal(readerInit(null), null);
 assert.equal(readerInit("x"), null);
 assert.equal(readerInit({}), null, "no conversation id: the window shows the failure state");
-assert.deepEqual(readerInit({ threadId: "t1", accountId: "a1", folder: "inbox", view: "starred", subject: "Hi" }), { threadId: "t1", accountId: "a1", folder: "inbox", view: "starred", subject: "Hi" });
+assert.deepEqual(readerInit({ threadId: "t1", accountId: "a1", folder: "inbox", view: "starred", subject: "Hi" }), { threadId: "t1", accountId: "a1", folder: "inbox", view: "starred", subject: "Hi", listAccount: null });
+assert.equal(readerInit({ threadId: "t1", listAccount: "a2" }).listAccount, "a2", "the mailbox selection of the main window when the window was opened (W4.4)");
 assert.equal(readerInit({ threadId: "t1", folder: "archive" }).view, "archive", "no view given: the folder");
 assert.equal(readerInit({ threadId: 5 }), null);
 
@@ -732,14 +733,14 @@ assert.equal(draftKey("t9"), "draft:t9");
   for (const a of ["openCompose:", "sync:", "refresh:", "setDialog:", "showToast:"]) assert.ok(view.includes(a), a);
   assert.ok(view.indexOf("setReady(true)") > view.indexOf("openCompose:"), "Compose is drawn after the actions are replaced");
   // Compose.tsx: the seam is the only difference, and the main window (no seam) behaves as before
-  assert.equal(compose.match(/composeSeam\(\)/g).length, 16, "the places where Compose asks the seam (two of them: a message scheduled in a window is announced by the main window, which owns the outbox; the two for the draft the pane shows (W2.11) are in draftOpen.ts since WP9d; one tells a window that the scheduled message it holds paused is handled, W2.10; three for the lock of a send, W13.1; two for the \"Sending…\" toasts that only the pane needs, W13.14 A9; one reports the snapshot id to the window, W4.2)");
+  assert.equal(compose.match(/composeSeam\(\)/g).length, 17, "the places where Compose asks the seam (two of them: a message scheduled in a window is announced by the main window, which owns the outbox; the two for the draft the pane shows (W2.11) are in draftOpen.ts since WP9d; one tells a window that the scheduled message it holds paused is handled, W2.10; three for the lock of a send, W13.1; two for the \"Sending…\" toasts that only the pane needs, W13.14 A9; one reports the snapshot id to the window, W4.2; the one that makes Ctrl+Shift+O a Move to main window in a window, W4.5)");
   assert.ok(compose.includes("composeSeam()?.scheduled(") && view.includes("scheduled: (outboxId, sendAt) => notifyMain(\"scheduled\""), "Scheduled for ... with Undo and View comes from the main window");
   assert.ok(compose.includes("openCompose(null, { sending: wait })") && compose.includes("openCompose(null, { sending: 0 })"), "a send hands the message over, it does not end it");
   assert.ok(compose.includes('else showToast(() => t("compose.toast.sending"), undoSend, "info", undefined, wait * 1000)'), "the main window has the Undo toast, as long as the message is held (W13.1)");
   // W13.1: a window keeps the editor on screen while it sends: locked, one toast, unlocked in place on Undo or a failure; no card, no unmounting
   assert.ok(compose.includes("if (composeSeam()) lockForSend(wait);") && compose.includes("else void openCompose(null, { sending: wait });"), "a send in a window locks the editor, the pane closes as before");
   assert.ok(compose.includes("if (lockedRef.current) return unlock(d);"), "Undo and a failed send unlock the same editor (reopen in a window that is locked)");
-  assert.ok(compose.includes("inert={locked || undefined}") && compose.includes("aria-busy={locked || !!preparing || undefined}"), "locked = inert and aria-busy (a shell that is being prepared is busy too, W13.13)");
+  assert.ok(compose.includes("inert={locked || movingIn || undefined}") && compose.includes("aria-busy={locked || movingIn || !!preparing || undefined}"), "locked = inert and aria-busy (a shell that is being prepared is busy too, W13.13; so is a window that waits for the main window, W4.5)");
   assert.ok(compose.includes("if (lockedRef.current) return; // (a draft of a message that is in the outbox would stay behind)") && compose.includes("if (lockedRef.current) return; // (the message is on its way"), "no autosave and no snapshot of a message that is being sent");
   assert.ok(compose.includes("setTo(d.to);") && compose.includes("if (d.security && !d.security.encrypt && encIntent !== \"off\") setEncIntent(\"off\");"), "what the send questions changed is applied to the unlocked editor");
   assert.ok(compose.includes("touch();\n    composeSeam()?.unlock();"), "the unlocked message counts as changed");
@@ -905,6 +906,71 @@ for (const [view, folder] of [["inbox", "inbox"], ["unread", "inbox"], ["pinned"
   // the toast text exists in all 8 languages (no raw key)
   const files = ["src/i18n/ns/app.ts", ...["de", "es", "fr", "ja", "ru", "vi", "zh-Hans"].map((l) => `src/i18n/locales/${l}/app.ts`)];
   for (const f of files) assert.ok(new RegExp('"app\.popout\.crashed": "[^"]{8,}"').test(read(f)), `${f} has app.popout.crashed`);
+}
+
+// ---- W4.4: Next / Previous conversation in a reader window
+{
+  const rows = [{ threadId: "A", folder: "inbox" }, { threadId: "B", folder: "inbox" }, { threadId: "C", folder: "inbox" }, { threadId: "D", folder: "drafts" }, { threadId: "E", folder: "inbox" }];
+  const can = (r) => rowWindowTarget("all", r.folder) === "reader";
+  assert.equal(neighborOf(rows, "B", 1, can).threadId, "C");
+  assert.equal(neighborOf(rows, "B", -1, can).threadId, "A");
+  assert.equal(neighborOf(rows, "A", -1, can), null, "no wrap at the start");
+  assert.equal(neighborOf(rows, "E", 1, can), null, "no wrap at the end");
+  assert.equal(neighborOf(rows, "C", 1, can).threadId, "E", "a draft row between C and E is skipped (AC-4.4.6)");
+  assert.equal(neighborOf(rows, "E", -1, can).threadId, "C", "and skipped going back");
+  assert.equal(neighborOf(rows, "nope", 1, can), null, "a conversation that is not in the list has no neighbours");
+  assert.equal(neighborOf([{ threadId: "A", folder: "inbox" }, { threadId: "S", folder: "inbox" }], "A", 1, (r) => rowWindowTarget("scheduled", r.folder) === "reader"), null, "the Scheduled list has no rows a reader can show");
+  assert.equal(neighborOf([], "A", 1, can), null);
+  // what the main page answers, read defensively
+  assert.deepEqual(neighborsOf(null), { prev: null, next: null });
+  assert.deepEqual(neighborsOf({ prev: 5, next: { threadId: "" } }), { prev: null, next: null });
+  assert.deepEqual(neighborsOf({ prev: { threadId: "X", accountId: "a1", folder: "inbox", subject: "S", view: "all" }, next: null }).prev, { threadId: "X", accountId: "a1", folder: "inbox", subject: "S", view: "all" });
+  // the keys: j = next, k = previous, the guards of the other reader keys
+  const key = (k, o = {}) => readerKey({ key: k, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...o }, { mac: false, inField: false, modalOpen: false });
+  assert.equal(key("j"), "next");
+  assert.equal(key("k"), "prev");
+  assert.equal(key("J", { shiftKey: true }), null, "only j and k");
+  assert.equal(key("j", { ctrlKey: true }), null);
+  assert.equal(readerKey({ key: "j", ctrlKey: false, metaKey: false, altKey: false, shiftKey: false }, { mac: false, inField: true, modalOpen: false }), null, "not while typing");
+  assert.equal(readerKey({ key: "k", ctrlKey: false, metaKey: false, altKey: false, shiftKey: false }, { mac: false, inField: false, modalOpen: true }), null, "not behind a dialog");
+  assert.equal(allowedWhenGone("next"), false);
+  assert.equal(allowedWhenGone("prev"), false);
+  // the request: the conversation and where the window was opened from; nothing else is taken
+  assert.deepEqual(parseRequest("neighbors", { threadId: "t1", view: "inbox", accountId: "a1", folder: "inbox", listAccount: null, extra: 1 }), { kind: "neighbors", req: { threadId: "t1", view: "inbox", accountId: "a1", folder: "inbox", listAccount: null } });
+  assert.ok("error" in parseRequest("neighbors", {}), "no conversation");
+  // wiring: the buttons come first in the toolbar, are icon-only, say why they are off, and the window shows the new conversation through popout_show
+  const rv = read("src/popout/ReaderView.tsx");
+  assert.ok(rv.indexOf('{navBtn("prev")}') < rv.indexOf('{rb("reply"') && rv.indexOf('{navBtn("next")}') < rv.indexOf('{rb("reply"'), "Previous and Next are before Reply");
+  assert.ok(rv.includes('"reading.popout.noPrev"') && rv.includes('"reading.popout.noNext"') && rv.includes("api.popoutShow(n.threadId, next)"));
+  const nav = rv.slice(rv.indexOf("const navBtn"), rv.indexOf("const sender = last"));
+  assert.ok(nav.includes("<ChevronUp") && nav.includes("<ChevronDown") && !nav.includes("<span>"), "the buttons never show a word");
+  assert.ok(rv.includes("<Reader key={info.threadId} info={info} onShow={setInfo} />"), "a new conversation starts the reader over (translations and summary cancelled, focus on the subject, scroll at the top)");
+  assert.ok(JSON.parse(read("src-tauri/capabilities/popout.json")).permissions.includes("allow-popout-show"));
+  const mr = read("src/popout/mainRequests.ts");
+  assert.ok(mr.includes('case "neighbors":') && mr.includes('rowWindowTarget(view, x.folder) === "reader"'));
+  assert.ok(read("src/popout/openReader.ts").includes("listAccount: useStore.getState().accountId"), "the window is opened with the mailbox selection of the main window");
+  // the main window's j / k row in Settings > Shortcuts stays the one row
+  assert.equal((read("src/components/SettingsDialog.tsx").match(/"settings\.keys\.nextPrev"/g) ?? []).length, 1);
+}
+
+// ---- W4.5: move a compose window back to the main window
+{
+  assert.deepEqual(parseComposeRequest("cw-pop-in", { init: { subject: "S", to: ["a@b"] } }), { kind: "pop-in", init: { subject: "S", to: ["a@b"] } });
+  assert.ok("error" in parseComposeRequest("cw-pop-in", {}), "no message");
+  assert.ok("error" in parseComposeRequest("cw-pop-in", { init: "x" }));
+  assert.deepEqual(parseComposeRequest("cw-pop-in-result", null), { kind: "pop-in-result" });
+  const comp = read("src/components/Compose.tsx");
+  assert.ok(comp.includes("SquareArrowDownLeft") && comp.includes('t("compose.popout.popIn")') && comp.includes('kbd(t("compose.popout.popInTip"))'), "the button, its name and its tooltip with the key");
+  assert.ok(comp.includes("void (composeSeam() ? popIn() : popOut());"), "Ctrl+Shift+O: Pop out in the main window, Move to main window in a window");
+  assert.ok(/!locked && !movingIn && !busy/.test(comp), "no button while Sending… or busy");
+  assert.ok(comp.includes("initOf(buildDraft(), { replaces: replacesRef() ?? undefined, isReply: !!init.isReply, carried: touched.current || !!savedDraftRef.current })"), "the same mapping as Pop out");
+  const view = read("src/popout/ComposeView.tsx");
+  assert.ok(view.includes('requester.ask<{ state?: string; opened?: boolean } | null>("cw-pop-in", { init: moved }, 5000)') && view.includes('"cw-pop-in-result"'), "5 s for the main window, then as long as the question is open");
+  assert.ok(view.includes("held.current = null;\n        raised.current = [];\n        await st.getState().composeEnd?.();"), "the window ends silently: the pause passes on, no toast is carried, its snapshot goes");
+  const hub = read("src/popout/composeHub.ts");
+  assert.ok(hub.includes("st.openCompose(init).then(() => useStore.getState().compose === init)") && hub.includes("showMain();"), "the main window comes forward and opens the message inline; the 'unsent' question is openCompose's own");
+  assert.ok(read("src/popout/mainRequests.ts").includes("if (env.kind.startsWith(CW_PREFIX)) return;"), "the reader's handler does not answer a compose window's request");
+  assert.ok(read("src/components/SettingsDialog.tsx").includes('["Ctrl+Shift+O", "settings.keys.popOutCompose"], ["Ctrl+Shift+O", "settings.keys.popInCompose"]'), "the Shortcuts row follows the Pop out row");
 }
 
 console.log("ok - test-popout");

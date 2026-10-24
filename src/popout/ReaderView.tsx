@@ -6,7 +6,7 @@
 // something changed. Nothing here writes mail state or preferences: read / flag / pin, moves with Undo, the mail background switch, the
 // dialogs of the main window and the compose window are asked of the main page (`askMain`, readerBridge.ts), which does them with its
 // own machinery and tells the result. The yes/no states show the answer at once (`Wanted`) and are read again when the request is done.
-import { AlertTriangle, Archive, ChevronsDownUp, ChevronsUpDown, Clock, Flag, Forward, Mail, MailX, MoreHorizontal, Pin, Reply, ReplyAll, Sparkles, Trash2 } from "lucide-react";
+import { AlertTriangle, Archive, ChevronDown, ChevronUp, ChevronsDownUp, ChevronsUpDown, Clock, Flag, Forward, Mail, MailX, MoreHorizontal, Pin, Reply, ReplyAll, Sparkles, Trash2 } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
@@ -30,11 +30,13 @@ import { aiReady, clearAiProblem, showAiNotSetUp, showAiProblem } from "../aiGui
 import { summaryBody } from "../summaryText";
 import { configureDates, fmtFull, snoozePresets, subjectText } from "../util";
 import { senderOf } from "../rowMenu";
-import { askMain, cancelRunningTranslations, installReaderBridge } from "./readerBridge";
+import { askMain, cancelRunningTranslations, installReaderBridge, requester } from "./readerBridge";
 import {
-  allowedWhenGone, isFlagged, isGone, isUnread, markReadPlan, readerInit, readerKey, readerTitleText, threadScope, withWanted,
-  type ReaderAction, type ReaderInit, type Wanted,
+  allowedWhenGone, isFlagged, isGone, isUnread, markReadPlan, neighborsOf, readerInit, readerKey, readerTitleText, threadScope, withWanted,
+  type Neighbor, type ReaderAction, type ReaderInit, type Wanted,
 } from "./readerLogic";
+import { endDrag, startMailDrag } from "../dragWire";
+import { mayDragRow } from "../dragDrop";
 import { popoutTitle } from "./route";
 import type { PopoutViewProps } from "./views";
 
@@ -47,9 +49,12 @@ const STATE_WAIT_MS = 60_000;
 const MOVE_WAIT_MS = 30_000;
 
 export default function ReaderView({ init }: PopoutViewProps) {
-  const info = useMemo(() => readerInit(init), [init]);
+  const first = useMemo(() => readerInit(init), [init]);
+  // Next / Previous (W4.4) put another conversation in the same window: the whole reader starts over for it (a new instance: its own load, its own translations and summary,
+  // the subject takes the focus, the scroll is at the top)
+  const [info, setInfo] = useState<ReaderInit | null>(first);
   if (!info) return <ReaderFailed text={tNow("reading.popout.loadFailed", { error: tNow("reading.popout.noId") })} />;
-  return <Reader info={info} />;
+  return <Reader key={info.threadId} info={info} onShow={setInfo} />;
 }
 
 function ReaderFailed({ text, retry }: { text: string; retry?: () => void }) {
@@ -68,7 +73,7 @@ function ReaderFailed({ text, retry }: { text: string; retry?: () => void }) {
   );
 }
 
-function Reader({ info }: { info: ReaderInit }) {
+function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit) => void }) {
   const t = useT();
   const lang = useLang();
   const messages = useStore((s) => s.messages);
@@ -81,6 +86,10 @@ function Reader({ info }: { info: ReaderInit }) {
   const [gone, setGone] = useState(false);
   const [meta, setMeta] = useState<{ pinned: boolean; snoozedUntil: number | null }>({ pinned: false, snoozedUntil: null });
   const [busy, setBusy] = useState(false); // a move waits for the main window
+  /** the conversations before and after this one in the list (W4.4); `known` once the main window has answered */
+  const [nb, setNb] = useState<{ prev: Neighbor | null; next: Neighbor | null; known: boolean }>({ prev: null, next: null, known: false });
+  const nbSeq = useRef(0);
+  const going = useRef(false);
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const [summary, setSummary] = useState<string | null>(null);
   const [summaryCut, setSummaryCut] = useState(false); // the conversation was longer than what was sent: the card says so
@@ -99,6 +108,19 @@ function Reader({ info }: { info: ReaderInit }) {
   const known = useRef(new Set<string>()); // the messages this window has seen: the mark-as-read rule looks at a message once
   const readTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const loadRef = useRef<(first?: boolean) => Promise<void>>(async () => undefined);
+
+  // ---- Next / Previous (W4.4, REQ-4.4.3/4.4.4): the main window knows the list; asked when the conversation is shown and again after a sync or a change of state
+  const askNeighbors = useCallback(async () => {
+    const my = ++nbSeq.current;
+    try {
+      const r = neighborsOf(await requester.ask("neighbors", { threadId: info.threadId, view: info.view, accountId: info.accountId, folder: info.folder, listAccount: info.listAccount ?? null }));
+      if (my === nbSeq.current) setNb({ ...r, known: true });
+    } catch {
+      if (my === nbSeq.current) setNb({ prev: null, next: null, known: false }); // the main window cannot answer: both buttons are off
+    }
+  }, [info]);
+  const nbRef = useRef(askNeighbors);
+  nbRef.current = askNeighbors;
 
   configureDates(prefs); // dates in the message headers follow the date / time format of the preferences
 
@@ -189,7 +211,10 @@ function Reader({ info }: { info: ReaderInit }) {
     const later = () => {
       // events come in bursts (a sync, several actions): one read after a short pause
       clearTimeout(timer);
-      timer = setTimeout(() => void loadRef.current(), 250);
+      timer = setTimeout(() => {
+        void loadRef.current();
+        void nbRef.current();
+      }, 250);
     };
     void (async () => {
       await loadPlatform(); // (Print and the Delete key differ on macOS)
@@ -207,6 +232,7 @@ function Reader({ info }: { info: ReaderInit }) {
         }),
       );
       await loadRef.current(true);
+      void nbRef.current();
     })();
     return () => {
       dead = true;
@@ -293,6 +319,21 @@ function Reader({ info }: { info: ReaderInit }) {
     },
     [info.threadId, info.view],
   );
+  /** Show the conversation `n` in this window (REQ-4.4.5/4.4.6): the backend moves the window's key and hand-off data to it, or brings the window that already shows it forward. */
+  const goTo = async (n: Neighbor | null) => {
+    if (!n || going.current) return;
+    going.current = true;
+    cancelRead();
+    try {
+      const next: ReaderInit = { threadId: n.threadId, accountId: n.accountId, folder: n.folder, view: n.view, subject: n.subject, listAccount: info.listAccount ?? null };
+      const r = await api.popoutShow(n.threadId, next);
+      if (r.status === "shown") onShow(next);
+    } catch (e) {
+      useStore.getState().showToast(() => friendlyError(e), undefined, "error");
+    } finally {
+      going.current = false;
+    }
+  };
   const doReply = (all: boolean) => last && void replyTo(last, all);
   const doForward = () => {
     if (!last) return;
@@ -365,6 +406,8 @@ function Reader({ info }: { info: ReaderInit }) {
       case "flag": return toggleFlag();
       case "snooze": return document.querySelector<HTMLButtonElement>(".reader-bar button.snooze-btn")?.click();
       case "print": return conf ? undefined : printLast();
+      case "prev": return void goTo(nb.prev);
+      case "next": return void goTo(nb.next);
     }
   };
   const actRef = useRef(act);
@@ -402,11 +445,25 @@ function Reader({ info }: { info: ReaderInit }) {
       <span>{extra?.text ?? label}</span>
     </button>
   );
+  // the two icon buttons at the left end of the toolbar (REQ-4.4.1): never a word, never in More
+  const navBtn = (dir: "prev" | "next") => {
+    const n = dir === "prev" ? nb.prev : nb.next;
+    const label = t(dir === "prev" ? "reading.popout.prev" : "reading.popout.next");
+    const none = !n && nb.known && !gone;
+    return (
+      <button key={dir} className="rb nav" title={none ? t(dir === "prev" ? "reading.popout.noPrev" : "reading.popout.noNext") : `${label} (${dir === "prev" ? "k" : "j"})`} aria-label={label} disabled={locked || gone || !n} onClick={() => void goTo(n)}>
+        {dir === "prev" ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+      </button>
+    );
+  };
   const sender = last ? senderOf(messages, new Set(useStore.getState().accounts.map((a) => a.email.toLowerCase()))) : null;
 
   return (
     <div className="reader-win">
       <div className="reader-bar" ref={barRef} role="toolbar" aria-label={t("reading.popout.toolbar")}>
+        {navBtn("prev")}
+        {navBtn("next")}
+        <span className="sep" aria-hidden />
         {rb("reply", t("reading.msg.reply"), `${t("reading.msg.reply")} (r)`, "reply", () => doReply(false), <Reply size={16} />)}
         {rb("replyAll", t("reading.msg.replyAll"), `${t("reading.msg.replyAll")} (a)`, "replyAll", () => doReply(true), <ReplyAll size={16} />)}
         {rb("forward", t("reading.msg.forward"), conf ? t("reading.msg.forwardBlocked") : `${t("reading.msg.forward")} (f)`, "forward", doForward, <Forward size={16} />, { disabled: conf })}
@@ -459,7 +516,14 @@ function Reader({ info }: { info: ReaderInit }) {
       )}
       <section className="reading-pane reader-pane" aria-label={t("reading.pane.label")}>
         <div className="rp-head">
-          <h1 ref={titleRef} tabIndex={-1}>{title}</h1>
+          <h1
+            ref={titleRef}
+            tabIndex={-1}
+            // (W4.7) the subject is the conversation: drag it onto a folder of the main window (the main window moves it and closes this one)
+            draggable={!gone && !locked && mayDragRow(info.view, info.folder) ? true : undefined}
+            onDragStart={(e) => (gone || locked || !mayDragRow(info.view, info.folder) ? e.preventDefault() : startMailDrag(e, [{ threadId: info.threadId, accountId: info.accountId, folder: info.folder }], info.view))}
+            onDragEnd={endDrag}
+          >{title}</h1>
           {messages.length > 1 && (
             <button
               className="icon-btn"

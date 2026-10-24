@@ -9,6 +9,7 @@ mod discover;
 mod draftmail;
 mod draftopen;
 mod draftupload;
+mod drag;
 mod tempstore;
 mod flagguard;
 mod folders;
@@ -6067,6 +6068,11 @@ pub fn run() {
             wintheme::window_theme_refresh,
             wintheme::window_caption_colors,
             popout::popout_set_key,
+            popout::popout_show,
+            drag::drag_begin,
+            drag::drag_peek,
+            drag::drag_take,
+            drag::drag_end,
             popout::popout_request,
             popout::popout_reply,
             page_pong,

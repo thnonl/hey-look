@@ -733,6 +733,13 @@ export const api = {
   /** The main page hands over the colours of the caption of the secondary windows (Windows 11; src/captionColors.ts). */
   windowCaptionColors: (colors: { light: { bg: string; fg: string }; dark: { bg: string; fg: string } }) => invoke<void>("window_caption_colors", { colors }),
   /** The calling window shows another thing now (a draft that was saved is another draft): its key follows. False when another window has that key. */
+  /** A reader window goes on to show another conversation (Next / Previous, W4.4): `shown`, or `focused` when another window already has that conversation (it was brought forward, this one stays). */
+  popoutShow: (key: string, init: unknown) => invoke<{ status: "shown" | "focused"; label: string | null }>("popout_show", { key, init }),
+  /** Drag and drop between windows (W4.7, src-tauri/src/drag.rs): the page that starts a drag says what its token stands for; a target looks (peek) and on the drop takes it once. */
+  dragBegin: (token: string, payload: unknown) => invoke<void>("drag_begin", { token, payload }),
+  dragPeek: (token: string) => invoke<unknown | null>("drag_peek", { token }),
+  dragTake: (token: string) => invoke<unknown | null>("drag_take", { token }),
+  dragEnd: (token: string) => invoke<void>("drag_end", { token }),
   popoutSetKey: (key: string | null) => invoke<boolean>("popout_set_key", { key }),
   /** The update restart: every open secondary window saves what it holds. False = a person keeps a window open (the restart must stop). */
   popoutSaveAll: () => invoke<boolean>("popout_save_all"),

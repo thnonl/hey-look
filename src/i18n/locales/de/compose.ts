@@ -427,6 +427,8 @@ export default defineLocale<typeof ns.en>({
   "compose.popout.newTitle": "Neue Nachricht",
   "compose.popout.popOut": "In eigenem Fenster",
   "compose.popout.popOutTip": "In neuem Fenster öffnen (Ctrl+Shift+O)",
+  "compose.popout.popIn": "Ins Hauptfenster verschieben",
+  "compose.popout.popInTip": "Zurück ins Hauptfenster verschieben (Ctrl+Shift+O)",
   "compose.popout.sending": "Wird gesendet… {n} s",
   "compose.popout.closeTitle": "Nachricht speichern?",
   "compose.popout.closeBody": "Diese Nachricht wurde noch nicht gesendet. Speichern Sie sie in den Entwürfen oder verwerfen Sie sie.",
