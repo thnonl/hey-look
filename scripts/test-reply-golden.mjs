@@ -28,6 +28,8 @@ const FIXTURES = `(() => {
     { index: 1, name: 'figures.xlsx', mime: 'application/vnd.ms-excel', size: 51000, inline: false, cid: null, referenced: false },
     { index: 2, name: 'notes.txt', mime: 'text/plain', size: 120, inline: false, cid: null, referenced: false } ] });
   add('g-plain', 'Golden plain text', { fromName: 'Linh Tran', fromEmail: 'linh@example.com', html: null, text: Array.from({ length: 30 }, (_, i) => 'Line ' + i + ': the open points follow, <b>not markup</b> & more.').join('\\n') });
+  const pics = [0, 1, 2].map((i) => ({ index: i, name: 'pic' + i + '.png', mime: 'image/png', size: 2048, inline: true, cid: 'p' + i + '@g', referenced: true }));
+  add('g-pics', 'Golden with pictures', { fromName: 'Linh Tran', fromEmail: 'linh@example.com', html: '<div><p>Pictures:</p>' + pics.map((p) => '<img src="cid:' + p.cid + '" width="40">').join('') + '</div>', attachments: pics });
   add('g-html', 'Golden rich HTML', { fromName: 'Linh Tran', fromEmail: 'linh@example.com', html: '<div style="font-family:Georgia"><h2>Plan</h2><table border="1"><tr><td>A</td><td>B</td></tr></table><p><img src="https://pictures.example.invalid/p.png" width="120"> <a href="https://example.com/x">link</a> <b>bold</b> <i>italic</i></p><ul><li>one</li><li>two</li></ul><blockquote>old quote</blockquote></div>' });
   return true;
 })()`;
@@ -44,6 +46,7 @@ const CASES = [
   ['no signature on replies', 'g-small', 'Reply', { signatureOnReply: false }],
   ['plain-text original', 'g-plain', 'Reply', {}],
   ['HTML original', 'g-html', 'Reply', {}],
+  ['quote with pictures', 'g-pics', 'Reply all', {}],
 ];
 
 // (picture ids are random; the date of the quoted message is the preview's clock: neither says anything about the message)
@@ -55,7 +58,13 @@ const firstDiff = (a, b, path = '') => {
 };
 const paneReady = `(() => { const p = document.querySelector('.compose-pane'); return !!p && !p.classList.contains('preparing') && !!p.querySelector('.cp-editor .tiptap .quote-block') && !!document.querySelector('.sig-select') && document.querySelector('.sig-select').value !== ''; })()`;
 
-/** Types a word in the body, presses Send and returns the draft the outbox was given. */
+/** What the pane shows besides the message itself: the rows and their chips, the size line, the signature picker, the toggles, the note and the strip. */
+const paneFacts = () => evaluate(String.raw`(() => { const p = document.querySelector('.compose-pane'); const t = (e) => e.textContent.replace(/\s+/g, ' ').trim();
+  return JSON.stringify({ rows: [...p.querySelectorAll('.cp-fields .cf-field')].map((f) => t(f.querySelector('label')) + ': ' + [...f.querySelectorAll('.chips > span')].map(t).join(' | ')), links: !!p.querySelector('.cf-links'), subject: p.querySelector('.cf-subject input').value,
+    tail: t(p.querySelector('.cp-tail')), sig: p.querySelector('.sig-select')?.value, sigText: t(p.querySelector('.sig-body') || document.body).slice(0, 60), toggles: [...p.querySelectorAll('.cp-bar [aria-pressed]')].map((b) => t(b) + '=' + b.getAttribute('aria-pressed')),
+    note: p.querySelector('.cf-replyto') ? t(p.querySelector('.cf-replyto')) : null, strip: p.querySelector('.sec-strip') ? p.querySelector('.sec-strip').className + ' ' + t(p.querySelector('.sec-strip')) : null, atts: [...p.querySelectorAll('.atts .att-chip')].map(t), classes: p.className.replace(/\s+/g, ' ').trim() }); })()`).then(JSON.parse);
+
+/** Types a word in the body, presses Send and returns the draft the outbox was given (and what the pane showed just before). */
 async function sendIt(encrypted) {
   // a forward starts without a recipient: one is typed (a comma ends the address)
   const chips = `document.querySelectorAll('.cf-field.rcpt .chips > span').length`;
@@ -68,11 +77,12 @@ async function sendIt(encrypted) {
     assert.ok(await evaluate(`${chips} > 0`), 'the recipient was not typed');
   }
   await sleep(encrypted ? 1200 : 900); // (the key status of the recipients is asked 250 ms after a change and decides Encrypt "automatic"; a draft taken before it is there differs)
+  const facts = await paneFacts();
   await evaluate(`(() => { window.__sendCalls = []; const ed = document.querySelector('.cp-editor .tiptap').editor; ed.chain().focus('start').insertContent('Thanks, noted.').run(); return 1; })()`);
   await sleep(100);
   assert.ok(await evaluate(`(() => { const b = document.querySelector('.cp-bar button.btn.primary'); if (!b || b.disabled) return false; b.click(); return true; })()`), 'no enabled Send button');
   assert.ok(await waitFor(`(window.__sendCalls || []).some((c) => c.cmd === 'hold')`, 8000), `the message was not handed to the outbox (toasts: ${await evaluate(`JSON.stringify(window.__store.getState().toasts.map((t) => typeof t.text === 'string' ? t.text : '?'))`)}; dialog: ${await evaluate(`JSON.stringify(window.__store.getState().dialog)`)})`);
-  return mask(await evaluate(`(window.__sendCalls.find((c) => c.cmd === 'hold')).draft`));
+  return { draft: mask(await evaluate(`(window.__sendCalls.find((c) => c.cmd === 'hold')).draft`)), facts };
 }
 async function closeAll() {
   await evaluate(`window.__store.getState().openCompose(null, { restore: false }); 1`);
@@ -93,25 +103,30 @@ try {
       assert.ok(await evaluate(`(() => { const b = [...document.querySelectorAll('.rp-msg.open button')].find((x) => (x.getAttribute('aria-label') || x.textContent).trim() === ${JSON.stringify(button)}); if (!b) return false; b.click(); return true; })()`), `no ${button} button`);
       assert.ok(await waitFor(paneReady, 15000), 'the message never filled in');
       const full = await evaluate(`JSON.stringify(window.__store.getState().compose)`);
-      const inPlace = await sendIt(name === 'encrypted reply');
+      const placed = await sendIt(name === 'encrypted reply');
+      const inPlace = placed.draft;
       await closeAll();
       // the same finished message, mounted fresh (new Compose, new editor)
       await evaluate(`window.__store.getState().openCompose(JSON.parse(${JSON.stringify(full)})); 1`);
       assert.ok(await waitFor(paneReady, 15000), 'the fresh mount never showed the message');
-      const fresh = await sendIt(name === 'encrypted reply');
-      const d = firstDiff(inPlace, fresh);
+      const again = await sendIt(name === 'encrypted reply');
+      const d = firstDiff(inPlace, again.draft);
       assert.equal(d, null, `the filled-in message and the fresh mount differ at ${d}`);
+      const df = firstDiff(placed.facts, again.facts);
+      assert.equal(df, null, `what the pane shows differs between the filled-in message and the fresh mount at ${df}`);
       // what a person expects to find in it
       assert.ok(inPlace.html.includes('Thanks, noted.'), 'the typed word is in the message');
       assert.ok(/hl-quote|quote/.test(inPlace.html), 'the quote is in the message');
       if (name === 'reply all with Cc') assert.deepEqual(inPlace.cc, ['chi@example.com', 'dung@example.com'], 'the Cc recipients');
       if (name === 'forward with 3 attachments') assert.equal(inPlace.attachments.length, 3, 'the 3 files come along');
+      if (name === 'quote with pictures') assert.ok(inPlace.html.includes('Pictures:'), 'the text of the original is quoted'); // (the mock's picture data is not a picture: what the quote does with the pictures is the same on both sides)
       if (name === 'Reply-To note') assert.ok(inPlace.to.some((x) => /support@acme/.test(x)), 'the answer goes to Reply-To');
       if (name === 'signature above the quote') assert.ok(inPlace.html.indexOf('Hey Look!') > 0 && inPlace.html.indexOf('Hey Look!') < inPlace.html.search(/hl-quote/), 'the signature is above the quote');
       if (name === 'no signature on replies') assert.ok(!inPlace.html.includes('Hey Look!'), 'no signature');
       if (name === 'confidential reply') assert.equal(inPlace.confidential, true, 'confidential');
       if (name === 'encrypted reply') assert.ok(inPlace.security?.encrypt, 'the answer to encrypted mail is encrypted');
       out[name] = inPlace;
+      out[`${name} (pane)`] = placed.facts;
       console.log(`  ok  ${name}`);
     } catch (e) {
       failures.push(`${name}: ${String(e.message).replace(/\s+/g, ' ').slice(0, 900)}`);
