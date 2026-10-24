@@ -48,7 +48,7 @@ export function settledScroll(o: SettleInput): number {
 }
 
 /** The rows of the header, as the page draws them: every field, link row, note and strip row, but not a box that holds others (the meeting strip is its When row and its Where row). */
-export const HEADER_ROWS = ".cp-fields > .cf-field, .cp-fields > .cf-links, .cp-fields > .note, .cp-event > .when, .cp-event > input, .cp-head > .note, .cp-head > .sec-strip";
+const HEADER_ROWS = ".cp-fields > .cf-field, .cp-fields > .cf-links, .cp-fields > .note, .cp-event > .when, .cp-event > input, .cp-head > .note, .cp-head > .sec-strip";
 
 /** Measure the header box and rest it (see `settledScroll`); `focus` is the control that has the focus. Returns the scroll it was set to, null when nothing was changed. */
 export function settleHeader(head: HTMLElement, focus: Element): number | null {

@@ -1052,7 +1052,8 @@ for (const [view, folder] of [["inbox", "inbox"], ["unread", "inbox"], ["pinned"
   assert.ok(read("src/popout/composeOpen.ts").includes("o.window ?? (inSecondaryWindow() ||"), "from a window a message always opens in a window");
   // the event window: Shift gestures and the buttons
   const cal = read("src/components/Calendar.tsx");
-  assert.ok(cal.includes('if (shiftNow()) return void openPopout("event", eventKey(ev.id), { eventId: ev.id });') && cal.includes('e.key === "Enter" && (e.ctrlKey || e.metaKey || (e.shiftKey && !e.altKey))'), "Shift+double-click and Shift+Enter open the event in a window");
+  // (W7.1: the key is read before the question about a series is asked; the window gets the part of the series and the occurrence)
+  assert.ok(cal.includes('const alone = shiftNow();') && cal.includes('void openPopout("event", eventKey(ev.id, scope, occurrenceStart), { eventId: ev.id, scope, occurrenceStart });') && cal.includes('e.key === "Enter" && (e.ctrlKey || e.metaKey || (e.shiftKey && !e.altKey))'), "Shift+double-click and Shift+Enter open the event in a window");
   assert.ok(read("src/components/Ribbon.tsx").includes("e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey ? newEventWindow() : newEvent()"), "Shift+click on New event opens a window");
   assert.ok(cal.includes("headExtra={") && cal.includes('title={t("app.cmd.openInWindow")}'), "the event dialog has Open in new window");
   assert.ok(read("src/components/SettingsDialog.tsx").includes('openPopout("settings", SETTINGS_KEY, { tab, section: mbTab })'), "the Settings dialog has Open in new window, on the same tab and section");

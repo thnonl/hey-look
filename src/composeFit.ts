@@ -4,9 +4,9 @@
 // a smaller one (a narrow column, a low window) shows Send, Discard and Attach (Send with its name, the others as icons) and moves every other action to "More actions".
 
 /** Below this many px of pane width the action row is one row of icons plus "More actions". */
-export const COMPACT_WIDTH = 600;
+const COMPACT_WIDTH = 600;
 /** Below this many px of pane height the same (a wide but low pane cannot afford rows of labelled buttons either). */
-export const COMPACT_HEIGHT = 480;
+const COMPACT_HEIGHT = 480;
 /** The message body is never smaller than this (px, padding included): the header above it and the attachments under it give way first. */
 export const BODY_MIN = 180;
 /** ... with a meeting on (App.css `.compose-pane.has-meeting`): the strip's two rows go to the header, the body gives up 60 px for them in a low window (D-012). */
@@ -28,7 +28,7 @@ export type BarItem = "picture" | "meeting" | "encrypt" | "sign" | "confidential
 export const BAR_ITEMS: readonly BarItem[] = ["picture", "meeting", "encrypt", "sign", "confidential", "importance", "saveDraft", "templates", "ai"];
 
 /** The gap between two items of the row (px; App.css `.cp-bar`). */
-export const BAR_GAP = 2;
+const BAR_GAP = 2;
 
 /**
  * How many of the movable items go into "More actions" (from the end). `fixed`: the width of what never moves (each item with its margins), `movable`: the natural

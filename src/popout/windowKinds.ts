@@ -41,8 +41,12 @@ export function searchKey(s: SearchInit): string {
   return ["search", text, s.scope, s.folder, s.accountId ?? "*", s.filter].join("\u0001");
 }
 
-/** The key of an event window: the event, so that opening it again focuses its window; a new event has none (REQ-4.6.6). */
-export const eventKey = (eventId: string | null | undefined): string | null => (eventId ? `event:${eventId}` : null);
+/**
+ * The key of an event window: the event, so that opening it again focuses its window; a new event has none (REQ-4.6.6). A part of a series (W7.1) has the part and the occurrence
+ * in its key: another occurrence of the same series is another window.
+ */
+export const eventKey = (eventId: string | null | undefined, scope?: string | null, occurrenceStart?: number | null): string | null =>
+  eventId ? (scope ? `event:${eventId}:${scope}:${occurrenceStart ?? ""}` : `event:${eventId}`) : null;
 
 /**
  * May the window `from` ask the main page to change these preferences (REQ-4.6.3)? The Settings window any key of `Prefs` (`known`: the keys of the defaults); every other window

@@ -246,11 +246,19 @@
   "node scripts/test-mac-strip-ui.mjs --require-browser": 40,
   "node scripts/test-mac-window-top.mjs --require-browser": 25,
   "node scripts/test-main-reader-memory.mjs --require-browser": 60,
+  "node --experimental-strip-types scripts/test-calendar-series.mjs": 1,
+  "node --experimental-strip-types scripts/test-calendar-series-ui.mjs --quick --require-browser": 75,
+  "node --experimental-strip-types scripts/test-caldav-dialog.mjs --quick --require-browser": 60,
+  "node --experimental-strip-types scripts/test-calendar-move.mjs": 1,
+  "node --experimental-strip-types scripts/test-calendar-move-ui.mjs --quick --require-browser": 70,
   "node scripts/test-folder-reset.mjs --require-browser": 20,
   "node scripts/test-update-toast.mjs --require-browser": 25,
   "node scripts/test-prune-limit.mjs --require-browser": 20,
   "node scripts/test-server-search-ui.mjs --require-browser": 40,
   "node --experimental-strip-types scripts/test-compose-start.mjs": 0,
-  "node scripts/test-reply-golden.mjs --require-browser": 40
+  "node scripts/test-reply-golden.mjs --require-browser": 40,
+  "bash .github/scripts/check-oauth-env.sh --selftest": 2,
+  "node scripts/test-publish-manifest.mjs": 1,
+  "node scripts/test-release-workflow.mjs": 1
  }
 }

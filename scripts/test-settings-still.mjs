@@ -17,7 +17,7 @@ const part = (from, to) => {
 };
 const oauth = part("function OAuthBlock(", "\n/** The sentence that says where the detected server settings came from");
 const imap = part("function ImapForm(", "\nfunction AddAccountTab()");
-const cal = part("function CalendarPanel(", "\n/** Per-mailbox PGP defaults.");
+const cal = part("function OauthCalendarPanel(", "\n/** Per-mailbox PGP defaults.");
 
 // 1. Add account (Google / Microsoft): the form has no message row; everything the sign-in says is in ONE slot under the card, in one conditional chain
 const form = oauth.slice(oauth.indexOf('<div className="form">'), oauth.indexOf('{/* what the sign-in is doing'));
@@ -35,12 +35,12 @@ assert.doesNotMatch(imap.slice(0, imap.indexOf('<div className="signin-slot">'))
 assert.match(imap, /<button ref=\{addBtn\} className="btn primary" disabled=\{busy \|\| !email \|\| !pw\}/, "the Add button takes the focus back");
 
 // 3. Calendar: one status slot, in one chain; the buttons and the list do not come and go with the consent
-const slot = cal.slice(cal.indexOf('className="set-status"'), cal.indexOf("{src && src.calendars.length > 0 && ("));
+const slot = cal.slice(cal.indexOf('className="set-status"'), cal.indexOf("{src && <CalendarsList "));
 assert.match(slot, /\{connecting \? \(\s*<SignInWaiting [\s\S]*?\) : ended \? \(\s*<SignInEnded [\s\S]*?\) : err \? \(\s*<div className="field-err" role="alert">\{err\}<\/div>\s*\) : line \? \(/, "waiting, ended, error and the sync status take turns in the one slot");
 assert.doesNotMatch(cal.slice(cal.indexOf("</Row>")), /\{err && |\{ended && |!connecting && src/, "no message row after the slot, and the buttons / list do not hide while a consent waits");
 assert.match(cal, /\{src && \(\s*<div className="row-inline set-actions">/, "the action row is there whenever the mailbox is connected");
 assert.match(cal, /disabled=\{connecting\} onClick=\{\(\) => void connect\(\)\}/, "Allow again is off while the consent waits");
-assert.match(cal, /\{src && src\.calendars\.length > 0 && \(/, "the calendar list stays while a consent waits");
+assert.match(cal, /\{src && <CalendarsList /, "the calendar list stays while a consent waits");
 assert.match(cal, /useEffect\(\(\) => \{\s*setErr\(null\);\s*setEnded\(null\);\s*\}, \[src\?\.status\]\);/, "an old message goes when the sync state moves on");
 assert.match(cal, /const starter = document\.activeElement instanceof HTMLElement && document\.activeElement\.matches\("button, input"\) \? document\.activeElement : null;[\s\S]*?opener\.current = starter;/, "the element that started the consent is remembered (taken before the question that comes first)");
 assert.match(cal, /back\?\.focus\(\)/, "and gets the focus back when the consent ends");

@@ -17,7 +17,7 @@ const toDateInput = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${
 const toTimeInput = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
 /** The check behind the custom date/time: an error blocks scheduling, a warning does not. */
-export function checkSchedule(date: string, time: string, now = Date.now()): { ts: number | null; error?: string; warn?: string; adjusted?: string } {
+function checkSchedule(date: string, time: string, now = Date.now()): { ts: number | null; error?: string; warn?: string; adjusted?: string } {
   const ts = parseLocal(date, time);
   if (ts === null) return { ts: null, error: date && time ? t("compose.schedule.realDate") : undefined };
   const d = new Date(ts * 1000);

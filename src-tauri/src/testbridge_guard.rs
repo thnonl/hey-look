@@ -60,8 +60,8 @@ fn every_use_in_lib_rs_is_debug_only() {
         let prev = lines[..i].iter().rev().map(|p| p.trim()).find(|p| !p.starts_with("//")).unwrap_or("");
         assert_eq!(prev, "#[cfg(debug_assertions)]", "lib.rs line {} uses testbridge without `#[cfg(debug_assertions)]`: {l}", i + 1);
     }
-    // the declaration, the plugin and the start
-    assert_eq!(uses, 3, "lib.rs is expected to use the bridge in exactly three places (module, plugin, start)");
+    // the declaration, the plugin, the start and the removal of the token file in quit_final (W9.4)
+    assert_eq!(uses, 4, "lib.rs is expected to use the bridge in exactly four places (module, plugin, start, quit_final)");
 }
 
 #[test]

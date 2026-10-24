@@ -10,7 +10,7 @@ const asked = new Set<string>();
 let current: string | null = null;
 
 /** The label of this window (`main`, `reader-2`, `compose-1`). */
-export function windowLabel(): string {
+function windowLabel(): string {
   try {
     return getCurrentWindow().label;
   } catch {

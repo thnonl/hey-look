@@ -21,7 +21,7 @@ name: Release
 # Partner Center; option B (STORE_EXE=true) builds the signed offline installer (`store-exe`), serves it from the website (`store-url`, pages.yml) and
 # `store-submit-exe` (both variables) gives Partner Center its address. Without the variables none of these jobs exists in the run, no asset is added and no
 # secret is read.
-# The node tests run in shards (.github/node-tests.txt): the shard `static` (about 1.5 minutes, the fast gate) always, the UI shards ui-a ... ui-e
+# The node tests run in shards (.github/node-tests.txt): the shard `static` (about 1.5 minutes, the fast gate) always, the UI shards ui-a ... ui-f
 # (a headless browser each, about 9 minutes in parallel) on every tag run and, in a dry run, only with the input `ui_tests` (default false).
 # A dry run without ui_tests therefore runs plan, static, the Rust tests and the builds; it never publishes, so nothing waits for the UI shards.
 # A tag run cannot skip them: the plan job lists them in the matrix of node-tests, and publish needs every shard to have succeeded.
@@ -45,8 +45,13 @@ on:
         description: "No effect any more: the SignPath token belongs to the environment release and is only given to tag runs"
         required: false
         default: "false"
+      rehearse_signing:
+        description: "Rehearse the signed path with throw-away keys made inside the run (update key, macOS certificate), thrown away at its end. No production secret is read. Ignored on a tag run and with test_version. Do not install the files of such a run"
+        type: boolean
+        required: false
+        default: false
       ui_tests:
-        description: "Also run the UI test shards (ui-a ... ui-e, about 9 minutes, a headless browser each). Off: only the fast shard static, the Rust tests and the builds. Tag runs always run them"
+        description: "Also run the UI test shards (ui-a ... ui-f, about 9 minutes, a headless browser each). Off: only the fast shard static, the Rust tests and the builds. Tag runs always run them"
         type: boolean
         required: false
         default: false
@@ -58,19 +63,31 @@ permissions:
 env:
   # The Rust compiler of every build and test job, exactly. A new Rust release must not change the shipped binary between the
   # last dry run and the tag run. To bump: change it here, run a dry run (platforms=all, all 823+ cargo tests and the three builds must
-  # pass), commit. rustfmt and clippy are not used in CI, so no components are installed.
+  # pass), run `cargo report future-incompatibilities` and, if a lint of imap-proto 0.10.2 (a trailing semicolon in macros, pulled in by the vendored imap) is
+  # becoming an error, vendor imap-proto under src-tauri/vendor/ with the semicolon fix (as imap is) BEFORE the bump, commit. rustfmt and clippy are not used in CI,
+  # so no components are installed. The Rust test jobs run with RUSTFLAGS -D warnings.
   RUST_VERSION: "1.99.1"
+  # The runner images, exactly (W11.8). No job uses a `-latest` label: the image must not change between the last dry run and the tag run (the publish
+  # job runs only on a tag, so with `ubuntu-latest` its first run on a new image would have been the release itself). In use: ubuntu-24.04 (plan,
+  # create-release, publish, the website deploy of pages.yml), windows-2025-vs2026 (every Windows job; the label of the image that windows-latest was),
+  # macos-26 (arm64, the universal build), ubuntu-22.04 (node tests, Rust tests, Linux build: the glibc floor of the Linux packages). To change one:
+  # change the label, then a dry run platforms=all AND a rehearsal (rehearse_signing=true), both green, then commit. scripts/test-release-workflow.mjs fails on a `-latest` label.
+  #
+  # SHA-1 fingerprint of the project's self-signed macOS certificate, the same since 1.0.6 (a public fingerprint, not a secret). A tag run fails when the
+  # signed app carries another certificate: every Mac's Keychain would ask about the saved passwords again. If the certificate is replaced on purpose,
+  # change this value in the same commit as the secrets (CONTRIBUTING.md > Signing and notarisation).
+  MAC_CERT_SHA1: "57b25c63435370e97149c84086474b6d2f51e448"
 
 # One run per ref and kind at a time. A newer manual run of the same kind (and the same platforms) on the same ref cancels the one
 # that is still building; a tag run is never cancelled.
 concurrency:
-  group: release-${{ github.ref }}-${{ github.event_name == 'push' && 'tag' || format('{0}-{1}', github.event.inputs.test_version != '' && 'test' || 'dry', github.event.inputs.platforms) }}
+  group: release-${{ github.ref }}-${{ github.event_name == 'push' && 'tag' || format('{0}-{1}-{2}', github.event.inputs.test_version != '' && 'test' || 'dry', github.event.inputs.platforms, github.event.inputs.rehearse_signing == 'true' && 'rehearse' || 'plain') }}
   cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' }}
 
 jobs:
   plan:
     # Which platforms to build: a tag run builds all three; a manual run builds what `platforms` names.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}
     outputs:
@@ -80,6 +97,8 @@ jobs:
       shards: ${{ steps.plan.outputs.shards }}
       ui_tests: ${{ steps.plan.outputs.ui_tests }}
       msix: ${{ steps.plan.outputs.msix }}
+      rehearse: ${{ steps.plan.outputs.rehearse }}
+      wintests: ${{ steps.plan.outputs.wintests }}
       store_exe: ${{ steps.plan.outputs.store_exe }}
       store_submit: ${{ steps.plan.outputs.store_submit }}
     steps:
@@ -90,6 +109,7 @@ jobs:
           PLATFORMS: ${{ github.event.inputs.platforms }}
           TEST_VERSION: ${{ github.event.inputs.test_version }}
           UI_TESTS: ${{ github.event.inputs.ui_tests }}
+          REHEARSE: ${{ github.event.inputs.rehearse_signing }}
           SIGN_DRY_RUN: ${{ github.event.inputs.sign_windows }}
           SP_ORG: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
           SP_PROJECT: ${{ vars.SIGNPATH_PROJECT_SLUG }}
@@ -114,16 +134,26 @@ jobs:
             esac
           done
           items=()
-          $win && items+=('{"name":"Windows","platform":"windows-latest","args":""}')
-          $mac && items+=('{"name":"macOS (universal)","platform":"macos-latest","args":"--target universal-apple-darwin"}')
+          $win && items+=('{"name":"Windows","platform":"windows-2025-vs2026","args":""}')
+          $mac && items+=('{"name":"macOS (universal)","platform":"macos-26","args":"--target universal-apple-darwin"}')
           $lin && items+=('{"name":"Linux","platform":"ubuntu-22.04","args":""}')
           matrix="{\"include\":[$(IFS=,; echo "${items[*]}")]}"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           # the node tests ran in the Linux build job before: they run whenever Linux is built
           echo "tests=$lin" >> "$GITHUB_OUTPUT"
+          # the Rust tests of Windows (W11.9): they have #[cfg(windows)] tests that the Linux job cannot run; they run whenever Windows is built
+          echo "wintests=$win" >> "$GITHUB_OUTPUT"
+          # the signing rehearsal (W11.3): a manual run that asks for it; a tag run and a test build ignore it
+          rehearse=false
+          if [ "$REHEARSE" = "true" ]; then
+            if [ "$EVENT" = "push" ]; then echo "::notice::rehearse_signing is ignored on a tag run"
+            elif [ -n "$TEST_VERSION" ]; then echo "::notice::rehearse_signing is ignored for a test build"
+            else rehearse=true; echo "::notice::REHEARSAL: the update key and the macOS certificate are throw-away keys made in this run. Do not install the files of this run."; fi
+          fi
+          echo "rehearse=$rehearse" >> "$GITHUB_OUTPUT"
           # the shards of the node-tests job: static always; the UI shards on a tag run (never skippable there) or when a dry run asks for them.
           # The names must be the shard words of .github/node-tests.txt (scripts/check-shards.mjs, run by the shard static, compares them).
-          ui_shards='ui-a ui-b ui-c ui-d ui-e'
+          ui_shards='ui-a ui-b ui-c ui-d ui-e ui-f'
           ui=false
           if [ "$EVENT" = "push" ] || [ "$UI_TESTS" = "true" ]; then ui=true; fi
           shards='["static"'
@@ -172,7 +202,7 @@ jobs:
   create-release:
     # Tag runs only. Creates the one draft release that all build jobs upload into.
     if: github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write # creates the draft release
@@ -207,7 +237,7 @@ jobs:
     # after the other, in front of the installer build. They need no Rust and no installer, so they run beside the three builds, in shards
     # (the list says which test is in which shard) on the same image as before. All shards must pass before anything is signed or published.
     # The plan job decides which shards exist: a dry run without the input ui_tests has only `static` (this job is then green after it), a tag
-    # run and a dry run with ui_tests have static and ui-a ... ui-e. The result of this job is the result of all its shards, so publish, which
+    # run and a dry run with ui_tests have static and ui-a ... ui-f. The result of this job is the result of all its shards, so publish, which
     # needs `success`, can never go on with a UI shard failed; and a tag run has no way to leave a shard out.
     needs: plan
     if: ${{ needs.plan.outputs.tests == 'true' }}
@@ -298,12 +328,91 @@ jobs:
       - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          save-if: ${{ github.ref_type != 'tag' }}
+          # W11.5: only main and the release branches save a cache (about 3.5 GB each, under the 10 GB the repository may keep); a feature branch and a tag
+          # only restore, from main, the nearest key (a feature-branch dry run therefore starts from the Rust dependencies of main, which may be older).
+          save-if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') }}
 
       - name: Run cargo test
         working-directory: src-tauri
         env:
           RUST_BACKTRACE: 1
+          # W9.8: a warning of this crate (or of the vendored imap) fails the job; registry crates keep cargo's --cap-lints, so their warnings never do
+          RUSTFLAGS: "-D warnings"
+        run: |
+          mkdir -p ../dist
+          [ -e ../dist/index.html ] || echo '<!doctype html><title>stand-in</title>' > ../dist/index.html
+          cargo test --locked
+
+  audit:
+    # Dependency audit (W9.11): known vulnerabilities in the npm and Cargo dependencies. A high or critical npm advisory in a production dependency, and
+    # any RustSec vulnerability in src-tauri/Cargo.lock, stop the run (an "unmaintained" or "yanked" notice is printed, it does not). An advisory that must
+    # stay is listed with its reason in src-tauri/.cargo/audit.toml (ignore = [...]), never skipped here. The full npm audit is printed for the record.
+    needs: plan
+    if: ${{ needs.plan.outputs.tests == 'true' }}
+    name: Dependency audit
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci --ignore-scripts
+
+      - name: npm audit (production dependencies, high and critical stop the run)
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: npm audit (everything, for the record)
+        run: npm audit || true
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-audit@0.22.2
+
+      - name: cargo audit
+        working-directory: src-tauri
+        run: cargo audit
+
+  rust-tests-windows:
+    # `cargo test` on Windows (W11.9): the #[cfg(windows)] tests (webview_health with a real WebView2, winframe, the Windows notification code ...) never ran in CI
+    # because the Rust job above is Linux only. Same Rust version and cache rules as the other Rust jobs; runs beside the builds, so the wall time of the run
+    # does not grow (it must not take longer than the macOS build). The frontend is not needed to compile the tests: an empty stand-in folder is made.
+    needs: plan
+    if: ${{ needs.plan.outputs.wintests == 'true' }}
+    name: Rust tests (Windows)
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch (a SHA pin needs the toolchain named)
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          # W11.5: only main and the release branches save a cache; a feature branch and a tag only restore
+          save-if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') }}
+
+      - name: Run cargo test
+        shell: bash
+        working-directory: src-tauri
+        env:
+          RUST_BACKTRACE: 1
+          RUSTFLAGS: "-D warnings" # (W9.8, as the Linux job)
         run: |
           mkdir -p ../dist
           [ -e ../dist/index.html ] || echo '<!doctype html><title>stand-in</title>' > ../dist/index.html
@@ -372,9 +481,9 @@ jobs:
       - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
-          # A tag run cannot read the caches of the branch it was cut from (only its own ref and main), so its cache would never be used again
-          # and only costs a minute and up to 1 GB of the 10 GB the repository may keep. Dry runs on a branch save: the next dry run of it reuses them.
-          save-if: ${{ github.ref_type != 'tag' }}
+          # W11.5: only main and the release branches save a cache (about 3.5 GB each, under the 10 GB the repository may keep); a feature branch and a tag
+          # only restore, from main, the nearest key (a feature-branch dry run therefore starts from the Rust dependencies of main, which may be older).
+          save-if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') }}
 
       # Is there a signing key? Tag run: it must be there. Dry run: signed with it, or built unsigned (with a warning) without.
       # A test build (test_version) is never signed. The key itself is never printed.
@@ -385,6 +494,7 @@ jobs:
           KEY: ${{ github.event_name == 'push' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
           TEST_VERSION: ${{ github.event.inputs.test_version }}
           EVENT: ${{ github.event_name }}
+          REHEARSE: ${{ needs.plan.outputs.rehearse }}
         run: |
           NOUPD="--config src-tauri/tauri.no-updater.conf.json"
           if [ "$EVENT" = "push" ]; then
@@ -402,6 +512,13 @@ jobs:
             echo "pubkey=error" >> "$GITHUB_OUTPUT"
             echo "signed=false" >> "$GITHUB_OUTPUT"
             echo "profile=debug" >> "$GITHUB_OUTPUT"
+          elif [ "$REHEARSE" = "true" ]; then
+            # W11.3: signed with a throw-away key made after npm ci (step "Rehearsal: throw-away update key"); the real files and steps run, the key is not the release key
+            echo "::notice::Rehearsal: the update packages are signed with a throw-away key"
+            echo "extra=" >> "$GITHUB_OUTPUT"
+            echo "pubkey=error" >> "$GITHUB_OUTPUT"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+            echo "profile=release" >> "$GITHUB_OUTPUT"
           elif [ -n "$KEY" ]; then
             echo "extra=" >> "$GITHUB_OUTPUT"
             echo "pubkey=error" >> "$GITHUB_OUTPUT"
@@ -417,18 +534,17 @@ jobs:
 
       # A tag run without the OAuth client ids would ship an app that cannot sign in to Google / Microsoft. The ids are embedded at build
       # time (src-tauri/build.rs). Names only, values are never printed.
+      # W11.2: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and MICROSOFT_CLIENT_ID are required (the Google sign-in needs the secret too); MICROSOFT_CLIENT_SECRET is
+      # optional (a public client). The script is .github/scripts/check-oauth-env.sh (its --selftest is in the shard static).
       - name: OAuth client ids present (tag runs)
         if: github.event_name == 'push'
         shell: bash
         env:
-          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-          MICROSOFT_CLIENT_ID: ${{ secrets.MICROSOFT_CLIENT_ID }}
-        run: |
-          bad=0
-          for n in GOOGLE_CLIENT_ID MICROSOFT_CLIENT_ID; do
-            if [ -z "${!n}" ]; then echo "::error::$n is not set (add it to the environment 'release'): the release app would have no sign-in"; bad=1; fi
-          done
-          exit $bad
+          GOOGLE_CLIENT_ID: ${{ github.event_name == 'push' && secrets.GOOGLE_CLIENT_ID || '' }}
+          GOOGLE_CLIENT_SECRET: ${{ github.event_name == 'push' && secrets.GOOGLE_CLIENT_SECRET || '' }}
+          MICROSOFT_CLIENT_ID: ${{ github.event_name == 'push' && secrets.MICROSOFT_CLIENT_ID || '' }}
+          MICROSOFT_CLIENT_SECRET: ${{ github.event_name == 'push' && secrets.MICROSOFT_CLIENT_SECRET || '' }}
+        run: bash .github/scripts/check-oauth-env.sh
 
       # Test build only: the version of this checkout is changed (never committed).
       - name: Set test version
@@ -450,6 +566,47 @@ jobs:
           node .github/scripts/verify-version.cjs "$V" . --pubkey="$PUBKEY"
 
       - run: npm ci
+
+      # W11.3 Rehearsal (manual run with rehearse_signing=true): the update key is made here, with the project's own tauri CLI, and thrown away with the runner.
+      # Its PUBLIC half replaces plugins.updater.pubkey in this checkout's tauri.conf.json (never committed), its private half and password go to the build
+      # step through the job's environment. No production secret is read anywhere in this block. Installers of such a run trust a key that no longer exists,
+      # so their updater refuses every update offer.
+      - name: "Rehearsal: throw-away update key"
+        if: needs.plan.outputs.rehearse == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          pw="$(openssl rand -hex 24)"
+          echo "::add-mask::$pw"
+          keyfile="$RUNNER_TEMP/rehearse-updater.key"
+          npx --no-install tauri signer generate --ci -p "$pw" -w "$keyfile"
+          key="$(tr -d '\r\n' < "$keyfile")"
+          echo "::add-mask::$key"
+          PUB="$(tr -d '\r\n' < "$keyfile.pub")" node -e 'const f="src-tauri/tauri.conf.json",c=JSON.parse(require("fs").readFileSync(f,"utf8"));c.plugins.updater.pubkey=process.env.PUB;require("fs").writeFileSync(f,JSON.stringify(c,null,2)+"\n")'
+          { echo "REHEARSAL_TAURI_KEY=$key"; echo "REHEARSAL_TAURI_KEY_PASSWORD=$pw"; } >> "$GITHUB_ENV"
+          echo "A throw-away update key was made (the public half is in this checkout's tauri.conf.json only)."
+
+      # W11.3 macOS: a throw-away self-signed code-signing certificate (extended key usage codeSigning), fed to the SAME "macOS signing" branch as the real
+      # secrets (mac-import-selfsigned.sh, then "Check self-signed signature"). The identity pin of MAC_CERT_SHA1 is not applied in a rehearsal.
+      - name: "Rehearsal: throw-away macOS certificate"
+        if: needs.plan.outputs.rehearse == 'true' && runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          name="Hey Look rehearsal $GITHUB_RUN_ID"
+          pw="$(openssl rand -hex 16)"
+          echo "::add-mask::$pw"
+          cnf="$RUNNER_TEMP/rehearse-cert.cnf"
+          printf '%s\n' '[req]' 'distinguished_name = dn' 'x509_extensions = ext' 'prompt = no' '[dn]' "CN = $name" '[ext]' 'basicConstraints = critical,CA:false' 'keyUsage = critical,digitalSignature' 'extendedKeyUsage = critical,codeSigning' > "$cnf"
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -config "$cnf" -keyout "$RUNNER_TEMP/rehearse-cert.key" -out "$RUNNER_TEMP/rehearse-cert.pem"
+          openssl pkcs12 -export -inkey "$RUNNER_TEMP/rehearse-cert.key" -in "$RUNNER_TEMP/rehearse-cert.pem" -out "$RUNNER_TEMP/rehearse-cert.p12" -passout "pass:$pw"
+          cert="$(openssl base64 -A < "$RUNNER_TEMP/rehearse-cert.p12")"
+          echo "::add-mask::$cert"
+          rm -f "$RUNNER_TEMP/rehearse-cert.key" "$RUNNER_TEMP/rehearse-cert.pem" "$RUNNER_TEMP/rehearse-cert.p12" "$cnf"
+          { echo "REHEARSAL_APPLE_CERTIFICATE=$cert"; echo "REHEARSAL_APPLE_CERTIFICATE_PASSWORD=$pw"; echo "REHEARSAL_APPLE_SIGNING_IDENTITY=$name"; } >> "$GITHUB_ENV"
+          echo "A throw-away signing certificate was made: $name"
 
       # macOS code signing (owner steps: CONTRIBUTING.md > Signing and notarisation). Only when the three certificate secrets
       # (APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY) exist and this is not a test build; otherwise nothing
@@ -473,9 +630,10 @@ jobs:
           EVENT: ${{ github.event_name }}
           TEST_VERSION: ${{ github.event.inputs.test_version }}
           REQUIRE: ${{ vars.REQUIRE_MAC_SIGNING }}
-          APPLE_CERTIFICATE: ${{ github.event_name == 'push' && secrets.APPLE_CERTIFICATE || '' }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ github.event_name == 'push' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
-          APPLE_SIGNING_IDENTITY: ${{ github.event_name == 'push' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          # a rehearsal (W11.3) gives the same three names throw-away values from the step before; no secret is read outside the push gate
+          APPLE_CERTIFICATE: ${{ github.event_name == 'push' && secrets.APPLE_CERTIFICATE || env.REHEARSAL_APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ github.event_name == 'push' && secrets.APPLE_CERTIFICATE_PASSWORD || env.REHEARSAL_APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ github.event_name == 'push' && secrets.APPLE_SIGNING_IDENTITY || env.REHEARSAL_APPLE_SIGNING_IDENTITY }}
           APPLE_API_ISSUER: ${{ github.event_name == 'push' && secrets.APPLE_API_ISSUER || '' }}
           APPLE_API_KEY: ${{ github.event_name == 'push' && secrets.APPLE_API_KEY || '' }}
           APPLE_API_PRIVATE_KEY: ${{ github.event_name == 'push' && secrets.APPLE_API_PRIVATE_KEY || '' }}
@@ -599,8 +757,9 @@ jobs:
           MICROSOFT_CLIENT_ID: ${{ github.event_name == 'push' && secrets.MICROSOFT_CLIENT_ID || '' }}
           MICROSOFT_CLIENT_SECRET: ${{ github.event_name == 'push' && secrets.MICROSOFT_CLIENT_SECRET || '' }}
           # Signs the update packages (minisign). Only this step gets the key.
-          TAURI_SIGNING_PRIVATE_KEY: ${{ github.event_name == 'push' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ github.event_name == 'push' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+          # (a rehearsal, W11.3, gives it the throw-away key of the step "Rehearsal: throw-away update key")
+          TAURI_SIGNING_PRIVATE_KEY: ${{ github.event_name == 'push' && secrets.TAURI_SIGNING_PRIVATE_KEY || env.REHEARSAL_TAURI_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ github.event_name == 'push' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || env.REHEARSAL_TAURI_KEY_PASSWORD }}
           # The .deb names the Ayatana tray library (libayatana-appindicator3-1: Debian 12 and Ubuntu have it, libappindicator3-1 is gone from Debian 12).
           # The bundler takes it from the dev package it finds (install-linux-deps.sh); this makes the choice explicit. Checked after the build.
           TAURI_LINUX_AYATANA_APPINDICATOR: "true"
@@ -746,12 +905,14 @@ jobs:
         if: runner.os == 'macOS' && steps.apple.outputs.kind == 'self-signed'
         env:
           PROFILE: ${{ steps.sign.outputs.profile }}
-          IDENTITY: ${{ github.event_name == 'push' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          IDENTITY: ${{ github.event_name == 'push' && secrets.APPLE_SIGNING_IDENTITY || env.REHEARSAL_APPLE_SIGNING_IDENTITY }}
+          # W11.11: a tag run also checks the SHA-1 of the certificate against MAC_CERT_SHA1; a rehearsal and a dry run do not (their certificate is another one)
+          EXPECT_SHA1: ${{ github.event_name == 'push' && env.MAC_CERT_SHA1 || '' }}
         run: |
           bundle="src-tauri/target/universal-apple-darwin/$PROFILE/bundle"
           app=$(find "$bundle/macos" -maxdepth 1 -name '*.app' | head -n 1)
           tgz=$(find "$bundle/macos" -maxdepth 1 -name '*.app.tar.gz' | head -n 1)
-          bash .github/scripts/mac-verify-selfsigned.sh "$app" "$IDENTITY" "$tgz"
+          bash .github/scripts/mac-verify-selfsigned.sh "$app" "$IDENTITY" "$tgz" "$EXPECT_SHA1"
           # Information only: the disk image is signed by the bundler too
           dmg=$(find "$bundle/dmg" -maxdepth 1 -name '*.dmg' | head -n 1)
           if [ -n "$dmg" ]; then
@@ -793,11 +954,22 @@ jobs:
             xcrun stapler validate "$dmg" || echo "::notice::The disk image has no stapled ticket (expected: only the app inside is stapled)"
           fi
 
+      # W11.3: nothing of the rehearsal stays: the files are gone and the variables are emptied for every later step (the runner is thrown away anyway)
+      - name: "Rehearsal: remove the throw-away key material"
+        if: always() && needs.plan.outputs.rehearse == 'true'
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP"/rehearse-* 2>/dev/null || true
+          for n in REHEARSAL_TAURI_KEY REHEARSAL_TAURI_KEY_PASSWORD REHEARSAL_APPLE_CERTIFICATE REHEARSAL_APPLE_CERTIFICATE_PASSWORD REHEARSAL_APPLE_SIGNING_IDENTITY; do
+            echo "$n=" >> "$GITHUB_ENV"
+          done
+
       # What this job made, on the run page (also when a step failed): was it signed, which files, how big, without opening the log.
       - name: Build summary
         if: always()
         shell: bash
         env:
+          REHEARSE: ${{ needs.plan.outputs.rehearse }}
           NAME: ${{ matrix.name }}
           PROFILE: ${{ steps.sign.outputs.profile }}
           SIGNED: ${{ steps.sign.outputs.signed }}
@@ -806,6 +978,7 @@ jobs:
           SIGNPATH: ${{ needs.plan.outputs.signpath }}
         run: |
           {
+            if [ "$REHEARSE" = "true" ]; then echo "**REHEARSAL: signed with throw-away keys. Do not install these files.**"; echo; fi
             echo "### Build ($NAME)"
             echo "profile \`${PROFILE:-?}\`, update signatures \`${SIGNED:-?}\`, SignPath after the build \`${SIGNPATH:-?}\`"
             if [ "$RUNNER_OS" = macOS ]; then echo "macOS signing: signed \`${MAC_SIGNED:-?}\`, certificate \`${MAC_KIND:-none}\`"; fi
@@ -828,9 +1001,9 @@ jobs:
     # With them: SignPath signs the two Windows installers after the build (it waits for the owner's approval in SignPath), the update
     # signatures are made again from the signed files, checked (verify-update-sigs.cjs, Authenticode = Valid) and replace the unsigned
     # assets of the draft (--clobber). A failure anywhere stops the release: publish needs this job. Owner steps: CONTRIBUTING.md.
-    needs: [plan, create-release, build, node-tests, rust-tests]
-    if: ${{ !cancelled() && needs.plan.outputs.signpath == 'true' && needs.build.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.node-tests.result) && (github.event_name != 'push' || (needs.node-tests.result == 'success' && needs.plan.outputs.ui_tests == 'true')) && contains(fromJSON('["success","skipped"]'), needs.rust-tests.result) && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped') }}
-    runs-on: windows-latest
+    needs: [plan, create-release, build, node-tests, rust-tests, rust-tests-windows, audit]
+    if: ${{ !cancelled() && needs.plan.outputs.signpath == 'true' && needs.build.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.node-tests.result) && (github.event_name != 'push' || (needs.node-tests.result == 'success' && needs.plan.outputs.ui_tests == 'true')) && contains(fromJSON('["success","skipped"]'), needs.rust-tests.result) && contains(fromJSON('["success","skipped"]'), needs.rust-tests-windows.result) && contains(fromJSON('["success","skipped"]'), needs.audit.result) && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped') }}
+    runs-on: windows-2025-vs2026
     timeout-minutes: 180
     environment: ${{ github.event_name == 'push' && 'release' || '' }}
     permissions:
@@ -982,12 +1155,12 @@ jobs:
 
   publish:
     # Runs only when create-release and all three builds succeeded and sign-windows either succeeded or was not wanted (skipped).
-    needs: [plan, create-release, build, sign-windows, store-exe, node-tests, rust-tests]
+    needs: [plan, create-release, build, sign-windows, store-exe, node-tests, rust-tests, rust-tests-windows, audit]
     timeout-minutes: 30
     permissions:
       contents: write # uploads latest.json and publishes the release
-    if: ${{ !cancelled() && github.event_name == 'push' && needs.plan.outputs.ui_tests == 'true' && needs.create-release.result == 'success' && needs.build.result == 'success' && needs.node-tests.result == 'success' && needs.rust-tests.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.sign-windows.result) && contains(fromJSON('["success","skipped"]'), needs.store-exe.result) }}
-    runs-on: ubuntu-latest
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.plan.outputs.ui_tests == 'true' && needs.create-release.result == 'success' && needs.build.result == 'success' && needs.node-tests.result == 'success' && needs.rust-tests.result == 'success' && needs.rust-tests-windows.result == 'success' && needs.audit.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.sign-windows.result) && contains(fromJSON('["success","skipped"]'), needs.store-exe.result) }}
+    runs-on: ubuntu-24.04
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       ID: ${{ needs.create-release.outputs.id }}
@@ -1309,7 +1482,7 @@ jobs:
     needs: [plan, build]
     if: ${{ !cancelled() && needs.plan.outputs.msix == 'true' && needs.build.result == 'success' }}
     name: MSIX package (Microsoft Store)
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     timeout-minutes: 30
     permissions:
       contents: read
@@ -1424,7 +1597,7 @@ jobs:
     needs: [msix]
     if: ${{ !cancelled() && needs.msix.result == 'success' }}
     name: MSIX install check
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     timeout-minutes: 45
     permissions:
       contents: read
@@ -1461,7 +1634,7 @@ jobs:
     needs: [plan, publish, msix, msix-check]
     if: ${{ !cancelled() && needs.plan.outputs.store_submit == 'true' && needs.publish.result == 'success' && needs.msix.result == 'success' && needs.msix-check.result == 'success' && needs.msix.outputs.ready == 'true' }}
     name: Store submission (MSIX)
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     timeout-minutes: 60
     environment: store
     permissions:
@@ -1513,7 +1686,7 @@ jobs:
     needs: [plan, create-release]
     if: ${{ !cancelled() && needs.plan.outputs.store_exe == 'true' && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped') }}
     name: Store offline installer (option B)
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     timeout-minutes: 60
     environment: ${{ github.event_name == 'push' && 'release' || '' }}
     permissions:
@@ -1626,7 +1799,7 @@ jobs:
     needs: [plan, publish, store-exe]
     if: ${{ !cancelled() && github.event_name == 'push' && needs.plan.outputs.store_exe == 'true' && needs.publish.result == 'success' && needs.store-exe.result == 'success' }}
     name: Store installer address (option B)
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     timeout-minutes: 90
     permissions:
       contents: read
@@ -1704,7 +1877,7 @@ jobs:
     needs: [plan, store-url]
     if: ${{ !cancelled() && needs.plan.outputs.store_exe == 'true' && needs.plan.outputs.store_submit == 'true' && needs.store-url.result == 'success' }}
     name: Store submission (EXE installer)
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     timeout-minutes: 60
     environment: store
     permissions:

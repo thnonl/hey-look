@@ -48,7 +48,6 @@ export async function loadPlatform(): Promise<void> {
 }
 
 export const osNow = (): Os => usePlatform.getState().os;
-export const pdfViewNow = (): PdfView => usePlatform.getState().pdfView;
 
 /** Where passwords are kept, as a phrase ("Saved in {store}"). */
 export const credStore = (os: Os = osNow()) => t(os === "macos" ? "errors.os.credStore.macos" : os === "linux" ? "errors.os.credStore.linux" : "errors.os.credStore.windows");

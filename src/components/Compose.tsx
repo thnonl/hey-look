@@ -113,7 +113,7 @@ const SignatureBlock = (cb: { mount: (el: HTMLElement) => void; unmount: (el: HT
 
 
 /** The positions of the pictures of the body that have no alt text (the signature and the quoted message are not the body). */
-export function picturesWithoutAlt(editor: Editor): number[] {
+function picturesWithoutAlt(editor: Editor): number[] {
   const out: number[] = [];
   editor.state.doc.descendants((n, pos) => {
     if (n.type.name === "image" && !String(n.attrs.alt ?? "").trim()) out.push(pos);

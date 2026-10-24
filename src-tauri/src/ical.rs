@@ -52,6 +52,8 @@ pub struct IcsEvent {
     pub dtstamp: i64,
     /// part of the event was left out because it was over a size cap (very long RRULE, huge attendee or EXDATE list)
     pub trimmed: bool,
+    /// minutes before the start of the first DISPLAY alarm with a relative trigger (VALARM), if the event has one
+    pub reminder_min: Option<i64>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -128,7 +130,7 @@ fn parse_line(l: &str) -> Option<Line> {
     Some(Line { name, params, value: l[i + 1..].to_string() })
 }
 
-fn unescape(s: &str) -> String {
+pub(crate) fn unescape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut it = s.chars();
     while let Some(c) = it.next() {
@@ -145,7 +147,7 @@ fn unescape(s: &str) -> String {
     out
 }
 
-fn escape(s: &str) -> String {
+pub(crate) fn escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 8);
     for c in s.chars() {
         match c {
@@ -280,6 +282,24 @@ fn local_in(tz: Tz, n: NaiveDateTime) -> i64 {
             Some(chrono::LocalResult::Ambiguous(a, _)) => a.timestamp(),
             _ => n.and_utc().timestamp(),
         },
+    }
+}
+
+/// The wall clock of an instant in a zone (UTC without one).
+pub fn wall_in(tz: Option<Tz>, ts: i64) -> NaiveDateTime {
+    let u = chrono::DateTime::from_timestamp(ts, 0).unwrap_or_default().naive_utc();
+    match tz {
+        Some(z) => z.from_utc_datetime(&u).naive_local(),
+        None => u,
+    }
+}
+
+/// The instant of a wall clock time in a zone (UTC without one). A time in a daylight saving gap moves forward, an ambiguous one takes the first
+/// of its two instants (RFC 5545 3.3.5).
+pub fn instant_of(tz: Option<Tz>, n: NaiveDateTime) -> i64 {
+    match tz {
+        Some(z) => local_in(z, n),
+        None => n.and_utc().timestamp(),
     }
 }
 
@@ -512,6 +532,9 @@ pub fn parse(text: &str) -> Result<IcsCalendar, String> {
     let mut depth_event: Option<Vec<Line>> = None;
     let mut skip_depth = 0usize; // nested VALARM / VTIMEZONE etc. inside the walk
     let mut in_tz = false;
+    // the alarm being read inside the event (action, trigger) and the first usable reminder of the event
+    let mut alarm: Option<(Option<String>, Option<String>)> = None;
+    let mut reminder: Option<i64> = None;
     for l in &lines {
         let Some(p) = parse_line(l) else { continue };
         if p.name == "BEGIN" {
@@ -519,9 +542,13 @@ pub fn parse(text: &str) -> Result<IcsCalendar, String> {
             if v == "VEVENT" {
                 depth_event = Some(vec![]);
                 skip_depth = 0;
+                reminder = None;
             } else if v == "VTIMEZONE" {
                 in_tz = true;
             } else if depth_event.is_some() {
+                if v == "VALARM" && skip_depth == 0 {
+                    alarm = Some((None, None));
+                }
                 skip_depth += 1;
             }
             continue;
@@ -530,7 +557,8 @@ pub fn parse(text: &str) -> Result<IcsCalendar, String> {
             let v = p.value.trim().to_ascii_uppercase();
             if v == "VEVENT" {
                 if let Some(props) = depth_event.take() {
-                    if let Some(ev) = build_event(&props, &ctx) {
+                    if let Some(mut ev) = build_event(&props, &ctx) {
+                        ev.reminder_min = reminder.take();
                         cal.events.push(ev);
                     }
                 }
@@ -538,6 +566,16 @@ pub fn parse(text: &str) -> Result<IcsCalendar, String> {
                 in_tz = false;
             } else if depth_event.is_some() && skip_depth > 0 {
                 skip_depth -= 1;
+                if v == "VALARM" && skip_depth == 0 {
+                    // a display alarm that fires before the start (TRIGGER:-PT15M); the first one counts
+                    if let Some((action, Some(trigger))) = alarm.take() {
+                        let display = action.as_deref().is_none_or(|a| a.trim().eq_ignore_ascii_case("DISPLAY"));
+                        let minutes = trigger.trim().strip_prefix('-').and_then(parse_duration).map(|secs| secs / 60).filter(|m| *m >= 0);
+                        if reminder.is_none() && display {
+                            reminder = minutes;
+                        }
+                    }
+                }
             }
             continue;
         }
@@ -546,7 +584,16 @@ pub fn parse(text: &str) -> Result<IcsCalendar, String> {
         }
         match depth_event.as_mut() {
             Some(props) if skip_depth == 0 => props.push(p),
-            Some(_) => {}
+            Some(_) => {
+                // (inside an alarm: its action and trigger)
+                if let (1, Some(a)) = (skip_depth, alarm.as_mut()) {
+                    match p.name.as_str() {
+                        "ACTION" => a.0 = Some(p.value.clone()),
+                        "TRIGGER" if p.param("VALUE").is_none_or(|v| v.eq_ignore_ascii_case("DURATION")) && p.param("RELATED").is_none_or(|r| r.eq_ignore_ascii_case("START")) => a.1 = Some(p.value.clone()),
+                        _ => {}
+                    }
+                }
+            }
             None => {
                 if p.name == "METHOD" {
                     cal.method = Some(p.value.trim().to_ascii_uppercase());
@@ -556,7 +603,8 @@ pub fn parse(text: &str) -> Result<IcsCalendar, String> {
     }
     // a message cut off inside the event: keep what was read
     if let Some(props) = depth_event.take() {
-        if let Some(ev) = build_event(&props, &ctx) {
+        if let Some(mut ev) = build_event(&props, &ctx) {
+            ev.reminder_min = reminder.take();
             cal.events.push(ev);
         }
     }
@@ -1124,7 +1172,7 @@ fn fold(line: &str, out: &mut String) {
     out.push_str("\r\n");
 }
 
-fn fmt_utc(ts: i64) -> String {
+pub(crate) fn fmt_utc(ts: i64) -> String {
     chrono::DateTime::from_timestamp(ts, 0).unwrap_or_default().format("%Y%m%dT%H%M%SZ").to_string()
 }
 
@@ -1144,7 +1192,7 @@ fn fmt_dt(prop: &str, ts: i64, all_day: bool, tz: Option<Tz>) -> String {
 /// The `CN=` parameter (RFC 5545 3.2.2). The value is always written as a quoted-string, which is what allows `,` `;` `:`
 /// and parentheses; a DQUOTE cannot appear inside one, so it becomes an apostrophe, and control characters (a line break
 /// would start a new property) are dropped.
-fn cn(name: &Option<String>) -> String {
+pub(crate) fn cn(name: &Option<String>) -> String {
     let n: String = name.as_deref().unwrap_or("").chars().map(|c| if c == '"' { '\'' } else { c }).filter(|c| !c.is_control()).collect();
     let n = n.trim();
     if n.is_empty() { String::new() } else { format!(";CN=\"{n}\"") }
@@ -1152,7 +1200,7 @@ fn cn(name: &Option<String>) -> String {
 
 /// A calendar address for `mailto:`: no white space or control characters, so it cannot end the property value early or
 /// start a new line.
-fn cal_addr(email: &str) -> String {
+pub(crate) fn cal_addr(email: &str) -> String {
     email.chars().filter(|c| !c.is_control() && !c.is_whitespace()).collect()
 }
 
@@ -1171,8 +1219,9 @@ pub fn to_ics(method: Option<&str>, events: &[IcsEvent]) -> String {
         l("BEGIN:VEVENT".into());
         l(format!("UID:{}", ev.uid));
         l(format!("DTSTAMP:{}", fmt_utc(if ev.dtstamp > 0 { ev.dtstamp } else { Utc::now().timestamp() })));
-        // a repeating event keeps its wall-clock time across daylight saving: write it in its own zone
-        let tz = ev.tzid.as_deref().and_then(iana_for).filter(|_| (ev.rrule.is_some() || !ev.rdates.is_empty()) && !ev.all_day);
+        // a repeating event, and one occurrence of it (RECURRENCE-ID), keep their wall-clock time across daylight saving: written in the zone of the series (RFC 5545 asks the
+        // RECURRENCE-ID to be of the same form as the DTSTART of the series)
+        let tz = ev.tzid.as_deref().and_then(iana_for).filter(|_| (ev.rrule.is_some() || !ev.rdates.is_empty() || ev.recurrence_id.is_some()) && !ev.all_day);
         l(fmt_dt("DTSTART", ev.start, ev.all_day, tz));
         l(fmt_dt("DTEND", ev.end, ev.all_day, tz));
         if let Some(r) = ev.recurrence_id {

@@ -110,7 +110,7 @@ export interface Prefs extends Overridable {
   scheduledCatchUp: "send" | "ask";
   /** retry network failures of scheduled messages 3 times, 5 minutes apart */
   retryScheduled: boolean;
-  /** ask GitHub for a newer version when the app starts or comes back from the tray (after a couple of hours when the window comes back; see update.rs) */
+  /** ask GitHub for a newer version when the app starts (once the last attempt is 5 minutes old) or when the window comes back from the tray (once the last attempt is 2 hours old); 15 minutes after a failed attempt (STARTUP_GAP_SECS, EVERY_SECS, RETRY_SECS in update.rs) */
   checkUpdates: boolean;
   /** version the user chose to skip in the update notice ("" = none) */
   skippedUpdate: string;
@@ -345,7 +345,7 @@ export function staleAccountPrefs(prefs: Prefs, accountIds: string[]): Partial<P
 }
 
 /** Dictionary key of the name of each built-in folder (the label itself comes from t(), in the language in use). */
-export const ROLE_LABELS: Record<string, Key> = {
+const ROLE_LABELS: Record<string, Key> = {
   inbox: "settings.folder.inbox",
   drafts: "settings.folder.drafts",
   sent: "settings.folder.sent",

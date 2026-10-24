@@ -98,11 +98,6 @@ export function isGone(messages: readonly { folder: string }[], home: string): b
   return !messages.some((m) => m.folder === home);
 }
 
-/** What a move-like action does to the window: it closes at once (REQ-R6). Flag, pin and read state keep it open (REQ-R7). */
-export const MOVE_ACTIONS: ReadonlySet<string> = new Set(["archive", "trash", "junk", "block", "snooze"]);
-/** The yes/no states of a conversation that the main window's intent layer sets (last click wins, one call at a time). */
-export const STATE_ACTIONS: ReadonlySet<string> = new Set(["read", "unread", "star", "unstar", "pin", "unpin", "unsnooze"]);
-
 export type ReaderAction = "reply" | "replyAll" | "forward" | "archive" | "trash" | "junk" | "unread" | "pin" | "flag" | "snooze" | "print" | "close" | "prev" | "next";
 
 /** Actions that stay on when the conversation is gone (REQ-R9: only Close and Reply / Forward). */

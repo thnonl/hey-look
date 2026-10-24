@@ -100,7 +100,7 @@
 <section class="fgroup" id="reading" aria-labelledby="reading-h"><header><p class="fg-n" aria-hidden="true">02</p><h2 id="reading-h">阅读</h2></header><ul class="fg-list"><li><h3>对话和订阅邮件</h3><p>邮件按对话分组，订阅邮件会移到“其他”选项卡（重点收件箱）。发件人支持时，一键即可取消订阅。</p></li><li><h3>远程图片被阻止</h3><p>远程图片只在您允许后才加载，所以跟踪像素始终被阻止。有风险的附件和具有误导性的链接会先询问。</p></li></ul></section>
 <section class="fgroup" id="writing" aria-labelledby="writing-h"><header><p class="fg-n" aria-hidden="true">03</p><h2 id="writing-h">写邮件</h2></header><ul class="fg-list"><li><h3>富文本编辑器</h3><p>字体、颜色、列表、表格、图片和链接。粘贴的内容会被清理，回复会保留原邮件的样子。可以在主窗口中写，也可以在独立窗口中写。</p></li><li><h3>撤销发送和不丢内容</h3><p>最多60秒内可以撤回邮件，也可以安排到一年之内发送，需要Hey Look!正在运行。草稿在您写作时自动保存，崩溃后邮件也不会丢失。</p></li></ul></section>
 <section class="fgroup" id="organising" aria-labelledby="organising-h"><header><p class="fg-n" aria-hidden="true">04</p><h2 id="organising-h">整理和搜索</h2></header><ul class="fg-list"><li><h3>稍后提醒、过滤器和“整理”</h3><p>让对话在您选定的时间之前离开收件箱，也可以置顶或标记。归档、删除和移至垃圾邮件在几秒内可以撤销。过滤器处理新邮件；“整理”则按发件人逐个清理。</p></li><li><h3>搜索和命令栏</h3><p>可用<code>from:</code>和<code>has:attachment</code>这样的运算符搜索。Ctrl+K（macOS上为Cmd+K）可到达每条命令和每个文件夹。</p></li></ul></section>
-<section class="fgroup" id="calendar" aria-labelledby="calendar-h"><header><p class="fg-n" aria-hidden="true">05</p><h2 id="calendar-h">日历</h2></header><ul class="fg-list"><li><h3>邀请</h3><p>在邮件里就能接受、暂定或拒绝，提供月、周和日程视图、提醒和.ics文件。</p></li><li><h3>与Google和Microsoft同步</h3><p>可选，按邮箱设置：您的Google或Outlook日历会显示在本地日历旁边，两边的更改互相同步。</p></li></ul></section>
+<section class="fgroup" id="calendar" aria-labelledby="calendar-h"><header><p class="fg-n" aria-hidden="true">05</p><h2 id="calendar-h">日历</h2></header><ul class="fg-list"><li><h3>邀请</h3><p>在邮件里就能接受、暂定或拒绝，提供月、周和日程视图、提醒和.ics文件。</p></li><li><h3>与Google、Microsoft和CalDAV同步</h3><p>可选，按邮箱设置：您的Google、Outlook或CalDAV日历（iCloud、Fastmail、Nextcloud等）会显示在本地日历旁边，两边的更改互相同步。</p></li></ul></section>
 <section class="fgroup" id="pgp" aria-labelledby="pgp-h"><header><p class="fg-n" aria-hidden="true">06</p><h2 id="pgp-h">加密（OpenPGP）</h2></header><ul class="fg-list"><li><h3>加密和签名</h3><p>生成或导入密钥，加密和签名邮件，解密并验证收到的邮件，发送前还能看到每位收件人是否有密钥。</p></li><li><h3>您的密钥</h3><p>私钥保存在应用的数据库中，由您的密码短语加锁。尚未与其他OpenPGP软件做过互通测试。</p></li></ul></section>
 <section class="fgroup" id="ai" aria-labelledby="ai-h"><header><p class="fg-n" aria-hidden="true">07</p><h2 id="ai-h">AI助手（可选）</h2></header><ul class="fg-list"><li><h3>您自己的端点</h3><p>用任何兼容OpenAI的端点（包括您自己电脑上的端点）来总结、翻译或撰写。只有在您点击按钮时，文字才会发送过去，解密后的OpenPGP文字也包括在内。</p></li><li><h3>长邮件和“取消”</h3><p>长邮件会分段翻译，最多60,000个字符。点击“取消”可以停止“翻译”“总结”或“用AI撰写”的请求。</p></li></ul></section>
 <section class="fgroup" id="notify" aria-labelledby="notify-h"><header><p class="fg-n" aria-hidden="true">08</p><h2 id="notify-h">桌面和更新</h2></header><ul class="fg-list"><li><h3>通知、托盘和更新</h3><p>Windows、Linux和macOS上有通知；macOS上程序坞图标还会显示未读数。关闭窗口后，Hey Look!会继续在托盘中运行。在您同意之前不会下载任何内容，只会安装签名有效的更新。</p></li><li><h3>八种语言</h3><p>英语、越南语、法语、简体中文、西班牙语、日语、德语和俄语。译文借助AI撰写，并经语言专家审校。</p></li></ul></section>
@@ -108,10 +108,10 @@
 <section class="fgroup limits" id="limits" aria-labelledby="limits-h"><header><p class="fg-n" aria-hidden="true">!</p><h2 id="limits-h">限制，直白地说</h2><p class="fg-lead">Hey Look!哪些事做不到，或只能做到一部分。</p></header>
 <ul class="fg-list">
 <li><h3>安装程序</h3><p>未经代码签名，所以首次启动时SmartScreen和Gatekeeper会发出警告。macOS版没有经过公证：见<a href="download.html#install-notes">在macOS上首次启动</a>。</p></li>
-<li><h3>macOS和Linux</h3><p>macOS没有“打印”菜单。在Linux上，通知没有按钮，保存密码需要已解锁的密钥环，“机密”邮件也不会对屏幕截图隐藏。</p></li>
-<li><h3>PDF附件</h3><p>只有在Windows上才在应用内显示；其他系统用您的默认应用打开。</p></li>
-<li><h3>邮件、搜索和写邮件</h3><p>推送只覆盖收件箱；其他文件夹按定时检查。搜索只涵盖已下载的邮件。缺少的标准文件夹（例如草稿）不会被创建。写邮件时没有纯文本模式。</p></li>
-<li><h3>日历</h3><p>同步只支持Google和Microsoft，不支持CalDAV。无法编辑重复事件中单独的某一次。</p></li>
+<li><h3>Linux</h3><p>通知按钮需要桌面的通知服务支持绘制按钮，托盘图标没有点击操作（请使用它的菜单），保存密码需要已解锁的密钥环，“机密”邮件也不会对屏幕截图隐藏。</p></li>
+<li><h3>文件夹</h3><p>可以在这里创建文件夹和一级子文件夹。重命名和删除文件夹需要在您的网页邮箱中进行。</p></li>
+<li><h3>邮件和写邮件</h3><p>推送覆盖收件箱和最多三个收藏夹文件夹；其他文件夹按定时检查。写邮件时没有纯文本模式。</p></li>
+<li><h3>日历</h3><p>部分工作或学校组织只允许管理员批准Microsoft日历权限。</p></li>
 <li><h3>Google登录</h3><p>在Google完成审核之前，仅限前100位用户。<a href="help.html#google-review">该怎么办</a></p></li></ul></section>
 </div></div>
 </main>

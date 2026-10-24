@@ -57,7 +57,7 @@ export interface Language {
   englishName: string;
   /** Short label of the header language button ("EN", "ZH"). */
   short: string;
-  /** Writing direction. Only recorded for now: no right-to-left layout exists yet, the UI does not read it. */
+  /** Writing direction of the language. Right-to-left UI layout is not supported (the 8 languages are final, owner decision 2026-10-18); the field is kept for the registry. */
   dir: "ltr" | "rtl";
   /** Position in the menus; lower first. English stays first. */
   sortOrder: number;

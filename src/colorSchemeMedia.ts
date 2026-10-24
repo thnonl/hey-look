@@ -32,7 +32,7 @@ export function rewriteColorScheme(css: string, dark: boolean): string {
 }
 
 /** The attribute that keeps the mail's own text of a rewritten element, so that a change of the background can rewrite it again from the original. */
-export const ORIG_ATTR = "data-hm-orig";
+const ORIG_ATTR = "data-hm-orig";
 const escAttr = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /**

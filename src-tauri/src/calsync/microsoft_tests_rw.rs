@@ -53,6 +53,8 @@ fn create_sends_the_event_in_its_zone_with_guests_and_a_reminder_and_lets_outloo
         description: Some("Bring wine".into()),
         attendees: vec![CalAttendee { name: Some("Guest".into()), ..guest("g@x.test", "optional") }, guest("h@x.test", "required")],
         reminder_min: Some(30),
+        rrule: None,
+        exdates: vec![],
     };
     let got = prov(&srv).create(&work(), &draft).unwrap();
     assert_eq!((got.id.as_str(), got.etag.as_str()), ("newid", "W/\"created\""));
@@ -188,6 +190,8 @@ fn synced_event_input(db: &crate::Db, remote: &str, summary: &str) -> (calendar:
         rrule: None,
         reminder_min: e.reminder_min,
         calendar_id: Some(cal),
+        scope: None,
+        occurrence_start: None,
     };
     (input, id)
 }
@@ -236,7 +240,7 @@ fn a_412_is_a_conflict_the_server_version_is_pulled_and_a_404_removes_the_row() 
 }
 
 #[test]
-fn saving_in_a_synced_outlook_calendar_creates_the_event_and_a_repeat_is_refused() {
+fn saving_in_a_synced_outlook_calendar_creates_the_event_and_a_repeating_one_with_its_pattern() {
     let (db, sid) = setup_db();
     let srv = FakeServer::start(|r| {
         if let Some(l) = list_ok(r) {
@@ -267,11 +271,19 @@ fn saving_in_a_synced_outlook_calendar_creates_the_event_and_a_repeat_is_refused
         rrule: None,
         reminder_min: Some(15),
         calendar_id: Some(cal_id()),
+        scope: None,
+        occurrence_start: None,
     };
     let saved = write::save(&db, &factory, &input).unwrap();
     assert_eq!((saved.summary.as_str(), saved.remote_id.as_deref(), saved.etag.as_deref()), ("New", Some("new"), Some("W/\"etag-new\"")));
-    let rep = write::save(&db, &factory, &calendar::CalEventInput { rrule: Some("FREQ=WEEKLY".into()), ..input }).unwrap_err();
-    assert!(rep.starts_with("CAL_READ_ONLY: Repeating events can be added to Calendar in Outlook for now."), "{rep}");
+    // a repeating event (W7.1): the rule travels as Graph's pattern and range
+    write::save(&db, &factory, &calendar::CalEventInput { rrule: Some("FREQ=WEEKLY;BYDAY=TU".into()), tzid: Some("America/New_York".into()), ..input }).unwrap();
+    let sent = srv.requests().into_iter().filter(|r| r.method == "POST").last().unwrap().json();
+    assert_eq!(sent["recurrence"]["pattern"]["type"], "weekly");
+    assert_eq!(sent["recurrence"]["pattern"]["daysOfWeek"], json!(["tuesday"]));
+    assert_eq!(sent["recurrence"]["range"]["type"], "noEnd");
+    assert_eq!(sent["recurrence"]["range"]["startDate"], "2026-10-20");
+    assert_eq!(sent["recurrence"]["range"]["recurrenceTimeZone"], "America/New_York");
 }
 
 // ---------------------------------------------------------------- errors
@@ -459,4 +471,40 @@ fn the_release_build_talks_to_graph_only() {
     assert_eq!(API, "https://graph.microsoft.com/v1.0");
     assert!(http::base_url("HEYLOOK_GRAPH_NOT_SET", API).starts_with("https://graph.microsoft.com/"));
     assert!(!prov(&FakeServer::start(|_| Resp::empty(200))).own_link("http://127.0.0.1:1/x"));
+}
+
+/// W7.5: Graph has no move: the event is made again in the target and the original is deleted; a new calendar is a POST.
+#[test]
+fn outlook_moves_by_copying_then_deleting_and_makes_a_calendar() {
+    let log: Arc<Mutex<Vec<String>>> = Arc::default();
+    let l2 = log.clone();
+    let srv = FakeServer::start(move |r| {
+        l2.lock().unwrap().push(format!("{} {}", r.method, r.path()));
+        match (r.method.as_str(), r.path()) {
+            ("GET", "/me/events/AAMkEV%3D") => {
+                let mut v = ev_json("AAMkEV=", "Lunch", "2026-10-20T13:00:00.0000000", "2026-10-20T14:00:00.0000000");
+                v["location"] = json!({ "displayName": "Home" });
+                Resp::json(200, v)
+            }
+            ("POST", "/me/calendars/FAMILY/events") => {
+                let b = r.json();
+                assert_eq!((b["subject"].as_str(), b["location"]["displayName"].as_str()), (Some("Lunch"), Some("Home")));
+                let mut v = ev_json("newid", "Lunch", "2026-10-20T13:00:00.0000000", "2026-10-20T14:00:00.0000000");
+                v["@odata.etag"] = json!("W/\"created\"");
+                Resp::json(201, v)
+            }
+            ("DELETE", "/me/events/AAMkEV%3D") => Resp::empty(204),
+            ("POST", "/me/calendars") => {
+                assert_eq!(r.json()["name"], "Hobbies");
+                Resp::json(201, json!({ "id": "NEWCAL", "name": "Hobbies", "hexColor": "", "canEdit": true, "isDefaultCalendar": false }))
+            }
+            (m, p) => panic!("unexpected {m} {p}"),
+        }
+    });
+    let family = RemoteCalendar { id: "FAMILY".into(), name: "Family".into(), selected: true, ..Default::default() };
+    let moved = prov(&srv).move_event(&work(), "AAMkEV=", "W/\"etag\"", &family).unwrap();
+    assert_eq!((moved.id.as_str(), moved.summary.as_str()), ("newid", "Lunch"));
+    assert_eq!(*log.lock().unwrap(), vec!["GET /me/events/AAMkEV%3D", "POST /me/calendars/FAMILY/events", "DELETE /me/events/AAMkEV%3D"], "read, make again, delete the original: in that order");
+    let made = prov(&srv).create_calendar("Hobbies").unwrap();
+    assert_eq!((made.id.as_str(), made.name.as_str(), made.read_only), ("NEWCAL", "Hobbies", false));
 }

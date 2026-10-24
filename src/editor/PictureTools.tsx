@@ -27,7 +27,7 @@ export interface PictureSel {
 }
 
 /** The selected picture (a NodeSelection of an `image`) and where it is in `body`, or null. */
-export function readPictureSel(ed: Editor, body: HTMLElement | null): PictureSel | null {
+function readPictureSel(ed: Editor, body: HTMLElement | null): PictureSel | null {
   const sel = ed.state.selection;
   if (!(sel instanceof NodeSelection) || sel.node.type.name !== "image" || !body) return null;
   const dom = ed.view.nodeDOM(sel.from) as HTMLElement | null;

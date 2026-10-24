@@ -32,7 +32,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 {
   const lib = read("src-tauri/src/lib.rs");
   ok("lib.rs declares the module for debug builds only", lib.includes("#[cfg(debug_assertions)]\nmod testbridge;\n") && lib.split("mod testbridge;").length === 2);
-  // each line of lib.rs that names the module (comments aside) sits right after the attribute
+  // each line of lib.rs that names the module (comments aside) sits right after the attribute: the declaration, the plugin, the start and the removal of the token file in quit_final (W9.4)
   const lines = lib.split("\n");
   const first = lines.findIndex((l, i) => l.trim() === "#[cfg(test)]" && /^mod \w+ \{/.test((lines.slice(i + 1).find((x) => !x.trim().startsWith("#[")) || "").trim()));
   const code = lines.slice(0, first < 0 ? lines.length : first);
@@ -42,7 +42,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     while (j >= 0 && code[j].trim().startsWith("//")) j--;
     return code[j].trim() === "#[cfg(debug_assertions)]";
   });
-  ok("every use of the module in lib.rs is cfg(debug_assertions)", gated && uses.length === 3, `uses=${uses.length}`);
+  ok("every use of the module in lib.rs is cfg(debug_assertions)", gated && uses.length === 4, `uses=${uses.length}`);
   const text = (p) => read(p).toLowerCase();
   for (const f of ["src-tauri/build.rs", "src-tauri/capabilities/default.json", "src-tauri/capabilities/popout.json", "src-tauri/tauri.conf.json", "src-tauri/tauri.no-updater.conf.json"]) {
     ok(`${f} does not mention the bridge`, !text(f).includes("bridge"));

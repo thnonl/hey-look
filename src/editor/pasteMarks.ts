@@ -6,7 +6,7 @@ import type { EditorState } from "@tiptap/pm/state";
 import type { PasteMode } from "./pasteClean.ts";
 
 /** `marks` on every text of the content that does not have a mark of the same type yet. */
-export function withMarks(f: Fragment, marks: readonly Mark[]): Fragment {
+function withMarks(f: Fragment, marks: readonly Mark[]): Fragment {
   const out: PmNode[] = [];
   f.forEach((n) => out.push(n.isText ? n.mark(marks.reduce((set, m) => (set.some((x) => x.type === m.type) ? set : m.addToSet(set)), n.marks)) : n.copy(withMarks(n.content, marks))));
   return Fragment.fromArray(out);

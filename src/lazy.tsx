@@ -22,7 +22,7 @@ export function LazyLoading() {
 }
 
 /** True once `ms` have passed since this mounted (the part was asked for) and `on` is still true. */
-export function useAfter(on: boolean, ms: number = LAZY_LOOK_MS): boolean {
+function useAfter(on: boolean, ms: number = LAZY_LOOK_MS): boolean {
   const [late, setLate] = useState(false);
   useEffect(() => {
     if (!on) return;
@@ -33,7 +33,7 @@ export function useAfter(on: boolean, ms: number = LAZY_LOOK_MS): boolean {
 }
 
 /** The toast of a part that could not be loaded. */
-export function reportLazyFailure(e: unknown): void {
+function reportLazyFailure(e: unknown): void {
   useStore.getState().showToast(() => t("errors.toast.failed", { error: friendlyError(e) }), undefined, "error");
 }
 

@@ -11,7 +11,7 @@ const TOMBSTONE_KEEP_SECS: i64 = 30 * 86_400;
 
 // ------------------------------------------------------------------ read-only reasons
 
-/// `events.read_only`: 0 editable, 1 read-only calendar, 2 repeating, 3 organized by someone else.
+/// `events.read_only`: 0 editable, 1 read-only calendar, 2 repeating (1.0.6 only: a row that still has it is editable now), 3 organized by someone else.
 pub fn read_only_code(reason: Option<&str>) -> i64 {
     match reason {
         Some("calendar") => 1,
@@ -24,7 +24,6 @@ pub fn read_only_code(reason: Option<&str>) -> i64 {
 pub fn read_only_reason(code: i64) -> Option<String> {
     match code {
         1 => Some("calendar".into()),
-        2 => Some("repeating".into()),
         3 => Some("organizer".into()),
         _ => None,
     }
@@ -45,9 +44,21 @@ pub struct Source {
     pub connected_at: i64,
     /// the token of the provider's calendar list (Google `nextSyncToken`); `None` = ask for the whole list
     pub list_state: Option<String>,
+    /// CalDAV: the server, the user name and what discovery found; `None` for the other kinds
+    pub dav: Option<super::caldav::DavSource>,
 }
 
-const SOURCE_COLS: &str = "id,account_id,kind,status,last_sync,last_error,retry_at,fail_count,connected_at,list_state";
+impl Source {
+    /// How the person knows the service: Google Calendar, Outlook, or the CalDAV server by its name (iCloud, Fastmail, Nextcloud) or its host.
+    pub fn service_name(&self) -> String {
+        match &self.dav {
+            Some(d) if self.kind == Kind::CalDav => d.label(),
+            _ => self.kind.service().to_string(),
+        }
+    }
+}
+
+const SOURCE_COLS: &str = "id,account_id,kind,status,last_sync,last_error,retry_at,fail_count,connected_at,list_state,dav_url,dav_user,dav_preset,dav_homes,dav_addresses,dav_sched,dav_trust";
 
 fn row_source(r: &rusqlite::Row) -> rusqlite::Result<Source> {
     let kind: String = r.get(2)?;
@@ -62,6 +73,18 @@ fn row_source(r: &rusqlite::Row) -> rusqlite::Result<Source> {
         fail_count: r.get(7)?,
         connected_at: r.get(8)?,
         list_state: r.get(9)?,
+        dav: match r.get::<_, Option<String>>(10)? {
+            Some(url) => Some(super::caldav::DavSource {
+                url,
+                username: r.get::<_, Option<String>>(11)?.unwrap_or_default(),
+                preset: super::caldav::Preset::from_str(&r.get::<_, Option<String>>(12)?.unwrap_or_default()),
+                homes: serde_json::from_str(&r.get::<_, Option<String>>(13)?.unwrap_or_default()).unwrap_or_default(),
+                addresses: serde_json::from_str(&r.get::<_, Option<String>>(14)?.unwrap_or_default()).unwrap_or_default(),
+                scheduling: r.get::<_, Option<i64>>(15)?.unwrap_or(0) != 0,
+                trust_cert: r.get::<_, Option<i64>>(16)?.unwrap_or(0) != 0,
+            }),
+            None => None,
+        },
     })
 }
 
@@ -93,6 +116,23 @@ pub fn create_source(c: &Connection, account_id: &str, kind: Kind, now: i64) -> 
     )
     .map_err(err)?;
     get_source(c, &id).ok_or_else(|| "calendar source missing".to_string())
+}
+
+/// Start syncing a mailbox's calendars with a CalDAV server (W7.4): the source with what the person entered and discovery found. The password is in the credential store.
+pub fn create_dav_source(c: &Connection, account_id: &str, now: i64, dav: &super::caldav::DavSource) -> R<Source> {
+    let s = create_source(c, account_id, Kind::CalDav, now)?;
+    c.execute(
+        "UPDATE cal_sources SET dav_url=?2, dav_user=?3, dav_preset=?4, dav_homes=?5, dav_addresses=?6, dav_sched=?7, dav_trust=?8 WHERE id=?1",
+        params![s.id, dav.url, dav.username, dav.preset.as_str(), serde_json::to_string(&dav.homes).map_err(err)?, serde_json::to_string(&dav.addresses).map_err(err)?, dav.scheduling as i64, dav.trust_cert as i64],
+    )
+    .map_err(err)?;
+    get_source(c, &s.id).ok_or_else(|| "calendar source missing".to_string())
+}
+
+/// The version tag of every resource of a CalDAV calendar that is stored here (address -> etag).
+pub fn resource_etags(c: &Connection, calendar_id: &str) -> Vec<(String, String)> {
+    let Ok(mut st) = c.prepare("SELECT href,etag FROM cal_resources WHERE calendar_id=?1") else { return vec![] };
+    st.query_map([calendar_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))).map(|it| it.filter_map(|r| r.ok()).collect()).unwrap_or_default()
 }
 
 pub fn set_status(c: &Connection, id: &str, status: &str, error: Option<&str>, retry_at: Option<i64>, fail_count: i64) -> R<()> {
@@ -146,9 +186,16 @@ pub struct CalRow {
     pub window_from: Option<i64>,
     /// when the calendar was last downloaded in full (a calendar over the event cap is downloaded in full at most once a day)
     pub full_at: Option<i64>,
+    /// the colour the person chose in Settings (`#rrggbb`); `None` = the service's colour
+    pub color_override: Option<String>,
 }
 
 impl CalRow {
+    /// The colour to draw: the person's choice, else the service's (empty = the mailbox's own colour).
+    pub fn shown_color(&self) -> String {
+        self.color_override.clone().unwrap_or_else(|| self.color.clone())
+    }
+
     pub fn remote(&self) -> RemoteCalendar {
         RemoteCalendar {
             id: self.remote_id.clone(),
@@ -163,7 +210,7 @@ impl CalRow {
     }
 }
 
-const CAL_COLS: &str = "id,source_id,remote_id,name,color,read_only,is_primary,sync_on,sync_state,time_zone,default_reminder_min,event_count,truncated,window_from,full_at";
+const CAL_COLS: &str = "id,source_id,remote_id,name,color,read_only,is_primary,sync_on,sync_state,time_zone,default_reminder_min,event_count,truncated,window_from,full_at,color_override";
 
 fn row_cal(r: &rusqlite::Row) -> rusqlite::Result<CalRow> {
     Ok(CalRow {
@@ -182,6 +229,7 @@ fn row_cal(r: &rusqlite::Row) -> rusqlite::Result<CalRow> {
         truncated: r.get::<_, i64>(12)? != 0,
         window_from: r.get(13)?,
         full_at: r.get(14)?,
+        color_override: r.get(15)?,
     })
 }
 
@@ -189,6 +237,20 @@ pub fn calendars_of(c: &Connection, source_id: &str) -> R<Vec<CalRow>> {
     let mut st = c.prepare(&format!("SELECT {CAL_COLS} FROM calendars WHERE source_id=?1 ORDER BY is_primary DESC, name COLLATE NOCASE, id")).map_err(err)?;
     let rows = st.query_map([source_id], row_cal).map_err(err)?.collect::<Result<Vec<_>, _>>().map_err(err)?;
     Ok(rows)
+}
+
+/// The colour of a synced calendar as the person wants it: `#rrggbb`, or `None` for the service's own. Not sent to the service (D-7.5b).
+pub fn set_color_override(c: &Connection, calendar_id: &str, color: Option<&str>) -> R<()> {
+    let value = match color.map(str::trim).filter(|v| !v.is_empty()) {
+        None => None,
+        Some(v) if v.len() == 7 && v.starts_with('#') && v[1..].chars().all(|ch| ch.is_ascii_hexdigit()) => Some(v.to_ascii_lowercase()),
+        Some(_) => return Err("CAL_ERROR: That is not a colour.".into()),
+    };
+    let n = c.execute("UPDATE calendars SET color_override=?2 WHERE id=?1", params![calendar_id, value]).map_err(err)?;
+    if n == 0 {
+        return Err("CAL_GONE: This calendar is no longer synced.".into());
+    }
+    Ok(())
 }
 
 pub fn get_calendar(c: &Connection, id: &str) -> Option<CalRow> {
@@ -283,6 +345,7 @@ fn upsert_calendar(tx: &Connection, src: &Source, old: Option<&CalRow>, rc: &Rem
 
 pub fn drop_calendar(c: &Connection, id: &str) -> R<()> {
     c.execute("DELETE FROM events WHERE calendar_id=?1", [id]).map_err(err)?;
+    c.execute("DELETE FROM cal_resources WHERE calendar_id=?1", [id]).map_err(err)?;
     c.execute("DELETE FROM cal_tombstones WHERE calendar_id=?1", [id]).map_err(err)?;
     c.execute("DELETE FROM calendars WHERE id=?1", [id]).map_err(err)?;
     Ok(())
@@ -304,6 +367,7 @@ pub fn set_calendar_sync(c: &Connection, id: &str, on: bool) -> R<()> {
 /// Drop the events, tombstones and token of a calendar that stays in the list.
 pub fn clear_events(c: &Connection, id: &str) -> R<()> {
     c.execute("DELETE FROM events WHERE calendar_id=?1", [id]).map_err(err)?;
+    c.execute("DELETE FROM cal_resources WHERE calendar_id=?1", [id]).map_err(err)?;
     c.execute("DELETE FROM cal_tombstones WHERE calendar_id=?1", [id]).map_err(err)?;
     c.execute("UPDATE calendars SET sync_state=NULL, event_count=0, truncated=0, window_from=NULL, full_at=NULL WHERE id=?1", [id]).map_err(err)?;
     Ok(())
@@ -363,6 +427,7 @@ pub fn prune_orphans(c: &Connection) -> R<usize> {
     for sql in [
         "DELETE FROM calendars WHERE source_id NOT IN (SELECT id FROM cal_sources)",
         "DELETE FROM cal_tombstones WHERE calendar_id NOT IN (SELECT id FROM calendars)",
+        "DELETE FROM cal_resources WHERE calendar_id NOT IN (SELECT id FROM calendars)",
         "DELETE FROM events WHERE remote_id IS NOT NULL AND calendar_id NOT IN (SELECT id FROM calendars)",
     ] {
         n += c.execute(sql, []).map_err(err)?;
@@ -376,8 +441,6 @@ pub fn prune_orphans(c: &Connection) -> R<usize> {
 fn read_only_for(cal: &CalRow, re: &RemoteEvent) -> Option<String> {
     if cal.read_only {
         Some("calendar".into())
-    } else if re.rrule.is_some() || re.kind != EventKind::Single {
-        Some("repeating".into())
     } else if !re.can_edit {
         Some("organizer".into())
     } else {
@@ -413,7 +476,7 @@ pub fn event_from_remote(cal: &CalRow, account_id: &str, re: &RemoteEvent, id: S
         responded_at: old.and_then(|o| o.responded_at),
         reminder_min: re.reminder_min,
         source_message_id: None,
-        sequence: 0,
+        sequence: re.sequence,
         confidential: false,
         instance_start: None,
         read_only: read_only_for(cal, re),
@@ -426,10 +489,15 @@ pub fn event_from_remote(cal: &CalRow, account_id: &str, re: &RemoteEvent, id: S
         has_rdates: !re.rdates.is_empty(),
         rdates: re.rdates.clone(),
         prev: None,
+        series: false,
+        occurrence_start: None,
+        changed_occurrence: false,
+        first_occurrence: false,
     }
+    .derive()
 }
 
-fn find_remote(c: &Connection, cal_id: &str, remote_id: &str) -> Option<CalEvent> {
+pub(crate) fn find_remote(c: &Connection, cal_id: &str, remote_id: &str) -> Option<CalEvent> {
     c.query_row(&format!("SELECT {COLS} FROM events WHERE calendar_id=?1 AND remote_id=?2"), params![cal_id, remote_id], calendar::row_event).optional().ok().flatten()
 }
 
@@ -444,7 +512,7 @@ pub fn upsert_remote(c: &Connection, cal: &CalRow, account_id: &str, re: &Remote
     Ok(e)
 }
 
-fn tombstone(c: &Connection, cal_id: &str, remote_id: &str, series: Option<&str>, rec: Option<i64>, now: i64) -> R<()> {
+pub(crate) fn tombstone(c: &Connection, cal_id: &str, remote_id: &str, series: Option<&str>, rec: Option<i64>, now: i64) -> R<()> {
     c.execute(
         "INSERT OR REPLACE INTO cal_tombstones(calendar_id,remote_id,series_id,recurrence_id,deleted_at) VALUES(?1,?2,?3,?4,?5)",
         params![cal_id, remote_id, series, rec, now],
@@ -474,9 +542,19 @@ pub fn remove_remote(c: &Connection, cal_id: &str, remote_id: &str, now: i64) ->
     Ok(changed)
 }
 
+/// One occurrence of a series was deleted at the service by this app: its row (if there is one) goes and its slot stays hidden (a tombstone of the instance, then the
+/// master's exclusion list).
+pub fn forget_occurrence(c: &Connection, cal_id: &str, series_remote_id: &str, instance_id: &str, slot: i64, now: i64) -> R<()> {
+    if let Some(old) = find_remote(c, cal_id, instance_id) {
+        c.execute("DELETE FROM events WHERE id=?1", [&old.id]).map_err(err)?;
+    }
+    tombstone(c, cal_id, instance_id, Some(series_remote_id), Some(slot), now)?;
+    refresh_exdates(c, cal_id, series_remote_id)
+}
+
 /// The master's exclusion list: its own EXDATEs plus the original slot of every exception and every cancelled instance, so an
 /// expanded series never shows a moved or deleted instance at its old time as well.
-fn refresh_exdates(c: &Connection, cal_id: &str, series: &str) -> R<()> {
+pub(crate) fn refresh_exdates(c: &Connection, cal_id: &str, series: &str) -> R<()> {
     let Some(master) = find_remote(c, cal_id, series) else { return Ok(()) };
     let mut all: BTreeSet<i64> = master.exdates.iter().copied().collect();
     let mut st = c.prepare("SELECT recurrence_id FROM events WHERE calendar_id=?1 AND series_id=?2 AND recurrence_id!=''").map_err(err)?;
@@ -519,6 +597,32 @@ pub fn apply_pull(c: &Connection, cal: &CalRow, account_id: &str, pull: &Pull, f
         }
         // the download is the whole truth: what was deleted is not in it, and the cancelled instances come with it
         tx.execute("DELETE FROM cal_tombstones WHERE calendar_id=?1", [&cal.id]).map_err(err)?;
+        tx.execute("DELETE FROM cal_resources WHERE calendar_id=?1", [&cal.id]).map_err(err)?;
+    }
+    // CalDAV: a resource that was downloaded again replaces every row it had (its master and its overrides), so an override that is gone from it is gone here too
+    // (the rows that are in the new text stay where they are, so an open dialog or a selection keeps its event; only the ones the text no longer has go)
+    let present: HashSet<&str> = pull.upserts.iter().map(|e| e.id.as_str()).collect();
+    for href in &pull.replace {
+        let mut st = tx.prepare("SELECT id,remote_id FROM events WHERE calendar_id=?1 AND (remote_id=?2 OR series_id=?2)").map_err(err)?;
+        let gone: Vec<String> = st
+            .query_map(params![cal.id, href], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+            .map_err(err)?
+            .filter_map(|r| r.ok())
+            .filter(|(_, rid)| !present.contains(rid.as_str()))
+            .map(|(id, _)| id)
+            .collect();
+        drop(st);
+        for id in gone {
+            tx.execute("DELETE FROM events WHERE id=?1", [id]).map_err(err)?;
+            changed = true;
+        }
+        tx.execute("DELETE FROM cal_tombstones WHERE calendar_id=?1 AND series_id=?2", params![cal.id, href]).map_err(err)?;
+    }
+    for href in &pull.removed {
+        tx.execute("DELETE FROM cal_resources WHERE calendar_id=?1 AND href=?2", params![cal.id, href]).map_err(err)?;
+    }
+    for r in &pull.resources {
+        tx.execute("INSERT OR REPLACE INTO cal_resources(calendar_id,href,etag,uid,raw,updated_at) VALUES(?1,?2,?3,?4,?5,?6)", params![cal.id, r.href, r.etag, r.uid, r.raw, now]).map_err(err)?;
     }
     let mut series: BTreeSet<String> = BTreeSet::new();
     for rid in &pull.removed {
@@ -594,7 +698,10 @@ pub fn apply_pull(c: &Connection, cal: &CalRow, account_id: &str, pull: &Pull, f
 pub struct CalendarSyncInfo {
     pub id: String,
     pub name: String,
+    /// the colour to draw (the person’s choice, else the service’s)
     pub color: String,
+    /// the colour is the person’s choice (Settings > Calendar), not the service’s
+    pub custom_color: bool,
     pub read_only: bool,
     pub primary: bool,
     pub sync_on: bool,
@@ -620,6 +727,21 @@ pub struct SourceInfo {
     /// the first download is running: nothing was synced yet
     pub first_sync: bool,
     pub calendars: Vec<CalendarSyncInfo>,
+    /// CalDAV: how the server is named and who signed in (the status line and the line under the switch say it)
+    pub dav: Option<DavInfo>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct DavInfo {
+    /// "iCloud" / "Fastmail" / "Nextcloud", else the host of the server
+    pub label: String,
+    pub username: String,
+    pub host: String,
+    /// "icloud" | "fastmail" | "nextcloud" | "other"
+    pub preset: String,
+    /// the server sends invitations itself
+    pub scheduling: bool,
 }
 
 pub fn sources_info(c: &Connection) -> R<Vec<SourceInfo>> {
@@ -627,7 +749,7 @@ pub fn sources_info(c: &Connection) -> R<Vec<SourceInfo>> {
     for s in list_sources(c)? {
         let calendars = calendars_of(c, &s.id)?
             .into_iter()
-            .map(|r| CalendarSyncInfo { id: r.id, name: r.name, color: r.color, read_only: r.read_only, primary: r.primary, sync_on: r.sync_on, event_count: r.event_count, truncated: r.truncated })
+            .map(|r| CalendarSyncInfo { custom_color: r.color_override.is_some(), color: r.shown_color(), id: r.id, name: r.name, read_only: r.read_only, primary: r.primary, sync_on: r.sync_on, event_count: r.event_count, truncated: r.truncated })
             .collect();
         out.push(SourceInfo {
             first_sync: s.status == super::SYNCING && s.last_sync.is_none(),
@@ -639,6 +761,7 @@ pub fn sources_info(c: &Connection) -> R<Vec<SourceInfo>> {
             last_error: s.last_error,
             retry_at: s.retry_at,
             calendars,
+            dav: s.dav.as_ref().map(|d| DavInfo { label: d.label(), username: d.username.clone(), host: d.host(), preset: d.preset.as_str().to_string(), scheduling: d.scheduling }),
         });
     }
     Ok(out)
@@ -681,7 +804,7 @@ pub(crate) mod tests {
     }
 
     fn pull(upserts: Vec<RemoteEvent>, removed: Vec<&str>, state: &str, full: bool) -> Pull {
-        Pull { upserts, removed: removed.into_iter().map(String::from).collect(), next_state: Some(state.into()), full, truncated: false }
+        Pull { upserts, removed: removed.into_iter().map(String::from).collect(), next_state: Some(state.into()), full, truncated: false, ..Default::default() }
     }
 
     #[test]
@@ -886,12 +1009,12 @@ pub(crate) mod tests {
         apply_pull(&c, &cal, ACC, &pull(vec![moved, gone, series("s", t0)], vec![], "t1", true), Some(0), 100).unwrap();
         let master = calendar::get_event(&c, &find_id(&c, "s")).unwrap();
         assert_eq!(master.exdates, vec![t0 + WEEK, t0 + 2 * WEEK], "the old slot of the moved and of the cancelled instance");
-        assert_eq!(master.read_only.as_deref(), Some("repeating"));
+        assert_eq!(master.read_only, None, "a repeating event can be changed since 1.0.7");
         let from = t0 - 3600;
         let shown = calendar::list_range(&c, from, from + 5 * WEEK).unwrap();
         let starts: Vec<i64> = shown.iter().map(|e| e.start).collect();
         assert_eq!(starts, vec![t0, t0 + WEEK + 7200, t0 + 3 * WEEK, t0 + 4 * WEEK], "moved one at its new time, none on the deleted date, no duplicate");
-        assert!(shown.iter().all(|e| e.read_only.as_deref() == Some("repeating")));
+        assert!(shown.iter().all(|e| e.read_only.is_none()));
         // the cancelled instance is a tombstone and no row
         assert_eq!(count(&c, "SELECT COUNT(*) FROM events WHERE remote_id='s_3'"), 0);
         assert_eq!(count(&c, "SELECT COUNT(*) FROM cal_tombstones WHERE remote_id='s_3' AND series_id='s'"), 1);
@@ -1037,11 +1160,34 @@ pub(crate) mod tests {
         assert!(serde_json::to_value(&i[0]).unwrap().get("lastSync").is_some());
     }
 
+    /// W7.1: rows that 1.0.6 stored as read-only because they repeat become editable, and the calendars are downloaded again, once.
+    #[test]
+    fn the_series_migration_clears_read_only_2_and_the_tokens_once() {
+        let c = conn();
+        let (_, cal) = setup(&c);
+        apply_pull(&c, &cal, ACC, &pull(vec![series("s", 1_700_000_000)], vec![], "t1", true), Some(0), 100).unwrap();
+        assert_eq!(get_calendar(&c, &cal.id).unwrap().sync_state.as_deref(), Some("t1"));
+        // a database of 1.0.6: the row is read-only because it repeats, and the migration has not run
+        c.execute("UPDATE events SET read_only=2", []).unwrap();
+        c.execute("DELETE FROM settings WHERE key='cal_series_unlocked'", []).unwrap();
+        crate::db::migrate(&c).unwrap();
+        assert_eq!(c.query_row::<i64, _, _>("SELECT read_only FROM events", [], |r| r.get(0)).unwrap(), 0);
+        assert_eq!(get_calendar(&c, &cal.id).unwrap().sync_state, None, "downloaded again");
+        // the next start leaves what has happened since alone
+        c.execute("UPDATE calendars SET sync_state='t2'", []).unwrap();
+        c.execute("UPDATE events SET read_only=3", []).unwrap();
+        crate::db::migrate(&c).unwrap();
+        assert_eq!(get_calendar(&c, &cal.id).unwrap().sync_state.as_deref(), Some("t2"));
+        assert_eq!(c.query_row::<i64, _, _>("SELECT read_only FROM events", [], |r| r.get(0)).unwrap(), 3);
+    }
+
     #[test]
     fn read_only_codes_round_trip() {
-        for r in [None, Some("calendar"), Some("repeating"), Some("organizer")] {
+        for r in [None, Some("calendar"), Some("organizer")] {
             assert_eq!(read_only_reason(read_only_code(r)).as_deref(), r);
         }
+        // a row stored by 1.0.6 as read-only because it repeats (code 2) is editable now
+        assert_eq!(read_only_reason(2), None);
         assert_eq!(read_only_code(Some("whatever")), 0);
     }
 }

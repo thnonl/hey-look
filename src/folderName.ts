@@ -2,7 +2,7 @@
 // Pure: scripts/test-folder-create.mjs loads this file with node.
 
 /** A name of at most this many characters. */
-export const MAX_FOLDER_NAME = 100;
+const MAX_FOLDER_NAME = 100;
 
 export type NameProblem =
   | { kind: "empty" }

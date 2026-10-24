@@ -549,7 +549,7 @@ export const useUpdates = create<UpdatesState>((set, get) => {
 });
 
 /** The key of the toast "Downloading Hey Look! …" (a keyed, sticky toast: it is taken away when the download is over). */
-export const DOWNLOADING_TOAST = "update-downloading";
+const DOWNLOADING_TOAST = "update-downloading";
 
 // The toast goes whenever the flow leaves `downloading`, however it leaves it (ready, failed, cancelled, a new run): one place instead of every path.
 useUpdates.subscribe((s, prev) => {

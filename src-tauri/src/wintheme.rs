@@ -494,10 +494,6 @@ pub fn ground_all(app: &AppHandle, dark: bool) {
     }
 }
 
-/// Other systems: the colour is the web view's and the window's through tauri (bgcolor.rs).
-#[cfg(not(target_os = "macos"))]
-pub fn ground_all(_app: &AppHandle, _dark: bool) {}
-
 /// What the last apply asked for, as the appearance the windows have to end with: `None` = System (no appearance of their own).
 #[cfg(target_os = "macos")]
 fn target_dark() -> Option<bool> {

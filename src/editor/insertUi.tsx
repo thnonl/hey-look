@@ -534,7 +534,7 @@ export function SymbolMenu({ c, anchor, trigger, onClose }: { c: Ctx; anchor: An
 }
 
 /** The four ways Date & time writes now, in the language and the clock (12 / 24 hour) in use. */
-export function dateTimeChoices(now: Date, intl: string): string[] {
+function dateTimeChoices(now: Date, intl: string): string[] {
   const secs = now.getTime() / 1000;
   const long = new Intl.DateTimeFormat(intl, { day: "numeric", month: "long", year: "numeric" }).format(now);
   return [

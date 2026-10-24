@@ -326,6 +326,7 @@ pub fn unlock_clone(sk: &SignedSecretKey, passphrase: &str) -> R<SignedSecretKey
 pub const S2K_COUNT: u8 = 255;
 
 /// The number of bytes hashed for a coded S2K count: `(16 + (c & 15)) << ((c >> 4) + 6)`.
+#[cfg(test)]
 pub fn s2k_count_bytes(coded: u8) -> u64 {
     (16 + u64::from(coded & 15)) << (u32::from(coded >> 4) + 6)
 }

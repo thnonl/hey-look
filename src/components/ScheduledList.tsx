@@ -17,7 +17,7 @@ import { askUnlock, moveScheduledToDrafts } from "./Pgp";
 type Group = "Needs attention" | "Today" | "Tomorrow" | "Later";
 
 /** Group a scheduled item by when it goes out (or whether it needs the user). */
-export function groupOf(o: OutboxItem, now = new Date()): Group {
+function groupOf(o: OutboxItem, now = new Date()): Group {
   if (o.status === "failed" || o.status === "overdue") return "Needs attention";
   const d = new Date(o.sendAt * 1000);
   const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
