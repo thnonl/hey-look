@@ -1,0 +1,67 @@
+[bridge +563 ms] test bridge: listening on 127.0.0.1:60786, token 08f4ff1080ef158a28abb1ff7fa5ed7535658aaabd1d9bd63b804fb11ec3415a
+[popout +18804 ms] compose-1: native window 11566: STILL ALIVE after being finished, retain count 4 (this check's own reference is one of them); NSApp lists 8 window(s), 4 visible; leak fix: released 4 extra reference(s), window still alive
+[popout +18807 ms] compose-1: 3 s after closing: 1 window(s) left in the app (main), NSApp lists 8 window(s), 4 visible
+[window +3 ms] PDF preview: card (system macos, HEYLOOK_PDF_INLINE None)
+[devtools +3 ms] this QA build makes its windows without the web view inspector (no Inspect Element; HEYLOOK_DEVTOOLS=1 keeps it)
+[window +282 ms] background colour dark on 1 windows (start)
+[wintheme +285 ms] system -> applied to 1 windows: [main] (start; library step Release)
+[wintheme +285 ms]   background colour dark on 1 windows (start)
+[wintheme +292 ms]   application: appearance nil / effective NSAppearanceNameDarkAqua; windows have to show dark
+[wintheme +292 ms]   main [TaoWindow #11575, visible false]: was nil / NSAppearanceNameDarkAqua, now nil / NSAppearanceNameDarkAqua ok
+[wintheme +292 ms]   native appearance applied (start): 1 window line(s), 0 MISMATCH, macOS shows AppleInterfaceStyle=Dark
+[wintheme +292 ms]   title bar mode 0 [none] (start)
+[wintheme +293 ms]   window: main [#11575] title 'Hey Look!': styleMask 0xf (titled true, fullSizeContentView false), titlebarAppearsTransparent true, titleVisibility 0, backgroundColor sRGB IEC61966-2.1 colorspace 0.105882 0.109804 0.12549 1 (opaque true), key false, visible false, documentEdited false, sharingType 1, level 0, hasShadow true; window frame {{260, 237}, {1280, 832}}, contentLayoutRect {{0, 0}, {1280, 800}}; contentView wry::wkwebview::class::wry_web_view_parent::WryWebViewParent0.57.0 {{0, 0}, {1280, 800}} with subviews [wry::wkwebview::class::wry_web_view::WryWebView0.57.0 {{0, 0}, {1280, 800}}]; frame view NSThemeFrame with subviews [wry::wkwebview::class::wry_web_view_parent::WryWebViewParent0.57.0 {{0, 0}, {1280, 800}}, NSTitlebarContainerView {{0, 800}, {1280, 32}}]
+[wintheme +293 ms]   strategy: none (mode 0, the control)
+[wintheme +293 ms] watching the OS colour mode: notification observed, watchdog every 2 s
+[wintheme +293 ms] title bar repaint mode (HEYLOOK_TITLEBAR_MODE): 0 [none]
+[badge +305 ms] dock: label "167" set (on the main thread), tile reads back "167"
+[window +305 ms] macos: applicationShouldTerminate hook: installed
+[window +305 ms] macos: power-off notice (log out / restart / shut down): observed
+[window +305 ms] window created hidden (show at start: true)
+[bridge +305 ms] test bridge: listening on 127.0.0.1:60982, token 1022f2117589034f498229fa13ee3933f1eb4f5cf6a87f3ef9c17f1292c636c0
+[recovery +551 ms] none
+[window +595 ms] the page reported itself ready
+[window +631 ms] window shown, page ready after 300 ms
+[filters +1347 ms] account 2f1bc5b2-8b20-44c9-9501-08a4b882e721: 0 new inbox message(s) to check
+[filters +1380 ms] account 92c40999-e837-4b2a-a4c8-3457ac5b4e80: 0 new inbox message(s) to check
+[update +1555 ms] this start follows no install (no marker)
+[window +2978 ms] page state after show: visibility=hidden, animation frames=false, window visible=true
+[window +2979 ms] the page says it is not painting: hide + show (attempt 1)
+[window +5795 ms] page state after show: visibility=hidden, animation frames=false, window visible=true
+[window +5796 ms] the page says it is not painting: hide + show (attempt 2)
+[window +8623 ms] page state after show: visibility=hidden, animation frames=false, window visible=true
+[update +8631 ms] check startup 2026-10-24 04:22:07Z: skipped, not due: the last attempt was 55 s ago and got an answer (an automatic check waits 300 s, so the next one is in 245 s); stored answer: up to date (latest 1.0.6)
+[update +8639 ms] new-version toast: none after the startup check - the answer is throttled, stored answer upToDate: no newer version known (no request was made)
+[idle +10357 ms] 2f1bc5b2-8b20-44c9-9501-08a4b882e721: push on
+[idle +10364 ms] 92c40999-e837-4b2a-a4c8-3457ac5b4e80: push on
+[popout +14107 ms] open requested by main: reader key=f93bb2a4d1b96309 
+[popout +14152 ms] macOS Version 27.0.1 (Build 26A434)
+[wintheme +14161 ms] system -> applied to 2 windows: [main, reader-1] (reader-1 created; library step Release)
+[wintheme +14162 ms]   background colour dark on 2 windows (reader-1 created)
+[wintheme +14162 ms]   strategy: none (mode 0, the control)
+[wintheme +14163 ms]   application: appearance nil / effective NSAppearanceNameDarkAqua; windows have to show dark
+[wintheme +14163 ms]   main [TaoWindow #11575, visible true]: was nil / NSAppearanceNameDarkAqua, now nil / NSAppearanceNameDarkAqua ok
+[wintheme +14163 ms]   reader-1 [TaoWindow #11577, visible false]: was nil / NSAppearanceNameDarkAqua, now nil / NSAppearanceNameDarkAqua ok
+[wintheme +14164 ms]   native appearance applied (reader-1 created): 2 window line(s), 0 MISMATCH, macOS shows AppleInterfaceStyle=Dark
+[wintheme +14164 ms]   title bar mode 0 [none] (reader-1 created)
+[wintheme +14164 ms]   window: main [#11575] title 'Hey Look!': styleMask 0xf (titled true, fullSizeContentView false), titlebarAppearsTransparent true, titleVisibility 0, backgroundColor sRGB IEC61966-2.1 colorspace 0.105882 0.109804 0.12549 1 (opaque true), key false, visible true, documentEdited false, sharingType 1, level 0, hasShadow true; window frame {{260, 237}, {1280, 832}}, contentLayoutRect {{0, 0}, {1280, 800}}; contentView wry::wkwebview::class::wry_web_view_parent::WryWebViewParent0.57.0 {{0, 0}, {1280, 800}} with subviews [wry::wkwebview::class::wry_web_view::WryWebView0.57.0 {{0, 0}, {1280, 800}}]; frame view NSThemeFrame with subviews [wry::wkwebview::class::wry_web_view_parent::WryWebViewParent0.57.0 {{0, 0}, {1280, 800}}, NSTitlebarContainerView {{0, 800}, {1280, 32}}]
+[wintheme +14164 ms]   window: reader-1 [#11577] title 'Hey Look!': styleMask 0xf (titled true, fullSizeContentView false), titlebarAppearsTransparent true, titleVisibility 0, backgroundColor sRGB IEC61966-2.1 colorspace 0.105882 0.109804 0.12549 1 (opaque true), key false, visible false, documentEdited false, sharingType 1, level 0, hasShadow true; window frame {{640, 447}, {520, 552}}, contentLayoutRect {{0, 0}, {520, 520}}; contentView wry::wkwebview::class::wry_web_view_parent::WryWebViewParent0.57.0 {{0, 0}, {520, 520}} with subviews [wry::wkwebview::class::wry_web_view::WryWebView0.57.0 {{0, 0}, {520, 520}}]; frame view NSThemeFrame with subviews [wry::wkwebview::class::wry_web_view_parent::WryWebViewParent0.57.0 {{0, 0}, {520, 520}}, NSTitlebarContainerView {{0, 520}, {520, 32}}]
+[popout +14164 ms] reader-1: created hidden (520 x 520 logical)
+[popout +14165 ms] reader-1: reader window created for key f93bb2a4d1b96309
+[wintheme +14245 ms] reader-1: its page asks for the frame theme again (page data-theme 'system', page prefers dark: Some(true)); setting system; window found
+[wintheme +14245 ms]   application: appearance nil / effective NSAppearanceNameDarkAqua; windows have to show dark
+[wintheme +14245 ms]   reader-1 [TaoWindow #11577, visible false]: was nil / NSAppearanceNameDarkAqua, now nil / NSAppearanceNameDarkAqua ok
+[wintheme +14245 ms]   native appearance applied (reader-1 page request): 1 window line(s), 0 MISMATCH, macOS shows AppleInterfaceStyle=Dark
+[wintheme +14246 ms]   title bar mode 0 [none] (reader-1 page request)
+[wintheme +14246 ms]   window: reader-1 [#11577] title 'Hey Look!': styleMask 0xf (titled true, fullSizeContentView false), titlebarAppearsTransparent true, titleVisibility 0, backgroundColor sRGB IEC61966-2.1 colorspace 0.105882 0.109804 0.12549 1 (opaque true), key false, visible false, documentEdited false, sharingType 1, level 0, hasShadow true; window frame {{900, 269}, {520, 520}}, contentLayoutRect {{0, 0}, {520, 488}}; contentView wry::wkwebview::class::wry_web_view_parent::WryWebViewParent0.57.0 {{0, 0}, {520, 488}} with subviews [wry::wkwebview::class::wry_web_view::WryWebView0.57.0 {{0, 0}, {520, 488}}]; frame view NSThemeFrame with subviews [wry::wkwebview::class::wry_web_view_parent::WryWebViewParent0.57.0 {{0, 0}, {520, 488}}, NSTitlebarContainerView {{0, 488}, {520, 32}}]
+[wintheme +14246 ms]   strategy: none (mode 0, the control)
+[popout +14247 ms] reader-1: ready
+[popout +14753 ms] reader-1: page says content: drawn 520 x 488 after 502 ms
+[popout +14754 ms] reader-1: page says strip: view drawn: html bg rgb(27, 28, 32), body bg rgb(27, 28, 32), color-scheme dark, data-theme (none); topmost at y=1: div.reader-bar.part position static bg rgb(27, 28, 32); 0 element(s) stick to the top edge
+[popout +19505 ms] reader-1: close requested (reader window)
+[popout +19510 ms] reader-1: destroy done (the Destroyed event came)
+[popout +19510 ms] reader-1: closed
+[popout +19511 ms] reader-1: 1 window(s) left in the app: main
+[popout +19920 ms] reader-1: native window 11577: teardown done (teardown: first responder TaoWindow cleared true; 2 drag destination(s) unregistered; 6 observer removal(s); 0 web view(s) detached; 0 title bar accessory(ies) removed; frame view children before: wry::wkwebview::class::wry_web_view_parent::WryWebViewParent0.57.0, NSTitlebarContainerView; 1 view(s) below the content view); visible false then false, retain count 4 then 27 (this log's own reference is one of them), delegate retain count 2; NSApp lists 6 window(s), 4 visible
+[popout +22920 ms] reader-1: native window 11577: STILL ALIVE after being finished, retain count 4 (this check's own reference is one of them); NSApp lists 6 window(s), 4 visible; leak fix: released 4 extra reference(s), window still alive
+[popout +22921 ms] reader-1: 3 s after closing: 1 window(s) left in the app (main), NSApp lists 6 window(s), 4 visible
