@@ -17,6 +17,7 @@ import { normalizeSidebar } from "../sidebarState";
 import { folderVisible } from "../junk";
 import { cutAtWord, friendlyError, useStore } from "../store";
 import { credStore, kbd, riskyHint, usePlatform } from "../platform";
+import { filtersIntroKey, trayTabTitleKey } from "../trayWords";
 import { systemTz } from "../calendar";
 import { setEnabled as setNudgeEnabled } from "../supportNudge";
 import { fmtDay, fmtFpr, shortKey } from "../util";
@@ -1080,6 +1081,7 @@ const ACTION_WORD: Record<Rule["action"], Key> = {
 function FiltersPanel({ scope }: { scope: string | null }) {
   const t = useT();
   const { folders, showToast, confirm } = useStore();
+  const tray = usePlatform((s) => s.tray);
   const [list, setList] = useState<Rule[]>([]);
   const [cur, setCur] = useState<Rule | null>(null);
   const load = () => api.listRules().then(setList);
@@ -1087,7 +1089,7 @@ function FiltersPanel({ scope }: { scope: string | null }) {
   const roles = Array.from(new Set(folders.filter((f) => !scope || f.accountId === scope).map((f) => f.key))).filter((k) => !["inbox", "sent", "drafts"].includes(k));
   return (
     <>
-      <div className="muted small pad">{t("settings.filters.intro")}</div>
+      <div className="muted small pad">{t(filtersIntroKey(tray))}</div>
       <ScopedList
         scope={scope}
         items={list}
@@ -1689,7 +1691,7 @@ function TrayTab() {
   };
   return (
     <div>
-      <h3>{t("settings.tray.title")}</h3>
+      <h3>{t(trayTabTitleKey(tray))}</h3>
       <div className="muted small">{os === "windows" ? t("settings.tray.introWindows") : t("settings.tray.intro")}</div>
       <Row label={t("settings.tray.test")}><button className="btn" onClick={() => void test()}>{t("settings.tray.sendTest")}</button></Row>
       {os === "macos" && perm === "denied" && (
@@ -2098,6 +2100,7 @@ const MORE: [string, Key][] = [
  */
 export function Settings({ initial, focus, nonce, section, windowed }: { initial?: string; focus?: string; nonce?: number; section?: MbTab; windowed?: boolean }) {
   const t = useT();
+  const trayHost = usePlatform((s) => s.tray);
   const { setDialog, accounts, prefs } = useStore();
   const start = initial === "accounts" ? "mb:all" : initial === "notifications" ? "tray" : initial;
   const [tab, setTab] = useState<string>(start || (accounts.length === 0 ? "add-account" : "general"));
@@ -2199,7 +2202,7 @@ export function Settings({ initial, focus, nonce, section, windowed }: { initial
           ))}
           {item("add-account", t("settings.nav.addAccount"), true)}
           <div className="nav-label">{t("settings.nav.more")}</div>
-          {MORE.map(([k, l]) => item(k, t(l)))}
+          {MORE.map(([k, l]) => item(k, t(k === "tray" ? trayTabTitleKey(trayHost) : l)))}
           {reorder.overlay}
         </nav>
         <div className="settings-body">

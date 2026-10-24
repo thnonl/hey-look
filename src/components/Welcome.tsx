@@ -1,7 +1,8 @@
 import { ChevronRight, Lock, Mail, ShieldCheck, Zap } from "lucide-react";
 import { ReactNode } from "react";
 import logo from "../assets/logo.png";
-import { credStore } from "../platform";
+import { credStore, osNow, usePlatform } from "../platform";
+import { welcomeKeepKey } from "../trayWords";
 import { useT } from "../i18n/react";
 import { useStore } from "../store";
 import { LanguageChoice } from "./LanguageSwitcher";
@@ -39,6 +40,7 @@ export function Welcome() {
   const t = useT();
   const setDialog = useStore((s) => s.setDialog);
   const add = () => setDialog({ type: "settings", tab: "add-account" });
+  const tray = usePlatform((s) => s.tray);
   return (
     <main className="welcome">
       <div className="welcome-card">
@@ -54,7 +56,7 @@ export function Welcome() {
         <ul className="welcome-points">
           <li><Lock size={14} /> {t("app.welcome.point.passwords", { store: credStore() })}</li>
           <li><ShieldCheck size={14} /> {t("app.welcome.point.privacy")}</li>
-          <li><Zap size={14} /> {t("app.welcome.point.tray")}</li>
+          <li><Zap size={14} /> {t(welcomeKeepKey(osNow(), tray))}</li>
         </ul>
       </div>
     </main>

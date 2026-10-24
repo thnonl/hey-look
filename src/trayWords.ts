@@ -2,8 +2,20 @@
 // menu bar (macOS). The dictionary keys per system; pure, so scripts/test-open-failed-text.mjs runs it as it is.
 import type { Os } from "./platform";
 
-/** The button of the quit question while messages are scheduled (App.tsx). */
-export const quitKeepKey = (os: Os) => (os === "macos" ? "app.quit.keepRunningMac" : "app.quit.keepRunning");
+// A desktop without a tray (Linux with no tray host, shell_info.tray false) has no icon to keep the app running in: closing the window quits (settings.tray.noTray), so the texts that offer
+// "Keep running in the tray" or talk about the tray say what is true instead (W5.6). `tray` defaults to true where the system is not known.
 
-/** The link under the Send later picker's warning (SchedulePicker.tsx). */
-export const scheduleKeepKey = (os: Os) => (os === "macos" ? "compose.schedule.keepInMenuBar" : "compose.schedule.keepInTray");
+/** The button of the quit question while messages are scheduled (App.tsx). Without a tray, Keep = the app stays open. */
+export const quitKeepKey = (os: Os, tray = true) => (!tray ? "app.quit.keepOpen" : os === "macos" ? "app.quit.keepRunningMac" : "app.quit.keepRunning");
+
+/** The link under the Send later picker's warning (SchedulePicker.tsx); null = no link (there is no tray to keep it in; the warning sentence stays, it is true). */
+export const scheduleKeepKey = (os: Os, tray = true) => (!tray ? null : os === "macos" ? "compose.schedule.keepInMenuBar" : "compose.schedule.keepInTray");
+
+/** The third bullet of the Welcome screen. */
+export const welcomeKeepKey = (os: Os, tray = true) => (os === "macos" ? "app.welcome.point.menuBar" : !tray ? "app.welcome.point.noTray" : "app.welcome.point.tray");
+
+/** Settings > Filters intro. */
+export const filtersIntroKey = (tray = true) => (tray ? "settings.filters.intro" : "settings.filters.introNoTray");
+
+/** The title of the Settings tab that holds notifications and the tray (the entry of the navigation and the heading). */
+export const trayTabTitleKey = (tray = true) => (tray ? "settings.tray.title" : "settings.tray.titleNoTray");

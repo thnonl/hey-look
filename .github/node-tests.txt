@@ -376,3 +376,7 @@ ui-d | node scripts/test-os-theme-ui.mjs --require-browser
 static | node --experimental-strip-types scripts/test-print-doc.mjs
 # 1.0.7 W5.3: Print on macOS in the dev preview (per-message menu, reader Cmd+P, failure toast)
 ui-c | node scripts/test-print-ui.mjs --require-browser
+# 1.0.7 W5.6: the five tray places pick the no-tray / menu-bar text
+static | node --experimental-strip-types scripts/test-no-tray-texts.mjs
+# 1.0.7 W5.6: no-tray texts and the Mac Welcome bullet in the dev preview, 8 languages
+ui-d | node scripts/test-no-tray-ui.mjs --require-browser

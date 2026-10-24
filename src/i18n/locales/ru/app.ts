@@ -13,6 +13,8 @@ export default defineLocale<typeof ns.en>({
   "app.welcome.point.passwords": "Пароли хранятся в {store}",
   "app.welcome.point.privacy": "Внешние изображения и трекеры по умолчанию блокируются",
   "app.welcome.point.tray": "Проверяет почту из трея, любое перемещение можно отменить",
+  "app.welcome.point.menuBar": "Проверяет почту из строки меню, любое перемещение можно отменить",
+  "app.welcome.point.noTray": "Проверяет почту, пока открыт Hey Look!, любое перемещение можно отменить",
   // ---- dates, sizes and times (src/util.ts)
   "app.date.today": "Сегодня",
   "app.date.yesterday": "Вчера",
@@ -114,6 +116,7 @@ export default defineLocale<typeof ns.en>({
   "app.quit.scheduledBodyNext.many": "Если выйти сейчас, они будут отправлены при следующем запуске Hey Look! Ближайший срок отправки: {when}.",
   "app.quit.keepRunning": "Оставить в трее",
   "app.quit.keepRunningMac": "Оставить в строке меню",
+  "app.quit.keepOpen": "Оставить Hey Look! открытым",
   "app.quit.quitAnyway": "Всё равно выйти",
   // ---- top bar and window controls
   "app.top.sync": "Синхронизировать (F5)",
