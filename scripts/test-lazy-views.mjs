@@ -150,8 +150,9 @@ try {
     // three second switches (the chunk is loaded; the network is slow on purpose, so a part that is fetched again takes 450 ms or more and shows its loading look):
     // no look in any of them, and the median is within the budget of this machine (the mount of the Calendar is main-thread work, a development build on a shared runner needs more)
     const runs = [];
-    const requests = () => evaluate(`performance.getEntriesByType('resource').filter((e) => /\\.(tsx?|jsx?|css)(\\?|$)/.test(e.name)).length`);
-    const before = await requests();
+    // the modules asked for so far, by name (without the ?t= / ?v= query of the dev server)
+    const requested = () => evaluate(`performance.getEntriesByType('resource').filter((e) => /\\.(tsx?|jsx?|css)(\\?|$)/.test(e.name)).map((e) => e.name.replace(/\\?.*$/, ''))`);
+    const before = await requested();
     for (let i = 0; i < 3; i++) {
       await evaluate('window.__store.getState().setModule("mail"); 1');
       await sleep(200);
@@ -161,7 +162,13 @@ try {
     }
     ok(runs.every((r) => r.look === null && r.done !== null), `the second switch shows no loading look (${JSON.stringify(runs)})`);
     // what "does no more than it must" means: no part is asked for again (a request would also have taken 450 ms on this network)
-    ok((await requests()) === before, `the second switches fetched no module (${before} -> ${await requests()})`);
+    // a module that was asked for before and is asked for again is the bug. A module that had not been asked for at all is a deferred part of the page (a late first import, a timer of the
+    // dev server's dependency optimiser) that finished while the test ran: not a second request of a loaded part, and on a slow runner it can land in this window
+    const after = await requested();
+    const again = after.slice(before.length).filter((n) => before.includes(n));
+    const late = after.slice(before.length).filter((n) => !before.includes(n));
+    if (late.length) console.log(`test-lazy-views: calendar second switches: ${late.length} module(s) asked for for the first time meanwhile: ${[...new Set(late)].join(', ')}`);
+    ok(again.length === 0, `the second switches fetched a loaded module again: ${[...new Set(again)].join(', ')}`);
     // and the mount itself is quick for this machine; the cap is only there to catch a wait for a timer or a network round trip (they take seconds on any machine)
     ok(median(runs.map((r) => r.done)) <= budget(150, SECOND_CAP_MS), `the second switch is immediate (median of ${JSON.stringify(runs.map((r) => Math.round(r.done)))} ms, budget ${budget(150, SECOND_CAP_MS)}, scale ${scale.toFixed(2)})`);
     console.log(`test-lazy-views: calendar second switch ${JSON.stringify(runs.map((r) => Math.round(r.done)))} ms, scale ${scale.toFixed(2)}`);
