@@ -53,7 +53,7 @@ const add = (c) => CONFIGS.push({ deep: false, ...c });
 if (flag('gallery')) {
   // the pictures for the report (`--shots=<dir>`): the worst case (every row on) at the two sizes, English and German, light and dark, and the compose window
   for (const lang of ['en', 'de']) for (const [w, h] of [[960, 560], [1280, 720]]) for (const theme of ['light', 'dark']) add({ mode: 'main', lang, w, h, theme, scen: 'worst' });
-  for (const lang of ['en', 'de']) for (const [w, h] of [[560, 440], [760, 680]]) for (const theme of ['light', 'dark']) add({ mode: 'popout', lang, w, h, theme, scen: 'worst' });
+  for (const lang of ['en', 'de']) for (const [w, h] of [[560, 440], [960, 780]]) for (const theme of ['light', 'dark']) add({ mode: 'popout', lang, w, h, theme, scen: 'worst' });
 } else if (QUICK) {
   add({ mode: 'main', lang: 'en', w: 960, h: 530, theme: 'light', scen: 'worst', deep: true });
   add({ mode: 'main', lang: 'de', w: 1280, h: 720, theme: 'dark', scen: 'many' });
@@ -86,7 +86,7 @@ if (flag('gallery')) {
   for (const lang of langs) for (const [w, h] of [[946, 552], [946, 480]]) for (const scen of ['meetingNew', 'meetingReply']) add({ mode: 'main', lang, w, h, theme: lang === 'en' ? 'light' : 'dark', scen });
   // the list asked for while writing (a folder pressed): the narrow pane next to the list, as in 1.0.6 (W2.26 keeps this case)
   for (const lang of langs) for (const scen of lang === 'en' ? ['worst', 'meetingNew'] : ['worst']) add({ mode: 'main', lang, w: 946, h: 552, theme: lang === 'en' ? 'light' : 'dark', scen, list: true });
-  for (const lang of langs) for (const [w, h] of [[560, 440], [760, 680], [560, 560]]) for (const scen of lang === 'en' ? ['base', 'worst', 'many'] : ['worst']) add({ mode: 'popout', lang, w, h, theme: scen === 'worst' ? 'dark' : 'light', scen, deep: lang === 'en' && scen === 'worst' });
+  for (const lang of langs) for (const [w, h] of [[560, 440], [960, 780], [560, 560]]) for (const scen of lang === 'en' ? ['base', 'worst', 'many'] : ['worst']) add({ mode: 'popout', lang, w, h, theme: scen === 'worst' ? 'dark' : 'light', scen, deep: lang === 'en' && scen === 'worst' });
 }
 
 const ORDER = [...BAR_ITEMS]; // (no scheduled message here: Save draft is in the row)

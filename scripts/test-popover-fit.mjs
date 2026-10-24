@@ -46,7 +46,7 @@ const shot = async (tag, name) => { if (!SHOTS) return; fs.mkdirSync(SHOTS, { re
 const CONFIGS = [];
 const add = (c) => CONFIGS.push({ theme: 'light', lang: 'en', mode: 'main', ...c });
 for (const [w, h] of [[946, 552], [946, 528], [946, 480]]) add({ w, h }); // (946 x 528: the lowest the main window can be, see BUG-1 of the round 5 QA)
-for (const [w, h] of [[946, 552], [946, 480], [760, 440], [560, 440]]) add({ w, h, mode: 'popout' }); // (the compose window: the whole width is the pane, so the roomy bar with Sign, Templates and Importance)
+for (const [w, h] of [[946, 552], [946, 480], [760, 440], [560, 440], [944, 740]]) add({ w, h, mode: 'popout' }); // (the compose window: the whole width is the pane, so the roomy bar with Sign, Templates and Importance)
 if (!QUICK) {
   for (const [w, h] of [[946, 552], [946, 480]]) { add({ w, h, theme: 'dark', lang: 'de' }); add({ w, h, mode: 'popout', theme: 'dark', lang: 'de' }); }
   for (const [w, h] of [[1266, 712], [1266, 400], [560, 440], [760, 480]]) add({ w, h, theme: 'dark', mode: w < 700 ? 'popout' : 'main' });
