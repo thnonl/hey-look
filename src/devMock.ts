@@ -817,12 +817,17 @@ const localMail = (id: string) => (serverMail[id] ?? []).slice(0, mockMail.local
 // Microsoft with "Also sync my calendar" and Settings > Calendar alike), `__mockCalSync.connectDelay` how long they wait first.
 // `#unverified` adds four mails whose sender check failed (an update, a cancellation and an answer with a held change, and a new invitation: threads t30 to t33, subjects ending "(sender check failed)", the newest four rows of the first mailbox's Inbox; the hash is read when the page loads, so change it with a reload, not in the address bar alone); `#rdate` adds
 // a series of My events that only has extra dates (RDATE).
-type MockSrc = { id: string; accountId: string; kind: string; status: string; lastSync: number | null; lastError: string | null; retryAt: number | null; firstSync: boolean; calendars: Record<string, unknown>[] };
-type MockCalAccount = { account: string; kind: "google" | "microsoft"; prefix: string; email: string; service: string };
+type MockDav = { label: string; username: string; host: string; preset: string; scheduling: boolean };
+type MockSrc = { id: string; accountId: string; kind: string; status: string; lastSync: number | null; lastError: string | null; retryAt: number | null; firstSync: boolean; calendars: Record<string, unknown>[]; dav?: MockDav };
+type MockCalAccount = { account: string; kind: "google" | "microsoft" | "caldav"; prefix: string; email: string; service: string; dav?: MockDav };
 const MOCK_CAL_ACCOUNTS: MockCalAccount[] = [
   { account: "a2", kind: "google", prefix: "google", email: "nam@gmail.com", service: "Google Calendar" },
   { account: "a4", kind: "microsoft", prefix: "ms", email: "nam@outlook.com", service: "Outlook" },
 ];
+// `#calsyncdav=<state>` starts the custom-domain mailbox (a5) connected to a CalDAV server (a Nextcloud at cloud.example.org) in that state (the states of `#calsync=`; "auth" asks for the password again);
+// `#calkinds=all` (or `caldav`) makes `calendar_kinds_available` offer CalDAV, which a release build does not before W7.5. The connect dialog's answers follow its values: a password "wrong" is refused,
+// an address containing "nowhere" has no server, "plain" is no CalDAV server, "empty" has no calendars, "redirect" sends the client elsewhere, "selfsigned" has an untrusted certificate (unless it is trusted),
+// "slow" waits 3 s. `window.__mockDavConnects` lists the connect calls (their values, the password too, for the test), `window.__mockDavPasswords` the "enter password again" calls.
 // a mailbox added in the preview (Add account > Google / Microsoft) joins the list when its calendar is connected, so the step after the sign-in has a mailbox to sync
 const extraCalAccounts: MockCalAccount[] = [];
 const calAccounts = () => [...MOCK_CAL_ACCOUNTS, ...extraCalAccounts];
@@ -837,9 +842,20 @@ const mockCalAccount = (id: string) => {
   }
   return MOCK_CAL_ACCOUNTS[0];
 };
+const davOf = (service: string, url: string, username: string): MockDav => {
+  const host = url.replace(/^https?:\/\//, "").replace(/[\/:].*$/, "");
+  const label = service === "icloud" ? "iCloud" : service === "fastmail" ? "Fastmail" : service === "nextcloud" ? "Nextcloud" : host;
+  return { label, username, host: service === "icloud" ? "caldav.icloud.com" : service === "fastmail" ? "caldav.fastmail.com" : host, preset: service, scheduling: false };
+};
 const mockCalOfId = (calendarId: string) => calAccounts().find((m) => calendarId.startsWith(`${m.prefix}:${m.account}:`));
 const mockCalsOf = (m: MockCalAccount) =>
-  m.kind === "google"
+  m.kind === "caldav"
+    ? [
+        { id: `dav:${m.account}:personal`, name: "Personal", color: "#0082c9", readOnly: false, primary: false, syncOn: true, eventCount: 2, truncated: false },
+        { id: `dav:${m.account}:work`, name: "Work", color: "#e9322d", readOnly: false, primary: false, syncOn: true, eventCount: 1, truncated: false },
+        { id: `dav:${m.account}:shared`, name: "Team (shared)", color: "", readOnly: true, primary: false, syncOn: true, eventCount: 1, truncated: false },
+      ]
+    : m.kind === "google"
     ? [
         { id: `google:${m.account}:primary`, name: "Nam", color: "#039be5", readOnly: false, primary: true, syncOn: true, eventCount: 3, truncated: false },
         { id: `google:${m.account}:work`, name: "Work", color: "#d50000", readOnly: false, primary: false, syncOn: true, eventCount: 2, truncated: false },
@@ -885,6 +901,14 @@ const mockBrowserSignIn = <T,>(label: string, done: () => T) =>
 const syncedEvents = (m: MockCalAccount): MockEvent[] => {
   const mk = (id: string, cal: string, summary: string, start: number, end: number, over: Record<string, unknown> = {}) =>
     ev(id, summary, start, end, { calendarId: `${m.prefix}:${m.account}:${cal}`, accountId: m.account, remoteMock: true, readOnly: null, reminderMin: 10, ...over });
+  if (m.kind === "caldav") {
+    return [
+      mk("d1", "personal", "Climbing (CalDAV)", at(1, 18), at(1, 19, 30), { location: "Gym" }),
+      mk("d2", "personal", "Plumber", at(4, 9), at(4, 10)),
+      mk("d3", "work", "Quarterly planning", at(2, 10), at(2, 11)),
+      mk("d4", "shared", "Team offsite", utcDay(8), utcDay(9), { allDay: true, tzid: null, readOnly: "calendar", reminderMin: null }),
+    ];
+  }
   if (m.kind === "microsoft") {
     return [
       mk("m1", "primary", "Standup (Outlook)", at(1, 9), at(1, 9, 15), { joinUrl: "https://teams.microsoft.com/l/meetup-join/xyz" }),
@@ -916,7 +940,7 @@ function mockCalState(state: string, accountId = "a2") {
     return;
   }
   if (!calSrcs[m.account]) calEvents = [...calEvents.filter((e) => !(e.remoteMock && e.accountId === m.account)), ...syncedEvents(m)];
-  const base = { id: `${m.account}:${m.kind}`, accountId: m.account, kind: m.kind, lastSync: Math.floor(Date.now() / 1000) - 180, lastError: null, retryAt: null, firstSync: false };
+  const base = { id: `${m.account}:${m.kind}`, accountId: m.account, kind: m.kind, lastSync: Math.floor(Date.now() / 1000) - 180, lastError: null, retryAt: null, firstSync: false, ...(m.dav ? { dav: m.dav } : {}) };
   const t = Math.floor(Date.now() / 1000);
   const by: Record<string, Partial<MockSrc>> = {
     ok: { status: "ok" },
@@ -925,7 +949,7 @@ function mockCalState(state: string, accountId = "a2") {
     offline: { status: "offline", retryAt: t + 60 },
     busy: { status: "busy", retryAt: t + 3 * 60 },
     auth: { status: "auth" },
-    blocked: { status: "blocked", lastError: m.kind === "google" ? "admin_policy_enforced" : "AADSTS65001: The user or administrator has not consented to use the application" },
+    blocked: { status: "blocked", lastError: m.kind !== "microsoft" ? "admin_policy_enforced" : "AADSTS65001: The user or administrator has not consented to use the application" },
     notsetup: { status: "notsetup", lastError: m.kind === "google" ? "Google Calendar API has not been used in project 123456 before or it is disabled" : "The mailbox is either inactive, soft-deleted, or is hosted on-premise." },
     error: { status: "error", lastError: "HTTP 500: backend error", retryAt: t + 4 * 60 },
     truncated: { status: "ok" },
@@ -986,6 +1010,11 @@ export function installMock() {
     buildBigMailbox(hashNum("big", 3000), hashNum("local", 360));
     const calsyncMs = /(^|&)calsyncms=([a-z]+)/.exec(window.location.hash.slice(1))?.[2];
     if (calsyncMs) mockCalState(calsyncMs, "a4");
+    const calsyncDav = /(^|&)calsyncdav=([a-z]+)/.exec(window.location.hash.slice(1))?.[2];
+    if (calsyncDav) {
+      extraCalAccounts.push({ account: "a5", kind: "caldav", prefix: "dav", email: "nam@pro66.emailserver.vn", service: "Nextcloud", dav: davOf("nextcloud", "https://cloud.example.org", "nam") });
+      mockCalState(calsyncDav, "a5");
+    }
     const failAt = hashNum("failolder", 0);
     if (failAt) mockMail.failIn = failAt;
     (window as unknown as { __mockMail: typeof mockMail }).__mockMail = mockMail;
@@ -1939,7 +1968,46 @@ export function installMock() {
       case "calendar_sources": return calAccounts().flatMap((m) => (calSrcs[m.account] ? [calSrcs[m.account] as MockSrc] : []));
       case "calendar_kinds_available": {
         const k = /(^|&)calkinds=([a-z]+)/.exec(window.location.hash.slice(1))?.[2];
-        return k === "none" ? [] : k === "google" || k === "microsoft" ? [k] : ["google", "microsoft"];
+        if (/(^|&)calsyncdav=/.test(window.location.hash.slice(1)) && !k) return ["google", "microsoft", "caldav"];
+        return k === "none" ? [] : k === "all" ? ["google", "microsoft", "caldav"] : k === "google" || k === "microsoft" || k === "caldav" ? [k] : ["google", "microsoft"];
+      }
+      case "calendar_connect_caldav": {
+        const w = window as unknown as { __mockDavConnects?: Record<string, unknown>[]; __mockCalSync?: { davDelay?: number } };
+        const x = a.args as { accountId: string; service: string; url: string; username: string; password: string; useMailPassword: boolean; trustCert: boolean };
+        (w.__mockDavConnects ??= []).push({ ...x });
+        const url = x.service === "icloud" ? "https://caldav.icloud.com/" : x.service === "fastmail" ? "https://caldav.fastmail.com/" : x.url;
+        const wait = Number(w.__mockCalSync?.davDelay) || (url.includes("slow") ? 3000 : 500);
+        return new Promise((resolve, reject) => {
+          setTimeout(() => {
+            if (!/^https:\/\//i.test(url)) return reject("CAL_DAV_HTTPS: Use an address that starts with https://.");
+            if (url.includes("nowhere")) return reject("CAL_DAV_NOT_FOUND: No server answered at this address. Check the server address.");
+            if (url.includes("plain")) return reject("CAL_DAV_NOT_CALDAV: This address doesn’t offer CalDAV calendars.");
+            if (url.includes("empty")) return reject("CAL_DAV_NO_CALENDARS: This account has no calendars on the server.");
+            if (url.includes("redirect")) return reject("CAL_DAV_REDIRECT: The server sent Hey Look! to another address (login.example.net). Hey Look! stopped there to keep your password safe.");
+            if (url.includes("selfsigned") && !x.trustCert) return reject("CAL_DAV_CERT: The server’s certificate isn’t trusted.");
+            if (x.password === "wrong") return reject("CAL_DAV_AUTH: Couldn’t sign in to the calendar server. Check the username and the password.");
+            const acc = accounts.find((y) => y.id === x.accountId);
+            let m = calAccounts().find((y) => y.account === x.accountId);
+            if (!m) {
+              m = { account: x.accountId, kind: "caldav", prefix: "dav", email: acc?.email ?? "", service: "", dav: davOf(x.service, url, x.username) };
+              extraCalAccounts.push(m);
+            }
+            m.dav = davOf(x.service, url, x.username);
+            m.service = m.dav.label;
+            mockCalState("ok", m.account);
+            resolve(calSrcs[m.account]);
+          }, wait);
+        });
+      }
+      case "calendar_dav_password": {
+        (((window as unknown as { __mockDavPasswords?: string[] }).__mockDavPasswords) ??= []).push(String(a.password));
+        return new Promise((resolve, reject) => {
+          setTimeout(() => {
+            if (a.password === "wrong") return reject("CAL_DAV_AUTH: Couldn’t sign in to the calendar server. Check the username and the password.");
+            mockCalState("ok", String(a.accountId));
+            resolve(calSrcs[String(a.accountId)]);
+          }, 500);
+        });
       }
       case "calendar_connect": {
         (((window as unknown as { __mockCalConnects?: string[] }).__mockCalConnects) ??= []).push(String(a.accountId));

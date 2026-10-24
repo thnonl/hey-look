@@ -34,6 +34,7 @@
     { "module": "src/components/LinkPopover.tsx", "reason": "the link bubble of the editors, with the editor stack", "since": "1.0.7" },
     { "module": "src/components/RecipientField.tsx", "reason": "the recipient box, with the composer and the event dialog (a shared chunk, never in the main chunk)", "since": "1.0.7" },
     { "module": "src/components/SettingsDialog.tsx", "reason": "the Settings dialog, loaded on open (the frame of the dialog is drawn at once)", "since": "1.0.7" },
+    { "module": "src/components/CalDavDialog.tsx", "reason": "the CalDAV connect dialog of Settings > Calendar, with the Settings chunk (W7.4)", "since": "1.0.7" },
     { "module": "src/components/Updates.tsx", "reason": "the updates block of Settings, with Settings", "since": "1.0.7" },
     { "module": "src/components/Calendar.tsx", "reason": "the Calendar views, its side menu and the event dialog, loaded on the first switch to Calendar / the first event dialog", "since": "1.0.7" },
     { "module": "src/components/PgpDialogs.tsx", "reason": "Generate key, Import key, Key details and the passphrase question, loaded on open (the badges and cards of the reading pane stay in Pgp.tsx)", "since": "1.0.7" },

@@ -1606,6 +1606,11 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 .ev-when .when-dates > .muted { white-space: nowrap; }
 .ev-form .tz { color: var(--muted); font-size: .86em; }
 .ev-form > label { align-self: start; padding-top: 8px; }
+/* CalDAV connect dialog (W7.4): the fixed address of iCloud / Fastmail sits on the input row, the check boxes span both columns */
+.dav-form .dav-fixed { padding-top: 8px; overflow-wrap: anywhere; }
+.dav-form .dav-check label { display: flex; gap: 8px; align-items: flex-start; font-size: .92em; cursor: pointer; }
+.dav-form .dav-check input { margin-top: 3px; flex: none; }
+.dav-who { margin: 2px 0 6px; overflow-wrap: anywhere; }
 .ev-invite .cf-field { border: 1px solid var(--border); border-radius: var(--r-sm); padding: 2px 8px; background: var(--bg); }
 .ev-invite .cf-field:focus-within { border-color: var(--accent); }
 .cp-event .when .dt-date { width: 152px; } .cp-event .when .dt-time { width: 112px; }

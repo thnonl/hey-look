@@ -305,4 +305,13 @@ export default defineLocale<typeof ns.en>({
   "calendar.toast.occurrenceDeleted": "实例已删除",
   "calendar.toast.followingDeleted": "已删除{date}起的实例",
   "calendar.sync.patternUnsupported": "此系列的重复方式Hey Look!无法更改。您可以在{service}中更改。",
+  "calendar.err.davAuth": "无法登录日历服务器。请检查用户名和密码。",
+  "calendar.err.davNotFound": "此地址没有服务器响应。请检查服务器地址。",
+  "calendar.err.davNotCaldav": "此地址不提供CalDAV日历。",
+  "calendar.err.davNoCalendars": "此账户在服务器上没有日历。",
+  "calendar.err.davHttps": "请使用以https://开头的地址。",
+  "calendar.err.davCert": "服务器的证书不受信任。",
+  "calendar.err.davRedirect": "服务器将Hey Look!重定向到了另一个地址（{host}）。为保护您的密码安全，Hey Look!已在此停止。",
+  "calendar.err.davAuthMethod": "服务器要求的登录方式，Hey Look!不支持。",
+  "calendar.sync.davAuth": "无法以{username}的身份登录{service}。请重新输入密码以继续同步。",
 });

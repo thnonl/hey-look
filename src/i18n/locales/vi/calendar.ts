@@ -304,4 +304,13 @@ export default defineLocale<typeof ns.en>({
   "calendar.toast.occurrenceDeleted": "Đã xóa lần lặp",
   "calendar.toast.followingDeleted": "Đã xóa các lần lặp từ {date} trở đi",
   "calendar.sync.patternUnsupported": "Chuỗi này lặp theo kiểu mà Hey Look! không thể thay đổi. Bạn có thể thay đổi trong {service}.",
+  "calendar.err.davAuth": "Không đăng nhập được vào máy chủ lịch. Hãy kiểm tra tên người dùng và mật khẩu.",
+  "calendar.err.davNotFound": "Không có máy chủ nào phản hồi tại địa chỉ này. Hãy kiểm tra địa chỉ máy chủ.",
+  "calendar.err.davNotCaldav": "Địa chỉ này không cung cấp lịch CalDAV.",
+  "calendar.err.davNoCalendars": "Tài khoản này không có lịch nào trên máy chủ.",
+  "calendar.err.davHttps": "Hãy dùng địa chỉ bắt đầu bằng https://.",
+  "calendar.err.davCert": "Chứng chỉ của máy chủ không đáng tin cậy.",
+  "calendar.err.davRedirect": "Máy chủ đã chuyển Hey Look! sang một địa chỉ khác ({host}). Hey Look! đã dừng lại ở đó để giữ an toàn cho mật khẩu của bạn.",
+  "calendar.err.davAuthMethod": "Máy chủ yêu cầu một phương thức đăng nhập mà Hey Look! không hỗ trợ.",
+  "calendar.sync.davAuth": "Không đăng nhập được vào {service} bằng {username}. Hãy nhập lại mật khẩu để tiếp tục đồng bộ.",
 });

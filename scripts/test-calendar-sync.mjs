@@ -6,8 +6,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  calendarErrorCode, calendarErrorText, calendarName, calendarOffer, calendarStepFailure, calendarSyncKind, defaultCalendar, deleteConfirm, foldTarget, isSyncedCalendarId, lastSyncedText,
-  pausedSources, readOnlyNote, sidebarCalendars, statusLine, syncedColor, truncatedNote, writableCalendars, CALENDAR_SYNC_KINDS,
+  calendarDavEligible, calendarErrorCode, calendarErrorText, calendarName, calendarOffer, calendarStepFailure, calendarSyncKind, defaultCalendar, deleteConfirm, foldTarget, isSyncedCalendarId, lastSyncedText,
+  davPreset, pausedSources, readOnlyNote, sidebarCalendars, statusLine, syncedColor, truncatedNote, writableCalendars, CALENDAR_SYNC_KINDS,
 } from "../src/calendarSync.ts";
 
 // ---- who gets the switch (AC-1)
@@ -120,7 +120,8 @@ assert.equal(calendarErrorCode("CAL_NOT_SET_UP: This build of Hey Look! can’t 
 // ---- one confirmation before the browser opens (W7.7): the connect path of Settings asks first and calls the backend only after "Open browser"
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const settings = fs.readFileSync(path.join(root, "src/components/SettingsDialog.tsx"), "utf8");
-const connect = settings.slice(settings.indexOf("const connect = async () => {"), settings.indexOf("const stop = async () => {"));
+const connectAt = settings.indexOf("const connect = async () => {"); // (the CalDAV panel, W7.4, has its own "stop" before it)
+const connect = settings.slice(connectAt, settings.indexOf("const stop = async () => {", connectAt));
 assert.ok(connect.length > 200 && connect.length < 3000, "found the connect function");
 const asked = connect.indexOf("await confirm(");
 const called = connect.indexOf("api.calendarConnect(");
@@ -194,5 +195,21 @@ assert.equal(foldTarget(list, "invites:a1")?.id, "invites:a1", "an unfolded one 
 assert.equal(foldTarget(list, "google:a2:primary")?.id, "google:a2:primary");
 assert.equal(foldTarget(list, "nothing"), undefined);
 assert.equal(foldTarget([L("invites:a9", { foldedInto: "gone" })], "invites:a9")?.id, "invites:a9", "a target that is not listed leaves the entry as it is");
+
+// ---- CalDAV (W7.4): who is offered it, the services of the dialog, the sentences of the server
+assert.equal(davPreset("imap.mail.me.com"), "icloud");
+assert.equal(davPreset("IMAP.FASTMAIL.COM"), "fastmail");
+assert.equal(davPreset("mail.example.com"), "other");
+assert.equal(calendarDavEligible({ auth: "password", imapHost: "mail.example.com" }), true);
+assert.equal(calendarDavEligible({ auth: "password", imapHost: "imap.gmail.com" }), false, "Gmail has Google Calendar");
+assert.equal(calendarDavEligible({ auth: "oauth_microsoft", imapHost: "outlook.office365.com" }), false, "Outlook has its own service");
+const dav = { label: "Nextcloud", username: "nam", host: "cloud.example.org", preset: "nextcloud", scheduling: false };
+assert.deepEqual(statusLine(src({ kind: "caldav", status: "auth", dav }), ctx), {
+  text: "Couldn’t sign in to Nextcloud as nam. Enter the password again to keep syncing.", tone: "bad", syncNow: "off", allow: false, enterPassword: true,
+});
+assert.equal(statusLine(src({ kind: "caldav", status: "ok", dav }), ctx).enterPassword, undefined);
+assert.equal(calendarErrorCode("CAL_DAV_AUTH: Couldn’t sign in to the calendar server. Check the username and the password."), "DAV_AUTH");
+assert.equal(calendarErrorText("CAL_DAV_NOT_FOUND: No server answered at this address. Check the server address."), "No server answered at this address. Check the server address.");
+assert.equal(calendarErrorText("CAL_DAV_REDIRECT: The server sent Hey Look! to another address (login.example.net). Hey Look! stopped there to keep your password safe."), "The server sent Hey Look! to another address (login.example.net). Hey Look! stopped there to keep your password safe.");
 
 console.log("calendar sync: all checks passed");

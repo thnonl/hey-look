@@ -319,4 +319,13 @@ export default defineLocale<typeof ns.en>({
   "calendar.toast.occurrenceDeleted": "Вхождение удалено",
   "calendar.toast.followingDeleted": "Удалены вхождения, начиная с {date}",
   "calendar.sync.patternUnsupported": "Hey Look! не может изменить такое правило повторения. Это можно сделать в {service}.",
+  "calendar.err.davAuth": "Не удалось войти на сервер календарей. Проверьте имя пользователя и пароль.",
+  "calendar.err.davNotFound": "По этому адресу сервер не отвечает. Проверьте адрес сервера.",
+  "calendar.err.davNotCaldav": "По этому адресу нет календарей CalDAV.",
+  "calendar.err.davNoCalendars": "На сервере нет календарей для этой учётной записи.",
+  "calendar.err.davHttps": "Укажите адрес, который начинается с https://.",
+  "calendar.err.davCert": "Сертификат сервера не заслуживает доверия.",
+  "calendar.err.davRedirect": "Сервер перенаправил Hey Look! на другой адрес ({host}). Hey Look! остановился, чтобы защитить ваш пароль.",
+  "calendar.err.davAuthMethod": "Сервер требует способ входа, который Hey Look! не поддерживает.",
+  "calendar.sync.davAuth": "Не удалось войти в {service} как {username}. Введите пароль снова, чтобы синхронизация продолжилась.",
 });

@@ -17,6 +17,18 @@ export function calendarSyncKind(a: { auth: string; imapHost: string }): SyncKin
   return kind && CALENDAR_SYNC_KINDS.includes(kind) ? kind : null;
 }
 
+/** The service a CalDAV server is, as the connect dialog's list has it. */
+export type DavPreset = "icloud" | "fastmail" | "nextcloud" | "other";
+
+/** The service an IMAP host suggests for the CalDAV dialog. */
+export function davPreset(imapHost: string): DavPreset {
+  const h = imapHost.trim().toLowerCase();
+  return h === "imap.mail.me.com" ? "icloud" : h === "imap.fastmail.com" ? "fastmail" : "other";
+}
+
+/** Does this mailbox get the CalDAV option (W7.4): any mailbox that is not a Google or Microsoft one (their calendars come from their own service). */
+export const calendarDavEligible = (a: { auth: string; imapHost: string }) => calendarSyncKind(a) === null;
+
 export const providerName = (k: SyncKind) => (k === "google" ? "Google" : "Microsoft");
 export const serviceName = (k: SyncKind) => (k === "google" ? "Google Calendar" : "Outlook");
 const kindOf = (s: string): SyncKind => (s === "microsoft" ? "microsoft" : "google");
@@ -55,6 +67,8 @@ export interface StatusLine {
   allow: boolean;
   /** the technical part of an error (what the server said), shown apart in smaller type */
   detail?: string;
+  /** the button `Enter password again…` of a CalDAV server that refused the password */
+  enterPassword?: boolean;
 }
 
 const minutes = (retryAt: number | null, nowSec: number) => Math.max(1, Math.ceil(((retryAt ?? nowSec) - nowSec) / 60));
@@ -62,7 +76,9 @@ const minutes = (retryAt: number | null, nowSec: number) => Math.max(1, Math.cei
 /** The status line under the switch (design 6.1). `email` is the mailbox address. */
 export function statusLine(src: CalSource, ctx: { email: string; nowSec: number; fmtTime: (sec: number) => string }): StatusLine {
   const kind = kindOf(src.kind);
-  const service = serviceName(kind);
+  // a CalDAV server is named by its preset or its host; its password is the person's to enter again (no browser, no "allow access")
+  const dav = src.kind === "caldav" ? src.dav ?? null : null;
+  const service = dav ? dav.label || dav.host : serviceName(kind);
   const reason = (src.lastError ?? "").trim() || t("calendar.sync.noReason");
   switch (src.status) {
     case "syncing":
@@ -72,12 +88,13 @@ export function statusLine(src: CalSource, ctx: { email: string; nowSec: number;
     case "busy":
       return { text: t("calendar.sync.busy", { service, n: minutes(src.retryAt, ctx.nowSec) }), tone: "muted", syncNow: "on", allow: false };
     case "auth":
+      if (src.kind === "caldav") return { text: t("calendar.sync.davAuth", { service, username: dav?.username ?? ctx.email }), tone: "bad", syncNow: "off", allow: false, enterPassword: true };
       return { text: t("calendar.sync.auth", { email: ctx.email }), tone: "bad", syncNow: "off", allow: true };
     case "blocked":
       // the organization has to approve the app first: asking for access again cannot help until the admin has acted (switching the sync off and on starts over)
       return { text: t("calendar.sync.blocked", { email: ctx.email }), tone: "bad", syncNow: "off", allow: false };
     case "notsetup":
-      return { text: t("calendar.sync.notSetUp", { provider: providerName(kind), reason }), tone: "bad", syncNow: "off", allow: false };
+      return { text: t("calendar.sync.notSetUp", { provider: dav ? service : providerName(kind), reason }), tone: "bad", syncNow: "off", allow: false };
     case "error":
       return { text: t("calendar.sync.error", { n: minutes(src.retryAt, ctx.nowSec) }), tone: "muted", syncNow: "on", allow: false, detail: t("calendar.sync.details", { reason }) };
     default:
@@ -157,6 +174,15 @@ export const BACKEND_ERRORS: { re: RegExp; key: Key; names: string[] }[] = [
   { re: /^You allowed access for (.+?)\. Sign in as (.+?) to sync this mailbox’s calendar\.$/s, key: "calendar.err.wrongAccount", names: ["signedIn", "mailbox"] },
   { re: /^Hey Look! needs every calendar permission it asked for\. Try again and keep all boxes ticked\.$/s, key: "calendar.err.partial", names: [] },
   { re: /^This build of Hey Look! can’t sync calendars with (.+)\.$/s, key: "calendar.err.noClient", names: ["provider"] },
+  // CalDAV (W7.4): the connect dialog's sentences
+  { re: /^Couldn’t sign in to the calendar server\. Check the username and the password\.$/s, key: "calendar.err.davAuth", names: [] },
+  { re: /^No server answered at this address\. Check the server address\.$/s, key: "calendar.err.davNotFound", names: [] },
+  { re: /^This address doesn’t offer CalDAV calendars\.$/s, key: "calendar.err.davNotCaldav", names: [] },
+  { re: /^This account has no calendars on the server\.$/s, key: "calendar.err.davNoCalendars", names: [] },
+  { re: /^Use an address that starts with https:\/\/\.$/s, key: "calendar.err.davHttps", names: [] },
+  { re: /^The server’s certificate isn’t trusted\.$/s, key: "calendar.err.davCert", names: [] },
+  { re: /^The server sent Hey Look! to another address \((.+)\)\. Hey Look! stopped there to keep your password safe\.$/s, key: "calendar.err.davRedirect", names: ["host"] },
+  { re: /^The server asks for a sign-in method that Hey Look! doesn’t support\.$/s, key: "calendar.err.davAuthMethod", names: [] },
 ];
 
 /**
@@ -164,7 +190,7 @@ export const BACKEND_ERRORS: { re: RegExp; key: Key; names: string[] }[] = [
  * is shown in the language in use; any other text of such an error is shown as the backend wrote it.
  */
 export function calendarErrorText(raw: string): string | null {
-  const m = /^CAL_(OFFLINE|CONFLICT|GONE|READ_ONLY|AUTH|BUSY|NOT_SET_UP|DENIED|WRONG_ACCOUNT|PARTIAL|TIMEOUT|CANCELLED|BLOCKED|ERROR):\s*(.+)$/s.exec(raw.trim());
+  const m = /^CAL_(OFFLINE|CONFLICT|GONE|READ_ONLY|AUTH|BUSY|NOT_SET_UP|DENIED|WRONG_ACCOUNT|PARTIAL|TIMEOUT|CANCELLED|BLOCKED|ERROR|DAV_[A-Z_]+):\s*(.+)$/s.exec(raw.trim());
   if (!m) return null;
   const text = m[2].trim();
   for (const e of BACKEND_ERRORS) {
@@ -179,7 +205,7 @@ export function calendarErrorText(raw: string): string | null {
 
 /** The code of such an error ("CONFLICT"), or null. */
 export function calendarErrorCode(raw: string): string | null {
-  return /^CAL_(OFFLINE|CONFLICT|GONE|READ_ONLY|AUTH|BUSY|NOT_SET_UP|DENIED|WRONG_ACCOUNT|PARTIAL|TIMEOUT|CANCELLED|BLOCKED|ERROR):/.exec(raw.trim())?.[1] ?? null;
+  return /^CAL_(OFFLINE|CONFLICT|GONE|READ_ONLY|AUTH|BUSY|NOT_SET_UP|DENIED|WRONG_ACCOUNT|PARTIAL|TIMEOUT|CANCELLED|BLOCKED|ERROR|DAV_[A-Z_]+):/.exec(raw.trim())?.[1] ?? null;
 }
 
 /** Colour for a synced calendar's events and sidebar box: its own colour, else the mailbox's. */

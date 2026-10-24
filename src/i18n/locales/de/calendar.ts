@@ -305,4 +305,13 @@ export default defineLocale<typeof ns.en>({
   "calendar.toast.occurrenceDeleted": "Termin gelöscht",
   "calendar.toast.followingDeleted": "Termine ab {date} gelöscht",
   "calendar.sync.patternUnsupported": "Diese Serie wiederholt sich auf eine Weise, die Hey Look! nicht ändern kann. Sie können sie in {service} ändern.",
+  "calendar.err.davAuth": "Anmeldung am Kalenderserver fehlgeschlagen. Prüfen Sie Benutzername und Passwort.",
+  "calendar.err.davNotFound": "Unter dieser Adresse hat kein Server geantwortet. Prüfen Sie die Serveradresse.",
+  "calendar.err.davNotCaldav": "Unter dieser Adresse sind keine CalDAV-Kalender verfügbar.",
+  "calendar.err.davNoCalendars": "Dieses Konto hat keine Kalender auf dem Server.",
+  "calendar.err.davHttps": "Verwenden Sie eine Adresse, die mit https:// beginnt.",
+  "calendar.err.davCert": "Das Zertifikat des Servers ist nicht vertrauenswürdig.",
+  "calendar.err.davRedirect": "Der Server hat Hey Look! an eine andere Adresse ({host}) weitergeleitet. Hey Look! hat dort angehalten, um Ihr Passwort zu schützen.",
+  "calendar.err.davAuthMethod": "Der Server verlangt eine Anmeldemethode, die Hey Look! nicht unterstützt.",
+  "calendar.sync.davAuth": "Anmeldung bei {service} als {username} fehlgeschlagen. Geben Sie das Passwort erneut ein, um weiter zu synchronisieren.",
 });

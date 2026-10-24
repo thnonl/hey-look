@@ -305,4 +305,13 @@ export default defineLocale<typeof ns.en>({
   "calendar.toast.occurrenceDeleted": "Repetición eliminada",
   "calendar.toast.followingDeleted": "Repeticiones eliminadas desde el {date}",
   "calendar.sync.patternUnsupported": "Esta serie se repite de una forma que Hey Look! no puede cambiar. Puedes cambiarla en {service}.",
+  "calendar.err.davAuth": "No se pudo iniciar sesión en el servidor de calendario. Revisa el nombre de usuario y la contraseña.",
+  "calendar.err.davNotFound": "Ningún servidor respondió en esta dirección. Revisa la dirección del servidor.",
+  "calendar.err.davNotCaldav": "Esta dirección no ofrece calendarios CalDAV.",
+  "calendar.err.davNoCalendars": "Esta cuenta no tiene calendarios en el servidor.",
+  "calendar.err.davHttps": "Usa una dirección que empiece por https://.",
+  "calendar.err.davCert": "El certificado del servidor no es de confianza.",
+  "calendar.err.davRedirect": "El servidor redirigió Hey Look! a otra dirección ({host}). Hey Look! se detuvo ahí para proteger tu contraseña.",
+  "calendar.err.davAuthMethod": "El servidor pide un método de inicio de sesión que Hey Look! no admite.",
+  "calendar.sync.davAuth": "No se pudo iniciar sesión en {service} como {username}. Introduce la contraseña de nuevo para seguir sincronizando.",
 });

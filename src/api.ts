@@ -268,6 +268,18 @@ export interface CalSource {
   /** the first download is running */
   firstSync: boolean;
   calendars: CalendarSyncInfo[];
+  /** CalDAV: how the server is named and who signed in */
+  dav?: { label: string; username: string; host: string; preset: "icloud" | "fastmail" | "nextcloud" | "other"; scheduling: boolean } | null;
+}
+/** What the CalDAV dialog sends (W7.4). */
+export interface DavConnectArgs {
+  accountId: string;
+  service: "icloud" | "fastmail" | "nextcloud" | "other";
+  url: string;
+  username: string;
+  password: string;
+  useMailPassword: boolean;
+  trustCert: boolean;
 }
 export interface Meeting {
   start: number;
@@ -825,6 +837,8 @@ export const api = {
   calendarSources: () => invoke<CalSource[]>("calendar_sources"),
   /** the services this build can connect ("google", "microsoft"): a mailbox whose service is not in it cannot turn calendar sync on */
   calendarKindsAvailable: () => invoke<string[]>("calendar_kinds_available"),
+  calendarConnectCaldav: (args: DavConnectArgs) => invoke<CalSource>("calendar_connect_caldav", { args }),
+  calendarDavPassword: (accountId: string, password: string) => invoke<CalSource>("calendar_dav_password", { accountId, password }),
   calendarConnect: (accountId: string) => invoke<CalSource>("calendar_connect", { accountId }),
   calendarCancelConnect: () => invoke<void>("calendar_cancel_connect"),
   calendarDisconnect: (accountId: string) => invoke<void>("calendar_disconnect", { accountId }),

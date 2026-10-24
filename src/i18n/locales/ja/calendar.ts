@@ -305,4 +305,13 @@ export default defineLocale<typeof ns.en>({
   "calendar.toast.occurrenceDeleted": "この回を削除しました",
   "calendar.toast.followingDeleted": "{date}以降の回を削除しました",
   "calendar.sync.patternUnsupported": "この繰り返しの予定は、Hey Look!では変更できない設定です。{service}で変更できます。",
+  "calendar.err.davAuth": "カレンダーサーバーにサインインできませんでした。ユーザー名とパスワードを確認してください。",
+  "calendar.err.davNotFound": "このアドレスに応答するサーバーがありません。サーバーのアドレスを確認してください。",
+  "calendar.err.davNotCaldav": "このアドレスは、CalDAVカレンダーに対応していません。",
+  "calendar.err.davNoCalendars": "このアカウントには、サーバー上にカレンダーがありません。",
+  "calendar.err.davHttps": "https://で始まるアドレスを使ってください。",
+  "calendar.err.davCert": "サーバーの証明書が信頼されていません。",
+  "calendar.err.davRedirect": "サーバーがHey Look!を別のアドレス（{host}）に転送しました。パスワードを守るため、Hey Look!はそこで処理を中止しました。",
+  "calendar.err.davAuthMethod": "サーバーが要求するサインイン方法には、Hey Look!は対応していません。",
+  "calendar.sync.davAuth": "{service}に{username}としてサインインできませんでした。同期を続けるには、パスワードをもう一度入力してください。",
 });
