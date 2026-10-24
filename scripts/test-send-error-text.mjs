@@ -27,4 +27,16 @@ for (const f of files) {
   }
 }
 assert.match(read("src/i18n/ns/errors.ts"), /"errors\.sendRefused": "The mail server did not accept the message\. Try again in a moment; if it keeps failing, check the outgoing server in Settings\. \(Details: \{detail\}\)"/);
+// W6.9: the secure-connection hint is a coded error (SECURE_CONNECTION|host=..|port=..), translated by friendlyError before any text rule; the library's words go to the log
+assert.ok(at("const coded = backendText(raw);") > 0 && at("const coded = backendText(raw);") < at("Couldn[’']t start a secure connection"), "the code is looked up first, the English sentence (older builds) after");
+const mailRs = read("src-tauri/src/mail.rs");
+const sc = mailRs.slice(mailRs.indexOf("pub fn secure_connection_error("), mailRs.indexOf("pub fn is_tls_step_failure("));
+assert.ok(sc.includes('"SECURE_CONNECTION"') && sc.includes('("host", host)') && sc.includes('("port", &port.to_string())') && !sc.includes("(Server:"), "the Rust side sends the code and the values only");
+assert.ok(sc.includes('crate::startup::line("connect"') && sc.includes("take(200)"), "the raw text goes to startup.log, 200 characters");
+for (const f of ["src/i18n/ns/backend.ts", ...readdirSync(new URL("../src/i18n/locales", import.meta.url)).map((l) => `src/i18n/locales/${l}/backend.ts`)]) {
+  const m = /"backend\.SECURE_CONNECTION": ("(?:[^"\\]|\\.)*"),/.exec(read(f));
+  assert.ok(m, `${f}: backend.SECURE_CONNECTION`);
+  const text = JSON.parse(m[1]);
+  assert.ok(text.includes("{host}:{port}") && text.includes("STARTTLS") && !/token|Server:/.test(text), `${f}: ${text}`);
+}
 console.log("test-send-error-text: ok");

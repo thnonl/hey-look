@@ -20,6 +20,7 @@ export default define({
     "backend.FOLDER_NOT_CREATED": "Couldn’t find or create the {folder} folder on this account ({why}). The mail stays where it is.",
     "backend.FOLDER_CHANGED": "This folder changed on the server, so nothing was done. Hey Look! is reading it again. Try again in a moment.",
     "backend.DRAFTS_NOT_CREATED": "Couldn’t find or create the Drafts folder on this account ({why}).",
+    "backend.SECURE_CONNECTION": "Couldn’t start a secure connection to {host}:{port}. Hey Look! connects only with SSL/TLS or STARTTLS. Check the port and the security setting.",
     "backend.ATT_NOT_FOUND": "attachment not found",
     "backend.KEYRING_TIMEOUT": "Your system keyring is locked or not answering. Unlock it (Passwords and Keys / KWallet) and try again.",
     "backend.ADD_CANCELLED": "Adding the account was cancelled.",

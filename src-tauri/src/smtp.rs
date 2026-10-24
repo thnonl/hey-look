@@ -2051,7 +2051,7 @@ END:VCALENDAR
                 acc.tls_insecure = true; // the certificate is not the question here
                 let e = test(&acc, "secret").unwrap_err();
                 assert!(crate::mail::is_secure_connection_error(&e), "{security}: {e}");
-                assert!(e.contains(&format!("127.0.0.1:{port}")) && e.contains("SSL/TLS or STARTTLS") && e.contains("(Server: "), "{security}: {e}");
+                assert!(e.contains(&format!("127.0.0.1:{port}")) && e.contains("SSL/TLS or STARTTLS") && e.starts_with(&format!("SECURE_CONNECTION|host=127.0.0.1|port={port}: ")) && !e.contains("(Server: "), "{security}: {e}");
                 // sending uses the same words
                 let e = send_raw(&acc, "secret", &envelope_for_tests(), b"Subject: x\r\n\r\nhi").unwrap_err();
                 assert!(crate::mail::is_secure_connection_error(&e), "send, {security}: {e}");
@@ -2411,7 +2411,7 @@ END:VCALENDAR
             assert!(crate::mail::is_secure_connection_error(&e) && e.contains("STARTTLS"), "{e}");
             acc.imap_ssl = true;
             let e = crate::mail::probe_secure_connection(&acc, one_sec).unwrap_err();
-            assert!(crate::mail::is_secure_connection_error(&e) && e.contains("TLS handshake"), "{e}");
+            assert!(crate::mail::is_secure_connection_error(&e) && e.contains("SSL/TLS"), "{e}");
             acc.imap_port = plain_imap_server();
             assert!(crate::mail::probe_secure_connection(&acc, std::time::Duration::from_secs(5)).is_ok());
         });

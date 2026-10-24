@@ -53,15 +53,19 @@ pub fn secure_connection_error(host: &str, port: u16, raw: &str) -> String {
     if l.contains("certificate") || l.contains("verify") || l.contains("hostname") || l.contains("expired") {
         return raw.to_string();
     }
-    let server: String = raw.trim().chars().take(120).collect();
-    format!(
-        "Couldn\u{2019}t start a secure connection to {host}:{port}. Hey Look! connects only with SSL/TLS or STARTTLS. Check the port and the security setting. (Server: {server})"
+    // the library's own words (Windows socket text, "token supplied to the function is invalid") are for the log, not for the person (W6.9)
+    let raw_line: String = raw.trim().chars().take(200).collect();
+    crate::startup::line("connect", &format!("secure connection to {host}:{port} failed: {raw_line}"));
+    crate::i18n::coded(
+        "SECURE_CONNECTION",
+        &[("host", host), ("port", &port.to_string())],
+        &format!("Couldn\u{2019}t start a secure connection to {host}:{port}. Hey Look! connects only with SSL/TLS or STARTTLS. Check the port and the security setting."),
     )
 }
 
-/// Whether an error text is the hint of `secure_connection_error`.
+/// Whether an error text is the hint of `secure_connection_error` (the coded form, and the English sentence an older build stored).
 pub fn is_secure_connection_error(text: &str) -> bool {
-    text.starts_with("Couldn\u{2019}t start a secure connection to ")
+    text.starts_with("SECURE_CONNECTION|") || text.starts_with("Couldn\u{2019}t start a secure connection to ")
 }
 
 /// Whether an SMTP error text is a failure of the TLS step (lettre words it as "tls", "starttls" or "handshake" errors).
@@ -601,13 +605,21 @@ mod connect_tests {
     #[test]
     fn a_failed_secure_connection_is_explained_and_a_bad_certificate_is_left_alone() {
         let m = secure_connection_error("mail.example.com", 143, "Bad Response: Invalid command.");
+        // the coded error: the UI translates it from the code and the values (backend.SECURE_CONNECTION); the English sentence is the fallback, without the library's words
         assert_eq!(
             m,
-            "Couldn\u{2019}t start a secure connection to mail.example.com:143. Hey Look! connects only with SSL/TLS or STARTTLS. Check the port and the security setting. (Server: Bad Response: Invalid command.)"
+            "SECURE_CONNECTION|host=mail.example.com|port=143: Couldn\u{2019}t start a secure connection to mail.example.com:143. Hey Look! connects only with SSL/TLS or STARTTLS. Check the port and the security setting."
         );
-        // the server's words are cut at 120 characters
+        assert!(!m.contains("Bad Response") && !m.contains("Server:"));
+        assert!(is_secure_connection_error(&m));
+        // an older build stored the English sentence: still recognised
+        assert!(is_secure_connection_error("Couldn\u{2019}t start a secure connection to h:1. Hey Look! connects only with SSL/TLS or STARTTLS. (Server: x)"));
+        assert!(!is_secure_connection_error("SECURE_CONNECTIONS: no") && !is_secure_connection_error("login failed"));
+        // a long raw text never reaches the person
         let long = "x".repeat(300);
-        assert!(secure_connection_error("h", 1, &long).ends_with(&format!("(Server: {})", "x".repeat(120))));
+        assert!(!secure_connection_error("h", 1, &long).contains("xxxx"));
+        // an IPv6 host keeps its colons through the escape
+        assert!(secure_connection_error("::1", 143, "boom").starts_with("SECURE_CONNECTION|host=%3A%3A1|port=143: "));
         // an untrusted certificate keeps its own advice
         assert_eq!(secure_connection_error("h", 993, "certificate verify failed"), "certificate verify failed");
         assert!(is_tls_step_failure("error:0A00010B:SSL routines:wrong version number") && is_tls_step_failure("invalid tls handshake"));

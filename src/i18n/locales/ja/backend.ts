@@ -21,6 +21,7 @@ export default defineLocale<typeof ns.en>({
   "backend.FOLDER_NOT_CREATED": "このアカウントで{folder}フォルダーを見つけることも作成することもできませんでした（{why}）。メールは元の場所に残ります。",
   "backend.FOLDER_CHANGED": "このフォルダーはサーバー側で変更されたため、何も実行しませんでした。Hey Look!がフォルダーを再読み込みしています。しばらくしてからもう一度お試しください。",
   "backend.DRAFTS_NOT_CREATED": "このアカウントで下書きフォルダーを見つけることも作成することもできませんでした（{why}）。",
+  "backend.SECURE_CONNECTION": "{host}:{port}へのセキュア接続を開始できませんでした。Hey Look!はSSL/TLSまたはSTARTTLSでのみ接続します。ポートとセキュリティの設定を確認してください。",
   "backend.ATT_NOT_FOUND": "添付ファイルが見つかりません",
   "backend.KEYRING_TIMEOUT": "システムのキーリングがロックされているか、応答していません。ロックを解除して（パスワードと鍵 / KWallet）、もう一度お試しください。",
   "backend.ADD_CANCELLED": "アカウントの追加がキャンセルされました。",
