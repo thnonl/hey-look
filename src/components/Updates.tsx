@@ -363,7 +363,7 @@ export function UpdatesBlock({ privacy, autoSwitch }: { privacy: ReactNode; auto
         <span>
           <b className="selectable">{t("updates.status.version", { version })}</b> <span className="muted small">· {t("updates.status.lastChecked", { when: checked })}</span>
         </span>
-        <button ref={btn} className="btn small" disabled={busy} aria-busy={busy || undefined} onClick={check}>
+        <button id="set-updateCheck" ref={btn} className="btn small" disabled={busy} aria-busy={busy || undefined} onClick={check}>
           {busy ? (
             <>
               <RefreshCw size={13} className="spin" /> {t("updates.action.checking")}

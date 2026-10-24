@@ -5,7 +5,7 @@ import { SETTINGS_KEY } from "../popout/windowKinds";
 import { openUpdateLink } from "../updates";
 import { Grip, useAccountReorder } from "./AccountReorder";
 import { ABOUT_LINKS, siteUrl } from "../aboutLinks";
-import { Fragment, ReactNode, useEffect, useRef, useState } from "react";
+import { Fragment, ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Account, api, AutostartInfo, CalSource, Discovered, NotifyPermission, PgpKey, PROVIDERS, Rule, Signature, Template } from "../api";
 import { singleLabelHostsOf } from "../addresses";
 import { backendText } from "../backendErrors";
@@ -31,8 +31,12 @@ import { RichEditor } from "./RichEditor";
 import { UpdatesBlock } from "./Updates";
 import { ReauthNotice, SignInEnded, SignInWaiting, signInEnd, type SignInEnd } from "./SignInHelp";
 import { keyName } from "./Pgp";
+import { isImeEvent } from "../recipients";
+import { buildIndex, type Entry, type EntryKind, type IndexAccount } from "../settingsIndex";
+import { showSetting } from "../settingsJump";
+import { SearchBox, SearchResults, useSettingsSearch } from "./SettingsSearch";
 import { AccountPicker, Avatar, Modal, Switch } from "./ui";
-import { LANGS, intlLocale, pseudoAllowed, type Key } from "../i18n";
+import { LANGS, intlLocale, langVersion, pseudoAllowed, type Key } from "../i18n";
 import { fmtNumber, weekdayName } from "../i18n/format";
 import { useT } from "../i18n/react";
 import { tx } from "../i18n/rich";
@@ -40,7 +44,8 @@ import { tx } from "../i18n/rich";
 /** "lundi" -> "Lundi": Intl gives weekday names in lower case in some languages, the options here start with a capital. */
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-const Row = ({ label, hint, children, id }: { label: string; hint?: ReactNode; children: ReactNode; id?: string }) => {
+/** `id`: the target of Settings search and of the deep links (src/settingsIndex.ts lists it); `noSearch`: a row the search does not look for (user data, a row that only some mailboxes have) */
+const Row = ({ label, hint, children, id, noSearch }: { label: string; hint?: ReactNode; children: ReactNode; id?: string; noSearch?: boolean }) => {
   const ctl = useRef<HTMLDivElement>(null);
   // the label is a sibling <div>, not a <label for>: give the unnamed inputs/selects in this row the label as accessible name
   useEffect(() => {
@@ -50,7 +55,7 @@ const Row = ({ label, hint, children, id }: { label: string; hint?: ReactNode; c
     els.forEach((e, i) => e.setAttribute("aria-label", els.length > 1 ? `${label} (${i + 1})` : label));
   });
   return (
-    <div className="set-row" id={id ? `set-${id}` : undefined}>
+    <div className="set-row" id={id ? `set-${id}` : undefined} data-search-skip={noSearch ? "" : undefined}>
       <div className="set-lbl">
         <div>{label}</div>
         {hint && <div className="muted small">{hint}</div>}
@@ -157,9 +162,9 @@ function GeneralTab() {
   const set = <K extends keyof Prefs>(k: K, v: Prefs[K]) => setPrefs({ [k]: v } as Partial<Prefs>);
   return (
     <div>
-      <h3>{t("settings.general.title")}</h3>
+      <h3 id="set-pg-general">{t("settings.general.title")}</h3>
       <div className="muted small">{t("settings.general.intro")}</div>
-      <Row label={t("settings.general.language")} hint={t("settings.general.languageHint")}>
+      <Row id="language" label={t("settings.general.language")} hint={t("settings.general.languageHint")}>
         {/* the language just picked shows at once; the texts switch when its chunk is there (store.setPrefs) */}
         <select value={langLoading ?? prefs.language} aria-busy={langLoading !== null} onChange={(e) => set("language", e.target.value as Prefs["language"])}>
           {LANGS.map((l) => <option key={l.code} value={l.code} lang={l.code}>{l.nativeName}</option>)}
@@ -167,14 +172,14 @@ function GeneralTab() {
           {pseudoAllowed() && <option value="en-XA">Pseudo-locale (dev)</option>}
         </select>
       </Row>
-      <Row label={t("settings.general.afterAction")}>
+      <Row id="afterAction" label={t("settings.general.afterAction")}>
         <select value={prefs.afterAction} onChange={(e) => set("afterAction", e.target.value as Prefs["afterAction"])}>
           <option value="next">{t("settings.general.openNext")}</option>
           <option value="previous">{t("settings.general.openPrevious")}</option>
           <option value="list">{t("settings.general.backToList")}</option>
         </select>
       </Row>
-      <Row label={t("settings.general.markRead")}>
+      <Row id="markRead" label={t("settings.general.markRead")}>
         <select value={prefs.markReadDelay} onChange={(e) => set("markReadDelay", Number(e.target.value))}>
           <option value={0}>{t("settings.general.immediately")}</option>
           <option value={2}>{t("settings.general.after2")}</option>
@@ -182,12 +187,12 @@ function GeneralTab() {
           <option value={-1}>{t("settings.general.never")}</option>
         </select>
       </Row>
-      <Row label={t("settings.general.undoWindow")} hint={t("settings.general.undoWindowHint")}>
+      <Row id="undoWindow" label={t("settings.general.undoWindow")} hint={t("settings.general.undoWindowHint")}>
         <select value={prefs.undoActionSeconds} onChange={(e) => set("undoActionSeconds", Number(e.target.value))}>
           {[3, 6, 10, 15, 30].map((n) => <option key={n} value={n}>{t("settings.unit.seconds", { n })}</option>)}
         </select>
       </Row>
-      <Row label={t("settings.general.defaultAccount")} hint={t("settings.general.defaultAccountHint")}>
+      <Row id="defaultAccount" label={t("settings.general.defaultAccount")} hint={t("settings.general.defaultAccountHint")}>
         <AccountPicker
           value={accounts.some((a) => a.id === prefs.defaultAccount) ? prefs.defaultAccount : ""}
           accounts={accounts}
@@ -196,42 +201,42 @@ function GeneralTab() {
           none={t("settings.general.noDefaultAccount")}
         />
       </Row>
-      <Row label={t("settings.general.dateFormat")}>
+      <Row id="dateFormat" label={t("settings.general.dateFormat")}>
         <select value={prefs.dateFormat} onChange={(e) => set("dateFormat", e.target.value as Prefs["dateFormat"])}>
           <option value="relative">{t("settings.general.dateRelative")}</option><option value="absolute">{t("settings.general.dateAbsolute")}</option>
         </select>
       </Row>
-      <Row label={t("settings.general.timeFormat")}>
+      <Row id="timeFormat" label={t("settings.general.timeFormat")}>
         <select value={prefs.timeFormat} onChange={(e) => set("timeFormat", e.target.value as Prefs["timeFormat"])}>
           <option value="24">{t("settings.general.time24")}</option><option value="12">{t("settings.general.time12")}</option>
         </select>
       </Row>
-      <Row label={t("settings.general.supportReminder")} hint={t("settings.general.supportReminderHint")}>
+      <Row id="supportReminder" label={t("settings.general.supportReminder")} hint={t("settings.general.supportReminderHint")}>
         <Switch checked={prefs.supportNudge.enabled} onChange={(v) => set("supportNudge", setNudgeEnabled(prefs.supportNudge, v, Date.now()))} ariaLabel={t("settings.general.supportReminder")} />
       </Row>
       <h4>{t("settings.general.calendar")}</h4>
-      <Row label={t("settings.general.weekStart")}>
+      <Row id="weekStart" label={t("settings.general.weekStart")}>
         <select value={prefs.weekStart} onChange={(e) => set("weekStart", Number(e.target.value) as Prefs["weekStart"])}>
           <option value={1}>{cap(weekdayName(1, "long"))}</option><option value={0}>{cap(weekdayName(0, "long"))}</option><option value={6}>{cap(weekdayName(6, "long"))}</option>
         </select>
       </Row>
-      <Row label={t("settings.general.timeZone")} hint={t("settings.general.timeZoneHint")}>
+      <Row id="timeZone" label={t("settings.general.timeZone")} hint={t("settings.general.timeZoneHint")}>
         <select value={prefs.calTz} onChange={(e) => set("calTz", e.target.value)}>
           <option value="auto">{t("settings.general.tzAuto", { zone: systemTz() })}</option>
           {zoneList().map((z) => <option key={z} value={z}>{z}</option>)}
         </select>
       </Row>
-      <Row label={t("settings.general.autoAddInvites")} hint={t("settings.general.autoAddInvitesHint")}>
+      <Row id="autoAddInvites" label={t("settings.general.autoAddInvites")} hint={t("settings.general.autoAddInvitesHint")}>
         <Switch checked={prefs.autoAddInvites} onChange={(v) => set("autoAddInvites", v)} />
       </Row>
-      <Row label={t("settings.general.eventReminders")} hint={t("settings.general.eventRemindersHint")}>
+      <Row id="eventReminders" label={t("settings.general.eventReminders")} hint={t("settings.general.eventRemindersHint")}>
         <select value={prefs.eventReminderMin === null ? "" : String(prefs.eventReminderMin)} onChange={(e) => set("eventReminderMin", e.target.value === "" ? null : Number(e.target.value))}>
           <option value="">{t("settings.general.noReminder")}</option>
           {[0, 5, 10, 15, 30, 60].map((n) => <option key={n} value={n}>{n === 0 ? t("settings.general.remindAtStart") : n === 60 ? t("settings.general.remind1h") : t("settings.general.remindMinutes", { n })}</option>)}
         </select>
       </Row>
       <h4>{t("settings.general.attachments")}</h4>
-      <Row label={t("settings.general.saveTo")} hint={t("settings.general.saveToHint")}>
+      <Row id="saveTo" label={t("settings.general.saveTo")} hint={t("settings.general.saveToHint")}>
         <div className="path-field">
           <code title={prefs.downloadDir ?? t("settings.general.downloads")}>{prefs.downloadDir ?? t("settings.general.downloads")}</code>
           <button
@@ -246,27 +251,27 @@ function GeneralTab() {
           {prefs.downloadDir && <button className="link small" onClick={() => set("downloadDir", null)}>{t("settings.general.useDownloads")}</button>}
         </div>
       </Row>
-      <Row label={t("settings.general.askWhere")}>
+      <Row id="askWhere" label={t("settings.general.askWhere")}>
         <Switch checked={prefs.askWhereToSave} onChange={(v) => set("askWhereToSave", v)} />
       </Row>
-      <Row label={t("settings.general.afterSaving")}>
+      <Row id="afterSaving" label={t("settings.general.afterSaving")}>
         <select value={prefs.afterSave} onChange={(e) => set("afterSave", e.target.value as Prefs["afterSave"])}>
           <option value="notify">{t("settings.general.showNotification")}</option>
           <option value="reveal">{t("settings.general.showInFolder")}</option>
           <option value="open">{t("settings.general.openFile")}</option>
         </select>
       </Row>
-      <Row label={t("settings.general.warnExec")} hint={riskyHint()}>
+      <Row id="warnExec" label={t("settings.general.warnExec")} hint={riskyHint()}>
         <Switch checked={prefs.warnExecutables} onChange={(v) => set("warnExecutables", v)} />
       </Row>
       <h4>{t("settings.general.scheduled")}</h4>
-      <Row label={t("settings.general.catchUp")}>
+      <Row id="catchUp" label={t("settings.general.catchUp")}>
         <select value={prefs.scheduledCatchUp} onChange={(e) => set("scheduledCatchUp", e.target.value as Prefs["scheduledCatchUp"])}>
           <option value="send">{t("settings.general.sendAtOpen")}</option>
           <option value="ask">{t("settings.general.askFirst")}</option>
         </select>
       </Row>
-      <Row label={t("settings.general.retry")} hint={t("settings.general.retryHint")}>
+      <Row id="retry" label={t("settings.general.retry")} hint={t("settings.general.retryHint")}>
         <Switch checked={prefs.retryScheduled} onChange={(v) => set("retryScheduled", v)} />
       </Row>
     </div>
@@ -332,20 +337,23 @@ function AppearanceTab() {
   const { prefs, setPrefs } = useStore();
   return (
     <div>
-      <h3>{t("settings.appearance.title")}</h3>
+      <h3 id="set-pg-appearance">{t("settings.appearance.title")}</h3>
       <div className="muted small">{t("settings.appearance.intro")}</div>
       <AppearancePreview />
 
-      <h4>{t("settings.appearance.theme")}</h4>
-      <Cards
-        value={prefs.theme}
-        onChange={(v) => setPrefs({ theme: v })}
-        options={[
-          { key: "light", label: t("settings.appearance.light"), art: <Swatch /> },
-          { key: "dark", label: t("settings.appearance.dark"), art: <Swatch dark /> },
-          { key: "system", label: t("settings.appearance.system"), art: <Swatch half /> },
-        ]}
-      />
+      <div id="set-theme">
+        <h4>{t("settings.appearance.theme")}</h4>
+        <Cards
+          value={prefs.theme}
+          onChange={(v) => setPrefs({ theme: v })}
+          options={[
+            { key: "light", label: t("settings.appearance.light"), art: <Swatch /> },
+            { key: "dark", label: t("settings.appearance.dark"), art: <Swatch dark /> },
+            { key: "system", label: t("settings.appearance.system"), art: <Swatch half /> },
+          ]}
+        />
+      </div>
+      <div id="set-accent">
       <h4>{t("settings.appearance.primary")}</h4>
       <div className="muted small">{t("settings.appearance.primaryHint")}</div>
       <div className="accents" role="radiogroup" aria-label={t("settings.appearance.primary")}>
@@ -369,27 +377,32 @@ function AppearanceTab() {
           <button className="link small" onClick={() => setPrefs({ accent: DEFAULT_PREFS.accent })}>{t("settings.appearance.reset")}</button>
         )}
       </div>
-      <h4>{t("settings.appearance.density")}</h4>
-      <Cards
-        value={prefs.density}
-        onChange={(v) => setPrefs({ density: v })}
-        options={[
-          { key: "full", label: t("settings.appearance.full"), art: <DensityArt gap={13} rows={3} /> },
-          { key: "medium", label: t("settings.appearance.medium"), art: <DensityArt gap={10} rows={4} /> },
-          { key: "compact", label: t("settings.appearance.compact"), art: <DensityArt gap={7} rows={5} /> },
-        ]}
-      />
-      <h4>{t("settings.appearance.readingPane")}</h4>
-      <Cards
-        value={prefs.readingPane}
-        onChange={(v) => setPrefs({ readingPane: v })}
-        options={[
-          { key: "right", label: t("settings.appearance.right"), art: <PaneArt /> },
-          { key: "bottom", label: t("settings.appearance.bottom"), art: <PaneArt bottom /> },
-        ]}
-      />
+      </div>
+      <div id="set-density">
+        <h4>{t("settings.appearance.density")}</h4>
+        <Cards
+          value={prefs.density}
+          onChange={(v) => setPrefs({ density: v })}
+          options={[
+            { key: "full", label: t("settings.appearance.full"), art: <DensityArt gap={13} rows={3} /> },
+            { key: "medium", label: t("settings.appearance.medium"), art: <DensityArt gap={10} rows={4} /> },
+            { key: "compact", label: t("settings.appearance.compact"), art: <DensityArt gap={7} rows={5} /> },
+          ]}
+        />
+      </div>
+      <div id="set-readingPane">
+        <h4>{t("settings.appearance.readingPane")}</h4>
+        <Cards
+          value={prefs.readingPane}
+          onChange={(v) => setPrefs({ readingPane: v })}
+          options={[
+            { key: "right", label: t("settings.appearance.right"), art: <PaneArt /> },
+            { key: "bottom", label: t("settings.appearance.bottom"), art: <PaneArt bottom /> },
+          ]}
+        />
+      </div>
       <h4>{t("settings.appearance.sideMenu")}</h4>
-      <Row label={t("settings.appearance.sideMenuMode")} hint={t("settings.appearance.sideMenuHint")}>
+      <Row id="sideMenu" label={t("settings.appearance.sideMenuMode")} hint={t("settings.appearance.sideMenuHint")}>
         <select value={prefs.sidebar} onChange={(e) => setPrefs({ sidebar: normalizeSidebar(e.target.value) })}>
           <option value="auto">{t("settings.appearance.sideAuto")}</option>
           <option value="expanded">{t("settings.appearance.sideOpen")}</option>
@@ -398,11 +411,11 @@ function AppearanceTab() {
         {prefs.sidebar !== "auto" && <button className="link small" onClick={() => setPrefs({ sidebar: "auto" })}>{t("settings.appearance.sideReset")}</button>}
       </Row>
       <h4>{t("settings.appearance.messageList")}</h4>
-      <Row label={t("settings.appearance.preview")}><Switch checked={prefs.preview} onChange={(v) => setPrefs({ preview: v })} /></Row>
-      <Row label={t("settings.appearance.conversations")} hint={t("settings.appearance.conversationsHint")}><Switch checked={prefs.conversations} onChange={(v) => setPrefs({ conversations: v })} /></Row>
-      <Row label={t("settings.appearance.focused")} hint={t("settings.appearance.focusedHint")}><Switch checked={prefs.focused} onChange={(v) => setPrefs({ focused: v })} /></Row>
-      <Row label={t("settings.appearance.oldestOnTop")}><Switch checked={prefs.sortAsc} onChange={(v) => setPrefs({ sortAsc: v })} /></Row>
-      <Row label={t("settings.appearance.textSize")}>
+      <Row id="preview" label={t("settings.appearance.preview")}><Switch checked={prefs.preview} onChange={(v) => setPrefs({ preview: v })} /></Row>
+      <Row id="conversations" label={t("settings.appearance.conversations")} hint={t("settings.appearance.conversationsHint")}><Switch checked={prefs.conversations} onChange={(v) => setPrefs({ conversations: v })} /></Row>
+      <Row id="focused" label={t("settings.appearance.focused")} hint={t("settings.appearance.focusedHint")}><Switch checked={prefs.focused} onChange={(v) => setPrefs({ focused: v })} /></Row>
+      <Row id="oldestOnTop" label={t("settings.appearance.oldestOnTop")}><Switch checked={prefs.sortAsc} onChange={(v) => setPrefs({ sortAsc: v })} /></Row>
+      <Row id="textSize" label={t("settings.appearance.textSize")}>
         <select value={prefs.fontSize} onChange={(e) => setPrefs({ fontSize: Number(e.target.value) })}>
           {/* i18n-ok: unit */}
           {[12, 13, 14, 15, 16, 18].map((n) => <option key={n} value={n}>{n} px</option>)}
@@ -828,7 +841,7 @@ function AddAccountTab() {
   const [preset, setPreset] = useState("custom");
   return (
     <div>
-      <h3>{t("settings.add.addAccount")}</h3>
+      <h3 id="set-pg-add-account">{t("settings.add.addAccount")}</h3>
       <Seg value={kind} onChange={(k) => { setPreset("custom"); setKind(k); }} options={[["google", "Google"], ["microsoft", "Microsoft"], ["imap", t("settings.add.imapTab")]]} />
       {kind === "imap" ? <ImapForm key={preset} initialProvider={preset} /> : <OAuthBlock key={kind} kind={kind} onAppPassword={() => { setPreset("gmail"); setKind("imap"); }} />}
     </div>
@@ -844,7 +857,7 @@ function ComposingPanel({ scope }: { scope: string | null }) {
   const usable = sigs.filter((s) => !s.accountId || s.accountId === scope || scope === null);
   return (
     <>
-      <OvRow scope={scope} k="replyDefault" label={t("settings.composing.replyDefault")}>
+      <OvRow id="replyDefault" scope={scope} k="replyDefault" label={t("settings.composing.replyDefault")}>
         {(v, set) => (
           <select value={v} onChange={(e) => set(e.target.value as Prefs["replyDefault"])}>
             <option value="reply">{t("settings.action.reply")}</option>
@@ -852,20 +865,20 @@ function ComposingPanel({ scope }: { scope: string | null }) {
           </select>
         )}
       </OvRow>
-      <OvRow scope={scope} k="undoSeconds" label={t("settings.composing.undoSend")} hint={t("settings.composing.undoSendHint")}>
+      <OvRow id="undoSend" scope={scope} k="undoSeconds" label={t("settings.composing.undoSend")} hint={t("settings.composing.undoSendHint")}>
         {(v, set) => (
           <select value={v} onChange={(e) => set(Number(e.target.value))}>
             {[0, 5, 10, 20, 30, 60].map((n) => <option key={n} value={n}>{n === 0 ? t("common.off") : t("settings.unit.seconds", { n })}</option>)}
           </select>
         )}
       </OvRow>
-      <OvRow scope={scope} k="autoCc" label={t("settings.composing.autoCc")} hint={t("settings.composing.autoCcHint")}>
+      <OvRow id="autoCc" scope={scope} k="autoCc" label={t("settings.composing.autoCc")} hint={t("settings.composing.autoCcHint")}>
         {(v, set) => <input value={v} onChange={(e) => set(e.target.value)} placeholder="name@example.com" />}
       </OvRow>
-      <OvRow scope={scope} k="autoBcc" label={t("settings.composing.autoBcc")}>
+      <OvRow id="autoBcc" scope={scope} k="autoBcc" label={t("settings.composing.autoBcc")}>
         {(v, set) => <input value={v} onChange={(e) => set(e.target.value)} placeholder="name@example.com" />}
       </OvRow>
-      <OvRow scope={scope} k="signatureId" label={t("settings.composing.signature")} hint={t("settings.composing.signatureHint")}>
+      <OvRow id="signature" scope={scope} k="signatureId" label={t("settings.composing.signature")} hint={t("settings.composing.signatureHint")}>
         {(v, set) => (
           <select value={v} onChange={(e) => set(e.target.value)}>
             <option value="">{t("settings.composing.sigAuto")}</option>
@@ -874,7 +887,7 @@ function ComposingPanel({ scope }: { scope: string | null }) {
           </select>
         )}
       </OvRow>
-      <OvRow scope={scope} k="inlinePictures" label={t("settings.composing.pictures")} hint={t("settings.composing.picturesHint")}>
+      <OvRow id="pictures" scope={scope} k="inlinePictures" label={t("settings.composing.pictures")} hint={t("settings.composing.picturesHint")}>
         {(v, set) => (
           <select value={v} onChange={(e) => set(e.target.value as Prefs["inlinePictures"])}>
             <option value="inline">{t("settings.composing.picInline")}</option>
@@ -882,20 +895,20 @@ function ComposingPanel({ scope }: { scope: string | null }) {
           </select>
         )}
       </OvRow>
-      <OvRow scope={scope} k="autoResizePictures" label={t("settings.composing.resize")} hint={t("settings.composing.resizeHint")}>
+      <OvRow id="resize" scope={scope} k="autoResizePictures" label={t("settings.composing.resize")} hint={t("settings.composing.resizeHint")}>
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
-      <OvRow scope={scope} k="signatureOnReply" label={t("settings.composing.sigOnReply")}>
+      <OvRow id="sigOnReply" scope={scope} k="signatureOnReply" label={t("settings.composing.sigOnReply")}>
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
       {/* one setting for the whole app, not per mailbox. Stored only: the compose window that reads it comes with WP6b (popout/entry.ts) */}
       {scope === null && (
-        <Row label={t("settings.composing.popout")} hint={t("settings.composing.popoutHint")}>
+        <Row id="popout" label={t("settings.composing.popout")} hint={t("settings.composing.popoutHint")}>
           <Switch checked={prefs.popoutCompose} onChange={(v) => setPrefs({ popoutCompose: v })} />
         </Row>
       )}
       {scope === null && (
-        <Row label={t("settings.composing.altCheck")} hint={t("settings.composing.altCheckHint")}>
+        <Row id="altCheck" label={t("settings.composing.altCheck")} hint={t("settings.composing.altCheckHint")}>
           <Switch checked={prefs.altCheck} onChange={(v) => setPrefs({ altCheck: v })} />
         </Row>
       )}
@@ -1206,21 +1219,21 @@ function NotifyPanel({ scope }: { scope: string | null }) {
   }, [windows, os]);
   return (
     <>
-      <OvRow scope={scope} k="notifications" label={t("settings.notify.desktop")}>
+      <OvRow id="notifyDesktop" scope={scope} k="notifications" label={t("settings.notify.desktop")}>
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
       {buttons === false && <div className="muted small">{os === "macos" ? t("settings.notify.noButtons", { os: "macOS" }) : t("settings.notify.noButtonsDesktop")}</div>}
-      <OvRow scope={scope} k="smartNotifications" label={t("settings.notify.smart")} hint={t("settings.notify.smartHint")}>
+      <OvRow id="smartNotify" scope={scope} k="smartNotifications" label={t("settings.notify.smart")} hint={t("settings.notify.smartHint")}>
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
-      <OvRow scope={scope} k="notifyPreview" label={t("settings.appearance.preview")}>
+      <OvRow id="notifyPreview" scope={scope} k="notifyPreview" label={t("settings.appearance.preview")}>
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
-      <OvRow scope={scope} k="notifySound" label={t("settings.notify.sound")} hint={t("settings.notify.soundOnHint")}>
+      <OvRow id="notifySound" scope={scope} k="notifySound" label={t("settings.notify.sound")} hint={t("settings.notify.soundOnHint")}>
         {(v, set) => <SoundControl value={v} onChange={set} />}
       </OvRow>
       {buttons === true && (
-      <OvRow scope={scope} k="notifyActions" label={t("settings.notify.buttons")} hint={t("settings.notify.buttonsHint")}>
+      <OvRow id="notifyButtons" scope={scope} k="notifyActions" label={t("settings.notify.buttons")} hint={t("settings.notify.buttonsHint")}>
         {(v, set) => (
           <div className="three">
             {[0, 1, 2].map((i) => (
@@ -1256,7 +1269,7 @@ function ReadingPanel({ scope }: { scope: string | null }) {
       <OvRow scope={scope} k="loadRemote" id="loadRemote" label={t("settings.reading.loadRemote")} hint={t("settings.reading.loadRemoteHint")}>
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
-      <OvRow scope={scope} k="inlineAutoLoadMB" label={t("settings.reading.inlineAuto")} hint={t("settings.reading.inlineAutoHint")}>
+      <OvRow id="inlineAuto" scope={scope} k="inlineAutoLoadMB" label={t("settings.reading.inlineAuto")} hint={t("settings.reading.inlineAutoHint")}>
         {(v, set) => (
           <select value={v} onChange={(e) => set(Number(e.target.value) as Prefs["inlineAutoLoadMB"])}>
             <option value={2}>{t("settings.reading.mbEach", { n: 2 })}</option>
@@ -1265,14 +1278,14 @@ function ReadingPanel({ scope }: { scope: string | null }) {
           </select>
         )}
       </OvRow>
-      <OvRow scope={scope} k="syncMinutes" label={t("settings.reading.fetchEvery")}>
+      <OvRow id="fetchEvery" scope={scope} k="syncMinutes" label={t("settings.reading.fetchEvery")}>
         {(v, set) => (
           <select value={v} onChange={(e) => set(Number(e.target.value))}>
             {[1, 2, 5, 10, 15, 30].map((n) => <option key={n} value={n}>{t("settings.reading.minutes", { n })}</option>)}
           </select>
         )}
       </OvRow>
-      <OvRow scope={scope} k="pushMail" label={t("settings.reading.push")} hint={t("settings.reading.pushHint")}>
+      <OvRow id="push" scope={scope} k="pushMail" label={t("settings.reading.push")} hint={t("settings.reading.pushHint")}>
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
       {/* one value for every mailbox (each mailbox is counted on its own), so no per-mailbox override */}
@@ -1299,7 +1312,7 @@ function FoldersPanel({ scope }: { scope: string | null }) {
     <>
       <div className="muted small pad">{scope ? t("settings.folders.account") : t("settings.folders.all")}</div>
       {keys.map(({ key, label }) => (
-        <Row key={key} label={label}>
+        <Row key={key} label={label} noSearch /* settings-search: skip – one row per folder, the Folders section itself is registered */>
           <Switch checked={isFav(`${scope ?? "*"}|${key}`)} onChange={() => toggle(`${scope ?? "*"}|${key}`)} />
         </Row>
       ))}
@@ -1332,12 +1345,12 @@ function ProfilePanel({ account }: { account: Account }) {
   };
   return (
     <>
-      <Row label={t("settings.add.displayName")} hint={t("settings.profile.displayNameHint")}><input defaultValue={account.displayName} placeholder={t("settings.add.yourName")} onBlur={(e) => void upd({ displayName: e.target.value })} /></Row>
+      <Row id="displayName" label={t("settings.add.displayName")} hint={t("settings.profile.displayNameHint")}><input defaultValue={account.displayName} placeholder={t("settings.add.yourName")} onBlur={(e) => void upd({ displayName: e.target.value })} /></Row>
       <Row label={t("settings.profile.replyTo")} hint={t("settings.profile.replyToHint")} id="replyTo">
         <input key={account.id} type="text" inputMode="email" autoComplete="off" spellCheck={false} defaultValue={account.replyTo ?? ""} aria-invalid={replyErr ? true : undefined} aria-describedby={replyErr ? "set-replyTo-err" : undefined} onChange={() => setReplyErr(null)} onBlur={(e) => void saveReplyTo(e.target.value)} />
         {replyErr && <div className="field-err" id="set-replyTo-err" role="alert">{replyErr}</div>}
       </Row>
-      <Row label={t("settings.profile.color")} hint={t("settings.profile.colorHint")}>
+      <Row id="color" label={t("settings.profile.color")} hint={t("settings.profile.colorHint")}>
         <div className="accents" role="radiogroup" aria-label={t("settings.profile.mailboxColor")} style={{ margin: 0, gap: 8, justifyContent: "flex-end" }}>
           {ACCOUNT_PALETTE.map((hex) => (
             <button
@@ -1400,13 +1413,13 @@ function ServerPanel({ account, close }: { account: Account; close: () => void }
     <>
       <ReauthNotice account={account} />
       {/* i18n-ok: provider + protocol names */}
-      <Row label={t("settings.server.signIn")}>{account.auth === "oauth_google" ? "Google (OAuth 2.0)" : account.auth === "oauth_microsoft" ? "Microsoft (OAuth 2.0)" : t("settings.server.passwordStored", { store: credStore() })}</Row>
-      <Row label={t("settings.server.incoming")}>{account.imapHost}:{account.imapPort}</Row>
-      <Row label={t("settings.server.newMail")} hint={t("settings.server.newMailHint")}>{push === "push" ? t("settings.server.push") : t("settings.server.polling")}</Row>
-      <Row label={t("settings.server.outgoing")}>{account.smtpHost}:{account.smtpPort} ({account.smtpSecurity})</Row>
-      {account.smtpUsername && <Row label={t("settings.server.smtpLogin")}>{account.smtpUsername}</Row>}
-      {account.tlsInsecure && <Row label={t("settings.server.cert")} hint={t("settings.server.certHint")}>{t("settings.server.notVerified")}</Row>}
-      <Row label={t("settings.server.removeAccount")} hint={t("settings.server.removeHint")}>
+      <Row id="signIn" label={t("settings.server.signIn")}>{account.auth === "oauth_google" ? "Google (OAuth 2.0)" : account.auth === "oauth_microsoft" ? "Microsoft (OAuth 2.0)" : t("settings.server.passwordStored", { store: credStore() })}</Row>
+      <Row id="incoming" label={t("settings.server.incoming")}>{account.imapHost}:{account.imapPort}</Row>
+      <Row id="newMail" label={t("settings.server.newMail")} hint={t("settings.server.newMailHint")}>{push === "push" ? t("settings.server.push") : t("settings.server.polling")}</Row>
+      <Row id="outgoing" label={t("settings.server.outgoing")}>{account.smtpHost}:{account.smtpPort} ({account.smtpSecurity})</Row>
+      {account.smtpUsername && <Row label={t("settings.server.smtpLogin")} noSearch /* settings-search: skip – shown for some mailboxes only, the Server section is registered */>{account.smtpUsername}</Row>}
+      {account.tlsInsecure && <Row label={t("settings.server.cert")} hint={t("settings.server.certHint")} noSearch /* settings-search: skip – shown for some mailboxes only, the Server section is registered */>{t("settings.server.notVerified")}</Row>}
+      <Row id="removeAccount" label={t("settings.server.removeAccount")} hint={t("settings.server.removeHint")}>
         <button className="btn danger" onClick={() => void remove()}><Trash2 size={14} /> {t("common.remove")}</button>
       </Row>
     </>
@@ -1439,7 +1452,8 @@ function CalendarsList({ account, src, onError }: { account: Account; src: CalSo
         const shown = c.color || accountColor(account, prefs.accent);
         return (
           <Fragment key={c.id}>
-            <div className="set-row">
+            {/* settings-search: skip – the calendars of a mailbox are the person's own data */}
+            <div className="set-row" data-search-skip="">
               <div className="set-lbl">
                 <div>
                   <button type="button" className="dot-btn" aria-label={t("settings.calendar.colorOf", { name: c.name })} aria-expanded={colorOf === c.id} aria-controls={`cal-color-${c.id}`} onClick={() => setColorOf(colorOf === c.id ? null : c.id)}>
@@ -1722,7 +1736,7 @@ function SecurityPanel({ scope }: { scope: string | null }) {
   return (
     <>
       {scope ? (
-        <Row label={t("settings.security.myKey")} hint={t("settings.security.myKeyHint")}>
+        <Row id="myKey" label={t("settings.security.myKey")} hint={t("settings.security.myKeyHint")}>
           <select
             value={current}
             onChange={(e) => void api.pgpSetDefault(scope, e.target.value || null).then(bumpKeys).catch((er) => showToast(() => friendlyError(er), undefined, "error"))}
@@ -1734,7 +1748,7 @@ function SecurityPanel({ scope }: { scope: string | null }) {
       ) : (
         <div className="muted small pad">{t("settings.security.keysPerMailbox")}</div>
       )}
-      <OvRow scope={scope} k="pgpEncrypt" label={t("settings.security.encrypt")} hint={t("settings.security.encryptHint")}>
+      <OvRow id="pgpEncryptDefault" scope={scope} k="pgpEncrypt" label={t("settings.security.encrypt")} hint={t("settings.security.encryptHint")}>
         {(v, set) => (
           <select value={v} onChange={(e) => set(e.target.value as Prefs["pgpEncrypt"])}>
             <option value="possible">{t("settings.security.whenPossible")}</option>
@@ -1743,16 +1757,16 @@ function SecurityPanel({ scope }: { scope: string | null }) {
           </select>
         )}
       </OvRow>
-      <OvRow scope={scope} k="pgpSign" label={t("settings.security.sign")}>
+      <OvRow id="pgpSignDefault" scope={scope} k="pgpSign" label={t("settings.security.sign")}>
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
-      <OvRow scope={scope} k="pgpAttachKey" label={t("settings.security.attachKey")} hint={t("settings.security.attachKeyHint")}>
+      <OvRow id="attachKey" scope={scope} k="pgpAttachKey" label={t("settings.security.attachKey")} hint={t("settings.security.attachKeyHint")}>
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
-      <OvRow scope={scope} k="pgpEncryptDrafts" label={t("settings.security.encryptDrafts")} hint={t("settings.security.encryptDraftsHint")}>
+      <OvRow id="encryptDrafts" scope={scope} k="pgpEncryptDrafts" label={t("settings.security.encryptDrafts")} hint={t("settings.security.encryptDraftsHint")}>
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
-      <OvRow scope={scope} k="pgpImportFromMail" label={t("settings.security.importKeys")} hint={t("settings.security.importKeysHint")}>
+      <OvRow id="importKeys" scope={scope} k="pgpImportFromMail" label={t("settings.security.importKeys")} hint={t("settings.security.importKeysHint")}>
         {(v, set) => (
           <select value={v} onChange={(e) => set(e.target.value as Prefs["pgpImportFromMail"])}>
             <option value="ask">{t("settings.security.importAsk")}</option>
@@ -1794,13 +1808,13 @@ function MailboxPage({ scope, tab, close }: { scope: string | null; tab: MbTab; 
       <div className="mb-head">
         {account ? <Avatar name={account.displayName || account.email} size={36} color={accountColor(account, prefs.accent)} /> : <div className="mb-all">∗</div>}
         <div>
-          <h3>{account ? account.email : t("settings.scope.allAccounts")}</h3>
+          <h3 id="set-pg-mb">{account ? account.email : t("settings.scope.allAccounts")}</h3>
           <div className="muted small">
             {account ? t("settings.mailbox.accountIntro") : t("settings.mailbox.allIntro")}
           </div>
         </div>
       </div>
-      <div className="mb-body" role="region" aria-label={t(mailboxSections(scope, accounts).find(([k]) => k === active)![1])}>
+      <div className="mb-body" id="set-sec" role="region" aria-label={t(mailboxSections(scope, accounts).find(([k]) => k === active)![1])}>
         {active === "profile" && account && <ProfilePanel account={account} />}
         {active === "composing" && <ComposingPanel scope={scope} />}
         {active === "signatures" && <SignaturesPanel scope={scope} />}
@@ -1866,17 +1880,18 @@ function TrayTab() {
   };
   return (
     <div>
-      <h3>{t(trayTabTitleKey(tray))}</h3>
+      <h3 id="set-pg-tray">{t(trayTabTitleKey(tray))}</h3>
       <div className="muted small">{os === "windows" ? t("settings.tray.introWindows") : t("settings.tray.intro")}</div>
-      <Row label={t("settings.tray.test")}><button className="btn" onClick={() => void test()}>{t("settings.tray.sendTest")}</button></Row>
+      <Row id="testNotify" label={t("settings.tray.test")}><button className="btn" onClick={() => void test()}>{t("settings.tray.sendTest")}</button></Row>
       {os === "macos" && perm === "denied" && (
         <div className="mac-notify-denied">
           <div className="muted small">{t("settings.tray.macDenied")}</div>
           <button className="btn" onClick={() => void api.openNotificationSettings().catch((e) => showToast(() => friendlyError(e), undefined, "error"))}>{t("settings.tray.macOpenSettings")}</button>
         </div>
       )}
-      <Row label={t("settings.tray.sentSound")}><Switch checked={prefs.sentSound} onChange={(v) => setPrefs({ sentSound: v })} /></Row>
+      <Row id="sentSound" label={t("settings.tray.sentSound")}><Switch checked={prefs.sentSound} onChange={(v) => setPrefs({ sentSound: v })} /></Row>
       <Row
+        id="keepRunning"
         label={t("settings.tray.keepRunning")}
         hint={
           !tray
@@ -1889,7 +1904,7 @@ function TrayTab() {
         <Switch checked={tray && prefs.closeToTray} disabled={!tray} onChange={(v) => setPrefs({ closeToTray: v })} />
       </Row>
       {tray && (
-        <Row label={t("settings.tray.trayBadge")} hint={t("settings.tray.trayBadgeHint")}>
+        <Row id="trayBadge" label={t("settings.tray.trayBadge")} hint={t("settings.tray.trayBadgeHint")}>
           <select value={prefs.trayBadge} onChange={(e) => setPrefs({ trayBadge: e.target.value as Prefs["trayBadge"] })}>
             <option value="number">{t("settings.tray.unreadNumber")}</option>
             <option value="dot">{t("settings.tray.dotOnly")}</option>
@@ -1898,17 +1913,18 @@ function TrayTab() {
         </Row>
       )}
       {(os === "windows" || os === "macos") && (
-        <Row label={os === "macos" ? t("settings.tray.dockBadge") : t("settings.tray.taskbarBadge")}>
+        <Row id="taskbarBadge" label={os === "macos" ? t("settings.tray.dockBadge") : t("settings.tray.taskbarBadge")}>
           <select value={prefs.taskbarBadge} onChange={(e) => setPrefs({ taskbarBadge: e.target.value as Prefs["taskbarBadge"] })}>
             <option value="number">{t("settings.tray.unreadNumber")}</option>
             <option value="off">{t("common.none")}</option>
           </select>
         </Row>
       )}
-      <Row label={t("settings.tray.countOther")} hint={t("settings.tray.countOtherHint")}>
+      <Row id="countOther" label={t("settings.tray.countOther")} hint={t("settings.tray.countOtherHint")}>
         <Switch checked={prefs.countOtherMail} onChange={(v) => setPrefs({ countOtherMail: v })} />
       </Row>
       <Row
+        id="autostart"
         label={os === "windows" ? t("settings.tray.autostartWindows") : t("settings.tray.autostart")}
         hint={autostart.locked === "user" ? t("settings.tray.autostartOffInWindows") : autostart.locked === "policy" ? t("settings.tray.autostartByPolicy") : os === "linux" && !tray ? t("settings.tray.startsOpen") : t("settings.tray.startsMinimized")}
       >
@@ -1930,10 +1946,10 @@ function ActionsTab() {
     setPrefs({ hoverActions: prefs.hoverActions.includes(k) ? prefs.hoverActions.filter((x) => x !== k) : [...prefs.hoverActions, k] });
   return (
     <div>
-      <h3>{t("settings.actions.title")}</h3>
+      <h3 id="set-pg-actions">{t("settings.actions.title")}</h3>
       <div className="muted small">{t("settings.actions.intro")}</div>
       {ALL_ACTIONS.map(([k, l]) => (
-        <Row key={k} label={t(l)}><Switch checked={prefs.hoverActions.includes(k)} onChange={() => toggle(k)} /></Row>
+        <Row key={k} id={`act-${k}`} label={t(l)}><Switch checked={prefs.hoverActions.includes(k)} onChange={() => toggle(k)} /></Row>
       ))}
     </div>
   );
@@ -1944,7 +1960,7 @@ function TimesTab() {
   const { prefs, setPrefs } = useStore();
   const times = prefs.snoozeTimes;
   const sel = (k: keyof typeof times, label: string) => (
-    <Row label={label}>
+    <Row id={`snooze-${k}`} label={label}>
       <select value={times[k]} onChange={(e) => setPrefs({ snoozeTimes: { ...times, [k]: Number(e.target.value) } })}>
         {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>)}
       </select>
@@ -1952,7 +1968,7 @@ function TimesTab() {
   );
   return (
     <div>
-      <h3>{t("settings.times.title")}</h3>
+      <h3 id="set-pg-times">{t("settings.times.title")}</h3>
       <div className="muted small">{t("settings.times.intro")}</div>
       {sel("evening", t("settings.times.evening"))}
       {sel("tomorrow", t("settings.times.tomorrow"))}
@@ -1969,7 +1985,7 @@ function BlockedTab() {
   useEffect(() => void load(), []);
   return (
     <div>
-      <h3>{t("settings.blocked.title")}</h3>
+      <h3 id="set-pg-blocked">{t("settings.blocked.title")}</h3>
       {list.length === 0 && <div className="muted">{t("settings.blocked.none")}</div>}
       {list.map((e) => (
         <div key={e} className="list-row">
@@ -2072,7 +2088,7 @@ function AiTab() {
     : models.length === 0 && v.ai_endpoint.trim() ? t("settings.ai.noModels") : "";
   return (
     <div>
-      <h3>{t("settings.ai.title")}</h3>
+      <h3 id="set-pg-ai">{t("settings.ai.title")}</h3>
       <div className="muted small">{t("settings.ai.intro")}</div>
       {/* the way to report harmful AI content (Microsoft Store policy 11.16): the help page of the language in use, the section "Content from the AI Assistant" */}
       <div style={{ margin: "4px 0 8px" }}><button className="link" onClick={() => void openUpdateLink(siteUrl("help.html#ai-report"))}>{t("settings.ai.report")}</button></div>
@@ -2162,13 +2178,13 @@ function PgpTab() {
   const open = (fingerprint: string) => setDialog({ type: "pgp-key", fingerprint, back: "pgp" });
   return (
     <div>
-      <h3>{t("settings.pgp.title")}</h3>
+      <h3 id="set-pg-pgp">{t("settings.pgp.title")}</h3>
       <div className="muted small">{t("settings.pgp.intro")}</div>
       {err && <div className="notice bad" role="alert" style={{ marginTop: 10 }}>{t("settings.pgp.loadFailed", { error: err })} <button className="link" onClick={bumpKeys}>{t("common.retry")}</button></div>}
       <div className="set-card-head" style={{ marginTop: 14 }}>
         <h4 style={{ margin: 0, flex: 1 }}>{t("settings.pgp.yourKeys")}</h4>
-        <button className="btn small" onClick={() => setDialog({ type: "pgp-import", back: "pgp" })}><Upload size={13} /> {t("settings.pgp.import")}</button>
-        <button className="btn small primary" onClick={() => setDialog({ type: "pgp-generate", back: "pgp" })}><Plus size={13} /> {t("settings.pgp.generate")}</button>
+        <button id="set-pgpImport" className="btn small" onClick={() => setDialog({ type: "pgp-import", back: "pgp" })}><Upload size={13} /> {t("settings.pgp.import")}</button>
+        <button id="set-pgpGenerate" className="btn small primary" onClick={() => setDialog({ type: "pgp-generate", back: "pgp" })}><Plus size={13} /> {t("settings.pgp.generate")}</button>
       </div>
       <div style={{ marginTop: 8 }}>
         {!keys ? (
@@ -2184,7 +2200,7 @@ function PgpTab() {
       </div>
       <div className="set-card-head" style={{ marginTop: 18, flexWrap: "wrap" }}>
         <h4 style={{ margin: 0, flex: 1 }}>{t("settings.pgp.others")} <span className="muted small" style={{ fontWeight: 400 }}>· {others.length}</span></h4>
-        <input placeholder={t("settings.pgp.searchPlaceholder")} aria-label={t("settings.pgp.searchKeys")} style={{ width: 340, maxWidth: "100%" }} value={q} onChange={(e) => setQ(e.target.value)} />
+        <input id="set-pgpOthers" placeholder={t("settings.pgp.searchPlaceholder")} aria-label={t("settings.pgp.searchKeys")} style={{ width: 340, maxWidth: "100%" }} value={q} onChange={(e) => setQ(e.target.value)} />
         <button className="btn small" onClick={() => setDialog({ type: "pgp-import", back: "pgp" })}><Upload size={13} /> {t("settings.pgp.import")}</button>
       </div>
       <div style={{ marginTop: 8 }}>
@@ -2193,13 +2209,13 @@ function PgpTab() {
         {shown.map((k) => <KeyRow key={k.fingerprint} k={k} onOpen={() => open(k.fingerprint)} />)}
       </div>
       <h4>{t("settings.pgp.passphrases")}</h4>
-      <Row label={t("settings.pgp.remember")} hint={t("settings.pgp.rememberHint")}>
+      <Row id="pgpRemember" label={t("settings.pgp.remember")} hint={t("settings.pgp.rememberHint")}>
         <select value={prefs.pgpRemember} onChange={(e) => setPrefs({ pgpRemember: e.target.value as Prefs["pgpRemember"] })}>
           <option value="session">{t("settings.pgp.untilQuit")}</option>
           <option value="never">{t("settings.pgp.askEveryTime")}</option>
         </select>
       </Row>
-      <Row label={t("settings.pgp.lockAll")} hint={t("settings.pgp.lockAllHint")}>
+      <Row id="pgpLockAll" label={t("settings.pgp.lockAll")} hint={t("settings.pgp.lockAllHint")}>
         <button className="btn small" onClick={() => void api.pgpLockAll().then(() => (bumpKeys(), showToast(t("settings.pgp.allLocked"), undefined, "success")))}>{t("settings.pgp.lockNow")}</button>
       </Row>
     </div>
@@ -2210,7 +2226,7 @@ function ShortcutsTab() {
   const t = useT();
   const os = usePlatform((s) => s.os);
   const rows: [string, Key][] = [
-    ["c", "settings.keys.newMail"], ["Shift+C / R / A / F", "settings.keys.shiftCompose"], ["Ctrl+Shift+O", "settings.keys.popOutCompose"], ["Ctrl+Shift+O", "settings.keys.popInCompose"], ["/", "settings.keys.search"], ["j / k", "settings.keys.nextPrev"], ["e", "settings.action.archive"], ["#", "common.delete"], ["!", "settings.filters.toJunk"],
+    ["c", "settings.keys.newMail"], ["Shift+C / R / A / F", "settings.keys.shiftCompose"], ["Ctrl+Shift+O", "settings.keys.popOutCompose"], ["Ctrl+Shift+O", "settings.keys.popInCompose"], ["/", "settings.keys.search"], ["Ctrl+F", "settings.search.label"], ["j / k", "settings.keys.nextPrev"], ["e", "settings.action.archive"], ["#", "common.delete"], ["!", "settings.filters.toJunk"],
     ["s", "settings.action.snooze"], ["p", "settings.action.pin"], ["*", "settings.action.flag"], ["u", "settings.keys.markUnread"], ["r", "settings.action.reply"], ["a", "settings.composing.replyAll"], ["f", "settings.keys.forward"],
     ["Ctrl+Enter", "settings.keys.send"], ["Ctrl+Shift+Enter", "settings.keys.sendLater"], ["Ctrl+Shift+P", "settings.keys.insertPicture"], ["Ctrl+Shift+E", "settings.keys.encrypt"], ["Ctrl+Shift+G", "settings.keys.sign"], ["Ctrl+Shift+C / Ctrl+Shift+B", "settings.keys.addCcBcc"],
     ["Space / Enter", "settings.keys.preview"], ["Ctrl+S", "settings.keys.saveAs"], ["Ctrl+Shift+S", "settings.keys.saveAll"],
@@ -2224,9 +2240,10 @@ function ShortcutsTab() {
   ];
   return (
     <div>
-      <h3>{t("settings.keys.title")}</h3>
+      <h3 id="set-pg-shortcuts">{t("settings.keys.title")}</h3>
       {rows.map(([k, d]) => (
-        <div key={k + d} className="set-row"><kbd>{kbd(os === "macos" && k === "#" ? "delete / #" : k, os)}</kbd><span>{t(d)}</span></div>
+        // settings-search: skip – the Shortcuts table is searched as a page, not row by row
+        <div key={k + d} className="set-row" data-search-skip=""><kbd>{kbd(os === "macos" && k === "#" ? "delete / #" : k, os)}</kbd><span>{t(d)}</span></div>
       ))}
     </div>
   );
@@ -2238,7 +2255,7 @@ function AboutTab() {
   const testData = usePlatform((s) => s.testData);
   return (
     <div>
-      <h3>{t("settings.about.title")}</h3>
+      <h3 id="set-pg-about">{t("settings.about.title")}</h3>
       <p>{tx("settings.about.tagline", { name: <b>Hey Look!</b> })}</p>
       {testData && <div className="notice info selectable">{t("settings.about.testBuild", { dir: testData })}</div>}
       <UpdatesBlock
@@ -2247,6 +2264,7 @@ function AboutTab() {
         }
         autoSwitch={
           <Row
+            id="autoCheck"
             label={t("settings.about.autoCheck")}
             hint={t("settings.about.autoCheckHint")}
           >
@@ -2276,7 +2294,9 @@ const MORE: [string, Key][] = [
 export function Settings({ initial, focus, nonce, section, windowed }: { initial?: string; focus?: string; nonce?: number; section?: MbTab; windowed?: boolean }) {
   const t = useT();
   const trayHost = usePlatform((s) => s.tray);
-  const { setDialog, accounts, prefs } = useStore();
+  const os = usePlatform((s) => s.os);
+  const managed = usePlatform((s) => s.managed);
+  const { setDialog, accounts, prefs, calKinds, calSources } = useStore();
   // (which mailboxes get a Calendar section depends on what this build can connect)
   useEffect(() => void useStore.getState().loadCalKinds(), []);
   const start = initial === "accounts" ? "mb:all" : initial === "notifications" ? "tray" : initial;
@@ -2298,17 +2318,92 @@ export function Settings({ initial, focus, nonce, section, windowed }: { initial
     }
     if (initial) setTab(initial === "accounts" ? "mb:all" : initial === "notifications" ? "tray" : initial);
   }, [initial, nonce]);
+  // the deep link (`focus`): the same jump as a result of the search (src/settingsJump.ts), once per request
+  const deepDone = useRef("");
   useEffect(() => {
     if (!focus) return;
     const timer = setTimeout(() => {
-      const el = document.getElementById(`set-${focus}`);
+      const done = `${focus}|${nonce ?? ""}`;
+      if (deepDone.current === done) return;
       // a field of the AI Assistant tab (an AI problem sends the person to the one it is about): the cursor goes in, nothing scrolls or moves
-      if (focus.startsWith("ai")) return void el?.focus({ preventScroll: true });
-      el?.scrollIntoView({ block: "center" });
-      el?.classList.add("flash");
+      if (focus.startsWith("ai")) {
+        const el = document.getElementById(`set-${focus}`);
+        if (el) (el.focus({ preventScroll: true }), (deepDone.current = done));
+        return;
+      }
+      if (showSetting(focus)) deepDone.current = done;
     }, 80);
     return () => clearTimeout(timer);
   }, [focus, tab, mbTab, nonce]);
+
+  // ---- search in Settings (W8.12): the index of this language, system and set of mailboxes; built once, not per key press
+  const dav = (calKinds ?? []).includes("caldav");
+  const calKey = calSources.filter((c) => c.kind === "caldav").map((c) => `${c.accountId}:${c.dav?.label || c.dav?.host || ""}`).join("|");
+  const acctKey = accounts.map((a) => `${a.id}|${a.email}|${a.auth}|${a.imapHost}`).join("\n");
+  // (the notification buttons of Linux depend on its notification service, which is asked once)
+  const [linuxButtons, setLinuxButtons] = useState(false);
+  useEffect(() => {
+    if (os !== "linux") return;
+    let live = true;
+    api.notifyCaps().then((c) => live && setLinuxButtons(c.actions)).catch(() => undefined);
+    return () => void (live = false);
+  }, [os]);
+  const notifyButtons = os === "windows" || (os === "linux" && linuxButtons);
+  const index = useMemo(() => {
+    const list: IndexAccount[] = accounts.map((a) => {
+      const kind = calendarSyncKind(a);
+      if (kind) return { id: a.id, email: a.email, cal: { kind } };
+      if (!(dav && calendarDavEligible(a))) return { id: a.id, email: a.email, cal: null };
+      const src = calSources.find((c) => c.accountId === a.id && c.kind === "caldav");
+      return { id: a.id, email: a.email, cal: { kind: "dav" as const, label: src ? src.dav?.label || src.dav?.host || "" : null } };
+    });
+    return buildIndex({ os, tray: trayHost, managed: managed !== null, notifyButtons, accounts: list, kbd: (l) => kbd(l, os) });
+  }, [langVersion(), os, trayHost, managed, notifyButtons, acctKey, dav, calKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const search = useSettingsSearch(index);
+  const [pending, setPending] = useState<{ n: number; id: string; kind: EntryKind } | null>(null);
+  const jumpN = useRef(0);
+  /** A result was chosen: the page and the section are shown first, then (in the effect below, when they are drawn) the setting is lit up and gets the focus */
+  const pick = (e: Entry) => {
+    setTab(e.tab);
+    if (e.section) setMbTab(e.section as MbTab);
+    setPending({ n: ++jumpN.current, id: e.id, kind: e.kind });
+  };
+  useLayoutEffect(() => {
+    if (!pending || showSetting(pending.id, pending.kind)) return;
+    // a page that draws its rows late: look again on the next frames
+    let frames = 0;
+    let raf = 0;
+    const again = () => {
+      if (showSetting(pending.id, pending.kind) || ++frames > 60) return;
+      raf = requestAnimationFrame(again);
+    };
+    raf = requestAnimationFrame(again);
+    return () => cancelAnimationFrame(raf);
+  }, [pending]);
+  // Ctrl+F (Cmd+F on a Mac) from anywhere in Settings, and / outside a field, go to the box and select its text. Not while a question, the Command bar or a menu is on top, not for an input method.
+  useEffect(() => {
+    const mac = os === "macos";
+    const onKey = (e: KeyboardEvent) => {
+      if (isImeEvent(e) || e.altKey) return;
+      const find = (e.key === "f" || e.key === "F") && !e.shiftKey && (mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey);
+      const slash = e.key === "/" && !e.ctrlKey && !e.metaKey;
+      if (!find && !slash) return;
+      const target = e.target instanceof Element ? e.target : null;
+      if (slash && target?.closest("input, textarea, select, [contenteditable]:not([contenteditable=\"false\"])")) return;
+      if (target && target !== document.body && !target.closest(".modal, .modal-page")) return;
+      const st = useStore.getState();
+      if (st.ask || st.commandOpen || document.querySelector(".ctx-menu, [role=\"menu\"]") || document.querySelectorAll("[role=\"dialog\"]").length > 1) return;
+      const box = search.boxRef.current;
+      if (!box) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (document.activeElement !== box && document.activeElement instanceof HTMLElement) search.before.current = document.activeElement;
+      box.focus();
+      box.select();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [os]); // eslint-disable-line react-hooks/exhaustive-deps
   // keep the selected navigation entry in view (the list scrolls on small windows)
   useEffect(() => {
     document.querySelector<HTMLElement>(".settings-nav button.active:not(.has-sub)")?.scrollIntoView({ block: "nearest" });
@@ -2365,6 +2460,8 @@ export function Settings({ initial, focus, nonce, section, windowed }: { initial
     >
       <div className="settings">
         <nav className="settings-nav" aria-label={t("settings.nav.sections")} ref={navRef}>
+          <SearchBox s={search} onPick={pick} />
+          {search.searching ? <SearchResults s={search} onPick={pick} /> : <>
           <div className="nav-label">{t("settings.nav.app")}</div>
           {item("general", t("settings.general.title"))}
           {item("appearance", t("settings.appearance.title"))}
@@ -2380,6 +2477,7 @@ export function Settings({ initial, focus, nonce, section, windowed }: { initial
           {item("add-account", t("settings.nav.addAccount"), true)}
           <div className="nav-label">{t("settings.nav.more")}</div>
           {MORE.map(([k, l]) => item(k, t(k === "tray" ? trayTabTitleKey(trayHost) : l)))}
+          </>}
           {reorder.overlay}
         </nav>
         <div className="settings-body">

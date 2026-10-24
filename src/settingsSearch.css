@@ -1,0 +1,33 @@
+/* Search in Settings (1.0.7 W8.12). Loaded with the Settings chunk (components/SettingsSearch.tsx), not with the first stylesheet: DEC-015 / B5. Tokens only. */
+
+/* the box: the first child of the navigation, sticky at its top; it takes the top padding of the navigation */
+.settings-nav .set-search { position: sticky; top: 0; z-index: 1; background: var(--bg2); padding: 8px 10px 6px; }
+:root[data-os="macos"] .modal.windowed .settings-nav .set-search { background: var(--bg); } /* (the Settings window of macOS has the page colour behind the navigation) */
+.settings-nav { scroll-padding-top: 46px; } /* (what is scrolled into view stays clear of the sticky box) */
+.set-box { position: relative; }
+.set-box .set-ico { position: absolute; left: 10px; top: 50%; margin-top: -7px; color: var(--muted); pointer-events: none; }
+.set-box input { width: 100%; height: 32px; box-sizing: border-box; padding: 0 30px 0 30px; }
+.settings-nav .set-search .set-clear { position: absolute; right: 3px; top: 50%; margin: -12px 0 0; width: 24px; height: 24px; padding: 0; background: none; }
+.settings-nav .set-search .set-clear:hover { background: var(--bg3); }
+
+/* the results take the place of the navigation entries (the page on the right does not change) */
+.set-results { padding: 2px 6px 12px; }
+.set-opt { display: flex; flex-direction: column; gap: 1px; padding: 6px 10px; border-radius: var(--r-sm); cursor: pointer; }
+.set-opt:hover { background: var(--bg3); }
+.set-opt.on { background: var(--bg3); box-shadow: inset 3px 0 0 var(--accent); } /* the active / chosen option is not carried by colour alone */
+.set-opt-label { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.set-opt-label b { font-weight: 650; }
+.set-opt-place { display: block; }
+.set-none { padding: 12px 16px; }
+.set-none-title { font-weight: 650; }
+
+/* the jump to a setting (and the deep link): a fill, a bar on the left (a shape) and an outline that stays in the high-contrast mode where shadows go; no layout change */
+.set-hit { background: var(--accent-soft); box-shadow: inset 4px 0 0 var(--accent); outline: 2px solid var(--accent-text); outline-offset: 2px; border-radius: 6px; }
+.settings-body input.set-hit, .settings-body input.set-hit:focus, .settings-body select.set-hit, .settings-body select.set-hit:focus, .settings-body textarea.set-hit:focus { outline: 2px solid var(--accent-text); outline-offset: 2px; } /* (a field takes its focus ring away, input:focus) */
+@media (prefers-reduced-motion: no-preference) {
+  .set-hit { animation: set-hit-fade 2.4s linear forwards; } /* (fades during the last 0.6 s) */
+}
+@keyframes set-hit-fade {
+  0%, 75% { background: var(--accent-soft); box-shadow: inset 4px 0 0 var(--accent); outline-color: var(--accent-text); }
+  100% { background: transparent; box-shadow: inset 4px 0 0 transparent; outline-color: transparent; }
+}

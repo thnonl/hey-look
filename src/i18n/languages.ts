@@ -69,19 +69,24 @@ export interface Language {
    * Russian: one / few / many / other. Japanese, Chinese: other only.
    */
   plural: readonly PluralCategory[];
+  /**
+   * What joins the parts of a list that a screen reader says ("Undo send, All accounts, Composing"): ", " for most languages, "、" for Japanese and Chinese.
+   * `Intl.ListFormat` is not used: it writes "ABC" in Chinese and "et" / "und" in French / German, where the place names of Settings search are only listed (W8.12).
+   */
+  listSep: string;
   /** Dates and the calendar; see `DateFormat`. */
   fmt?: DateFormat;
 }
 
 export const LANGUAGES = [
-  { code: "en", nativeName: "English", englishName: "English", short: "EN", dir: "ltr", sortOrder: 0, intl: "en-GB", plural: ["one", "other"] },
+  { code: "en", nativeName: "English", englishName: "English", short: "EN", dir: "ltr", sortOrder: 0, intl: "en-GB", plural: ["one", "other"], listSep: ", " },
   {
-    code: "vi", nativeName: "Tiếng Việt", englishName: "Vietnamese", short: "VI", dir: "ltr", sortOrder: 1, intl: "vi-VN", plural: ["one", "other"],
+    code: "vi", nativeName: "Tiếng Việt", englishName: "Vietnamese", short: "VI", dir: "ltr", sortOrder: 1, intl: "vi-VN", plural: ["one", "other"], listSep: ", ",
     fmt: { weekdayShort: "EEEEEE", capitalMonthTitle: true },
   },
-  { code: "fr", nativeName: "Français", englishName: "French", short: "FR", dir: "ltr", sortOrder: 2, intl: "fr-FR", plural: ["one", "other"] },
+  { code: "fr", nativeName: "Français", englishName: "French", short: "FR", dir: "ltr", sortOrder: 2, intl: "fr-FR", plural: ["one", "other"], listSep: ", " },
   {
-    code: "zh-Hans", nativeName: "中文（简体）", englishName: "Chinese (Simplified)", short: "ZH", dir: "ltr", sortOrder: 3, intl: "zh-CN", plural: ["other"],
+    code: "zh-Hans", nativeName: "中文（简体）", englishName: "Chinese (Simplified)", short: "ZH", dir: "ltr", sortOrder: 3, intl: "zh-CN", plural: ["other"], listSep: "、",
     fmt: {
       weekdayShort: "EEE", weekdayText: "EEE", dayPeriodsFromDict: true,
       dayRange: { sep: "至", sameMonth: ["yyyy年M月d日", "d日"], sameYear: ["yyyy年M月d日", "M月d日"], otherYear: ["yyyy年M月d日", "yyyy年M月d日"] },
@@ -92,11 +97,11 @@ export const LANGUAGES = [
     },
   },
   {
-    code: "es", nativeName: "Español", englishName: "Spanish", short: "ES", dir: "ltr", sortOrder: 4, intl: "es", plural: ["one", "other"],
+    code: "es", nativeName: "Español", englishName: "Spanish", short: "ES", dir: "ltr", sortOrder: 4, intl: "es", plural: ["one", "other"], listSep: ", ",
     fmt: { weekdayShort: "EEE", weekdayText: "EEE", dayPeriodsFromDict: true, intlRanges: true, rangeMonth: "short" },
   },
   {
-    code: "ja", nativeName: "日本語", englishName: "Japanese", short: "JA", dir: "ltr", sortOrder: 5, intl: "ja", plural: ["other"],
+    code: "ja", nativeName: "日本語", englishName: "Japanese", short: "JA", dir: "ltr", sortOrder: 5, intl: "ja", plural: ["other"], listSep: "、",
     fmt: {
       weekdayShort: "EEE", weekdayText: "EEE", dayPeriodsFromDict: true,
       dayRange: { sep: "〜", sameMonth: ["yyyy年M月d日", "d日"], sameYear: ["yyyy年M月d日", "M月d日"], otherYear: ["yyyy年M月d日", "yyyy年M月d日"] },
@@ -107,7 +112,7 @@ export const LANGUAGES = [
     },
   },
   {
-    code: "de", nativeName: "Deutsch", englishName: "German", short: "DE", dir: "ltr", sortOrder: 6, intl: "de", plural: ["one", "other"],
+    code: "de", nativeName: "Deutsch", englishName: "German", short: "DE", dir: "ltr", sortOrder: 6, intl: "de", plural: ["one", "other"], listSep: ", ",
     fmt: {
       weekdayShort: "EEEEEE", weekdayText: "EEEEEE", dayPeriodsFromDict: true, intlRanges: true,
       // (no key with the weekday in it: the weekday token is replaced after the patterns, see fmtPattern)
@@ -115,7 +120,7 @@ export const LANGUAGES = [
     },
   },
   {
-    code: "ru", nativeName: "Русский", englishName: "Russian", short: "RU", dir: "ltr", sortOrder: 7, intl: "ru", plural: ["one", "few", "many", "other"],
+    code: "ru", nativeName: "Русский", englishName: "Russian", short: "RU", dir: "ltr", sortOrder: 7, intl: "ru", plural: ["one", "few", "many", "other"], listSep: ", ",
     fmt: { weekdayShort: "EEEEEE", weekdayText: "EEEEEE", dayPeriodsFromDict: true, intlRanges: true, rangeMonth: "short", patterns: { "dd/MM/yyyy": "dd.MM.yyyy" } },
   },
 ] as const satisfies readonly Language[];
