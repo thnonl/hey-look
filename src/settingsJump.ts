@@ -4,7 +4,7 @@
 import type { EntryKind } from "./settingsIndex";
 
 /** How long the highlight stays (ms); the CSS fades it out during the last 0.6 s unless the person asked for less motion. */
-export const HIT_MS = 2400;
+const HIT_MS = 2400;
 
 const CONTROL = 'input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"])';
 const timers = new WeakMap<Element, number>();

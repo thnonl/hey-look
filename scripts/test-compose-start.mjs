@@ -95,6 +95,7 @@ const none = { cc: "", bcc: "" };
   const doc = answerBodyHtml(quote("reply", "<p>Hi</p>"));
   assert.ok(doc.startsWith("<p></p>" + SIG_MARK), "an empty line, then the signature region");
   assert.equal((doc.match(/data-sig-block/g) ?? []).length, 1, "the signature region is there once");
+  assert.ok(answerBodyHtml(undefined, "<p>typed</p>").startsWith("<p>typed</p>" + SIG_MARK) && answerBodyHtml(undefined, "").startsWith("<p></p>" + SIG_MARK), "the text of an email link (W8.10) comes above the signature region; none: an empty line");
   assert.ok(!/tracker\.example\.invalid/.test(answerBodyHtml('<p>x <img src="https://tracker.example.invalid/p.png"></p>')), "a remote picture never comes into the editor");
 }
 
@@ -104,7 +105,7 @@ const none = { cc: "", bcc: "" };
   const compose = read("src/components/Compose.tsx");
   assert.ok(/startRecipients\(init, /.test(compose) && /useState<string\[\]>\(start\.to\)/.test(compose), "the mount takes its recipients from startRecipients");
   assert.ok(/shellSeen && !init\.preparing/.test(compose) && /setTo\(r\.to\)/.test(compose) && /setShowCc\(\(was\) => was \|\| r\.showCc\)/.test(compose), "the fill sets the same fields from the same helper, in one render");
-  assert.ok(/content: \(startContent\.current \?\?= editing \? stripRemotePictures\(startDoc\.current!\.html\)\.html : answerBodyHtml\(init\.bodyHtml\)\)/.test(compose), "the mount builds the editor content with answerBodyHtml");
+  assert.ok(/content: \(startContent\.current \?\?= editing \? stripRemotePictures\(startDoc\.current!\.html\)\.html : answerBodyHtml\(init\.bodyHtml, init\.typedHtml\)\)/.test(compose), "the mount builds the editor content with answerBodyHtml");
   assert.ok(/\.setContent\(answerBodyHtml\(full\.bodyHtml\)\)/.test(compose), "the fill builds it with the same helper");
   assert.ok(/\.setMeta\("addToHistory", false\)/.test(compose) && /\.setMeta\("signatureInit", true\)/.test(compose), "the fill is one transaction that is not in the undo history and not an edit");
   assert.ok(/\[reply\] fill: fallback/.test(compose) && /useStore\.getState\(\)\.openCompose\(full\)/.test(compose), "a fill that throws opens the message the way it was opened before");

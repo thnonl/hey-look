@@ -223,7 +223,7 @@ function afterSave(path: string, name: string, m: Pick<MessageFull, "id" | "from
 // ---------------------------------------------------------------- card
 
 /** `siblings`: the cards of the strip this one is in, in strip order (1.0.7 W8.8c): the preview then steps through the previewable ones with Previous / Next, ← → and "n of m". Alone: this card only. */
-export function AttachmentCard({ m, a, siblings }: { m: MessageFull; a: AttMeta; siblings?: AttMeta[] }) {
+function AttachmentCard({ m, a, siblings }: { m: MessageFull; a: AttMeta; siblings?: AttMeta[] }) {
   const t = useT();
   const { prefs, showToast } = useStore();
   const [st, setSt] = useState<CardState>({ status: "idle" });

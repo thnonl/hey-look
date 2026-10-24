@@ -139,13 +139,13 @@ interface Def {
   inDetails?: boolean;
 }
 
-export const kwTerms = (key: Key): string[] => t(key).split(/[,、，]/).map((s) => s.trim()).filter(Boolean);
+const kwTerms = (key: Key): string[] => t(key).split(/[,、，]/).map((s) => s.trim()).filter(Boolean);
 
 /** The separator that joins the place names for a screen reader ("," for most languages, "、" for Japanese and Chinese) */
 export const listSep = (): string => LANGUAGES.find((l) => l.code === getLang())?.listSep ?? ", ";
 
 /** The mailbox sections that exist for the All accounts scope, in the order of the navigation (Profile and Server only exist for a mailbox, Calendar for one with a calendar). */
-export const ALL_SECTIONS: [string, Key][] = [
+const ALL_SECTIONS: [string, Key][] = [
   ["composing", "settings.section.composing"], ["signatures", "settings.section.signatures"], ["templates", "settings.section.templates"], ["filters", "settings.section.filters"],
   ["notifications", "settings.section.notifications"], ["reading", "settings.section.reading"], ["security", "settings.section.security"], ["folders", "settings.section.folders"],
 ];
@@ -411,9 +411,6 @@ export function searchSettings(index: readonly Entry[], query: string, limit = 5
   for (const h of top) h.ranges = labelRanges(h.entry.fl, words);
   return top.map(({ entry, tier, ranges }) => ({ entry, tier, ranges }));
 }
-
-/** True when the folded query is empty (only spaces and punctuation): the navigation stays. */
-export const isIdleQuery = (query: string): boolean => fold(query) === "";
 
 /** What a screen reader says for a result: the setting, then where it is ("Undo send, All accounts, Composing"). */
 export const optionName = (e: Entry): string =>

@@ -4,10 +4,10 @@
 /** The operators of the backend's `parse_query` (src-tauri/src/lib.rs). A selected word that starts with one of them and a colon must not be read as a filter. */
 const OPERATORS = new Set(["from", "to", "cc", "subject", "body", "has", "hasattachment", "hasattachments", "is", "after", "since", "before", "until", "folder", "in"]);
 
-export const MAX_WORDS = 8;
+const MAX_WORDS = 8;
 export const MAX_CHARS = 100;
 /** The longest selection text shown in the menu entry (the search itself keeps its 8 words). */
-export const LABEL_CHARS = 30;
+const LABEL_CHARS = 30;
 
 /**
  * The search for the selected text: spaces and line breaks become one space, quotes go, `from:x` becomes `from x` (any operator, any case), at most the first 8 words and 100 characters
