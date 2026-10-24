@@ -210,6 +210,9 @@
   "node scripts/check-shards.mjs": 0,
   "node scripts/test-release-gates.mjs": 0,
   "node scripts/test-msix-build.mjs": 1,
-  "node scripts/test-store-exe.mjs": 25
+  "node scripts/test-store-exe.mjs": 25,
+  "node --experimental-strip-types scripts/test-store-texts.mjs": 2,
+  "node scripts/test-installer-identity.mjs": 1,
+  "node --experimental-strip-types scripts/test-about-store.mjs --quick --require-browser": 40
  }
 }

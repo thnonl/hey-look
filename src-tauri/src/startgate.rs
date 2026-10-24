@@ -222,7 +222,8 @@ static REQUESTED: AtomicBool = AtomicBool::new(false);
 /// is gated.
 pub fn defer(config: &mut tauri::utils::config::Config) -> bool {
     let args: Vec<String> = std::env::args().collect();
-    if !wanted(&args, cfg!(windows)) {
+    // (a start by the package's startup task has no argument: Windows says how it was started, pkg.rs)
+    if !wanted(&args, cfg!(windows)) && !(cfg!(windows) && crate::pkg::started_by_startup_task()) {
         return false;
     }
     let mut taken = 0;

@@ -12,6 +12,10 @@
 // download page, written exactly like that (closed by default: no `open`, no other attribute), without another <details> inside; on any other
 // page such an element is an error and is not skipped. Anything else that is skipped (a second block, an open one, another element) fails the test.
 // The ceilings below are unchanged (download 360 in English).
+// WP14 (Microsoft Store): the Store block of the Windows card on the download page (`<div class="asset" id="store-block" hidden>`, texts agreed with the language specialists) is hidden
+// until STORE_PRODUCT_ID in docs/assets/site.js is set, so while it is empty the block is not read by anyone and is left out of the count: exactly one, written exactly like
+// that, flat (no <div> inside), on the download page only (anywhere else it is an error and is counted). Once the product is published (STORE_PRODUCT_ID set) the block is
+// visible and IS counted: the ceilings stay as they are, and that is the moment the owner or the BA decides whether the block fits.
 // Also fails when index.html of a language has not exactly 3 demo regions (the markers are what keeps the demos out of the count).
 //
 // Ceilings: English index 560, features 760, help 1060, download 360 (with header and footer, about 139 words, these are 700 / 900 / 1200 / 500),
@@ -71,8 +75,32 @@ export function aptBlock(html, page) {
   return { range: problems.length ? null : [from, end + '</details>'.length], problems };
 }
 
+/** Is the Store block visible, that is, is STORE_PRODUCT_ID of docs/assets/site.js set (12 characters)? */
+export function storeOn(siteJs = fs.readFileSync(new URL('../docs/assets/site.js', import.meta.url), 'utf8')) {
+  const m = /var STORE_PRODUCT_ID = '([^']*)';/.exec(siteJs);
+  if (!m) throw new Error("docs/assets/site.js has no `var STORE_PRODUCT_ID = '...';`");
+  return /^[0-9A-Z]{12}$/.test(m[1]);
+}
+
+/** The Store block of a download page: { range: [from, to] | null, problems: [] }; the range only when it is exactly as it must be. */
+export function storeBlock(html, page) {
+  const problems = [];
+  const tags = [...html.matchAll(/<div\b[^>]*>/g)].filter((m) => /\bid\s*=\s*["']?store-block\b/i.test(m[0]));
+  if (page !== 'download') {
+    if (tags.length) problems.push(`${tags.length} store-block on a page that is not the download page`);
+    return { range: null, problems };
+  }
+  if (tags.length !== 1) return { range: null, problems: [`${tags.length} store-block on the download page, expected exactly one`] };
+  const [m] = tags;
+  if (m[0] !== '<div class="asset" id="store-block" hidden>') problems.push(`the Store block is ${m[0]}, expected exactly <div class="asset" id="store-block" hidden>`);
+  const end = html.indexOf('</div>', m.index);
+  if (end < 0) problems.push('the Store block is never closed');
+  else if (/<div\b/i.test(html.slice(m.index + m[0].length, end))) problems.push('another <div> sits inside the Store block');
+  return { range: problems.length ? null : [m.index, end + '</div>'.length], problems };
+}
+
 // the text of <main> without the demo regions (and, on the download page, the APT block), as one string
-export function mainText(html, page) {
+export function mainText(html, page, store = storeOn()) {
   const a = html.indexOf('<main');
   const z = html.indexOf('</main>');
   let t = a >= 0 && z > a ? html.slice(a, z) : html;
@@ -80,6 +108,9 @@ export function mainText(html, page) {
   // with the language specialists) is not counted; scripts/test-site-apt.mjs holds its exact text. Only that one element, only there (aptBlock).
   const apt = aptBlock(t, page).range;
   if (apt) t = t.slice(0, apt[0]) + ' ' + t.slice(apt[1]);
+  // WP14: the Store block while it is hidden (STORE_PRODUCT_ID empty); counted once the product is published
+  const sb = store ? null : storeBlock(t, page).range;
+  if (sb) t = t.slice(0, sb[0]) + ' ' + t.slice(sb[1]);
   t = t.replace(/<!-- hl:demo-begin -->[\s\S]*?<!-- hl:demo-end -->/g, ' ');
   t = t.replace(/<!--[\s\S]*?-->/g, '');
   t = t.replace(/<(script|style|svg)\b[\s\S]*?<\/\1>/g, ' ');
@@ -89,8 +120,8 @@ export function mainText(html, page) {
   return t;
 }
 
-export function units(html, page) {
-  const t = mainText(html, page);
+export function units(html, page, store = storeOn()) {
+  const t = mainText(html, page, store);
   const cjk = (t.match(CJK) || []).length;
   const words = t.replace(CJK, ' ').split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
   return words + Math.ceil(cjk / 2);
@@ -115,6 +146,19 @@ function selfcheck() {
   is('a block that never closes is an error', aptBlock(main(blk.replace('</details>', '')), 'download').problems.length, 1);
   is('a block on another page is an error and is counted', [aptBlock(base, 'help').problems.length, units(base, 'help')], [1, 14]);
   is('other closed details are counted', units(main('<details><summary>Notes</summary><p>a b c</p></details>' + blk), 'download'), 4);
+  // the Store block (WP14): skipped while hidden, counted when the product is published, errors when it is not exactly as agreed
+  const sblk = '<div class="asset" id="store-block" hidden><strong>Store</strong><a class="btn" href="x"><span class="t">Get it</span></a><small>one two three four five six</small></div>';
+  const sb = main('<p>alpha beta gamma</p>' + sblk);
+  is('the hidden Store block is skipped', units(sb, 'download', false), 3);
+  is('the published Store block is counted', units(sb, 'download', true), 10); // (inline tags are removed without a space: StoreGet, itone, two ... six)
+  is('a valid Store block has no problem', storeBlock(sb, 'download').problems, []);
+  is('a Store block that is not hidden is an error and is counted', [storeBlock(sb.replace(' hidden>', '>'), 'download').problems.length, units(sb.replace(' hidden>', '>'), 'download', false) > 3], [1, true]);
+  is('another attribute on the Store block is an error and is counted', [storeBlock(sb.replace('class="asset" ', 'class="asset x" '), 'download').problems.length, units(sb.replace('class="asset" ', 'class="asset x" '), 'download', false) > 3], [1, true]);
+  is('a div inside the Store block is an error', storeBlock(sb.replace('<small>', '<div><small>'), 'download').problems.length, 1);
+  is('two Store blocks are an error and none is skipped', [storeBlock(main(sblk + sblk), 'download').problems.length, units(main(sblk + sblk), 'download', false) > 3], [1, true]);
+  is('a Store block on another page is an error and is counted', [storeBlock(sb, 'help').problems.length, units(sb, 'help', false) > 3], [1, true]);
+  is('no Store block on the download page is an error', storeBlock(main('<p>x</p>'), 'download').problems.length, 1);
+  is('STORE_PRODUCT_ID empty is off, 12 characters is on', [storeOn("var STORE_PRODUCT_ID = '';"), storeOn("var STORE_PRODUCT_ID = '9NBLGGH4NNS1';"), storeOn("var STORE_PRODUCT_ID = 'abc';")], [false, true, false]);
   if (bad.length) { console.error('selfcheck failed:\n  ' + bad.join('\n  ')); process.exit(1); }
 }
 
@@ -130,6 +174,7 @@ function run() {
       const n = units(html, page);
       const inMain = html.slice(Math.max(0, html.indexOf('<main')), html.indexOf('</main>') > 0 ? html.indexOf('</main>') : undefined);
       for (const pr of aptBlock(inMain, page).problems) errors.push(`${lang.dir || 'en'}/${page}.html: ${pr}`);
+      for (const pr of storeBlock(inMain, page).problems) errors.push(`${lang.dir || 'en'}/${page}.html: ${pr}`);
       const max = ceiling(lang.code, page);
       row[page] = `${n}/${max}`;
       if (n > max) errors.push(`${lang.dir || 'en'}/${page}.html: ${n} units, ceiling ${max}`);

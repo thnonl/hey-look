@@ -24,8 +24,8 @@ interface PlatformState {
   openFail: boolean;
   /** a debug build with HEYLOOK_TEST_ACCOUNTS_DELAY_MS: the store waits this long before it takes the mailboxes (QA of New mail during the first seconds) */
   accountsDelayMs: number;
-  /** who updates this copy: "snap" (Snap Store), "apt" (the Hey Look! APT repository); null when the app updates itself */
-  managed: "snap" | "apt" | null;
+  /** who updates this copy: "snap" (Snap Store), "apt" (the Hey Look! APT repository), "msstore" (the Microsoft Store package); null when the app updates itself */
+  managed: "snap" | "apt" | "msstore" | null;
   loaded: boolean;
 }
 
@@ -38,7 +38,7 @@ export async function loadPlatform(): Promise<void> {
     const os: Os = i.os === "macos" || i.os === "linux" ? i.os : "windows";
     // (an old backend does not say: the frame is only known to draw on Windows)
     const pdfView: PdfView = i.pdfView === "frame" || i.pdfView === "object" || i.pdfView === "card" ? i.pdfView : os === "windows" ? "frame" : "card";
-    usePlatform.setState({ os, tray: i.tray, testData: i.testData ?? null, pdfView, pdfTest: i.pdfTest === true, copyFail: i.copyFail === true, openFail: i.openFail === true, accountsDelayMs: typeof i.accountsDelayMs === "number" ? i.accountsDelayMs : 0, managed: i.managed === "snap" || i.managed === "apt" ? i.managed : null, loaded: true });
+    usePlatform.setState({ os, tray: i.tray, testData: i.testData ?? null, pdfView, pdfTest: i.pdfTest === true, copyFail: i.copyFail === true, openFail: i.openFail === true, accountsDelayMs: typeof i.accountsDelayMs === "number" ? i.accountsDelayMs : 0, managed: i.managed === "snap" || i.managed === "apt" || i.managed === "msstore" ? i.managed : null, loaded: true });
   } catch {
     usePlatform.setState({ loaded: true });
   }

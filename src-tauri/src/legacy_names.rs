@@ -211,6 +211,11 @@ fn resolve_with(new_dir: PathBuf, mover: &dyn Fn(&Path, &Path) -> Result<Moved, 
 /// folder unless `HEYLOOK_ALLOW_REAL_DATA=1` is set, see `choose_debug_data`; release builds always use it.
 pub fn data_dir(app: &tauri::AppHandle) -> Result<PathBuf, Box<dyn std::error::Error>> {
     use tauri::Manager;
+    // the Microsoft Store version: the package's own folder, nothing is moved into it and nothing is read from the folders of other copies (pkg.rs)
+    if let Some(d) = crate::pkg::dirs() {
+        fs::create_dir_all(&d.local_state)?;
+        return Ok(d.local_state.clone());
+    }
     #[cfg(debug_assertions)]
     let new_dir = match debug_data() {
         DebugData::Test(p) => p,
@@ -361,6 +366,9 @@ pub fn migrate_keyring(db: &Db, secret_names: &[&str]) {
     if data_dir_overridden() {
         return; // a test data folder: the real credentials stay where they are
     }
+    if crate::pkg::packaged() {
+        return; // the Store version starts with its own credential store service (heylook.store): the entries of a GitHub install are not its own
+    }
     if db::get_setting(&lock(db), flag).as_deref() == Some("1") {
         return;
     }
@@ -388,8 +396,8 @@ pub fn migrate_keyring(db: &Db, secret_names: &[&str]) {
 /// Windows: forget the notification registration of the old id.
 #[cfg(windows)]
 pub fn remove_old_notification_id() {
-    if data_dir_overridden() {
-        return;
+    if data_dir_overridden() || crate::pkg::packaged() {
+        return; // (a package registers nothing in the registry)
     }
     let _ = crate::winproc::hidden("reg").args(["delete", &format!(r"HKCU\Software\Classes\AppUserModelId\{OLD_AUMID}"), "/f"]).output();
 }

@@ -2,9 +2,9 @@ import { listen } from "@tauri-apps/api/event";
 import { KeyRound, Lock, Plus, Trash2, Upload, Volume2 } from "lucide-react";
 import { openUpdateLink } from "../updates";
 import { Grip, useAccountReorder } from "./AccountReorder";
-import { ABOUT_LINKS } from "../aboutLinks";
+import { ABOUT_LINKS, siteUrl } from "../aboutLinks";
 import { Fragment, ReactNode, useEffect, useRef, useState } from "react";
-import { Account, api, CalSource, Discovered, PgpKey, PROVIDERS, Rule, Signature, Template } from "../api";
+import { Account, api, AutostartInfo, CalSource, Discovered, PgpKey, PROVIDERS, Rule, Signature, Template } from "../api";
 import { singleLabelHostsOf } from "../addresses";
 import { backendText } from "../backendErrors";
 import { parseReplyTo } from "../replyTo";
@@ -1644,7 +1644,8 @@ function TrayTab() {
   const { prefs, setPrefs, showToast } = useStore();
   const os = usePlatform((s) => s.os);
   const tray = usePlatform((s) => s.tray);
-  const [autostart, setAutostart] = useState(false);
+  // (in the Microsoft Store version the switch is the package's startup task: Windows or the organisation may have turned it off for good, `locked`)
+  const [autostart, setAutostart] = useState<AutostartInfo>({ enabled: false, locked: null });
   useEffect(() => void api.getAutostart().then(setAutostart).catch(() => undefined), []);
   const test = async () => {
     try {
@@ -1656,9 +1657,10 @@ function TrayTab() {
   const toggleAuto = async (v: boolean) => {
     try {
       await api.setAutostart(v);
-      setAutostart(v);
+      setAutostart((a) => ({ ...a, enabled: v }));
     } catch (e) {
       showToast(() => friendlyError(e), undefined, "error");
+      void api.getAutostart().then(setAutostart).catch(() => undefined); // (the state may have changed in Windows)
     }
   };
   return (
@@ -1702,9 +1704,9 @@ function TrayTab() {
       </Row>
       <Row
         label={os === "windows" ? t("settings.tray.autostartWindows") : t("settings.tray.autostart")}
-        hint={os === "linux" && !tray ? t("settings.tray.startsOpen") : t("settings.tray.startsMinimized")}
+        hint={autostart.locked === "user" ? t("settings.tray.autostartOffInWindows") : autostart.locked === "policy" ? t("settings.tray.autostartByPolicy") : os === "linux" && !tray ? t("settings.tray.startsOpen") : t("settings.tray.startsMinimized")}
       >
-        <Switch checked={autostart} onChange={(v) => void toggleAuto(v)} />
+        <Switch checked={autostart.enabled} disabled={autostart.locked !== null} onChange={(v) => void toggleAuto(v)} />
       </Row>
     </div>
   );
@@ -1866,6 +1868,8 @@ function AiTab() {
     <div>
       <h3>{t("settings.ai.title")}</h3>
       <div className="muted small">{t("settings.ai.intro")}</div>
+      {/* the way to report harmful AI content (Microsoft Store policy 11.16): the help page of the language in use, the section "Content from the AI Assistant" */}
+      <div style={{ margin: "4px 0 8px" }}><button className="link" onClick={() => void openUpdateLink(siteUrl("help.html#ai-report"))}>{t("settings.ai.report")}</button></div>
       <div className="form">
         <label>{t("settings.ai.baseUrl")}</label>
         <input id="set-aiBaseUrl" aria-label={t("settings.ai.baseUrl")} placeholder="https://api.openai.com/v1" value={v.ai_endpoint} onChange={(e) => edit({ ai_endpoint: e.target.value })} />

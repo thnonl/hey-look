@@ -543,6 +543,9 @@ pub fn setup_tray(app: &AppHandle, db: &Db) -> tauri::Result<()> {
 /// Register the AppUserModelID so Windows shows our name and icon on toasts (no installer needed).
 #[cfg(windows)]
 pub fn register_aumid(app: &AppHandle) {
+    if crate::pkg::packaged() {
+        return; // a package has its own AppUserModelID, name and icon (the manifest); the registry is not used
+    }
     crate::legacy_names::remove_old_notification_id();
     let Some(data) = app.try_state::<crate::legacy_names::DataDir>() else { return };
     let icon = data.0.join("icon.png");

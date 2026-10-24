@@ -272,11 +272,11 @@ pub fn managed_by() -> Option<&'static str> {
         let snap = managed_by_env(std::env::var("SNAP_NAME").ok().as_deref(), std::env::var_os("SNAP").map(std::path::PathBuf::from).as_deref(), std::env::current_exe().ok().as_deref());
         let is_deb = cfg!(target_os = "linux") && matches!(tauri::utils::platform::bundle_type(), Some(tauri::utils::config::BundleType::Deb));
         let sources = if is_deb && snap.is_none() { read_apt_sources(std::path::Path::new("/etc/apt")) } else { Vec::new() };
-        managed_from(snap, is_deb, &sources)
+        managed_from(snap, crate::pkg::ui_packaged(), is_deb, &sources)
     })
 }
 
-/// Debug builds only: `HEYLOOK_TEST_MANAGED=apt|snap` pretends this copy is managed (QA of the About texts on a system without the
+/// Debug builds only: `HEYLOOK_TEST_MANAGED=apt|snap|msstore` pretends this copy is managed (QA of the About texts on a system without the
 /// store), any other value (`none`) pretends it is not. Release builds never read it (compiled out). The outer Option is "the
 /// variable decides".
 fn test_managed() -> Option<Option<&'static str>> {
@@ -285,6 +285,7 @@ fn test_managed() -> Option<Option<&'static str>> {
         std::env::var("HEYLOOK_TEST_MANAGED").ok().map(|v| match v.trim() {
             "apt" => Some("apt"),
             "snap" => Some("snap"),
+            "msstore" => Some("msstore"),
             _ => None,
         })
     }
@@ -313,11 +314,14 @@ struct AptSource {
     text: String,
 }
 
-/// The snap wins; else the `.deb` build with an enabled APT source for the Hey Look! repository is managed by `apt`. A pure function:
-/// the caller reads the files (`read_apt_sources`).
-fn managed_from(snap: Option<&'static str>, is_deb: bool, sources: &[AptSource]) -> Option<&'static str> {
+/// The snap wins; else the Microsoft Store package (WP14: the Store updates it, pkg.rs) is managed by `msstore`; else the `.deb` build with an enabled APT
+/// source for the Hey Look! repository is managed by `apt`. A pure function: the caller reads the files (`read_apt_sources`).
+fn managed_from(snap: Option<&'static str>, packaged: bool, is_deb: bool, sources: &[AptSource]) -> Option<&'static str> {
     if snap.is_some() {
         return snap;
+    }
+    if packaged {
+        return Some("msstore");
     }
     if is_deb && sources.iter().any(apt_source_enabled) {
         return Some("apt");
@@ -1376,12 +1380,17 @@ mod tests {
     fn managed_from_bundle_snap_and_sources() {
         let on = vec![src("heylook.sources", "Types: deb\nURIs: https://heylook.namthai.site/apt\nSuites: stable\nComponents: main\n")];
         let off = vec![src("heylook.sources", "Types: deb\nURIs: https://heylook.namthai.site/apt\nSuites: stable\nComponents: main\nEnabled: no\n")];
-        assert_eq!(managed_from(None, true, &on), Some("apt"), ".deb with the repository");
-        assert_eq!(managed_from(None, true, &off), None, ".deb with the source switched off keeps its own updater");
-        assert_eq!(managed_from(None, true, &[]), None, ".deb without the repository keeps its own updater");
-        assert_eq!(managed_from(None, false, &on), None, "AppImage or .rpm with the source present is not managed by apt");
-        assert_eq!(managed_from(Some("snap"), true, &on), Some("snap"), "the snap wins");
-        assert_eq!(managed_from(Some("snap"), false, &[]), Some("snap"), "the snap without sources");
+        assert_eq!(managed_from(None, false, true, &on), Some("apt"), ".deb with the repository");
+        assert_eq!(managed_from(None, false, true, &off), None, ".deb with the source switched off keeps its own updater");
+        assert_eq!(managed_from(None, false, true, &[]), None, ".deb without the repository keeps its own updater");
+        assert_eq!(managed_from(None, false, false, &on), None, "AppImage or .rpm with the source present is not managed by apt");
+        assert_eq!(managed_from(Some("snap"), false, true, &on), Some("snap"), "the snap wins");
+        assert_eq!(managed_from(Some("snap"), false, false, &[]), Some("snap"), "the snap without sources");
+        // WP14 WA.2.5: the Microsoft Store package is updated by the Store, whatever else is true
+        assert_eq!(managed_from(None, true, false, &[]), Some("msstore"), "a package: the Store updates it");
+        assert_eq!(managed_from(None, true, true, &on), Some("msstore"), "a package wins over apt (it cannot be a .deb, but the order is fixed)");
+        assert_eq!(managed_from(Some("snap"), true, false, &[]), Some("snap"), "the snap wins");
+        assert_eq!(managed_from(None, false, false, &[]), None, "an unpackaged Windows or macOS copy updates itself");
     }
 
     /// WP15: the files of /etc/apt are read as they are: sources.list, *.list and *.sources of sources.list.d, nothing else; a file that
@@ -1401,7 +1410,7 @@ mod tests {
         let mut names: Vec<_> = found.iter().map(|f| f.name.as_str()).collect();
         names.sort();
         assert_eq!(names, ["heylook.sources", "sources.list"]);
-        assert_eq!(managed_from(None, true, &found), Some("apt"));
+        assert_eq!(managed_from(None, false, true, &found), Some("apt"));
         let _ = std::fs::remove_dir_all(&etc);
     }
 
@@ -1425,10 +1434,13 @@ mod tests {
         let app = app_for(&format!("{}/latest.json", s.base));
         let db = new_db();
         let mut c = ctx(&s.base, 1, "1.0.0");
-        c.managed = Some("snap");
-        for t in [Trigger::Startup, Trigger::Manual, Trigger::Shown] {
-            let r = run(&app, &db, &AtomicBool::new(false), &c, t);
-            assert_eq!((r.kind, r.info.is_none(), r.from_cache), (Kind::Managed, true, false), "{t:?}");
+        // (the snap, the APT repository and, WP14, the Microsoft Store package: whoever manages the copy, the app asks nobody)
+        for store in ["snap", "apt", "msstore"] {
+            c.managed = Some(store);
+            for t in [Trigger::Startup, Trigger::Manual, Trigger::Shown] {
+                let r = run(&app, &db, &AtomicBool::new(false), &c, t);
+                assert_eq!((r.kind, r.info.is_none(), r.from_cache), (Kind::Managed, true, false), "{store} {t:?}");
+            }
         }
         std::thread::sleep(Duration::from_millis(300));
         assert_eq!(s.count("/latest.json"), 0, "no request");

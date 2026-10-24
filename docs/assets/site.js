@@ -328,6 +328,11 @@
   if (dl) {
     var REPO = 'thnonl/hey-look';
     var RELEASES = 'https://github.com/' + REPO + '/releases';
+    /* The Microsoft Store block of the Windows card (WP14, PACKAGING.md > Microsoft Store) stays hidden until the product is published: put its Store ID
+       (12 characters, Partner Center > Product identity) here and push to main; the link then opens the Store page of the app. */
+    var STORE_PRODUCT_ID = '';
+    var storeBlock = $('#store-block');
+    if (storeBlock && /^[0-9A-Z]{12}$/.test(STORE_PRODUCT_ID)) { $('#store-link').href = 'https://apps.microsoft.com/detail/' + STORE_PRODUCT_ID; storeBlock.hidden = false; }
     var PATTERNS = {
       'win-exe': /_windows_x64-setup\.exe$/i, 'win-msi': /_windows_x64\.msi$/i, 'mac-dmg': /_darwin_universal\.dmg$/i,
       'lin-appimage': /_linux_amd64\.AppImage$/i, 'lin-deb': /_linux_amd64\.deb$/i, 'lin-rpm': /_linux_x86_64\.rpm$/i
