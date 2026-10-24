@@ -1351,7 +1351,7 @@ fn destroy_on_event_loop(app: &AppHandle, label: &str) {
 
 /// A window is gone (its `Destroyed` event came, or it was given up): say how many windows the app and the window system still list, now and a
 /// little later, and finish its native window by hand (macOS). The lines in the log are the proof that windows are released.
-/// `destroyed`: the `Destroyed` event came (false for a window that was given up while tauri still lists it: the leak fix of macOS never touches that one).
+/// `destroyed`: the `Destroyed` event came. A window that was given up while tauri still lists it gets no native step (the teardown is only for a window that has ended, fix26).
 fn after_destroyed(app: &AppHandle, label: &str, destroyed: bool) {
     let mut left: Vec<String> = app.webview_windows().keys().cloned().collect();
     left.sort();
@@ -1361,6 +1361,10 @@ fn after_destroyed(app: &AppHandle, label: &str, destroyed: bool) {
         std::thread::sleep(SWEEP_AFTER);
         let name = label.clone();
         let _ = app.run_on_main_thread(move || {
+            if !destroyed {
+                log(&format!("{name}: still listed by the app: no native step"));
+                return;
+            }
             if let Some(text) = native_sweep(&name) {
                 log(&format!("{name}: {text}"));
             }
@@ -1368,10 +1372,8 @@ fn after_destroyed(app: &AppHandle, label: &str, destroyed: bool) {
         std::thread::sleep(COUNT_AFTER);
         let (handle, name) = (app.clone(), label.clone());
         let _ = app.run_on_main_thread(move || {
-            // macOS: was the finished window freed? (a weak reference answers, macwin.rs `check`; the debug bridge counts the answers)
-            // the leak fix only for a window that ended by its Destroyed event and that tauri no longer lists (a label opened again meanwhile is not the window that was swept)
-            let ended = destroyed && handle.get_webview_window(&name).is_none();
-            if let Some(text) = native_check(&name, ended) {
+            // macOS, debug builds: was the finished window freed? (a weak reference answers, macwin.rs `check`, read-only; the debug bridge counts the answers)
+            if let Some(text) = native_check(&name) {
                 log(&format!("{name}: {text}"));
             }
             let mut left: Vec<String> = handle.webview_windows().keys().cloned().collect();
@@ -1407,11 +1409,11 @@ fn native_sweep(_label: &str) -> Option<String> {
 
 /// Main thread. The line for the log about whether the native window that was finished was freed (macOS), `None` elsewhere or when none was swept.
 #[cfg(target_os = "macos")]
-fn native_check(label: &str, destroyed: bool) -> Option<String> {
-    crate::macwin::check(label, destroyed)
+fn native_check(label: &str) -> Option<String> {
+    crate::macwin::check(label)
 }
 #[cfg(not(target_os = "macos"))]
-fn native_check(_label: &str, _destroyed: bool) -> Option<String> {
+fn native_check(_label: &str) -> Option<String> {
     None
 }
 
@@ -1880,14 +1882,14 @@ mod tests {
         assert!(sweep.find("setDelegate: nil").unwrap() < sweep.find("msg_send![ptr, close]").unwrap(), "the delegate goes before the window is closed");
         let check = &mac[mac.find("pub fn check(").unwrap()..mac.find("/// What [`apply_appearance`]").unwrap()];
         assert!(check.contains("weak.load()") && check.contains("ALIVE.fetch_add") && check.contains("FREED.fetch_add"));
-        assert!(check.contains("cfg!(debug_assertions) && std::env::var(\"HEYLOOK_MAC_RELEASE_LEAK\")") && check.matches("release]").count() == 2, "the experiment is debug-only and releases once; the other release is the guarded leak fix (leakfix.rs tests it)");
+        assert!(check.contains("if !cfg!(debug_assertions) {") && !check.contains("release]"), "the check is read-only and debug-only (DEC-024)");
         assert!(!mac.contains("setReleasedWhenClosed"), "nothing here changes who owns the window");
         // every window of every kind gets the same native ground behind its title bar (D-092)
         let walk = &mac[mac.find("pub fn apply_appearance(").unwrap()..];
         assert!(walk.contains("set_ground(w, expected)") && !walk.contains("kind_of_label"), "{walk}");
         // the check runs after the sweep, in the same closing step, and the bridge shows the counters
         let pop = crate::test_guard::non_test_code(include_str!("popout.rs"));
-        assert!(pop.contains("native_check(&name, ended)") && pop.find("native_sweep(&name)").unwrap() < pop.find("native_check(&name, ended)").unwrap());
+        assert!(pop.contains("native_check(&name)") && pop.find("native_sweep(&name)").unwrap() < pop.find("native_check(&name)").unwrap());
         assert!(include_str!("testbridge/native.rs").contains("macwin::sweep_stats()"));
     }
 
@@ -1919,9 +1921,9 @@ mod tests {
         // the poll of the window system leaves a window that is on its way out alone (no "no native window" every 2 s)
         let wt = crate::test_guard::non_test_code(include_str!("wintheme.rs"));
         assert!(wt.contains("crate::popout::is_retiring(app, &label)"), "wintheme skips retiring windows");
-        // the experiment loops and is debug-only
+        // the check afterwards is read-only and debug-only (DEC-024; leakfix.rs guards it)
         let check = &mac[mac.find("pub fn check(").unwrap()..mac.find("/// What [`apply_appearance`]").unwrap()];
-        assert!(check.contains("HEYLOOK_MAC_RELEASE_KEEP") && check.contains(".min(40)") && check.contains("for _ in 0..extra") && check.contains("cfg!(debug_assertions)"));
+        assert!(check.contains("if !cfg!(debug_assertions) {"));
     }
 
     #[test]
