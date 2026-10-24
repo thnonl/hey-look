@@ -148,6 +148,8 @@ export default defineLocale<typeof ns.en>({
   "reading.body.frameTitleSubject": "Текст письма: {subject}",
   "reading.body.linkWarnTitle": "Эта ссылка может вести не туда, куда указано",
   "reading.body.linkWarnBody": "Она показана как «{text}», но откроет {target}. Всё равно открыть?",
+  "reading.body.linkWarnLookalike": "Она откроет {target} — адрес, в котором буквы других алфавитов выглядят как обычные. Всё равно открыть?",
+  "reading.body.linkWarnHidden": "Она скрывает настоящий адрес и откроет {target}. Всё равно открыть?",
   "reading.body.linkWarnConfirm": "Открыть ссылку",
   "reading.pic.missing": "В этом письме нет изображения (cid:{cid})",
   "reading.pic.loading": "Загрузка {size}…",

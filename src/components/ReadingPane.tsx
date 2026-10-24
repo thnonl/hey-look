@@ -24,6 +24,7 @@ import { CONFIDENTIAL_FRAME_CSS, lockDocument, useContentProtection } from "../p
 import { accountsOf, canMoveToJunk } from "../junk";
 import { friendlyError, useStore } from "../store";
 import { folderNameOf } from "../attachName";
+import { linkWarning } from "../linkCheck";
 import { cancelTranslation, dismissTranslation, jobErrorText, startTranslation } from "../translate";
 import { MAX_CHARS } from "../translateChunks";
 import { summaryBody } from "../summaryText";
@@ -153,14 +154,6 @@ function inlineImages(html: string): string {
   });
   return doc.body.innerHTML;
 }
-
-const host = (u: string) => {
-  try {
-    return new URL(/^[a-z]+:/i.test(u) ? u : `https://${u}`).hostname.replace(/^www\./, "").toLowerCase();
-  } catch {
-    return "";
-  }
-};
 
 /** Background the mail is shown on: the mail's own colours (default, in every app theme) or the dark one (see darkMail.ts); remembered as a preference. */
 function useCanvas() {
@@ -458,11 +451,11 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
       if (!a?.href) return;
       e.preventDefault();
       const text = (a.textContent ?? "").trim();
-      const looksLikeUrl = /^(https?:\/\/)?[\w-]+(\.[\w-]+)+(\/\S*)?$/i.test(text);
-      if (looksLikeUrl && host(text) && host(text) !== host(a.href)) {
+      const warn = linkWarning(text, a.href);
+      if (warn) {
         void confirm({
           title: t("reading.body.linkWarnTitle"),
-          body: t("reading.body.linkWarnBody", { text: text.slice(0, 80), target: host(a.href) || a.href }),
+          body: warn.kind === "mismatch" ? t("reading.body.linkWarnBody", { text: warn.text, target: warn.target }) : warn.kind === "lookalike" ? t("reading.body.linkWarnLookalike", { target: warn.target }) : t("reading.body.linkWarnHidden", { target: warn.target }),
           confirmLabel: t("reading.body.linkWarnConfirm"),
           danger: true,
         }).then((ok) => ok && void openUpdateLink(a.href));

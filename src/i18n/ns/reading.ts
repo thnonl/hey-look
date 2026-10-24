@@ -151,6 +151,8 @@ export default define({
     "reading.body.frameTitleSubject": "Message body: {subject}",
     "reading.body.linkWarnTitle": "This link may not go where it says",
     "reading.body.linkWarnBody": "It is shown as “{text}” but opens {target}. Open it anyway?",
+    "reading.body.linkWarnLookalike": "It opens {target}, an address that uses letters from other alphabets that look like ordinary ones. Open it anyway?",
+    "reading.body.linkWarnHidden": "It hides its real address and opens {target}. Open it anyway?",
     "reading.body.linkWarnConfirm": "Open link",
     "reading.pic.missing": "Picture missing from this message (cid:{cid})",
     "reading.pic.loading": "Loading {size}…",
