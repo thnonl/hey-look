@@ -12,7 +12,7 @@
 //   - the two texts in the 8 languages at 960 x 560 and 1280 x 800, light and dark, not clipped; reduced motion shows the dots instead of the ring.
 //   node scripts/test-reply-feedback.mjs [--require-browser] [--throttle=4]   (--throttle: CDP CPU throttling, to try the budgets on a slow computer)
 import assert from 'node:assert/strict';
-import { arg, sleep, startHarness } from './cdp-harness.mjs';
+import { arg, inputs, sleep, startHarness } from './cdp-harness.mjs';
 import { FIXTURES, IDS } from './lib/reply-fixtures.mjs';
 import { CALIBRATE, PROBE_INSTALL, PROBE_PRESS, PROBE_READ, fill } from './lib/reply-open-probe.mjs';
 
@@ -317,6 +317,236 @@ try {
     await evaluate(`window.__mockEmit('popout-reply', { id: 'shell-fill', ok: true, data: ${JSON.stringify(full)}, error: null }); 1`);
     assert.ok(await waitFor(`!document.querySelector('.compose-pane.preparing')`, 5000));
     assert.ok(Date.now() - shownAt >= 150, 'the status went at once (the minimum is 300 ms after it was drawn)');
+  });
+
+  // ---- the shell is filled IN PLACE (WP13f-3, DEC-023): the Compose and its editor are the same objects before and after the fill, Ctrl+Z cannot take the message back, a shell leaves no draft or snapshot
+  const filledJs = `!document.querySelector('.compose-pane.preparing') && !!document.querySelector('.compose-pane .quote-block')`;
+  const MARK = `(() => { const p = document.querySelector('.compose-pane'); window.__shell = { pane: p, instance: p.getAttribute('data-compose-instance'), editor: p.__editor, view: p.__editor && p.__editor.view, key: window.__store.getState().composeKey }; return !!window.__shell.editor && !!window.__shell.instance && !!window.__shell.view; })()`;
+  const SAME = `(() => { const s = window.__shell, p = document.querySelector('.compose-pane'); return { pane: p === s.pane, instance: p.getAttribute('data-compose-instance') === s.instance, editor: p.__editor === s.editor, view: s.editor.view === s.view, prosemirror: document.querySelector('.cp-editor .tiptap')?.editor === s.editor, key: window.__store.getState().composeKey === s.key, editable: s.editor.isEditable }; })()`;
+  const ALL_SAME = { pane: true, instance: true, editor: true, view: true, prosemirror: true, key: true, editable: true };
+  const editorDoc = () => evaluate(`JSON.stringify(window.__shell.editor.getJSON())`);
+  const canUndo = () => evaluate(`window.__shell.editor.can().undo()`);
+  const io = inputs(H, null, 'rf');
+  const pressOn = async (button) => (await install(), press(button)); // (the probe's clock starts with the press)
+  await boot('lang=en', 1280, 800); // (the check before this one left the tab on the compose window page)
+
+  await check('in place (pane): the Compose instance, its editor and its view are the same objects after the fill, composeKey is not bumped (AC-13.13.15)', async () => {
+    await openMessage(IDS.small);
+    await delays({ replyHeaders: slowMs(700), quote: 0 });
+    await pressOn('Reply');
+    assert.ok(await waitFor(`!!document.querySelector('.compose-pane.preparing')`, 3000), 'no shell');
+    assert.ok(await evaluate(MARK), 'the shell has no instance marker / editor / view');
+    assert.equal(await evaluate(`window.__shell.editor.isEditable`), false, 'the editor of a shell is not editable');
+    assert.equal(await evaluate(`window.__shell.editor.getText().trim() === ''`), true, 'the editor of a shell is empty');
+    assert.ok(await waitFor(filledJs, 8000), 'the message never filled in');
+    const s = await evaluate(SAME);
+    assert.deepEqual(s, ALL_SAME, JSON.stringify(s));
+    assert.equal(await evaluate(`window.__shell.editor.getJSON().content.some((n) => n.type === 'quoteBlock')`), true, 'the quote is in the same editor');
+    assert.equal(await evaluate(`document.querySelectorAll('.cp-editor .sig-block').length`), 1, 'the signature region is there once');
+  });
+  await check('in place (pane): Reply all and Forward keep the instance as well', async () => {
+    for (const [button, id] of [['Reply all', IDS.cc], ['Forward', IDS.att]]) {
+      await openMessage(id);
+      await delays({ replyHeaders: slowMs(500), quote: slowMs(100) });
+      await pressOn(button);
+      assert.ok(await waitFor(`!!document.querySelector('.compose-pane.preparing')`, 3000), `${button}: no shell`);
+      assert.ok(await evaluate(MARK));
+      assert.ok(await waitFor(filledJs, 8000), `${button}: never filled`);
+      const s = await evaluate(SAME);
+      assert.deepEqual(s, ALL_SAME, `${button}: ${JSON.stringify(s)}`);
+    }
+  });
+
+  await check('Undo: Ctrl+Z right after the fill changes nothing; typing then Ctrl+Z removes only the typing (AC-13.13.17)', async () => {
+    await openMessage(IDS.small);
+    await delays({ replyHeaders: slowMs(500), quote: 0 });
+    await pressOn('Reply');
+    assert.ok(await waitFor(`!!document.querySelector('.compose-pane.preparing')`, 3000));
+    assert.ok(await evaluate(MARK));
+    assert.ok(await waitFor(filledJs, 8000));
+    await sleep(300);
+    const before = await editorDoc();
+    assert.equal(await canUndo(), false, 'the fill is in the undo history');
+    assert.ok(await waitFor(`document.activeElement?.closest?.('.cp-editor') !== null`, 2000), 'the caret is not in the body');
+    await io.press('z', 'KeyZ', 2);
+    await sleep(150);
+    assert.equal(await editorDoc(), before, 'Ctrl+Z changed the message');
+    await io.typeText('abc', 10);
+    await sleep(150);
+    assert.notEqual(await editorDoc(), before, 'nothing was typed');
+    assert.equal(await canUndo(), true);
+    await io.press('z', 'KeyZ', 2);
+    await sleep(150);
+    assert.equal(await editorDoc(), before, 'Ctrl+Z did not remove just the typing');
+    assert.equal(await canUndo(), false, 'one Ctrl+Z more would undo the fill');
+    await io.press('z', 'KeyZ', 2);
+    await sleep(100);
+    assert.equal(await editorDoc(), before, 'a second Ctrl+Z took the message back');
+  });
+  await check('after the fill the quote is protected as in a fresh mount: Delete on the selected block removes it, one Ctrl+Z brings it back', async () => {
+    await openMessage(IDS.small);
+    await delays({ replyHeaders: slowMs(300), quote: 0 });
+    await pressOn('Reply');
+    assert.ok(await waitFor(filledJs, 8000));
+    assert.ok(await evaluate(MARK));
+    await sleep(300);
+    await evaluate(`(() => { const ed = window.__shell.editor; let at = -1; ed.state.doc.forEach((n, o) => { if (n.type.name === 'quoteBlock') at = o; }); ed.chain().focus().setNodeSelection(at).run(); return at; })()`);
+    await io.press('Delete', 'Delete');
+    await sleep(150);
+    assert.equal(await evaluate(`window.__shell.editor.getJSON().content.some((n) => n.type === 'quoteBlock')`), false, 'Delete did not remove the selected quote block');
+    await io.press('z', 'KeyZ', 2);
+    await sleep(150);
+    assert.equal(await evaluate(`window.__shell.editor.getJSON().content.some((n) => n.type === 'quoteBlock')`), true, 'Ctrl+Z did not bring the quote back');
+  });
+
+  const recoveryItems = () => evaluate(`(async () => { const { api } = await import('/src/api.ts'); const l = await api.recoveryList(); const out = []; for (const i of l) { const s = await api.recoveryLoad(i.id); out.push({ id: i.id, text: JSON.stringify(s?.payload ?? s ?? '').includes('xyz') }); } return out; })()`);
+  const clearRecovery = () => evaluate(`(async () => { const { api } = await import('/src/api.ts'); for (const i of await api.recoveryList()) await api.recoveryClear(i.id, 'test'); return 1; })()`);
+  await check('drafts and recovery: a shell and an untouched filled reply save nothing, close with no question; after typing the snapshot has the text (AC-13.13.18)', async () => {
+    await clearRecovery();
+    // (a message that is encrypted "automatically" - a recipient with a key - is never written to the snapshot in clear: Encrypt is off for this check)
+    await evaluate(`window.__hlTiming = { autosaveMs: 400, snapshotMs: 300 }; window.__draftSaveCalls = 0; window.__recoverySaves = 0; window.__store.getState().setPrefs({ pgpEncrypt: 'never' }); 1`);
+    await openMessage(IDS.small);
+    await delays({ replyHeaders: slowMs(2500), quote: 0 });
+    await pressOn('Reply');
+    assert.ok(await waitFor(`!!document.querySelector('.compose-pane.preparing')`, 3000));
+    await sleep(1800); // (the timers of a real pane look every second)
+    assert.deepEqual(await evaluate(`({ saves: window.__recoverySaves || 0, drafts: window.__draftSaveCalls || 0, dirty: window.__store.getState().composeDirty })`), { saves: 0, drafts: 0, dirty: false }, 'the shell saved or marked something');
+    assert.ok(await waitFor(filledJs, 12000));
+    await sleep(2600);
+    assert.deepEqual(await evaluate(`({ saves: window.__recoverySaves || 0, drafts: window.__draftSaveCalls || 0, dirty: window.__store.getState().composeDirty })`), { saves: 0, drafts: 0, dirty: false }, 'an untouched filled reply saved or marked something');
+    assert.deepEqual(await recoveryItems(), [], 'a snapshot of an untouched reply');
+    await evaluate(`[...document.querySelectorAll('.cp-bar button')].find((b) => b.textContent.trim() === 'Discard').click(); 1`);
+    await sleep(500);
+    assert.equal(await evaluate(`!!document.querySelector('[role=dialog],[role=alertdialog]')`), false, 'Discard of an untouched reply asked a question');
+    assert.equal(await evaluate(`!!document.querySelector('.compose-pane')`), false, 'Discard did not close it');
+    assert.equal(await evaluate(`window.__draftSaveCalls || 0`), 0, 'a draft was saved');
+    // typed: today's question and a snapshot with the text (the autosave is far away: it would replace the snapshot with a draft)
+    await evaluate(`window.__hlTiming = { autosaveMs: 600000, snapshotMs: 300 }; 1`);
+    await openMessage(IDS.small);
+    await delays({ replyHeaders: 50, quote: 0 });
+    await pressOn('Reply');
+    assert.ok(await waitFor(filledJs, 8000));
+    await sleep(300);
+    await evaluate(`document.querySelector('.cp-editor .tiptap').editor.commands.focus('start'); 1`);
+    await io.typeText('xyz', 10);
+    assert.ok(await waitFor(`(window.__recoverySaves || 0) >= 1`, 5000), 'no snapshot after typing');
+    assert.deepEqual((await recoveryItems()).map((x) => x.text), [true], 'the snapshot does not have the text');
+    await evaluate(`[...document.querySelectorAll('.cp-bar button')].find((b) => b.textContent.trim() === 'Discard').click(); 1`);
+    await sleep(500);
+    assert.equal(await evaluate(`!!document.querySelector('[role=dialog],[role=alertdialog]')`), true, 'Discard of a changed reply did not ask');
+    await evaluate(`[...document.querySelectorAll('[role=dialog] button, [role=alertdialog] button')].find((b) => /Cancel|Keep/.test(b.textContent)).click(); 1`);
+    await sleep(300);
+    // a kill during preparing: no recovery offer
+    await clearRecovery();
+    await evaluate(`window.__recoverySaves = 0; 1`);
+    await closeCompose();
+    await openMessage(IDS.small);
+    await delays({ replyHeaders: slowMs(2500), quote: 0 });
+    await pressOn('Reply');
+    assert.ok(await waitFor(`!!document.querySelector('.compose-pane.preparing')`, 3000));
+    await sleep(1500);
+    assert.deepEqual(await recoveryItems(), [], 'a shell left a snapshot behind (a kill now would offer it)');
+    await closeCompose();
+    await evaluate(`delete window.__hlTiming; window.__store.getState().setPrefs({ pgpEncrypt: 'possible' }); 1`);
+  });
+  await check('Reply all: the Cc and Bcc rows are in the shell and no row appears at the fill (REQ-13.13.12)', async () => {
+    const rows = `(() => { const p = document.querySelector('.compose-pane'); return { fields: [...p.querySelectorAll('.cp-fields .cf-field')].map((f) => f.querySelector('label')?.textContent.trim()), links: !!p.querySelector('.cf-links'), chips: p.querySelectorAll('.cf-field.rcpt .chips > span').length }; })()`;
+    await openMessage(IDS.cc);
+    await delays({ replyHeaders: slowMs(700), quote: 0 });
+    await pressOn('Reply all');
+    assert.ok(await waitFor(`!!document.querySelector('.compose-pane.preparing')`, 3000));
+    const shell = await evaluate(rows);
+    assert.deepEqual(shell.fields, ['From', 'To', 'Cc', 'Bcc', 'Subject'], `the shell: ${JSON.stringify(shell)}`);
+    assert.equal(shell.links, false, 'the shell shows the Cc / Bcc links');
+    assert.ok(await waitFor(filledJs, 8000));
+    const full = await evaluate(rows);
+    assert.deepEqual(full.fields, shell.fields, `a row appeared at the fill: ${JSON.stringify(full)}`);
+    assert.equal(full.chips >= 3, true, `the recipients are there: ${JSON.stringify(full)}`);
+    // a plain Reply has the Cc / Bcc links, in the shell and after
+    await openMessage(IDS.cc);
+    await delays({ replyHeaders: slowMs(700), quote: 0 });
+    await pressOn('Reply');
+    assert.ok(await waitFor(`!!document.querySelector('.compose-pane.preparing')`, 3000));
+    assert.deepEqual((await evaluate(rows)).fields, ['From', 'To', 'Subject']);
+    assert.equal((await evaluate(rows)).links, true);
+    assert.ok(await waitFor(filledJs, 8000));
+    assert.deepEqual((await evaluate(rows)).fields, ['From', 'To', 'Subject']);
+  });
+  await check('the fill falls back to a fresh Compose when it throws, and says so (REQ-13.13.14)', async () => {
+    await openMessage(IDS.small);
+    await delays({ replyHeaders: slowMs(600), quote: 0 });
+    await evaluate(`window.__warns = []; if (!window.__warnWrapped) { window.__warnWrapped = true; const w = console.warn; console.warn = (...a) => { window.__warns.push(a.join(' ')); w.apply(console, a); }; } 1`);
+    await pressOn('Reply');
+    assert.ok(await waitFor(`!!document.querySelector('.compose-pane.preparing')`, 3000));
+    assert.ok(await evaluate(MARK));
+    await evaluate(`window.__shell.editor.chain = () => { throw new Error('boom'); }; 1`); // (the fill cannot be done)
+    assert.ok(await waitFor(filledJs, 8000), 'the reply did not open');
+    const s = await evaluate(SAME);
+    assert.equal(s.pane, false, 'the Compose was not replaced');
+    assert.equal(s.key, false, 'the fallback mounts a new Compose (composeKey +1)');
+    assert.ok((await evaluate(`window.__warns`)).some((x) => /^\[reply\] fill: fallback boom$/.test(x)), `not logged: ${await evaluate(`JSON.stringify(window.__warns)`)}`);
+    const f = await shellFacts();
+    assert.ok(!f.preparing && f.quote && f.chips >= 1 && !f.sendDisabled, JSON.stringify(f));
+  });
+  await check('a second Reply on the same message while it prepares only brings the shell forward (REQ-13.13.7)', async () => {
+    await openMessage(IDS.small);
+    await delays({ replyHeaders: slowMs(900), quote: 0 });
+    await pressOn('Reply');
+    assert.ok(await waitFor(`!!document.querySelector('.compose-pane.preparing')`, 3000));
+    assert.ok(await evaluate(MARK));
+    const calls = await evaluate(`window.__replyHeaderCalls.length`);
+    await evaluate(`document.activeElement?.blur?.(); 1`);
+    await pressOn('Reply');
+    await sleep(200);
+    assert.equal(await evaluate(`window.__replyHeaderCalls.length`), calls, 'the second press started a preparation');
+    assert.equal(await evaluate(`window.__store.getState().composeKey === window.__shell.key`), true, 'the second press opened another compose');
+    assert.ok(await waitFor(filledJs, 8000));
+    assert.deepEqual(await evaluate(SAME), ALL_SAME);
+  });
+
+  // ---- the same rows in the compose window (AC-13.13.19)
+  const WIN_FULL = { accountId: 'a1', to: ['linh.tran@acme.example'], subject: 'Re: Q4 roadmap review', isReply: true, afterShell: true, inReplyTo: '<m1@acme.example>', bodyHtml: '<br><div class="hl-quote"><div>On Mon, Linh wrote:</div><blockquote style="margin:0 0 0 .8ex;border-left:2px solid #ccc;padding-left:1ex"><p>Could you review the milestones?</p></blockquote></div>' };
+  const winShell = async () => {
+    await H.cdp('Page.navigate', { url: 'about:blank' });
+    await H.cdp('Page.navigate', { url: `${H.base}?w=compose&mock=prepare#lang=en` });
+    assert.ok(await waitFor(`!!document.querySelector('.popout-compose .compose-pane.preparing')`, 20000), 'no shell in the window');
+    assert.ok(await waitFor(`(window.__popoutRequests || []).some((r) => r.kind === 'cw-fill-ready')`, 5000), 'the window did not ask for its message');
+    assert.ok(await evaluate(MARK), 'the shell of the window has no instance marker / editor / view');
+  };
+  const winFill = () => evaluate(`window.__mockEmit('popout-reply', { id: 'shell-fill', ok: true, data: ${JSON.stringify(WIN_FULL)}, error: null }); 1`);
+  await check('in place (compose window): the Compose and its editor are the same objects after the hand-over; Ctrl+Z changes nothing; the shell saves nothing (AC-13.13.19)', async () => {
+    await winShell();
+    await evaluate(`window.__hlTiming = { autosaveMs: 400, snapshotMs: 300 }; window.__draftSaveCalls = 0; window.__recoverySaves = 0; 1`);
+    await sleep(1600);
+    assert.deepEqual(await evaluate(`({ saves: window.__recoverySaves || 0, drafts: window.__draftSaveCalls || 0 })`), { saves: 0, drafts: 0 }, 'the shell of the window saved something');
+    await winFill();
+    assert.ok(await waitFor(filledJs, 8000), 'the window did not fill');
+    const s = await evaluate(SAME);
+    assert.deepEqual(s, ALL_SAME, JSON.stringify(s));
+    await sleep(300);
+    const before = await editorDoc();
+    assert.equal(await canUndo(), false, 'the fill is in the undo history');
+    assert.ok(await waitFor(`document.activeElement?.closest?.('.cp-editor') !== null`, 2000), 'the caret is not in the body');
+    await io.press('z', 'KeyZ', 2);
+    await sleep(150);
+    assert.equal(await editorDoc(), before, 'Ctrl+Z changed the message');
+    await io.typeText('abc', 10);
+    await sleep(100);
+    await io.press('z', 'KeyZ', 2);
+    await sleep(150);
+    assert.equal(await editorDoc(), before, 'Ctrl+Z did not remove just the typing');
+    await sleep(2200);
+    assert.deepEqual(await evaluate(`({ saves: window.__recoverySaves || 0, drafts: window.__draftSaveCalls || 0 })`), { saves: 0, drafts: 0 }, 'an untouched reply in the window saved something');
+  });
+  await check('in place (compose window): the fill falls back to a fresh Compose when it throws (REQ-13.13.14)', async () => {
+    await winShell();
+    await evaluate(`window.__warns = []; const w = console.warn; console.warn = (...a) => { window.__warns.push(a.join(' ')); w.apply(console, a); }; window.__shell.editor.chain = () => { throw new Error('boom'); }; 1`);
+    await winFill();
+    assert.ok(await waitFor(filledJs, 8000), 'the window did not open the reply');
+    const s = await evaluate(SAME);
+    assert.equal(s.pane, false, 'the Compose was not replaced');
+    assert.ok((await evaluate(`window.__warns`)).some((x) => /^\[reply\] fill: fallback boom$/.test(x)), 'not logged');
+    assert.equal(await evaluate(`document.querySelectorAll('.cf-field.rcpt .chips > span').length`), 1, 'the recipient');
   });
 
   // ---- 8 languages x 2 sizes x light / dark: the texts, not clipped

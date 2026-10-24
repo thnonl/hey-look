@@ -203,7 +203,7 @@
   "node scripts/test-calendar-at-signin.mjs --quick --require-browser": 194,
   "node scripts/test-calendar-fold.mjs --quick --require-browser": 30,
   "node --experimental-strip-types scripts/test-answer-shell.mjs": 0,
-  "node scripts/test-reply-feedback.mjs --require-browser": 80,
+  "node scripts/test-reply-feedback.mjs --require-browser": 126,
   "node --experimental-strip-types scripts/test-recent-searches.mjs": 0,
   "node scripts/test-search-panel.mjs --require-browser": 22,
   "node --experimental-strip-types scripts/test-notify-sound.mjs": 0,
@@ -249,6 +249,8 @@
   "node scripts/test-folder-reset.mjs --require-browser": 20,
   "node scripts/test-update-toast.mjs --require-browser": 25,
   "node scripts/test-prune-limit.mjs --require-browser": 20,
-  "node scripts/test-server-search-ui.mjs --require-browser": 40
+  "node scripts/test-server-search-ui.mjs --require-browser": 40,
+  "node --experimental-strip-types scripts/test-compose-start.mjs": 0,
+  "node scripts/test-reply-golden.mjs --require-browser": 40
  }
 }

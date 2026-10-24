@@ -22,7 +22,7 @@ const SAMPLER = `(() => {
   const tick = () => {
     if (window.__geo.stop) return;
     const p = document.querySelector('.compose-pane');
-    if (p) window.__geo.frames.push({ t: performance.now(), prep: p.classList.contains('preparing'), pane: rect(p), to: rect(p.querySelector('.cf-field.rcpt')), subject: rect(p.querySelector('.cf-subject')), fmt: rect(p.querySelector('.cp-fmt')), head: rect(p.querySelector('.cp-head')), sec: p.querySelector('.sec-strip')?.getBoundingClientRect().height ?? 0, body: rect(p.querySelector('.cp-editor')), send: rect(p.querySelector('.split-btn .btn.primary')) });
+    if (p) window.__geo.frames.push({ t: performance.now(), prep: p.classList.contains('preparing'), pane: rect(p), to: rect(p.querySelector('.cf-field.rcpt')), subject: rect(p.querySelector('.cf-subject')), fmt: rect(p.querySelector('.cp-fmt')), head: rect(p.querySelector('.cp-head')), sec: p.querySelector('.sec-strip')?.getBoundingClientRect().height ?? 0, capped: (() => { const h = p.querySelector('.cp-head'); return !!h && h.scrollHeight > h.clientHeight + 1; })(), body: rect(p.querySelector('.cp-editor')), send: rect(p.querySelector('.split-btn .btn.primary')) });
     requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);
@@ -33,7 +33,8 @@ const SAMPLER = `(() => {
 async function moved() {
   await evaluate('window.__geo.stop = true; 1');
   return evaluate(`(() => {
-    const f = window.__geo.frames.map((x) => ({ ...x, head: x.head && [x.head[0], x.head[1], x.head[2], x.head[3] - x.sec], fmt: x.fmt && [x.fmt[0], x.fmt[1] - x.sec, x.fmt[2], x.fmt[3]], body: x.body && [x.body[0], x.body[1] - x.sec, x.body[2], x.body[3] + x.sec] })); const last = f[f.length - 1]; const worst = {};
+    // (a header box that is as high as it may be - a low window, it scrolls - is not pushed by the strip: its height and the boxes below it stay, nothing is taken out)
+    const f = window.__geo.frames.map((x) => { const sec = x.capped ? 0 : x.sec; return { ...x, head: x.head && [x.head[0], x.head[1], x.head[2], x.head[3] - sec], fmt: x.fmt && [x.fmt[0], x.fmt[1] - sec, x.fmt[2], x.fmt[3]], body: x.body && [x.body[0], x.body[1] - sec, x.body[2], x.body[3] + sec] }; }); const last = f[f.length - 1]; const worst = {};
     for (const k of ['pane', 'head', 'to', 'subject', 'fmt', 'body', 'send']) {
       worst[k] = 0;
       for (const fr of f) { if (!fr[k] || !last[k]) continue; worst[k] = Math.max(worst[k], ...fr[k].map((v, i) => Math.abs(v - last[k][i]))); }
@@ -60,8 +61,10 @@ try {
     await H.openApp('lang=en', w, h);
     assert.ok(await evaluate(FIXTURES), 'the fixtures were not added');
     await evaluate(`window.__store.getState().refresh().then(() => 1)`);
-    for (const [label, id] of [['Reply', IDS.big], ['Reply all', IDS.big], ['Forward', IDS.small]]) {
-      await check(`${label} in the pane at ${w} x ${h}`, async () => {
+    // (a Reply all with Cc recipients has the Cc and Bcc rows in the shell, a forward with an Auto Bcc has them too: REQ-13.13.12, nothing appears at the fill)
+    for (const [label, id, pref] of [['Reply', IDS.big, ''], ['Reply all', IDS.big, ''], ['Forward', IDS.small, ''], ['Reply all', IDS.cc, ''], ['Forward', IDS.small, 'audit@example.com']]) {
+      await check(`${label}${id === IDS.cc ? ' with Cc' : ''}${pref ? ' with an Auto Bcc' : ''} in the pane at ${w} x ${h}`, async () => {
+        await evaluate(`window.__store.getState().setPrefs({ autoBcc: ${JSON.stringify(pref)} }); 1`);
         await openMessage(id);
         // headers take 600 ms: the shell is on screen for a while; the fill comes after
         await evaluate(`window.__mockDelays = { replyHeaders: 600, quote: 10 }; window.__attachmentCalls = []; window.__replyHeaderCalls = []; 1`);
@@ -70,10 +73,12 @@ try {
         assert.ok(await waitFor(`!!document.querySelector('.compose-pane.preparing')`, 5000), 'no shell');
         assert.ok(await waitFor(`!document.querySelector('.compose-pane.preparing') && !!document.querySelector('.compose-pane .quote-block')`, 12000), 'the message never filled in');
         await sleep(600);
-        assertStill(await moved(), `${label} ${w}x${h}`);
+        assertStill(await moved(), `${label} ${id} ${pref} ${w}x${h}`);
+        if (id === IDS.cc || pref) assert.equal(await evaluate(`document.querySelectorAll('.compose-pane .cp-fields .cf-field.rcpt').length`), 3, 'the Cc and Bcc rows are there');
       });
     }
   }
+  await evaluate(`window.__store.getState().setPrefs({ autoBcc: '' }); 1`);
   // the compose window: the shell, then the message handed over
   for (const [w, h] of [[960, 560], [1280, 800]]) {
     await check(`the compose window at ${w} x ${h}`, async () => {

@@ -98,7 +98,8 @@ function quotePictures(m: MessageFull): Promise<ForwardFiles | null> {
 const answers = createAnswerShell({
   open: (init, o) => startShell(init, o),
   paneHas: (id) => useStore.getState().compose?.preparing?.id === id,
-  fillPane: (init) => useStore.getState().openCompose(init),
+  // in place: the Compose and the editor made for the shell take the message (WP13f-3); false = the shell is not the compose any more, the result is dropped
+  fillPane: async (id, init) => void useStore.getState().fillCompose(id, init),
   fillWindow: (label, init) => {
     if (label) fills.deliver(label, init);
   },
@@ -203,6 +204,8 @@ export async function replyTo(m: MessageFull, all: boolean, thread: MessageFull[
     kind: "reply",
     key,
     o: { ...o, shift, key },
+    // Reply all with Cc recipients (as the message is stored; the headers of the server change names, not who): the Cc and Bcc rows are in the shell, nothing appears at the fill (REQ-13.13.12)
+    cc: all && (message(fallbackHeaders(m, thread), "").cc?.length ?? 0) > 0,
     shell: { accountId: fromAccountFor(st.accounts, m.accountId, st.prefs.defaultAccount), subject: reSubject, isReply: true, confidential: m.confidential },
     prepare: async (painted) => {
       // the three slow steps start together (REQ-13.13.3); the quote is cleaned when the pictures are in it and the shell was painted
