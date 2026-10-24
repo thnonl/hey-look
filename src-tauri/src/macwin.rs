@@ -591,8 +591,71 @@ unsafe fn set_ground(w: *mut AnyObject, dark: Option<bool>) {
         let color: *mut AnyObject = msg_send![class, colorWithSRGBRed: f64::from(r) / 255.0, green: f64::from(g) / 255.0, blue: f64::from(b) / 255.0, alpha: 1.0f64];
         if !color.is_null() {
             let _: () = msg_send![w, setBackgroundColor: color];
+            // an opaque window: nothing of what is behind it (or a material of the title bar) mixes into the strip (D-099: two bands in the search window)
+            let _: () = msg_send![w, setOpaque: Bool::YES];
         }
     }
+}
+
+/// The background colour a window has now, in sRGB, 8 bits per channel (None when it has none or cannot be converted).
+///
+/// SAFETY (caller): `w` is a live NSWindow on the main thread.
+unsafe fn read_ground(w: *mut AnyObject) -> Option<(u8, u8, u8)> {
+    // SAFETY: Objective-C messages to AppKit objects; every returned object is checked for null before it is messaged.
+    unsafe {
+        let color: *mut AnyObject = msg_send![w, backgroundColor];
+        let space_class = AnyClass::get(c"NSColorSpace")?;
+        if color.is_null() {
+            return None;
+        }
+        let srgb: *mut AnyObject = msg_send![space_class, sRGBColorSpace];
+        let converted: *mut AnyObject = msg_send![color, colorUsingColorSpace: srgb];
+        if converted.is_null() {
+            return None;
+        }
+        let (mut r, mut g, mut b, mut a) = (0f64, 0f64, 0f64, 0f64);
+        let _: () = msg_send![converted, getRed: &mut r as *mut f64, green: &mut g as *mut f64, blue: &mut b as *mut f64, alpha: &mut a as *mut f64];
+        let level = |v: f64| (v * 255.0).round().clamp(0.0, 255.0) as u8;
+        Some((level(r), level(g), level(b)))
+    }
+}
+
+/// Is the colour a window has more than 2 levels (of 255) away from the ground of the theme it has to show? (The two grounds are far apart; a colour in tao's colour space is 6 off.)
+fn ground_differs(have: (u8, u8, u8), dark: bool) -> bool {
+    let (r, g, b) = if dark { crate::bgcolor::DARK } else { crate::bgcolor::LIGHT };
+    [(have.0, r), (have.1, g), (have.2, b)].iter().any(|(a, b)| a.abs_diff(*b) > 2)
+}
+
+/// The global default `AppleInterfaceStyle` ("Dark" while dark mode is on, none in Light), read fresh: the OS colour mode, not what any window cached.
+pub fn os_style() -> Option<String> {
+    // SAFETY: Foundation messages (NSUserDefaults may be read from any thread); null is checked.
+    unsafe {
+        let (defaults, string) = (AnyClass::get(c"NSUserDefaults")?, AnyClass::get(c"NSString")?);
+        let standard: *mut AnyObject = msg_send![defaults, standardUserDefaults];
+        let key: *mut AnyObject = msg_send![string, stringWithUTF8String: c"AppleInterfaceStyle".as_ptr()];
+        if standard.is_null() || key.is_null() {
+            return None;
+        }
+        let value: *mut AnyObject = msg_send![standard, stringForKey: key];
+        if value.is_null() { None } else { Some(text(value)) }
+    }
+}
+
+/// The ground of the theme (`dark`) as the background colour of every window: tauri's windows and every other titled one. One line of the log per window that was not right.
+/// Main thread.
+pub fn ground_all(dark: bool, known: &[(String, *mut c_void)]) -> Vec<String> {
+    let mut out = Vec::new();
+    // SAFETY: main thread (caller); pointers from AppKit or tauri's live windows, checked for null.
+    unsafe {
+        for (label, w) in work_list(known, None) {
+            let before = read_ground(w);
+            set_ground(w, Some(dark));
+            if before.is_none_or(|c| ground_differs(c, dark)) {
+                out.push(format!("{label}: background colour {before:?} -> {:?}", read_ground(w)));
+            }
+        }
+    }
+    out
 }
 
 /// The window's own appearance name ("nil" = none of its own), the one it shows, and whether that is a dark one.
@@ -1005,7 +1068,9 @@ pub fn mismatched(dark: Option<bool>, known: &[(String, *mut c_void)]) -> Vec<St
                 continue;
             }
             let (_, shown) = effective(w);
-            if shown.is_some_and(|s| s != expected) {
+            // D-099: the colour behind the transparent title bar is looked at too (a window that shows the right appearance with the wrong ground is not right)
+            let wrong_ground = read_ground(w).is_some_and(|c| ground_differs(c, expected));
+            if shown.is_some_and(|s| s != expected) || wrong_ground {
                 let label = known.iter().find(|(_, p)| *p as *mut AnyObject == w).map(|(l, _)| l.clone());
                 out.push(label.unwrap_or_else(|| {
                     let number: isize = msg_send![w, windowNumber];

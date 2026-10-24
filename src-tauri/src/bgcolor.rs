@@ -44,9 +44,29 @@ pub fn color_of(theme: Theme) -> Color {
     Color(r, g, b, 255)
 }
 
-/// The OS theme as far as it can be known: what the main window reports, which is the OS's own while the setting pins nothing.
+/// The theme the OS has, from the value of the global default `AppleInterfaceStyle` (macOS: "Dark" while dark mode is on, no value in Light).
+pub fn os_theme_from_style(style: Option<&str>) -> Theme {
+    if style.is_some_and(|s| s.eq_ignore_ascii_case("dark")) { Theme::Dark } else { Theme::Light }
+}
+
+/// The OS theme as far as it can be known. macOS: the system's own setting, read fresh (a window's `theme()` is what tao cached when that window was last told a theme, and a window
+/// that kept an old one gave its own ground colour to the title strip: D-099, the reader and search windows stayed dark in Light). Elsewhere: what a window reports, which is the OS's
+/// own while the setting pins nothing.
 fn os_theme(app: &AppHandle) -> Option<Theme> {
-    app.webview_windows().values().find_map(|w| w.theme().ok())
+    #[cfg(target_os = "macos")]
+    {
+        let _ = app;
+        Some(os_theme_from_style(crate::macwin::os_style().as_deref()))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        app.webview_windows().values().find_map(|w| w.theme().ok())
+    }
+}
+
+/// The theme every window is shown in now: ONE answer for all of them (the setting, else the OS).
+pub fn current(app: &AppHandle) -> Theme {
+    theme_for(crate::wintheme::choice_of_app(app), os_theme(app))
 }
 
 /// The colour a window that is about to be created gets.
@@ -57,18 +77,22 @@ pub fn for_new_window(app: &AppHandle) -> Color {
 /// Give every window (visible, hidden or parked) the colour of the current theme setting. Safe to call from any thread, as often as needed.
 /// Returns the theme used and how many windows were set, for the log.
 pub fn apply(app: &AppHandle) -> (Theme, usize) {
-    let choice = crate::wintheme::choice_of_app(app);
+    // one theme for every window, whatever kind it is: a window never decides its own ground (D-099)
+    let theme = current(app);
     let mut n = 0;
-    let mut used = theme_for(choice, None);
     for w in app.webview_windows().values() {
-        // a pinned window reports the pinned theme; with System it is the OS's (`apply_all` released the pin before it comes here)
-        let theme = theme_for(choice, w.theme().ok());
-        used = theme;
         if w.set_background_color(Some(color_of(theme))).is_ok() {
             n += 1;
         }
     }
-    (used, n)
+    // macOS: tao gives the NSWindow a colour in a colour space of its own (a dark ground reads (21,21,21), white (253,251,251)); the same ground in sRGB, exact, is set after it on the
+    // main thread (the event loop runs the two in the order they were queued), for every window
+    #[cfg(target_os = "macos")]
+    {
+        let handle = app.clone();
+        let _ = app.run_on_main_thread(move || crate::wintheme::ground_all(&handle, theme == Theme::Dark));
+    }
+    (theme, n)
 }
 
 #[cfg(test)]
@@ -86,6 +110,60 @@ mod tests {
     #[test]
     fn when_nothing_is_known_the_window_starts_light_like_the_pages_own_css() {
         assert_eq!(theme_for(None, None), Theme::Light);
+    }
+
+    /// D-099: the ground of a window is a function of the setting and the OS alone - the same table for every kind of window, at creation, on a change of the setting and of the OS.
+    #[test]
+    fn the_ground_colour_follows_the_setting_and_the_os_in_a_table() {
+        let (d, l) = (Color(0x1b, 0x1c, 0x20, 255), Color(255, 255, 255, 255));
+        // (setting, OS, ground)
+        let table = [
+            (Some(Theme::Light), Some(Theme::Dark), l),
+            (Some(Theme::Light), Some(Theme::Light), l),
+            (Some(Theme::Light), None, l),
+            (Some(Theme::Dark), Some(Theme::Dark), d),
+            (Some(Theme::Dark), Some(Theme::Light), d),
+            (Some(Theme::Dark), None, d),
+            (None, Some(Theme::Dark), d),
+            (None, Some(Theme::Light), l),
+            (None, None, l),
+        ];
+        for (choice, os, want) in table {
+            assert_eq!(color_of(theme_for(choice, os)), want, "setting {choice:?}, OS {os:?}");
+        }
+        // the OS from the global default
+        assert_eq!(os_theme_from_style(Some("Dark")), Theme::Dark);
+        assert_eq!(os_theme_from_style(Some("dark")), Theme::Dark);
+        assert_eq!(os_theme_from_style(None), Theme::Light, "no value = Light");
+        assert_eq!(os_theme_from_style(Some("")), Theme::Light);
+        assert_eq!(os_theme_from_style(Some("Light")), Theme::Light);
+    }
+
+    /// D-099: nothing decides a ground from a single window (its cached `theme()`), the macOS native colour is set for every window after tao's, and the watchdog looks at the colour.
+    #[test]
+    fn every_road_gives_every_window_the_same_ground_natively_too() {
+        let src = |f: &str| crate::test_guard::non_test_code(&std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join(f)).unwrap());
+        let (bg, wt, mac, pop) = (src("bgcolor.rs"), src("wintheme.rs"), src("macwin.rs"), src("popout.rs"));
+        let apply = &bg[bg.find("pub fn apply(").unwrap()..];
+        let apply = &apply[..apply.find("\n}\n").unwrap()];
+        assert!(!apply.contains("w.theme()"), "a window's own cached theme decides nothing: {apply}");
+        assert!(apply.contains("let theme = current(app);") && apply.contains("crate::wintheme::ground_all(&handle, theme == Theme::Dark)"), "{apply}");
+        // the native part: every window of the work list (tauri's windows and every other titled one), the colour opaque and in sRGB
+        let walk = &mac[mac.find("pub fn apply_appearance(").unwrap()..];
+        let walk = &walk[..walk.find("\n}\n").unwrap()];
+        assert!(walk.contains("for (label, w) in work_list(known, only) {") && walk.contains("set_ground(w, expected);"), "{walk}");
+        let ground = &mac[mac.find("unsafe fn set_ground(").unwrap()..];
+        let ground = &ground[..ground.find("\n}\n").unwrap()];
+        assert!(ground.contains("colorWithSRGBRed") && ground.contains("setOpaque: Bool::YES") && ground.contains("setBackgroundColor"), "{ground}");
+        assert!(mac.contains("pub fn ground_all(") && mac.contains("pub fn mismatched(") && mac[mac.find("pub fn mismatched(").unwrap()..].contains("read_ground(w)"), "the watchdog compares the colour");
+        // a window is made with the colour and then goes through apply_all (bgcolor::apply + the native part)
+        let create = &pop[pop.find("fn create(").unwrap()..];
+        let create = &create[..create.find("\n}\n").unwrap()];
+        assert!(create.contains("bgcolor::for_new_window(app)") && create.contains("crate::wintheme::apply_all(app,"), "{create}");
+        // the setting, the OS theme and the custom colours all end in apply_all
+        let all = &wt[wt.find("pub fn apply_all(").unwrap()..];
+        assert!(all[..all.find("\n}\n").unwrap()].contains("crate::bgcolor::apply(app)"));
+        assert!(wt.contains("pub fn ground_all(") && wt.contains("crate::macwin::ground_all("));
     }
 
     #[test]

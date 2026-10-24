@@ -483,6 +483,19 @@ fn native_windows(app: &AppHandle) -> Vec<(String, *mut std::ffi::c_void)> {
     v
 }
 
+/// macOS: the ground colour of the theme as the background colour of every window (bgcolor.rs, after tao's own call). Main thread. Logs the windows that were not right.
+#[cfg(target_os = "macos")]
+pub fn ground_all(app: &AppHandle, dark: bool) {
+    let known = native_windows(app);
+    for l in crate::macwin::ground_all(dark, &known) {
+        log(&format!("  ground colour: {l}"));
+    }
+}
+
+/// Other systems: the colour is the web view's and the window's through tauri (bgcolor.rs).
+#[cfg(not(target_os = "macos"))]
+pub fn ground_all(_app: &AppHandle, _dark: bool) {}
+
 /// What the last apply asked for, as the appearance the windows have to end with: `None` = System (no appearance of their own).
 #[cfg(target_os = "macos")]
 fn target_dark() -> Option<bool> {
