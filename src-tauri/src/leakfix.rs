@@ -10,6 +10,8 @@
 //! that `check` takes from the weak one (the references of `sweep` were dropped before the weak reference was made). A future macOS, tao or wry that fixes the leak lowers the count to
 //! that one reference and nothing is released (no over-release); a count that is not plausible (an immortal object reports a huge number) releases nothing either.
 
+#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
+
 /// The most references released from one window, whatever the count says.
 pub const MAX_RELEASES: usize = 4;
 
