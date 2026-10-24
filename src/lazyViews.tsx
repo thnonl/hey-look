@@ -6,6 +6,7 @@ import { useT } from "./i18n/react";
 import { lazyView, LazyLoading } from "./lazy";
 import { prefetchLazy } from "./lazyLoad";
 import type { SearchAdvancedProps } from "./components/SearchAdvanced";
+import type { PdfViewProps } from "./pdfView";
 import { useStore } from "./store";
 
 // The big parts of the app that are loaded when they are needed (1.0.7 WP9d, W9.2; the plan is spec-107-wp9 section 2.2). THIS is the only place that imports them (a `import()` each);
@@ -17,6 +18,7 @@ import { useStore } from "./store";
 //   dialogs     the bulk cleaner and Show original                                   on open
 //   search      "Advanced search" of the search panel (filters, dates, fields)       when the person opens it
 //   folder      the New folder / New subfolder dialog                                on open
+//   pdfview     the PDF viewer of the attachment preview (PDF.js, macOS and Linux)   on the first PDF preview of the run (W5.1)
 //   popout      the compose window's and the reader window's view                    their own window (popout/views.tsx)
 // Loading, retry and failure: lazy.tsx / lazyLoad.ts.
 
@@ -31,6 +33,7 @@ const pgpModule = () => import("./components/PgpDialogs");
 const dialogsModule = () => import("./components/Dialogs");
 const searchAdvancedModule = () => import("./components/SearchAdvanced");
 const folderModule = () => import("./components/FolderDialog");
+const pdfViewModule = () => import("./pdfView");
 
 export const loadComposeWindowView = () => import("./popout/ComposeView").then(async (m) => (await m.ready(), m));
 export const loadReaderWindowView = () => import("./popout/ReaderView");
@@ -132,6 +135,9 @@ export const LazySettings = lazyView<SettingsModule, React.ComponentProps<Settin
   failed: closeDialog,
 });
 
+/** The Settings page as the page of the Settings window (W4.6): nothing is drawn but the loading look while it loads. */
+export const LazySettingsWindowForm = lazyView<SettingsModule, React.ComponentProps<SettingsModule["Settings"]>>({ key: "settings", kind: "settings", load: settingsModule, pick: (m) => m.Settings });
+
 type CalendarModule = Awaited<ReturnType<typeof calendarModule>>;
 const calendarOpts = { key: "calendar", kind: "calendar", load: calendarModule } as const;
 /** The Calendar pane. */
@@ -164,6 +170,9 @@ export const LazyEventDialog = lazyView<CalendarModule, EventProps>({
   frame: (p, late) => <DialogFrame title={p.eventId ? "calendar.dialog.editTitle" : "calendar.newEvent"} late={late} width={560} onClose={closeDialog} />,
   failed: closeDialog,
 });
+
+/** The event form as the page of an event window (W4.6): nothing is drawn but the loading look while it loads; a failure is told by a toast and the window can be closed as usual. */
+export const LazyEventWindowForm = lazyView<CalendarModule, EventProps>({ ...calendarOpts, pick: (m) => m.EventDialog });
 
 type PgpModule = Awaited<ReturnType<typeof pgpModule>>;
 const pgpOpts = { key: "pgp", kind: "pgp", load: pgpModule, dialog: true, failed: closeDialog } as const;
@@ -205,3 +214,23 @@ export const LazyFolderDialog = lazyView<FolderModule, React.ComponentProps<Fold
   frame: (p, late) => <DialogFrame title={p.parentKey ? "mail.folder.dlgTitleSub" : "mail.folder.dlgTitle"} late={late} width={440} onClose={closeDialog} />,
   failed: closeDialog,
 });
+
+type PdfViewModule = Awaited<ReturnType<typeof pdfViewModule>>;
+/** The pages of a PDF in the attachment preview (PDF.js and its styles: a chunk of its own). While it loads the stage shows the spinner; when it cannot be loaded the preview shows the card (`onUnavailable`), no toast. */
+export const LazyPdfView = lazyView<PdfViewModule, PdfViewProps>({
+  key: "pdfview",
+  kind: "pdfview",
+  load: pdfViewModule,
+  pick: (m) => m.PdfView,
+  quiet: true,
+  frame: () => <PdfViewLoading />,
+  failed: (p) => p.onUnavailable(),
+});
+function PdfViewLoading() {
+  const t = useT();
+  return (
+    <div className="pv-msg" role="status">
+      <div><span className="spin" /> {t("common.loading")}</div>
+    </div>
+  );
+}

@@ -55,6 +55,8 @@ export interface PlaceOptions {
   minRoom?: number;
   /** with `cover: false`: which side is tried first (default below) */
   prefer?: "above" | "below";
+  /** the least y the popover may reach on its way up: a popover above a selection stays below this line (the mini toolbar must not cover the formatting toolbar over the first line); default: `edge` */
+  roof?: number;
   /** `false`: the popover never overlaps the anchor box: it goes where it fits in full, else `null` (a selection that fills the room has no place for a toolbar) */
   cover?: boolean;
 }
@@ -68,12 +70,12 @@ export interface PlaceOptions {
 export function placePopover(anchor: PlaceBox, size: { w: number; h: number }, win: { w: number; h: number }, o: PlaceOptions & { cover: false }): Placed | null;
 export function placePopover(anchor: PlaceBox, size: { w: number; h: number }, win: { w: number; h: number }, o?: PlaceOptions): Placed;
 export function placePopover(anchor: PlaceBox, size: { w: number; h: number }, win: { w: number; h: number }, o: PlaceOptions = {}): Placed | null {
-  const { edge = 8, gap = 4, inset = 0, align = "left", toasts = null, minRoom = 0, prefer = "below", cover = true } = o;
+  const { edge = 8, gap = 4, inset = 0, align = "left", toasts = null, minRoom = 0, prefer = "below", cover = true, roof = 0 } = o;
   const want = align === "right" ? anchor.right - size.w : align === "center" ? (anchor.left + anchor.right) / 2 - size.w / 2 : anchor.left + inset;
   const left = Math.max(edge, Math.min(want, win.w - size.w - edge));
   const floor = popoverFloor(win.h, edge, left, left + size.w, toasts);
   const below = floor - (anchor.bottom + gap);
-  const above = anchor.top - gap - edge;
+  const above = anchor.top - gap - Math.max(edge, roof);
   if (!cover) {
     const fitsAbove = above >= size.h;
     const fitsBelow = below >= size.h;

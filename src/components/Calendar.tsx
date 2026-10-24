@@ -873,7 +873,7 @@ export function EventDialog({ eventId, init, draft, windowed }: { eventId?: stri
   /** the form is over: the dialog closes, or the window ends */
   const finish = () => (windowed ? windowed.done() : setDialog(null));
   /** a toast: in the window of a form that is a window, in the main window (the window ends) */
-  const say = (text: string, kind: "info" | "success" | "error") => (windowed ? windowed.toast(text, kind) : showToast(text, undefined, kind));
+  const say = (text: () => string, kind: "info" | "success" | "error") => (windowed ? windowed.toast(text(), kind) : showToast(() => text(), undefined, kind));
   // moving the start moves the end with it (same length); the end alone never moves the start
   const moveStartTo = (change: { sd?: string; st?: string }) => {
     const n = moveStart({ sd, st, ed, et }, change, allDay);
@@ -980,7 +980,7 @@ export function EventDialog({ eventId, init, draft, windowed }: { eventId?: stri
     } else if (!(await st2.confirm({ title: t("calendar.pop.deleteTitle", { summary: existing.summary }), body: existing.rrule ? t("calendar.pop.deleteRepeating") : undefined, confirmLabel: t("common.delete"), danger: true }))) return;
     try {
       await api.calendarDeleteEvent(existing.id, notify);
-      say(notify ? t("calendar.toast.cancelledNotified") : t("calendar.toast.deleted"), "success");
+      say(() => (notify ? t("calendar.toast.cancelledNotified") : t("calendar.toast.deleted")), "success");
       finish();
     } catch (e) {
       showToast(() => friendlyError(e), undefined, "error");
@@ -1028,7 +1028,7 @@ export function EventDialog({ eventId, init, draft, windowed }: { eventId?: stri
         hasGuests && !remote,
       );
       if (!eventId && (remote || prefs.calDefaultCalendar)) setPrefs({ calDefaultCalendar: remote ? calId : "" });
-      say(hasGuests ? t("calendar.toast.invitationsSent", { n: invite.length }) : eventId ? t("calendar.toast.eventSaved") : t("calendar.toast.eventAdded"), "success");
+      say(() => (hasGuests ? t("calendar.toast.invitationsSent", { n: invite.length }) : eventId ? t("calendar.toast.eventSaved") : t("calendar.toast.eventAdded")), "success");
       bumpCal();
       useStore.getState().setCalDate(allDay ? dayOfMs(ev.start * 1000, "UTC") : dayOfMs(ev.start * 1000, tz));
       finish();
@@ -1037,7 +1037,7 @@ export function EventDialog({ eventId, init, draft, windowed }: { eventId?: stri
       const code = errorCode(err);
       if (code === "CAL_SEND_FAILED" || code === "CAL_CONFLICT" || code === "CAL_GONE") {
         // the invitations failed, or the service's version won: said once, the dialog closes (the calendar shows what is there now)
-        say(friendlyError(err), "error");
+        say(() => friendlyError(err), "error");
         finish();
       } else if (code === "CAL_OFFLINE") {
         // nothing was saved: the dialog stays open with what was typed

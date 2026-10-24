@@ -6,6 +6,8 @@ import { applySavedLanguage } from "./bootLang";
 import { GuardMenuHost } from "./components/GuardMenuHost";
 import { installContextGuard } from "./contextGuard";
 import { loadPlatform } from "./platform";
+import { onOsDarkChange, startOsTheme } from "./osTheme";
+import { applyPrefs, useStore } from "./store";
 import { installMacPasteMatch, installPlainPasteKey } from "./plainPasteKey";
 import { prefetchComposeWindow, prefetchReaderWindow, prefetchWindowView } from "./lazyViews";
 import PopoutRoot from "./popout/PopoutRoot";
@@ -36,6 +38,10 @@ async function boot(): Promise<boolean> {
   if (import.meta.env.DEV && mock) {
     (await import("./devMock")).installMock();
   }
+  // Linux: what the OS scheme is comes from the backend (osTheme.ts, W5.2); asked before the first drawing, the answer waits for at most a second (never on Windows and macOS: no wait)
+  void onOsDarkChange(() => applyPrefs(useStore.getState().prefs));
+  const osAsked = startOsTheme();
+  if (/Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent)) await Promise.race([osAsked, new Promise((r) => setTimeout(r, 1200))]);
   // the saved language first: nothing is drawn, and no event handler exists yet, until it is applied (see bootLang.ts)
   await applySavedLanguage(api.getSetting);
   // the main window reads the system (and whether this is a debug build) in the store's init(); a secondary window has no init(), and the menu rules need it

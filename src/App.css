@@ -875,6 +875,9 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 /* a long option text must never push the control (or its override tag) out of the settings body */
 .set-ctl, .ov { min-width: 0; }
 .ov { max-width: 100%; }
+/* Settings > Notifications & tray on macOS, notifications turned off in System Settings (W5.10): the muted note and the button under the Send test row; the button wraps under the note on a narrow window */
+.mac-notify-denied { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 10px 0 14px; border-bottom: 1px solid var(--border); min-width: 0; }
+.mac-notify-denied .muted { overflow-wrap: anywhere; }
 /* Settings > Notifications > Sound: the switch and "Play sound" (W13.8) */
 .sound-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
 .sound-play { display: inline-flex; align-items: center; gap: 6px; }
@@ -1669,6 +1672,9 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 /* ===== reader window (src/popout/ReaderView.tsx): the reading pane under a toolbar of labelled buttons ===== */
 .reader-win { display: flex; flex-direction: column; height: 100vh; background: var(--bg); color: var(--fg); }
 .reader-bar { display: flex; align-items: center; flex-wrap: nowrap; overflow: hidden; gap: 1px; padding: 6px 8px; border-bottom: 1px solid var(--border); background: var(--bg2); }
+/* macOS (D-092): the native title bar of a window is transparent, so the top edge of the page is what shows in the strip above it: the ground colour (--bg) in every kind of window, not the toolbar's or the nav's own grey */
+:root[data-os="macos"] .reader-bar { background: var(--bg); }
+:root[data-os="macos"] .modal.windowed .settings-nav { background: var(--bg); }
 .reader-bar .rb { padding: 7px 8px; gap: 6px; flex: none; }
 .reader-bar .dd { flex: none; }
 .reader-bar .sep { align-self: stretch; width: 1px; margin: 4px 5px; background: var(--border); flex: none; }

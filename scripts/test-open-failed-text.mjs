@@ -55,8 +55,8 @@ for (const os of ["windows", "linux"]) {
   assert.equal(quitKeepKey(os), "app.quit.keepRunning");
   assert.equal(scheduleKeepKey(os), "compose.schedule.keepInTray");
 }
-assert.match(read("src/App.tsx"), /label: t\(quitKeepKey\(osNow\(\)\)\), kind: "primary"/, "the quit question uses the per-system key");
-assert.match(read("src/components/SchedulePicker.tsx"), /\{t\(scheduleKeepKey\(osNow\(\)\)\)\}<\/button>/, "the Send later picker uses the per-system key");
+assert.match(read("src/App.tsx"), /label: t\(quitKeepKey\(osNow\(\), usePlatform\.getState\(\)\.tray\)\), kind: "primary"/, "the quit question uses the per-system key");
+assert.match(read("src/components/SchedulePicker.tsx"), /\{t\(keepKey\)\}<\/button>/, "the Send later picker uses the per-system key");
 assert.equal(en["app.quit.keepRunningMac"], "Keep running in the menu bar");
 assert.equal(en["compose.schedule.keepInMenuBar"], "Keep running in the menu bar");
 assert.equal(en["app.quit.keepRunning"], "Keep running in tray", "Windows and Linux keep the tray words");

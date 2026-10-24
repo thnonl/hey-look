@@ -4,6 +4,7 @@ import { badgeText } from "../focusCounts";
 import { makeFakeMailbox } from "../fakeMail";
 import { useT } from "../i18n/react";
 import { useStore } from "../store";
+import { useAppDark } from "../useAppDark";
 import { dateGroup, fmtFull } from "../util";
 import { ThreadRow } from "./MessageList";
 import { Avatar } from "./ui";
@@ -19,7 +20,7 @@ export function AppearancePreview() {
   const prefs = useStore((s) => s.prefs);
   const [seed, setSeed] = useState(() => Math.floor(Math.random() * 1e6));
   const box = useMemo(() => makeFakeMailbox(seed), [seed]);
-  const dark = prefs.theme === "dark" || (prefs.theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  const dark = useAppDark();
   const threads = prefs.sortAsc ? [...box.threads].reverse() : box.threads;
   const shown = prefs.focused ? threads.filter((th) => !th.bulk) : threads;
   // like the real side menu: bulk mail is in the Inbox number when "Count Other (bulk) mail" is on or Focused Inbox is off

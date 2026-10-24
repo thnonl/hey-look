@@ -5,7 +5,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
-import { EventDialog, type EventDraft, type EventWindowHooks } from "../components/Calendar";
+import { LazyEventWindowForm } from "../lazyViews";
 import { t as tNow } from "../i18n";
 import { useStore, type EventInit } from "../store";
 import { askMain } from "./readerBridge";
@@ -13,6 +13,10 @@ import { popoutTitle } from "./route";
 import type { PopoutViewProps } from "./views";
 
 const quiet = () => undefined;
+
+// (the types of the form; the form itself is loaded by lazyViews.tsx like every big part: test-lazy-load)
+type EventDraft = import("../components/Calendar").EventDraft;
+type EventWindowHooks = import("../components/Calendar").EventWindowHooks;
 
 interface Spec {
   eventId?: string;
@@ -102,7 +106,7 @@ export default function EventView({ init }: PopoutViewProps) {
   if (!ready) return <div className="popout-root" data-popout="loading" />;
   return (
     <div data-popout="event">
-      <EventDialog eventId={spec.eventId} init={spec.init} draft={spec.draft} windowed={hooks} />
+      <LazyEventWindowForm eventId={spec.eventId} init={spec.init} draft={spec.draft} windowed={hooks} />
     </div>
   );
 }

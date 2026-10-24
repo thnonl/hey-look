@@ -12,6 +12,8 @@ import { keyKeepsMini, miniShouldShow, selectionBox, type Rect, type SelectionKi
 /** Where the toolbar is shown: the selection box (clipped to the scroll area) and the selection it was made for. */
 export interface MiniShown {
   box: Rect;
+  /** the lowest y the toolbar may reach going up: the bottom of the formatting toolbar when that is above the selection, else of the scroll area */
+  roof: number;
   from: number;
   to: number;
   inTable: boolean;
@@ -55,6 +57,17 @@ function visibleArea(el: HTMLElement): Rect {
     }
   }
   return clip;
+}
+
+/** The bottom of the formatting toolbar of this editor (the nearest ancestor that holds one), 0 when there is none above `top`: the mini toolbar never goes over it (D-090). */
+function barBottom(el: HTMLElement, top: number): number {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const bar = p.querySelector<HTMLElement>(".fmt-tb");
+    if (!bar) continue;
+    const r = bar.getBoundingClientRect();
+    return r.height > 0 && r.top < top ? r.bottom : 0;
+  }
+  return 0;
 }
 
 /** Every character of the range has the same link: the link bubble owns that case. */
@@ -102,8 +115,9 @@ export function useMiniShow(editor: Editor | null, flags: MiniFlags): { shown: M
       const inOneLink = kind === "text" && insideOneLink(editor, sel.from, sel.to);
       const ok = miniShouldShow({ enabled: st.flags.enabled, source: "mouse", selection: kind, inOneLink, painterOn: st.flags.painterOn, composing: st.composing || view.composing, blocked: st.flags.blocked });
       const range = ok ? win.getSelection()?.rangeCount ? win.getSelection()!.getRangeAt(0) : null : null;
-      const box = range ? selectionBox(textRects(doc, range), visibleArea(dom)) : null;
-      setShown(box ? { box, from: sel.from, to: sel.to, inTable: editor.isActive("table") } : null);
+      const area = visibleArea(dom);
+      const box = range ? selectionBox(textRects(doc, range), area) : null;
+      setShown(box ? { box, roof: Math.max(area.top, barBottom(dom, box.top)), from: sel.from, to: sel.to, inTable: editor.isActive("table") } : null);
     };
 
     const down = (e: PointerEvent) => {

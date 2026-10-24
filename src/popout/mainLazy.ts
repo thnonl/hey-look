@@ -53,7 +53,10 @@ export async function popIn(env: Envelope, init: ComposeInit): Promise<void> {
 /** The result of a Move to main window that said "asking": when the person has answered the question of the main window. */
 export function popInResult(env: Envelope): void {
   const pending = popIns.get(env.from);
-  void (pending ?? Promise.resolve(false)).then((opened) => reply(env, { opened }));
+  void (pending ?? Promise.resolve(false)).then((opened) => {
+    popIns.delete(env.from); // (the question is answered: the entry of this window is not kept for the rest of the run)
+    reply(env, { opened });
+  });
 }
 
 /**

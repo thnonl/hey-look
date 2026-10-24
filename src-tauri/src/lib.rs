@@ -29,7 +29,14 @@ mod linuxopen;
 mod linuxview;
 // macOS notification diagnostic (HEYLOOK_MAC_NOTIFY); compiled everywhere so that its rules are tested everywhere
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod linuxtheme;
 mod macnotify;
+// macOS Print (W5.3): the rules are compiled everywhere and tested everywhere, the AppKit calls only on macOS
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod macprint;
+// Linux notification buttons (W5.4) and the "Send test" check (W5.6): the rules are compiled everywhere and tested everywhere
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+mod linuxnotify;
 // the macOS Dock badge: the call's rules and record (D-056); compiled everywhere so that they are tested everywhere
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod dockbadge;
@@ -41,6 +48,9 @@ mod macdock;
 #[cfg(target_os = "macos")]
 mod macquit;
 // the native window of a pop-out, finished by hand once it is gone (popout.rs)
+// the source guard of the macOS window code (DEC-024): no manual release of a window or a view; compiled for the tests only
+#[cfg(test)]
+mod leakfix;
 #[cfg(target_os = "macos")]
 mod macwin;
 // the macOS title bar repaint strategies (HEYLOOK_TITLEBAR_MODE); pure, so compiled and tested everywhere
@@ -1372,6 +1382,9 @@ fn sync_worker(app: tauri::AppHandle) {
         std::thread::sleep(std::time::Duration::from_secs(30));
         let db = app.state::<AppState>().db.clone();
         shell::check_snoozes(&app, &db);
+        // macOS: asks for notification permission once there is an account and a reason to notify (a no-op after macOS has answered)
+        #[cfg(target_os = "macos")]
+        shell::mac_notify_start(&db);
         let p = shell::prefs(&db);
         let ids: Vec<String> = db::list_accounts(&lock(&db)).map(|a| a.into_iter().map(|x| x.id).collect()).unwrap_or_default();
         let mut any = false;
@@ -2188,9 +2201,49 @@ fn refresh_badge(app: tauri::AppHandle, state: tauri::State<AppState>) {
     shell::update_badge(&app, &state.db);
 }
 
+/// "Send test". Async: on macOS it may wait for the person to answer the system's permission dialog, on Linux for the notification service (up to 5 s); neither may hold the
+/// main thread.
 #[tauri::command]
-fn test_notification(app: tauri::AppHandle, state: tauri::State<AppState>) -> R<()> {
-    shell::test_notification(&app, &state.db)
+async fn test_notification(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> R<()> {
+    let db = state.db.clone();
+    blocking(move || shell::test_notification(&app, &db)).await
+}
+
+/// What macOS lets this app do with notifications: `granted`, `denied`, `undetermined` or `unsupported` (every other system, or a process that is not an app bundle). `ask` =
+/// `"sendTest"` (the Send test button) asks macOS first while it was never asked (W5.10). A debug build may fake the answer (HEYLOOK_TEST_NOTIFY_PERMISSION).
+#[tauri::command]
+async fn notify_permission(state: tauri::State<'_, AppState>, ask: Option<String>) -> R<String> {
+    let db = state.db.clone();
+    blocking(move || Ok(shell::notify_permission(&db, ask.as_deref() == Some("sendTest")).as_str().to_string())).await
+}
+
+/// Linux (W5.2): the desktop's light / dark scheme, resolved by the app itself (the portal, then the GTK settings): `{ dark: true | false | null, source }`; `null` = the page keeps using the
+/// engine's media query (Windows and macOS always, Linux until the first answer). Async: the first call may wait up to a second for the first answer.
+#[tauri::command]
+async fn os_color_scheme() -> R<linuxtheme::OsScheme> {
+    blocking(|| Ok(linuxtheme::command_value())).await
+}
+
+/// Does the notification service of this system draw buttons? `{ actions }`: Windows true, macOS false, Linux asks the bus once per run (`GetCapabilities`). Settings shows the Buttons row
+/// of a mailbox when true, a note when false (W5.4). Async: the first Linux call may wait for the bus (3 s at most).
+#[tauri::command]
+async fn notify_caps() -> R<serde_json::Value> {
+    blocking(|| Ok(serde_json::json!({ "actions": linuxnotify::actions_supported() }))).await
+}
+
+/// Print a message (macOS, W5.3): `html` is the print document the page built (`src/printDoc.ts`); the system print sheet opens on the window that called. Windows and Linux print the frame
+/// themselves and never call this (it answers an error there). Async: it waits for the document to load (up to 10 s) and must not hold the main thread.
+#[tauri::command]
+async fn print_html(app: tauri::AppHandle, window: tauri::WebviewWindow, html: String, title: String) -> R<()> {
+    let label = window.label().to_string();
+    blocking(move || macprint::print(&app, &label, html, title)).await
+}
+
+/// Settings > Notifications & tray > "Open System Settings" (macOS, notifications turned off for the app): the Notifications pane of System Settings.
+#[tauri::command]
+async fn open_notification_settings(app: tauri::AppHandle) -> R<()> {
+    let id = app.config().identifier.clone();
+    blocking(move || macnotify::open_settings(&id)).await
 }
 
 /// Right-click a mailbox > "New folder…" / a folder of the person > "New subfolder…" (W13.10): CREATE and SUBSCRIBE on the server, the saved list is refreshed, the new folder is returned.
@@ -2229,10 +2282,8 @@ struct ShellInfo {
     test_data: Option<String>,
     /// the store that updates this copy ("snap"), None when the app updates itself (update.rs `managed_by`)
     managed: Option<&'static str>,
-    /// how a PDF attachment is previewed here: "frame", "object" or "card" (pdfmode.rs)
+    /// how a PDF attachment is previewed here: "frame" (Windows), "pdfjs" (macOS, Linux), "pdfjs-broken" (debug seam) or "card" (pdfmode.rs)
     pdf_view: &'static str,
-    /// the PDF experiment of macOS / Linux is on (HEYLOOK_PDF_INLINE): the page shows a readout of what the engine did
-    pdf_test: bool,
     /// debug builds only, `HEYLOOK_TEST_COPY_FAIL=1`: every copy to the clipboard fails (QA of the "Couldn't copy" toasts)
     copy_fail: bool,
     /// debug builds only, `HEYLOOK_TEST_OPEN_FAIL=1`: opening a link in the browser always fails (QA of the "Couldn't open your browser" toasts)
@@ -2262,7 +2313,7 @@ fn accounts_delay_ms() -> u64 {
 
 #[tauri::command]
 fn shell_info() -> ShellInfo {
-    ShellInfo { os: std::env::consts::OS, tray: shell::tray_ready(), test_data: legacy_names::test_data_dir().map(|p| p.display().to_string()), managed: update::managed_by(), pdf_view: pdfmode::view().name(), pdf_test: pdfmode::experiment_on(), copy_fail: copy_forced_to_fail(), open_fail: open_forced_to_fail(), accounts_delay_ms: accounts_delay_ms() }
+    ShellInfo { os: std::env::consts::OS, tray: shell::tray_ready(), test_data: legacy_names::test_data_dir().map(|p| p.display().to_string()), managed: update::managed_by(), pdf_view: pdfmode::view().name(), copy_fail: copy_forced_to_fail(), open_fail: open_forced_to_fail(), accounts_delay_ms: accounts_delay_ms() }
 }
 
 /// The "Start Hey Look! when I sign in" switch: the registry entry of the autostart plugin, or in the Microsoft Store package the package's startup task
@@ -5816,6 +5867,34 @@ fn quit_final(app: &tauri::AppHandle) {
     app.exit(0);
 }
 
+/// Linux (W5.9): a log out, a shut down or a `kill` reaches the app as SIGTERM, SIGHUP or SIGINT. It leaves by the same road as `RunEvent::Exit` (the push sessions are closed, the queued
+/// actions are committed, an update the person kept is installed), without questions, like a macOS session end; the exit watchdog bounds it, and a second signal ends the process at once.
+/// The signals are handled on the GTK main loop (`glib::unix_signal_add_local`, the glib that gtk brings), so the quit runs on the main thread like any other.
+#[cfg(target_os = "linux")]
+fn install_signal_quit(app: &tauri::AppHandle) {
+    use gtk::glib::{unix_signal_add_local, ControlFlow};
+    for (signal, name) in [(libc::SIGTERM, "SIGTERM"), (libc::SIGHUP, "SIGHUP"), (libc::SIGINT, "SIGINT")] {
+        let app = app.clone();
+        unix_signal_add_local(signal, move || {
+            leave_on_signal(&app, name);
+            ControlFlow::Continue
+        });
+    }
+}
+
+/// What a signal does: the first one starts the exit, the second ends the process now.
+#[cfg(target_os = "linux")]
+fn leave_on_signal(app: &tauri::AppHandle, name: &str) {
+    static SEEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if SEEN.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        startup::stage(Some(app), &format!("quit: signal {name} again: ending the process now"));
+        std::process::exit(1);
+    }
+    startup::stage(Some(app), &format!("quit: signal {name}: leaving without questions"));
+    exit_watchdog(app);
+    app.exit(0);
+}
+
 /// How long the quit sequence may take from `quit_final` to the end of the process (queued actions up to a few seconds, the exit itself).
 const EXIT_LIMIT: std::time::Duration = std::time::Duration::from_secs(40);
 
@@ -5998,7 +6077,16 @@ fn set_setting(app: tauri::AppHandle, window: tauri::Window, state: tauri::State
     if !may_write_setting(window.label(), &key) {
         return Err(format!("only the main window writes {key}"));
     }
+    // macOS: what the notification settings were before this write (turning notifications or the Dock badge on asks macOS for permission, W5.10)
+    #[cfg(target_os = "macos")]
+    let notify_before = (key == "prefs").then(|| shell::mac_notify_reasons(&shell::prefs(&state.db), &mac_account_ids(&state.db)));
     db::set_setting(&lock(&state.db), &key, &value)?;
+    #[cfg(target_os = "macos")]
+    if let Some(before) = notify_before {
+        if shell::turned_on(before, shell::mac_notify_reasons(&shell::prefs(&state.db), &mac_account_ids(&state.db))) {
+            shell::mac_notify_setting_on(&state.db);
+        }
+    }
     // the preferences changed: every other window re-reads them (the main page is the only writer, popout.rs)
     if key == "prefs" {
         let _ = app.emit(popout::PREFS_EVENT, serde_json::json!({ "writer": window.label() }));
@@ -6012,6 +6100,11 @@ fn set_setting(app: tauri::AppHandle, window: tauri::Window, state: tauri::State
         shell::refresh_language(&app, &state.db);
     }
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn mac_account_ids(db: &Db) -> Vec<String> {
+    db::list_accounts(&lock(db)).map(|a| a.into_iter().map(|x| x.id).collect()).unwrap_or_default()
 }
 
 /// When this computer first used the app, as far as the system can tell: the creation time of the main database file, in milliseconds
@@ -6221,8 +6314,8 @@ pub fn run() {
     startup::init_clock();
     // (the names shared with other copies of the app: credential store service, notification id; see identity.rs)
     let mut context = tauri::generate_context!();
-    // (the policy of this run: the PDF experiment on macOS / Linux changes one directive, see pdfmode.rs)
-    pdfmode::apply_csp(context.config_mut());
+    // (how a PDF attachment is previewed on this system is decided, and logged, once: pdfmode.rs; the content security policy is never changed for it)
+    pdfmode::view();
     identity::init(&context.config().identifier);
     // the Microsoft Store package keeps its data in its own folders: the data folder is LocalState and the web view's folder LocalCache (every window, the
     // main one, the gated one and the pop-outs, takes it from here; see pkg.rs). Unpackaged copies are not touched.
@@ -6338,6 +6431,8 @@ pub fn run() {
             let sync_app = app.handle().clone();
             std::thread::spawn(move || calsync::cmds::calsync_worker(sync_app));
 
+            // Linux: the desktop's light / dark scheme is read here (waits 400 ms at most for the first answer) so that the first window is made in the right colour (W5.2)
+            linuxtheme::start(app.handle());
             winframe::setup(app.handle());
             // the native frame of the main window follows the theme setting from the start (a pop-out gets it when it is created)
             wintheme::apply_all(app.handle(), "start");
@@ -6360,9 +6455,15 @@ pub fn run() {
                 let noticed = macquit::observe_power_off();
                 startup::stage(Some(app.handle()), &format!("macos: power-off notice (log out / restart / shut down): {}", noticed.err().unwrap_or_else(|| "observed".into())));
             }
+            // macOS: the notification permission is read (logged) and, with an account and a reason to notify, asked for (W5.10)
+            #[cfg(target_os = "macos")]
+            shell::mac_notify_start(&db);
             let handle = app.handle().clone();
             std::thread::spawn(move || sync_worker(handle));
             idle::start(app.handle().clone());
+            // Linux: SIGTERM / SIGHUP / SIGINT leave by the exit road (W5.9)
+            #[cfg(target_os = "linux")]
+            install_signal_quit(app.handle());
 
             // started by "launch at login" => stay in the tray (only when there is a tray to come back from). The window is shown
             // when its page has reported itself (not here: see startup.rs), and the page is reloaded if it never does.
@@ -6390,6 +6491,11 @@ pub fn run() {
             if window.label() != "main" {
                 popout::on_window_event(window, event);
                 return;
+            }
+            // macOS: the main window came back to the front: the notification permission may have been changed in System Settings (read again, logged when it changed)
+            #[cfg(target_os = "macos")]
+            if let tauri::WindowEvent::Focused(true) = event {
+                shell::mac_notify_focus();
             }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let db = window.app_handle().state::<AppState>().db.clone();
@@ -6427,6 +6533,11 @@ pub fn run() {
             sync_account,
             refresh_badge,
             test_notification,
+            notify_permission,
+            os_color_scheme,
+            open_notification_settings,
+            print_html,
+            notify_caps,
             play_notify_sound,
             create_mail_folder,
             open_external,
@@ -7088,6 +7199,34 @@ mod quit_tests {
     }
 
     /// QA Mac round 2 (Q3 Cmd+Q, Q4 app menu Quit): on macOS the predefined Quit item, Cmd+Q and the Dock's Quit are `[NSApp terminate:]`,
+
+    /// W5.9: on Linux a signal leaves by the exit road without a question (the Exit body does the rest: idle::shutdown, flush_pending, install_on_exit), with the watchdog, and a second signal
+    /// ends the process; nothing else in the app handles signals.
+    #[test]
+    fn a_signal_on_linux_leaves_by_the_exit_path_without_questions() {
+        let lib = crate::test_guard::non_test_code(include_str!("lib.rs"));
+        let install = &lib[lib.find("fn install_signal_quit(").unwrap()..];
+        let install = &install[..install.find("\n}\n").unwrap()];
+        for sig in ["libc::SIGTERM", "libc::SIGHUP", "libc::SIGINT"] {
+            assert!(install.contains(sig), "{sig}");
+        }
+        assert!(install.contains("unix_signal_add_local(") && install.contains("ControlFlow::Continue"), "on the GTK main loop, kept for the next signal");
+        let leave = &lib[lib.find("fn leave_on_signal(").unwrap()..];
+        let leave = &leave[..leave.find("\n}\n").unwrap()];
+        assert!(leave.contains("quit: signal {name}: leaving without questions") && leave.contains("exit_watchdog(app)") && leave.contains("app.exit(0)"), "{leave}");
+        assert!(!leave.contains("request_quit") && !leave.contains("confirm-quit") && !leave.contains("finish_sends_then"), "no question and no page involved");
+        assert!(leave.find("exit_watchdog(app)").unwrap() < leave.find("app.exit(0)").unwrap());
+        assert!(leave.contains("SEEN.swap(true") && leave.contains("std::process::exit(1)"), "a second signal ends the process");
+        // the call is in the setup, on Linux only, and nothing else installs a signal handler
+        assert!(lib.contains("#[cfg(target_os = \"linux\")]\n            install_signal_quit(app.handle());"));
+        assert_eq!(lib.matches("unix_signal_add").count(), 3, "the doc line, the import and the one call are the only signal handling of the app");
+        // the Exit body that a signal leads to writes the same lines as every other quit path (REQ-5.9.2)
+        let exit = &lib[lib.find("tauri::RunEvent::Exit =>").unwrap()..];
+        for line in ["exit: the event loop ended, closing the push sessions and committing the queued actions", "idle::shutdown();", "flush_pending(app);", "exit: done, the process ends"] {
+            assert!(exit.contains(line), "{line}");
+        }
+    }
+
     /// which tao turns into `RunEvent::Exit` without an `ExitRequested`, so the flush never ran and a message in its Undo time was
     /// sent only after the next start. The macOS routes have to be taken over explicitly; this reads the sources (the macOS code
     /// cannot be compiled on every machine that runs the tests).
@@ -7151,6 +7290,8 @@ mod quit_tests {
     /// - startfail.rs: the app could not start (Windows message box, then exit code 1): there is no page and no draft or send yet.
     /// - lib.rs `run`: `--remove-saved-credentials` (the Windows uninstaller's call, credwipe.rs) only talks to the credential store and ends at once; it is the first thing `run` does,
     ///   before any window, page, draft or send exists.
+    /// - lib.rs `leave_on_signal` (Linux, W5.9): a log out or a `kill` (SIGTERM, SIGHUP, SIGINT) leaves by `app.exit(0)`, the exit road that closes the push sessions and commits the queued actions, with the
+    ///   watchdog; a second signal ends the process at once (`process::exit(1)`). There is no one to ask: the session is ending.
     #[test]
     fn every_place_that_ends_the_process_is_known() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -7173,7 +7314,7 @@ mod quit_tests {
         found.sort();
         assert_eq!(
             found,
-            vec![("lib.rs".to_string(), 4, 0), ("startfail.rs".to_string(), 1, 0), ("startup.rs".to_string(), 0, 1), ("update.rs".to_string(), 1, 1)],
+            vec![("lib.rs".to_string(), 6, 0), ("startfail.rs".to_string(), 1, 0), ("startup.rs".to_string(), 0, 1), ("update.rs".to_string(), 1, 1)],
             "a way to end or restart the process was added or removed: make sure it goes through the quit sequence (request_quit) or is justified in the comment above"
         );
     }
@@ -7258,7 +7399,7 @@ mod capability_tests {
             "quit_now", "quit_cancelled", "sends_flushed", "quit_page_alive", "quit_dialog", "frontend_ready", "page_state", "page_pong", "show_window", "set_mail_available", "take_tray_compose",
             // calendar connections, sync triggers, mail actions that belong to the main page's intent layer
             "calendar_connect", "calendar_disconnect", "calendar_sources", "calendar_set_sync", "calendar_sync_now", "sync_account", "refresh_badge", "thread_action",
-            "queue_action", "cancel_action", "sender_action", "load_older", "prune_to_limit", "server_search", "server_search_cancel", "server_open", "idle_states", "frame_info", "frame_caption_rect", "frame_system_menu", "test_notification", "play_notify_sound", "create_mail_folder",
+            "queue_action", "cancel_action", "sender_action", "load_older", "prune_to_limit", "server_search", "server_search_cancel", "server_open", "idle_states", "frame_info", "frame_caption_rect", "frame_system_menu", "test_notification", "notify_permission", "notify_caps", "open_notification_settings", "play_notify_sound", "create_mail_folder",
             // the caption colours are the main page's to hand over (W4.3): a window never sets its own
             "window_caption_colors",
             // a secondary window asks the main page (popout_request); only the main page answers

@@ -16,6 +16,7 @@ import { copyToClipboard } from "../open";
 import { AiRunning, hasFrame, MessageCard, TRANSLATE_TO, translateMessage, useKeepReadingPosition } from "../components/ReadingPane";
 import { isHeavy, RpBody, useOpeningPending } from "../openStatus";
 import { usePrinting } from "../printStatus";
+import { printFrameNative } from "../printNative";
 import { LazyShowOriginal } from "../lazyViews";
 import { needsCard, PassphraseHost } from "../components/Pgp";
 import { Dropdown } from "../components/ui";
@@ -365,7 +366,10 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
   };
   const printLast = () => {
     const frames = document.querySelectorAll<HTMLIFrameElement>(".rp-msg.open iframe.msg-frame");
-    frames[frames.length - 1]?.contentWindow?.print();
+    const frame = frames[frames.length - 1];
+    // macOS: the backend prints a document made from the message (W5.3); elsewhere the frame prints itself
+    if (osNow() === "macos") void printFrameNative(frame ?? null, (text) => useStore.getState().showToast(() => text, undefined, "error"));
+    else frame?.contentWindow?.print();
   };
   const summarize = async () => {
     if (!(await aiReady())) {
@@ -494,7 +498,7 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
             { label: t("reading.head.blockSender"), disabled: gone || !junkOk || !last, onClick: () => void block() },
             { divider: true },
             { label: t("reading.msg.showOriginal"), disabled: conf || !last, onClick: () => last && useStore.getState().setDialog({ type: "original", messageId: last.id }) },
-            ...(osNow() === "macos" ? [] : [{ label: t("reading.msg.print"), disabled: conf, onClick: printLast }]),
+            { label: t("reading.msg.print"), disabled: conf || printing, onClick: printLast },
             { label: t("reading.msg.createEvent"), disabled: !last, onClick: () => last && useStore.getState().setDialog({ type: "event", init: { summary: last.subject.replace(/^((re|fwd?):\s*)+/i, ""), description: conf ? "" : (last.text ?? "").trim().slice(0, 1500) } }) },
             { label: t("reading.msg.copySender"), disabled: !sender, onClick: () => sender && void copyToClipboard(sender).then((ok) => (ok ? useStore.getState().showToast(t("reading.msg.copied")) : useStore.getState().showToast(() => t("mail.ctx.copyFailed"), undefined, "error"))) },
             { divider: true },

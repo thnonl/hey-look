@@ -57,6 +57,18 @@ for (const f of walk(path.join(root, "src")).filter((f) => /\.(css|tsx?)$/.test(
     assert.ok(!/userSelect\s*:\s*["']?(all|text)\b/.test(t) || /protect\.ts|Attachments\.tsx/.test(f), `${path.relative(root, f)}: inline userSelect other than none`);
     continue;
   }
+  if (path.basename(f) === "pdfView.css") {
+    // the PDF preview (W5.1): its text layer is the one text outside App.css that may be selected (the words of the page, drawn by PDF.js over the canvas); never `all`
+    const stripped = t.replace(/\/\*[\s\S]*?\*\//g, "");
+    assert.ok(!/user-select\s*:\s*all/.test(stripped), "pdfView.css: no user-select: all");
+    const selectable = [...stripped.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) => /(^|[;\s])user-select\s*:\s*text\b/.test(m[2]));
+    assert.ok(selectable.length > 0, "the PDF text layer can be selected");
+    for (const m of selectable) {
+      assert.ok(/-webkit-user-select\s*:\s*text\b/.test(m[2]), "pdfView.css: the -webkit- spelling too");
+      assert.ok(m[1].split(",").every((x) => /^\s*\.pv-text-layer\b/.test(x)), `pdfView.css: only the text layer may say text (${m[1].trim()})`);
+    }
+    continue;
+  }
   if (path.basename(f) !== "App.css") assert.ok(!/user-select\s*:\s*(text|all)/.test(t), `${path.relative(root, f)} says user-select: text/all`);
 }
 

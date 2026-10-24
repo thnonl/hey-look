@@ -143,12 +143,12 @@ impl Kind {
     /// Default size, logical pixels, outer (frame and title bar included; REQ-W3).
     pub fn default_size(self) -> (f64, f64) {
         match self {
-            Kind::Compose => (760.0, 680.0),
-            Kind::Reader => (820.0, 720.0),
-            Kind::Event => (640.0, 720.0),
-            Kind::Settings => (900.0, 680.0),
-            Kind::Search => (760.0, 720.0),
-            Kind::Scheduled => (720.0, 640.0),
+            Kind::Compose => (960.0, 780.0),
+            Kind::Reader => (1040.0, 820.0),
+            Kind::Event => (760.0, 780.0),
+            Kind::Settings => (1040.0, 760.0),
+            Kind::Search => (960.0, 780.0),
+            Kind::Scheduled => (860.0, 700.0),
         }
     }
 
@@ -172,6 +172,12 @@ pub fn kind_of_label(label: &str) -> Option<Kind> {
         return None;
     }
     Kind::parse(prefix)
+}
+
+/// Is the window on its way out (its close was asked for or its end is being checked)? A poll that walks the windows (wintheme.rs) leaves such a window alone.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn is_retiring(app: &AppHandle, label: &str) -> bool {
+    reg(app).get(label).is_some_and(|e| e.retiring)
 }
 
 /// Is this window label a secondary window (not `main`)?
@@ -437,7 +443,9 @@ impl Registry {
                 return Request::Focus { label: e.label.clone() };
             }
         }
-        if self.entries.len() >= MAX_SECONDARY {
+        // a window that is on its way out (its close was asked for, its end is being checked) does not count: the person who closed it and opens another must not be told "too many"
+        // because a window system is slow to let go (D-094: Settings, a search and the Scheduled list did not open after a run of closed windows)
+        if self.entries.iter().filter(|e| !e.retiring).count() >= MAX_SECONDARY {
             return Request::TooMany;
         }
         self.next[kind.index()] += 1;
@@ -771,6 +779,13 @@ fn create(app: &AppHandle, kind: Kind, label: &str, token: &str, cascade: Option
         .visible(false)
         // the colour of the theme from the first frame, not the white of the web view (bgcolor.rs)
         .background_color(crate::bgcolor::for_new_window(app));
+    // macOS (D-097): the page starts BELOW the title bar, never under the three window buttons. tauri's default style (Visible) makes the content view run under the title bar
+    // (NSWindowStyleMaskFullSizeContentView) and D-063 makes the bar transparent, so the page headers lay under the buttons: Transparent keeps the bar transparent (the window's
+    // background colour shows, D-063) without the full-size content view. The main window has the same in tauri.conf.json; macwin.rs `set_one` takes the flag away from any window.
+    #[cfg(target_os = "macos")]
+    {
+        b = b.title_bar_style(tauri::TitleBarStyle::Transparent);
+    }
     // the page handles file drops itself (HTML5 drop in the compose window), like the main window
     b = b.disable_drag_drop_handler();
     // (a QA build has no inspector, see identity.rs devtools_off)
@@ -1018,13 +1033,14 @@ pub fn on_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
                 crate::ai::cancel(&id);
             }
             let entry = reg(app).remove(&label);
+            log(&format!("{label}: destroy done (the Destroyed event came)"));
             if let Some(e) = entry {
                 if let Some(s) = saved_of(&e).filter(|_| e.dirty) {
                     store_saved(app, kind, &s);
                 }
                 log(&format!("{label}: closed"));
                 announce_counts(app);
-                after_destroyed(app, &label);
+                after_destroyed(app, &label, true);
             }
         }
         _ => {}
@@ -1313,7 +1329,7 @@ fn retire_steps(app: &AppHandle, label: &str) {
                 }
                 reg(app).remove(label);
                 announce_counts(app);
-                after_destroyed(app, label);
+                after_destroyed(app, label, false);
                 return;
             }
         }
@@ -1325,8 +1341,11 @@ fn destroy_on_event_loop(app: &AppHandle, label: &str) {
     let (handle, name) = (app.clone(), label.to_string());
     if let Err(e) = app.run_on_main_thread(move || match handle.get_webview_window(&name) {
         Some(w) => {
-            if let Err(e) = w.destroy() {
-                log(&format!("{name}: destroy was refused: {e}"));
+            // (the native window is NOT touched before this: tao's `Destroyed` comes from the window's own `windowWillClose:` notification, which AppKit delivers to the delegate through
+            // an observer that it registers itself; taking observers or the delegate away first, as fix24 did, left the label in the manager for ever, 1.0.7 round 11a)
+            match w.destroy() {
+                Ok(()) => log(&format!("{name}: destroy requested")),
+                Err(e) => log(&format!("{name}: destroy was refused: {e}")),
             }
         }
         None => log(&format!("{name}: destroy: no window object any more")),
@@ -1337,7 +1356,8 @@ fn destroy_on_event_loop(app: &AppHandle, label: &str) {
 
 /// A window is gone (its `Destroyed` event came, or it was given up): say how many windows the app and the window system still list, now and a
 /// little later, and finish its native window by hand (macOS). The lines in the log are the proof that windows are released.
-fn after_destroyed(app: &AppHandle, label: &str) {
+/// `destroyed`: the `Destroyed` event came. A window that was given up while tauri still lists it gets no native step (the teardown is only for a window that has ended, fix26).
+fn after_destroyed(app: &AppHandle, label: &str, destroyed: bool) {
     let mut left: Vec<String> = app.webview_windows().keys().cloned().collect();
     left.sort();
     log(&format!("{label}: {} window(s) left in the app: {}", left.len(), left.join(", ")));
@@ -1346,6 +1366,10 @@ fn after_destroyed(app: &AppHandle, label: &str) {
         std::thread::sleep(SWEEP_AFTER);
         let name = label.clone();
         let _ = app.run_on_main_thread(move || {
+            if !destroyed {
+                log(&format!("{name}: still listed by the app: no native step"));
+                return;
+            }
             if let Some(text) = native_sweep(&name) {
                 log(&format!("{name}: {text}"));
             }
@@ -1353,6 +1377,10 @@ fn after_destroyed(app: &AppHandle, label: &str) {
         std::thread::sleep(COUNT_AFTER);
         let (handle, name) = (app.clone(), label.clone());
         let _ = app.run_on_main_thread(move || {
+            // macOS, debug builds: was the finished window freed? (a weak reference answers, macwin.rs `check`, read-only; the debug bridge counts the answers)
+            if let Some(text) = native_check(&name) {
+                log(&format!("{name}: {text}"));
+            }
             let mut left: Vec<String> = handle.webview_windows().keys().cloned().collect();
             left.sort();
             log(&format!("{name}: {} s after closing: {} window(s) left in the app ({}){}", COUNT_AFTER.as_secs(), left.len(), left.join(", "), native_summary()));
@@ -1381,6 +1409,16 @@ fn native_sweep(label: &str) -> Option<String> {
 }
 #[cfg(not(target_os = "macos"))]
 fn native_sweep(_label: &str) -> Option<String> {
+    None
+}
+
+/// Main thread. The line for the log about whether the native window that was finished was freed (macOS), `None` elsewhere or when none was swept.
+#[cfg(target_os = "macos")]
+fn native_check(label: &str) -> Option<String> {
+    crate::macwin::check(label)
+}
+#[cfg(not(target_os = "macos"))]
+fn native_check(_label: &str) -> Option<String> {
     None
 }
 
@@ -1618,8 +1656,8 @@ mod tests {
             let (w, h) = (k.default_size(), k.min_size());
             assert!(w.0 > h.0 && w.1 > h.1, "the default is larger than the minimum");
         }
-        assert_eq!(Kind::Compose.default_size(), (760.0, 680.0));
-        assert_eq!(Kind::Reader.default_size(), (820.0, 720.0));
+        assert_eq!(Kind::Compose.default_size(), (960.0, 780.0));
+        assert_eq!(Kind::Reader.default_size(), (1040.0, 820.0));
         assert_eq!(Kind::Compose.min_size(), (560.0, 440.0));
         assert_eq!(Kind::Reader.min_size(), (520.0, 400.0));
         assert_ne!(Kind::Compose.setting_key(), Kind::Reader.setting_key());
@@ -1629,12 +1667,12 @@ mod tests {
     #[test]
     fn every_window_kind_has_its_label_size_and_setting_key() {
         let want = [
-            (Kind::Compose, "compose", "window.compose", (760.0, 680.0), (560.0, 440.0)),
-            (Kind::Reader, "reader", "window.reader", (820.0, 720.0), (520.0, 400.0)),
-            (Kind::Event, "event", "window.event", (640.0, 720.0), (480.0, 480.0)),
-            (Kind::Settings, "settings", "window.settings", (900.0, 680.0), (720.0, 500.0)),
-            (Kind::Search, "search", "window.search", (760.0, 720.0), (520.0, 400.0)),
-            (Kind::Scheduled, "scheduled", "window.scheduled", (720.0, 640.0), (520.0, 400.0)),
+            (Kind::Compose, "compose", "window.compose", (960.0, 780.0), (560.0, 440.0)),
+            (Kind::Reader, "reader", "window.reader", (1040.0, 820.0), (520.0, 400.0)),
+            (Kind::Event, "event", "window.event", (760.0, 780.0), (480.0, 480.0)),
+            (Kind::Settings, "settings", "window.settings", (1040.0, 760.0), (720.0, 500.0)),
+            (Kind::Search, "search", "window.search", (960.0, 780.0), (520.0, 400.0)),
+            (Kind::Scheduled, "scheduled", "window.scheduled", (860.0, 700.0), (520.0, 400.0)),
         ];
         assert_eq!(want.len(), KINDS.len());
         for (i, (k, name, key, def, min)) in want.into_iter().enumerate() {
@@ -1838,6 +1876,80 @@ mod tests {
         assert_eq!(r.count(Kind::Reader), 0);
     }
 
+    /// D-093: the macOS window code cannot run here; what the sweep does to a finished window, and that the check of the result and the experiment stay in debug builds, is read from the source.
+    #[test]
+    fn the_macos_sweep_takes_away_every_reference_the_app_side_can_and_checks_the_result() {
+        let mac = crate::test_guard::non_test_code(include_str!("macwin.rs"));
+        let sweep = &mac[mac.find("pub fn sweep(").unwrap()..mac.find("pub fn check(").unwrap()];
+        for step in ["setDelegate: nil", "removeObserver: d", "removeObserver: ptr", "removeWindowsItem: ptr", "setContentView: &*empty", "orderOut: nil", "msg_send![ptr, close]", "Weak::from(&w)", "drop(delegate);", "drop(w);"] {
+            assert!(sweep.contains(step), "the sweep lacks {step}");
+        }
+        assert!(sweep.find("setDelegate: nil").unwrap() < sweep.find("msg_send![ptr, close]").unwrap(), "the delegate goes before the window is closed");
+        let check = &mac[mac.find("pub fn check(").unwrap()..mac.find("/// What [`apply_appearance`]").unwrap()];
+        assert!(check.contains("weak.load()") && check.contains("ALIVE.fetch_add") && check.contains("FREED.fetch_add"));
+        assert!(check.contains("if !cfg!(debug_assertions) {") && !check.contains("release]"), "the check is read-only and debug-only (DEC-024)");
+        assert!(!mac.contains("setReleasedWhenClosed"), "nothing here changes who owns the window");
+        // every window of every kind gets the same native ground behind its title bar (D-092)
+        let walk = &mac[mac.find("pub fn apply_appearance(").unwrap()..];
+        assert!(walk.contains("set_ground(w, expected)") && !walk.contains("kind_of_label"), "{walk}");
+        // the check runs after the sweep, in the same closing step, and the bridge shows the counters
+        let pop = crate::test_guard::non_test_code(include_str!("popout.rs"));
+        assert!(pop.contains("native_check(&name)") && pop.find("native_sweep(&name)").unwrap() < pop.find("native_check(&name)").unwrap());
+        assert!(include_str!("testbridge/native.rs").contains("macwin::sweep_stats()"));
+    }
+
+    /// D-093 / round 11a: the Tauri destroy of a window never waits for, or depends on, the native teardown. The teardown (macOS, macwin.rs) runs only after the window is gone
+    /// (`Destroyed`), as the first part of the sweep, on the pointer that was held at creation; the destroy is always requested and its result logged.
+    #[test]
+    fn the_destroy_of_a_window_never_depends_on_the_native_teardown_and_the_teardown_follows_it() {
+        let pop = crate::test_guard::non_test_code(include_str!("popout.rs"));
+        let destroy = &pop[pop.find("fn destroy_on_event_loop(").unwrap()..];
+        let destroy = &destroy[..destroy.find("\n}\n").unwrap()];
+        assert!(destroy.contains("w.destroy()") && !destroy.contains("teardown") && !destroy.contains("macwin"), "nothing native before or around the destroy: {destroy}");
+        assert!(destroy.contains("destroy requested") && destroy.contains("destroy was refused"), "both outcomes are logged");
+        let close = &pop[pop.find("tauri::WindowEvent::CloseRequested { api, .. } =>").unwrap()..];
+        assert!(!close[..close.find("tauri::WindowEvent::Moved").unwrap()].contains("teardown"), "nothing native when a close is only asked for");
+        assert!(!pop.contains("native_teardown"), "no native step is named in the road of a window's end");
+        assert!(pop.contains("destroy done (the Destroyed event came)"), "the log says that the window is gone");
+        let mac = crate::test_guard::non_test_code(include_str!("macwin.rs"));
+        let sweep = &mac[mac.find("pub fn sweep(").unwrap()..mac.find("pub fn check(").unwrap()];
+        assert!(sweep.find("teardown_views(").unwrap() < sweep.find("setDelegate: nil").unwrap(), "the teardown is the first part of the sweep");
+        let td = &mac[mac.find("unsafe fn teardown_views(").unwrap()..mac.find("unsafe fn collect_views(").unwrap()];
+        let steps = ["makeFirstResponder: nil", "unregisterDraggedTypes", "removeObserver: *t", "setNavigationDelegate: nil", "setUIDelegate: nil", "stopLoading", "removeFromSuperview", "removeTitlebarAccessoryViewControllerAtIndex", "setToolbar: nil", "setContentView: &*empty"];
+        let mut at = 0;
+        for step in steps {
+            let i = td.find(step).unwrap_or_else(|| panic!("teardown lacks {step}"));
+            assert!(i >= at, "{step} is out of order");
+            at = i;
+        }
+        assert!(!td.contains("close]") && !td.contains("release]") && !td.contains("setReleasedWhenClosed"), "teardown releases and closes nothing");
+        // the poll of the window system leaves a window that is on its way out alone (no "no native window" every 2 s)
+        let wt = crate::test_guard::non_test_code(include_str!("wintheme.rs"));
+        assert!(wt.contains("crate::popout::is_retiring(app, &label)"), "wintheme skips retiring windows");
+        // the check afterwards is read-only and debug-only (DEC-024; leakfix.rs guards it)
+        let check = &mac[mac.find("pub fn check(").unwrap()..mac.find("/// What [`apply_appearance`]").unwrap()];
+        assert!(check.contains("if !cfg!(debug_assertions) {"));
+    }
+
+    #[test]
+    fn windows_on_their_way_out_do_not_count_against_the_cap_of_eight() {
+        // D-094: after a run of closed windows the next Settings / search / Scheduled window must open, not be refused as "too many"
+        let mut r = Registry::default();
+        let mut labels = vec![];
+        for i in 0..MAX_SECONDARY {
+            let Request::Create { label } = ask(&mut r, Kind::Compose, Some(&format!("draft:{i}"))) else { panic!("{i}") };
+            labels.push(label);
+        }
+        assert_eq!(ask(&mut r, Kind::Settings, Some("settings")), Request::TooMany, "eight open windows: the ninth is refused");
+        // the person closes two of them: they are going, the registry still lists them until the window system has let go
+        r.start_retire(&labels[0]);
+        r.start_retire(&labels[1]);
+        assert_eq!(r.entries.len(), MAX_SECONDARY, "still listed");
+        assert!(matches!(ask(&mut r, Kind::Settings, Some("settings")), Request::Create { .. }), "but they no longer count");
+        assert!(matches!(ask(&mut r, Kind::Search, Some("search:a")), Request::Create { .. }));
+        assert_eq!(ask(&mut r, Kind::Scheduled, Some("scheduled")), Request::TooMany, "back at eight live windows");
+    }
+
     #[test]
     fn a_window_that_is_ended_is_out_of_every_list_at_once() {
         let mut r = Registry::default();
@@ -1975,7 +2087,7 @@ mod tests {
         // no #[cfg(target_os)] around the road itself: the macOS-only parts are the native hold / sweep / summary functions
         let road = &code[code.find("pub fn retire(").unwrap()..code.find("/// macOS: keep a reference to the native window").unwrap()];
         assert!(!road.contains("cfg(target_os") && !road.contains("cfg(windows"), "the end of a window is the same on every system");
-        assert_eq!(code.matches("#[cfg(target_os = \"macos\")]").count(), 3, "native_hold, native_sweep, native_summary");
+        assert_eq!(code.matches("#[cfg(target_os = \"macos\")]").count(), 5, "native_hold, native_sweep, native_check, native_summary, and the title bar style of `create` (D-097)");
         // a window that was ended is never put on screen again: by a second open, by its own page getting ready late, by the wait for the page
         assert!(code.contains("if !reg(app).may_show(label) {"));
         let ready = &code[code.find("pub fn mark_ready(").unwrap()..];
@@ -2040,18 +2152,18 @@ mod tests {
     #[test]
     fn the_default_is_centred_over_the_main_window() {
         let p = place(Kind::Compose, None, &big(), Some(rect(100, 50, 1280, 800)), None);
-        // 760 x 680, centre of main = (740, 450)
-        assert_eq!(p.rect, Some(rect(360, 110, 760, 680)));
-        assert_eq!(p.size, (760.0, 680.0));
+        // 960 x 780, centre of main = (740, 450)
+        assert_eq!(p.rect, Some(rect(260, 60, 960, 780)));
+        assert_eq!(p.size, (960.0, 780.0));
         let p = place(Kind::Reader, None, &big(), Some(rect(100, 50, 1280, 800)), None);
-        assert_eq!(p.rect.map(|r| (r.w, r.h)), Some((820, 720)));
+        assert_eq!(p.rect.map(|r| (r.w, r.h)), Some((1040, 820)));
     }
 
     #[test]
     fn without_a_visible_main_window_the_primary_monitor_is_used() {
         let mons = vec![mon(0, 0, 1920, 1040, 1.0, false), mon(1920, 0, 2560, 1400, 1.0, true)];
         let p = place(Kind::Compose, None, &mons, None, None).rect.unwrap();
-        assert_eq!((p.x, p.y), (1920 + (2560 - 760) / 2, (1400 - 680) / 2));
+        assert_eq!((p.x, p.y), (1920 + (2560 - 960) / 2, (1400 - 780) / 2));
     }
 
     #[test]
@@ -2059,25 +2171,50 @@ mod tests {
         // the 1620 x 648 display of QA round 8: at most 583 px high
         let mons = vec![mon(0, 0, 1620, 648, 1.0, true)];
         let r = place(Kind::Compose, None, &mons, None, None).rect.unwrap();
-        assert_eq!((r.w, r.h), (760, 583));
+        assert_eq!((r.w, r.h), (960, 583));
         assert!(mons[0].work.contains(&r));
         // and the minimum is respected where the area allows it (440 <= 583)
         let r = place(Kind::Reader, None, &mons, None, None).rect.unwrap();
-        assert_eq!((r.w, r.h), (820, 583));
+        assert_eq!((r.w, r.h), (1040, 583));
         // a tiny area: the window is the area, no larger
         let tiny = vec![mon(0, 0, 500, 300, 1.0, true)];
         let r = place(Kind::Compose, None, &tiny, None, None).rect.unwrap();
         assert!(r.w <= 500 && r.h <= 300, "{r:?}");
     }
 
+    /// fix34 (owner: the defaults are larger): on a laptop screen every default is cut to 90 % of the work area, so the whole window, title bar included, is on screen; a size the
+    /// person chose still wins over the default.
+    #[test]
+    fn the_larger_defaults_still_fit_a_laptop_screen_and_a_saved_size_still_wins() {
+        // 1366 x 768 with the task bar (40 px): work area 1366 x 728; 1280 x 720 with the task bar: 1280 x 680; a 1536 x 864 logical screen at 125 % (physical 1920 x 1080, work 1920 x 1040)
+        for (work, scale) in [((1366, 728), 1.0), ((1280, 680), 1.0), ((1920, 1040), 1.25)] {
+            let mons = vec![mon(0, 0, work.0, work.1, scale, true)];
+            for k in KINDS {
+                let r = place(k, None, &mons, None, None).rect.unwrap();
+                assert!(mons[0].work.contains(&r), "{k:?} on {work:?}: {r:?} is not inside the work area");
+                assert!(r.w <= (work.0 as f64 * 0.9) as i32 && r.h <= (work.1 as f64 * 0.9) as i32, "{k:?} on {work:?}: {r:?} is more than 90 % of the area");
+                let (min_w, min_h) = k.min_size();
+                assert!(r.w >= (min_w * scale) as i32 && r.h >= (min_h * scale) as i32, "{k:?} on {work:?}: {r:?} is below the minimum");
+            }
+        }
+        // the compose window on 1366 x 728: 960 wide (a 1229 cap), 655 high (90 % of 728), centred over the primary monitor
+        let mons = vec![mon(0, 0, 1366, 728, 1.0, true)];
+        let r = place(Kind::Compose, None, &mons, None, None).rect.unwrap();
+        assert_eq!((r.w, r.h), (960, 655));
+        assert_eq!((r.x, r.y), (683 - 480, 364 - 327), "centred: centre of the area minus half the window");
+        // what the person resized to is kept, the default only applies to the first open of a kind
+        let saved_size = place(Kind::Compose, Some(&saved(100, 40, 700.0, 600.0)), &mons, None, None).rect.unwrap();
+        assert_eq!((saved_size.w, saved_size.h), (700, 600));
+    }
+
     #[test]
     fn sizes_follow_the_scale_of_the_monitor() {
-        // 150 %: 760 x 680 logical = 1140 x 1020 physical, inside 90 % of 2560 x 1400 (the height 1020 <= 1260)
+        // 150 %: 960 x 780 logical = 1440 x 1170 physical, inside 90 % of 2560 x 1400 (the height 1170 <= 1260)
         let mons = vec![mon(0, 0, 2560, 1400, 1.5, true)];
         let p = place(Kind::Compose, None, &mons, None, None);
         let r = p.rect.unwrap();
-        assert_eq!((r.w, r.h), (1140, 1020));
-        assert_eq!(p.size, (760.0, 680.0), "the logical size asked of the window system");
+        assert_eq!((r.w, r.h), (1440, 1170));
+        assert_eq!(p.size, (960.0, 780.0), "the logical size asked of the window system");
     }
 
     #[test]
@@ -2122,7 +2259,7 @@ mod tests {
         assert_eq!((r.w, r.h), (560, 440), "the minimum of the kind");
         // a nonsense size falls back to the default
         let r = place(Kind::Compose, Some(&saved(10, 10, 0.0, -3.0)), &mons, None, None).rect.unwrap();
-        assert_eq!(r.w, 760.min((1000.0 * 0.9) as i32));
+        assert_eq!(r.w, 960.min((1000.0 * 0.9) as i32));
         // maximized is carried
         let s = Saved { maximized: true, ..saved(10, 10, 700.0, 600.0) };
         assert!(place(Kind::Compose, Some(&s), &mons, None, None).maximized);
@@ -2141,10 +2278,10 @@ mod tests {
         let s = place(Kind::Compose, None, &m150, None, Some(f)).rect.unwrap();
         assert_eq!((s.x - f.x, s.y - f.y), (42, 42));
         // the next one would leave the work area: it starts again at the place it would have had
-        let low = rect(1920 - 760 - 10, 100, 760, 680);
+        let low = rect(1920 - 960 - 10, 100, 960, 780);
         let wrapped = place(Kind::Compose, None, &mons, Some(rect(0, 0, 1280, 800)), Some(low)).rect.unwrap();
         assert_eq!(wrapped, first);
-        let low = rect(300, 1040 - 680, 760, 680);
+        let low = rect(300, 1040 - 780, 960, 780);
         assert_eq!(place(Kind::Compose, None, &mons, Some(rect(0, 0, 1280, 800)), Some(low)).rect.unwrap(), first);
     }
 
@@ -2152,7 +2289,7 @@ mod tests {
     fn no_monitor_known_leaves_the_place_to_the_system() {
         let p = place(Kind::Reader, None, &[], None, None);
         assert_eq!(p.rect, None);
-        assert_eq!(p.size, (820.0, 720.0));
+        assert_eq!(p.size, (1040.0, 820.0));
         let p = place(Kind::Reader, Some(&saved(5, 5, 600.0, 500.0)), &[], None, None);
         assert_eq!((p.rect, p.size), (None, (600.0, 500.0)));
     }

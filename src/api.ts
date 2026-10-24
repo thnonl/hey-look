@@ -28,6 +28,9 @@ export interface Account {
   /** Own Reply-To of the mail sent from this mailbox: one bare address, empty or missing = none (Settings > mailbox). */
   replyTo?: string;
 }
+/** What macOS lets the app do with notifications (W5.10); `unsupported` on every other system and for a process that is not an app bundle. */
+export type NotifyPermission = "granted" | "denied" | "undetermined" | "unsupported";
+
 export type AccountInput = Omit<Account, "id" | "auth" | "color" | "replyTo">;
 
 export interface ThreadSummary {
@@ -636,10 +639,18 @@ export const api = {
   removeAccount: (accountId: string) => invoke<void>("remove_account", { accountId }),
   refreshBadge: () => invoke<void>("refresh_badge"),
   testNotification: () => invoke<void>("test_notification"),
+  /** macOS: what the system lets this app do with notifications (`unsupported` elsewhere); `"sendTest"` asks macOS first while it was never asked (W5.10) */
+  /** Does the notification service of this system draw buttons? (Windows true, macOS false, Linux asks the bus once per run, W5.4) */
+  notifyCaps: () => invoke<{ actions: boolean }>("notify_caps"),
+  notifyPermission: (ask?: "sendTest") => invoke<NotifyPermission>("notify_permission", { ask }),
+  /** macOS: the Notifications pane of System Settings */
+  openNotificationSettings: () => invoke<void>("open_notification_settings"),
   /** the new-mail sound once (Settings > Notifications > Play sound) */
   playNotifySound: () => invoke<void>("play_notify_sound"),
   /** a link in the default browser or mail program, with a checked launch (Linux only; see open.ts) */
   openExternal: (url: string) => invoke<void>("open_external", { url }),
+  /** macOS Print (W5.3): the print document (printDoc.ts) and the job title; the system print sheet opens on the calling window. */
+  printHtml: (html: string, title: string) => invoke<void>("print_html", { html, title }),
   /** text on the system clipboard through the backend (Linux only; see open.ts) */
   copyText: (text: string) => invoke<void>("copy_text", { text }),
   /** the text and the HTML on the system clipboard through the backend (macOS only: Cmd+Shift+V in the editors, see editor/pasteOptions.tsx) */
@@ -779,6 +790,8 @@ export const api = {
   /** A line for startup.log from a secondary window: "content" (the view was drawn), "error" (a script error), "info". */
   popoutNote: (kind: "content" | "error" | "info" | "strip" | "recovery", text: string) => invoke<void>("popout_note", { kind, text }),
   /** The page changed its own theme (or its colour scheme changed): the backend applies the frame theme of this window again (macOS title bar; the second way next to the backend's own triggers). What the page sees goes to startup.log. */
+  /** the desktop's scheme as the backend resolved it (Linux, W5.2): `dark` null = use the engine's media query (src/osTheme.ts) */
+  osColorScheme: () => invoke<{ dark: boolean | null; source: string }>("os_color_scheme"),
   windowThemeRefresh: (pageTheme: string, prefersDark: boolean) => invoke<void>("window_theme_refresh", { pageTheme, prefersDark }),
   /** The main page hands over the colours of the caption of the secondary windows (Windows 11; src/captionColors.ts). */
   windowCaptionColors: (colors: { light: { bg: string; fg: string }; dark: { bg: string; fg: string } }) => invoke<void>("window_caption_colors", { colors }),
@@ -889,7 +902,7 @@ export const api = {
   setMailAvailable: (available: boolean) => invoke<void>("set_mail_available", { available }),
   /** the "New mail" of the tray / menu bar menu, if the page has not taken it yet (true once per request; see shell.rs) */
   takeTrayCompose: () => invoke<boolean>("take_tray_compose"),
-  shellInfo: () => invoke<{ os: string; tray: boolean; testData?: string | null; managed?: string | null; pdfView?: string; pdfTest?: boolean; copyFail?: boolean; openFail?: boolean; accountsDelayMs?: number }>("shell_info"),
+  shellInfo: () => invoke<{ os: string; tray: boolean; testData?: string | null; managed?: string | null; pdfView?: string; copyFail?: boolean; openFail?: boolean; accountsDelayMs?: number }>("shell_info"),
   checkUpdate: (trigger: UpdateTrigger) => invoke<UpdateResult>("check_update", { trigger }),
   /** Download and verify the update; progress arrives on `onEvent`. Resolves when the download has ended (ready, failed or cancelled). */
   updateDownload: (version: string, onEvent: (e: DlEvent) => void) => {

@@ -5,8 +5,11 @@ import { t } from "./i18n";
 
 export type Os = "windows" | "macos" | "linux";
 
-/** How a PDF attachment is previewed (src-tauri/src/pdfmode.rs): in a frame, in an object element (macOS / Linux experiment), or as a card that opens it in the default app. */
-export type PdfView = "frame" | "object" | "card";
+/**
+ * How a PDF attachment is previewed (src-tauri/src/pdfmode.rs): in a frame of the engine's own viewer (Windows), drawn by PDF.js on canvases (macOS, Linux; `pdfjs-broken` is the debug
+ * seam whose worker is missing), or as a card that opens it in the default app.
+ */
+export type PdfView = "frame" | "pdfjs" | "pdfjs-broken" | "card";
 
 interface PlatformState {
   os: Os;
@@ -14,10 +17,8 @@ interface PlatformState {
   tray: boolean;
   /** a debug build: the test data folder it uses (shown in Settings > About) */
   testData: string | null;
-  /** the PDF preview of this system; Windows draws the PDF, the others show a card unless the backend says otherwise */
+  /** the PDF preview of this system: Windows draws the PDF in a frame, macOS and Linux with PDF.js; an old backend or an unknown value shows the card */
   pdfView: PdfView;
-  /** the macOS / Linux PDF experiment is on: the preview shows a readout of what the engine did with the PDF */
-  pdfTest: boolean;
   /** a debug build with HEYLOOK_TEST_COPY_FAIL=1: every copy fails (QA of the error toasts) */
   copyFail: boolean;
   /** a debug build with HEYLOOK_TEST_OPEN_FAIL=1: opening a link in the browser always fails (QA of the "Couldn't open your browser" toasts) */
@@ -29,16 +30,18 @@ interface PlatformState {
   loaded: boolean;
 }
 
-export const usePlatform = create<PlatformState>(() => ({ os: "windows", tray: true, testData: null, pdfView: "frame", pdfTest: false, copyFail: false, openFail: false, accountsDelayMs: 0, managed: null, loaded: false }));
+export const usePlatform = create<PlatformState>(() => ({ os: "windows", tray: true, testData: null, pdfView: "frame", copyFail: false, openFail: false, accountsDelayMs: 0, managed: null, loaded: false }));
 
 /** Read once at start (before the UI shows); an old backend or a plain browser keeps the Windows defaults. */
 export async function loadPlatform(): Promise<void> {
   try {
     const i = await api.shellInfo();
     const os: Os = i.os === "macos" || i.os === "linux" ? i.os : "windows";
-    // (an old backend does not say: the frame is only known to draw on Windows)
-    const pdfView: PdfView = i.pdfView === "frame" || i.pdfView === "object" || i.pdfView === "card" ? i.pdfView : os === "windows" ? "frame" : "card";
-    usePlatform.setState({ os, tray: i.tray, testData: i.testData ?? null, pdfView, pdfTest: i.pdfTest === true, copyFail: i.copyFail === true, openFail: i.openFail === true, accountsDelayMs: typeof i.accountsDelayMs === "number" ? i.accountsDelayMs : 0, managed: i.managed === "snap" || i.managed === "apt" || i.managed === "msstore" ? i.managed : null, loaded: true });
+    // (an old backend does not say, or says something this page does not know: the frame is only known to draw on Windows, the card works everywhere)
+    const pdfView: PdfView = i.pdfView === "frame" || i.pdfView === "pdfjs" || i.pdfView === "pdfjs-broken" || i.pdfView === "card" ? i.pdfView : os === "windows" ? "frame" : "card";
+    // (CSS that is for one system only: `:root[data-os="macos"]`, e.g. the ground colour at the top of a window whose title bar is transparent, D-092)
+    document.documentElement.dataset.os = os;
+    usePlatform.setState({ os, tray: i.tray, testData: i.testData ?? null, pdfView, copyFail: i.copyFail === true, openFail: i.openFail === true, accountsDelayMs: typeof i.accountsDelayMs === "number" ? i.accountsDelayMs : 0, managed: i.managed === "snap" || i.managed === "apt" || i.managed === "msstore" ? i.managed : null, loaded: true });
   } catch {
     usePlatform.setState({ loaded: true });
   }

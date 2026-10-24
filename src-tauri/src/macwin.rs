@@ -8,19 +8,55 @@
 //! - it finishes the job from the outside: `orderOut:` and `close` on the window once more (both are harmless on a closed window) and then
 //!   lets go of its own reference, so the app is never the one that keeps a window alive.
 //! Only plain Objective-C messages; the window is retained here (`Retained`) so a message never reaches a freed object.
+//!
+//! DEC-024 (fix31): this module never sends `release` / `autorelease` / `CFRelease` to a window or a view and never frees what the framework owns; the only references it lets go of are the ones it took
+//! itself with `Retained` (`hold`: the window and its delegate), dropped in `sweep`. What stays after a close is an empty window shell (about 0.1 to 0.3 MB) until the app quits; the
+//! teardown below removes its views and web content. The source guard is `leakfix.rs`.
+//!
+//! 1.0.7 (D-093): with the tao fix of W4.1 (the over-retain of the window) a closed window was STILL left behind by every compose and reader window, so the holders that are
+//! left are not the one tao fixed. The sweep now takes away what the app side can: the window's delegate and the observers tao registered for it (tao adds the delegate to the
+//! distributed notification centre for the appearance change and never removes it), its entry in the Windows menu, and its content view (so the web view's views and their memory go
+//! even if something still holds the window shell). Then `check` asks again a second later, with a weak reference, whether the window was freed, and the answers are counted for
+//! `GET /native`, so the next Mac log says which of the two it was and how many references were left.
 
 use objc2::msg_send;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, AnyObject, Bool};
 use std::collections::HashMap;
 use std::ffi::{CStr, c_char, c_void};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
-struct Held(Retained<AnyObject>);
+struct Held {
+    window: Retained<AnyObject>,
+    /// the window's delegate (tao's), kept to take the observers it registered away when the window is finished
+    delegate: Option<Retained<AnyObject>>,
+}
 
 // SAFETY: the window is only messaged on the main thread (`sweep`, `windows_summary` are called from a main-thread task); the other thing done
 // to it from another thread is the release when the value is dropped, which Objective-C allows from any thread.
 unsafe impl Send for Held {}
+
+/// A weak reference to a window that was swept, and its window number, until `check` says whether it was freed.
+struct Watched(objc2::rc::Weak<AnyObject>, isize);
+
+// SAFETY: only ever touched on the main thread (`sweep` stores it, `check` reads it, both main-thread tasks).
+unsafe impl Send for Watched {}
+
+fn watched() -> &'static Mutex<HashMap<String, Watched>> {
+    static WATCHED: OnceLock<Mutex<HashMap<String, Watched>>> = OnceLock::new();
+    WATCHED.get_or_init(Default::default)
+}
+
+/// How many windows were finished by hand, and what `check` found a second later: freed, or still alive (a leak).
+static SWEPT: AtomicUsize = AtomicUsize::new(0);
+static FREED: AtomicUsize = AtomicUsize::new(0);
+static ALIVE: AtomicUsize = AtomicUsize::new(0);
+
+/// (swept, freed, still alive) since the start, for `GET /native` of the debug bridge (debug builds count what `check` finds; a release build counts only the sweeps).
+pub fn sweep_stats() -> (usize, usize, usize) {
+    (SWEPT.load(Ordering::Relaxed), FREED.load(Ordering::Relaxed), ALIVE.load(Ordering::Relaxed))
+}
 
 fn held() -> &'static Mutex<HashMap<String, Held>> {
     static HELD: OnceLock<Mutex<HashMap<String, Held>>> = OnceLock::new();
@@ -35,7 +71,12 @@ fn lock() -> std::sync::MutexGuard<'static, HashMap<String, Held>> {
 pub fn hold(label: &str, ns_window: *mut c_void) -> bool {
     // SAFETY: `ns_window` is the live NSWindow that tauri just built; `Retained::retain` adds our own reference (null is refused by the Option).
     let Some(w) = (unsafe { Retained::retain(ns_window as *mut AnyObject) }) else { return false };
-    lock().insert(label.to_string(), Held(w));
+    // SAFETY: `w` is a live NSWindow; `delegate` answers null or a live object (kept with its own reference).
+    let delegate = unsafe {
+        let d: *mut AnyObject = msg_send![Retained::as_ptr(&w) as *mut AnyObject, delegate];
+        Retained::retain(d)
+    };
+    lock().insert(label.to_string(), Held { window: w, delegate });
     true
 }
 
@@ -95,29 +136,225 @@ pub fn windows_summary() -> String {
     }
 }
 
-/// Finish the native window of `label` and let go of the reference held here. Returns the line for the log, `None` when no window is held.
-/// Main thread only.
+/// Everything the app side can undo on a window that has ended, as the first part of `sweep` (D-093, round 10b). Main thread, on the window that was held at creation. Nothing here releases a
+/// reference that is not ours: it clears what points at the window and what the window points at.
+///
+/// NOT before the window ends (fix24 did, and no window could be closed any more, round 11a): AppKit delivers `windowWillClose:` to the delegate through an observer that the window registers itself when
+/// it gets the delegate, and tao's `Destroyed` event, and with it the end of the label in tauri's manager, comes from that method. Taking that observer (or the delegate) away first stops the event.
+///
+/// In this order:
+/// 1. the first responder (`makeFirstResponder:nil`: the window's strong `_firstResponder` is a web view otherwise, and the focus ring view of AppKit points at it);
+/// 2. the drag destinations of the window and of every view below its content view (`unregisterDraggedTypes`: an `NSDragDestination` holds its window strongly), W4.7's and wry's;
+/// 3. every notification observer of the window, its delegate and its views, on the default and on the distributed centre (tao registers its delegate for the appearance change);
+/// 4. the web view: its navigation and UI delegate cleared, loading stopped, taken out of the window (the web view and the window must not keep each other);
+/// 5. the title bar accessories and the toolbar (what hangs on the window's own frame view), and the content view is replaced by an empty one (the views of tao, wry and the web view go).
+/// The window is closed already (it is called from `sweep`, a second after `Destroyed`), so nothing the person sees changes.
+unsafe fn teardown_views(ptr: *mut AnyObject, delegate: Option<&Retained<AnyObject>>) -> String {
+    // SAFETY (caller): `ptr` is a live NSWindow and `delegate` its delegate, both kept alive by the caller for the whole call; the messages are the ones NSWindow / NSView / WKWebView answer (asked with
+    // `answers` where a class may not know one); main thread (caller).
+    unsafe {
+        let nil: *mut AnyObject = std::ptr::null_mut();
+        let responder: *mut AnyObject = msg_send![ptr, firstResponder];
+        let responder_class = if responder.is_null() { "none".to_string() } else { text(msg_send![responder, className]) };
+        let cleared: Bool = msg_send![ptr, makeFirstResponder: nil];
+        // all views below the content view (a few dozen at most; capped), and the frame view's own children, for the log
+        let content: *mut AnyObject = msg_send![ptr, contentView];
+        let frame: *mut AnyObject = if content.is_null() { nil } else { msg_send![content, superview] };
+        let mut views: Vec<*mut AnyObject> = Vec::new();
+        if !content.is_null() {
+            collect_views(content, &mut views, 0);
+        }
+        let frame_children = if frame.is_null() { "none".to_string() } else { subview_classes(frame) };
+        // 2. drag destinations
+        let mut unregistered = 0;
+        for target in std::iter::once(ptr).chain(views.iter().copied()) {
+            if answers(target, c"unregisterDraggedTypes") {
+                let _: () = msg_send![target, unregisterDraggedTypes];
+                unregistered += 1;
+            }
+        }
+        // 3. observers
+        let mut observers = 0;
+        let centers: Vec<*mut AnyObject> = [AnyClass::get(c"NSNotificationCenter"), AnyClass::get(c"NSDistributedNotificationCenter")]
+            .into_iter()
+            .flatten()
+            .map(|class| msg_send![class, defaultCenter])
+            .filter(|c: &*mut AnyObject| !c.is_null())
+            .collect();
+        let mut targets: Vec<*mut AnyObject> = vec![ptr];
+        if let Some(d) = delegate {
+            targets.push(Retained::as_ptr(d) as *mut AnyObject);
+        }
+        targets.extend(views.iter().copied());
+        for center in &centers {
+            for t in &targets {
+                let _: () = msg_send![*center, removeObserver: *t];
+                observers += 1;
+            }
+        }
+        // 4. the web view(s)
+        let mut web = 0;
+        for v in views.iter().copied() {
+            if answers(v, c"setNavigationDelegate:") {
+                let _: () = msg_send![v, setNavigationDelegate: nil];
+                if answers(v, c"setUIDelegate:") {
+                    let _: () = msg_send![v, setUIDelegate: nil];
+                }
+                if answers(v, c"stopLoading") {
+                    let _: () = msg_send![v, stopLoading];
+                }
+                let _: () = msg_send![v, removeFromSuperview];
+                web += 1;
+            }
+        }
+        // 5. the title bar accessories and the toolbar; the content view
+        let mut accessories = 0;
+        if answers(ptr, c"titlebarAccessoryViewControllers") {
+            let list: *mut AnyObject = msg_send![ptr, titlebarAccessoryViewControllers];
+            let count: usize = if list.is_null() { 0 } else { msg_send![list, count] };
+            for _ in 0..count.min(16) {
+                let _: () = msg_send![ptr, removeTitlebarAccessoryViewControllerAtIndex: 0usize];
+                accessories += 1;
+            }
+        }
+        let _: () = msg_send![ptr, setToolbar: nil];
+        if let Some(view) = AnyClass::get(c"NSView") {
+            let empty: Retained<AnyObject> = msg_send![view, new];
+            let _: () = msg_send![ptr, setContentView: &*empty];
+        }
+        format!(
+            "teardown: first responder {responder_class} cleared {}; {unregistered} drag destination(s) unregistered; {observers} observer removal(s); {web} web view(s) detached; {accessories} title bar accessory(ies) removed; frame view children before: {frame_children}; {} view(s) below the content view",
+            cleared.as_bool(),
+            views.len()
+        )
+    }
+}
+
+/// `view` and every view below it (depth first, at most 200, 12 levels): the pointers are valid while the window is held.
+///
+/// SAFETY (caller): main thread; `view` is a live NSView.
+unsafe fn collect_views(view: *mut AnyObject, out: &mut Vec<*mut AnyObject>, depth: usize) {
+    if out.len() >= 200 || depth > 12 {
+        return;
+    }
+    out.push(view);
+    // SAFETY: `view` is a live NSView (caller); the array and its elements are checked for null.
+    unsafe {
+        let list: *mut AnyObject = msg_send![view, subviews];
+        if list.is_null() {
+            return;
+        }
+        let count: usize = msg_send![list, count];
+        for i in 0..count.min(64) {
+            let child: *mut AnyObject = msg_send![list, objectAtIndex: i];
+            if !child.is_null() {
+                collect_views(child, out, depth + 1);
+            }
+        }
+    }
+}
+
+/// The class names of the direct subviews of `view`, for the log ("NSTitlebarContainerView, _NSCoreHostingView<ThemeWidgetView>, ...").
+///
+/// SAFETY (caller): main thread; `view` is a live NSView.
+unsafe fn subview_classes(view: *mut AnyObject) -> String {
+    // SAFETY: `view` is a live NSView (caller); the array and its elements are checked for null.
+    unsafe {
+        let list: *mut AnyObject = msg_send![view, subviews];
+        if list.is_null() {
+            return "none".into();
+        }
+        let count: usize = msg_send![list, count];
+        let names: Vec<String> = (0..count.min(24))
+            .filter_map(|i| {
+                let child: *mut AnyObject = msg_send![list, objectAtIndex: i];
+                (!child.is_null()).then(|| text(msg_send![child, className]))
+            })
+            .collect();
+        names.join(", ")
+    }
+}
+
+/// Finish the native window of `label` and let go of the references held here. Returns the line for the log, `None` when no window is held.
+/// Main thread only. Every step is a message that is harmless on a window that is closed already; none of them releases anything that is not ours.
 pub fn sweep(label: &str) -> Option<String> {
-    let Held(w) = lock().remove(label)?;
+    let Held { window: w, delegate } = lock().remove(label)?;
     let ptr = Retained::as_ptr(&w) as *mut AnyObject;
-    // SAFETY: `w` keeps the window alive for the whole function; the messages are the ones every NSWindow answers; main thread (caller).
-    let text = unsafe {
+    // SAFETY: `w` keeps the window alive for the whole function (and `delegate` the delegate); the messages are the ones every NSWindow answers; main thread (caller).
+    let (text, number) = unsafe {
         let number: isize = msg_send![ptr, windowNumber];
         let before: Bool = msg_send![ptr, isVisible];
         let retains: usize = msg_send![ptr, retainCount];
         let nil: *mut AnyObject = std::ptr::null_mut();
+        // everything that points at the window or that it points at, undone (the window has ended: its `Destroyed` came before this runs)
+        let torn = teardown_views(ptr, delegate.as_ref());
+        // tao's delegate: nothing may call it any more, and the centres that were told to call it are told to stop (tao registers it for the appearance change and never removes it)
+        let _: () = msg_send![ptr, setDelegate: nil];
+        let delegate_retains = delegate.as_ref().map(|d| {
+            let d = Retained::as_ptr(d) as *mut AnyObject;
+            for class in [AnyClass::get(c"NSDistributedNotificationCenter"), AnyClass::get(c"NSNotificationCenter")].into_iter().flatten() {
+                let c: *mut AnyObject = msg_send![class, defaultCenter];
+                if !c.is_null() {
+                    let _: () = msg_send![c, removeObserver: d];
+                }
+            }
+            let n: usize = msg_send![d, retainCount];
+            n
+        });
+        if let Some(class) = AnyClass::get(c"NSNotificationCenter") {
+            let c: *mut AnyObject = msg_send![class, defaultCenter];
+            if !c.is_null() {
+                let _: () = msg_send![c, removeObserver: ptr];
+            }
+        }
+        // the Windows menu lists the window (and holds it) until it is told to forget it
+        let app = shared_app();
+        if !app.is_null() {
+            let _: () = msg_send![app, removeWindowsItem: ptr];
+        }
+        // the views of the window (tao's view, wry's web view and parent view) go with the content view: an empty one takes its place, so that even a window shell that something
+        // still holds costs no more than its own few kilobytes
+        if let Some(view) = AnyClass::get(c"NSView") {
+            let empty: Retained<AnyObject> = msg_send![view, new];
+            let _: () = msg_send![ptr, setContentView: &*empty];
+        }
         let _: () = msg_send![ptr, orderOut: nil];
         let _: () = msg_send![ptr, close];
         let after: Bool = msg_send![ptr, isVisible];
-        format!(
-            "native window {number}: visible {} then {}, retain count {retains} (this log's own reference is one of them); {}",
+        let retains_after: usize = msg_send![ptr, retainCount];
+        let text = format!(
+            "native window {number}: teardown done ({torn}); visible {} then {}, retain count {retains} then {retains_after} (this log's own reference is one of them), delegate retain count {}; {}",
             before.as_bool(),
             after.as_bool(),
+            delegate_retains.map_or("none".to_string(), |n| n.to_string()),
             windows_summary()
-        )
+        );
+        (text, number)
     };
-    drop(w); // our reference goes: from here on the app holds nothing of this window
+    SWEPT.fetch_add(1, Ordering::Relaxed);
+    // from here on the app holds nothing of this window: a weak reference tells in a moment whether anything else does
+    watched().lock().unwrap_or_else(|p| p.into_inner()).insert(label.to_string(), Watched(objc2::rc::Weak::from(&w), number));
+    drop(delegate);
+    drop(w);
     Some(text)
+}
+
+/// A second after `sweep` (DEBUG BUILDS ONLY, DEC-024): was the window freed? A weak reference answers `None` once nothing holds it. Returns the line for the log, `None` when the window was not
+/// swept and always in a release build, which reads nothing here. Read-only: it counts, it logs the retain count, and it NEVER releases anything (D-098: a release of references that the
+/// framework owns crashed the app twice in `objc_autoreleasePoolPop`, because the pool holds references that `retainCount` cannot see). Main thread only.
+pub fn check(label: &str) -> Option<String> {
+    let Watched(weak, number) = watched().lock().unwrap_or_else(|p| p.into_inner()).remove(label)?;
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+    let Some(found) = weak.load() else {
+        FREED.fetch_add(1, Ordering::Relaxed);
+        return Some(format!("native window {number}: freed ({})", windows_summary()));
+    };
+    ALIVE.fetch_add(1, Ordering::Relaxed);
+    // SAFETY: `found` keeps the window alive for the read; main thread (caller).
+    let retains: usize = unsafe { msg_send![Retained::as_ptr(&found) as *mut AnyObject, retainCount] };
+    Some(format!("native window {number}: STILL ALIVE after being finished, retain count {retains} (this check's own reference is one of them); {}", windows_summary()))
 }
 
 /// What [`apply_appearance`] found and did, for the log (one line per window).
@@ -225,6 +462,9 @@ unsafe fn app_window_list() -> Vec<*mut AnyObject> {
     out
 }
 
+/// `NSWindowStyleMaskFullSizeContentView` (1 << 15): the content view runs under the title bar. No window of this app has it (D-097).
+const FULL_SIZE_CONTENT_VIEW: usize = 1 << 15;
+
 /// Set the appearance of one `NSWindow` and redraw its frame (the frame view, the parent of the content view, draws the title bar).
 unsafe fn set_one(w: *mut AnyObject, dark: Option<bool>) {
     // SAFETY: `w` is a live NSWindow on the main thread; objects that come back are checked for null before they are messaged.
@@ -233,6 +473,11 @@ unsafe fn set_one(w: *mut AnyObject, dark: Option<bool>) {
         // D-063: the title bar is not drawn by the system: it shows the window's background colour, which bgcolor.rs sets to the app's own ground (--bg)
         // in the same apply, so the strip above the page is not a grey of its own (35,36,39 against 27,28,32 in Dark)
         let _: () = msg_send![w, setTitlebarAppearsTransparent: Bool::YES];
+        // D-097: and the page does not run under the title bar: without the full-size content view the three window buttons have their own band above the page
+        let mask: usize = msg_send![w, styleMask];
+        if mask & FULL_SIZE_CONTENT_VIEW != 0 {
+            let _: () = msg_send![w, setStyleMask: mask & !FULL_SIZE_CONTENT_VIEW];
+        }
         let content: *mut AnyObject = msg_send![w, contentView];
         if !content.is_null() {
             let frame: *mut AnyObject = msg_send![content, superview];
@@ -243,6 +488,86 @@ unsafe fn set_one(w: *mut AnyObject, dark: Option<bool>) {
         let _: () = msg_send![w, invalidateShadow];
         let _: () = msg_send![w, displayIfNeeded];
     }
+}
+
+/// The background colour of the window (what shows through its transparent title bar): the app's own ground (`--bg`, bgcolor.rs) of the theme the window shows. `dark` None = the
+/// window follows the OS: its own colour is left as it is (bgcolor.rs resolves System to the OS theme).
+///
+/// SAFETY (caller): `w` is a live NSWindow on the main thread.
+unsafe fn set_ground(w: *mut AnyObject, dark: Option<bool>) {
+    let Some(dark) = dark else { return };
+    let (r, g, b) = if dark { crate::bgcolor::DARK } else { crate::bgcolor::LIGHT };
+    let Some(class) = AnyClass::get(c"NSColor") else { return };
+    // SAFETY: a class message that returns an autoreleased colour; the window retains the colour it is given.
+    unsafe {
+        let color: *mut AnyObject = msg_send![class, colorWithSRGBRed: f64::from(r) / 255.0, green: f64::from(g) / 255.0, blue: f64::from(b) / 255.0, alpha: 1.0f64];
+        if !color.is_null() {
+            let _: () = msg_send![w, setBackgroundColor: color];
+            // an opaque window: nothing of what is behind it (or a material of the title bar) mixes into the strip (D-099: two bands in the search window)
+            let _: () = msg_send![w, setOpaque: Bool::YES];
+        }
+    }
+}
+
+/// The background colour a window has now, in sRGB, 8 bits per channel (None when it has none or cannot be converted).
+///
+/// SAFETY (caller): `w` is a live NSWindow on the main thread.
+unsafe fn read_ground(w: *mut AnyObject) -> Option<(u8, u8, u8)> {
+    // SAFETY: Objective-C messages to AppKit objects; every returned object is checked for null before it is messaged.
+    unsafe {
+        let color: *mut AnyObject = msg_send![w, backgroundColor];
+        let space_class = AnyClass::get(c"NSColorSpace")?;
+        if color.is_null() {
+            return None;
+        }
+        let srgb: *mut AnyObject = msg_send![space_class, sRGBColorSpace];
+        let converted: *mut AnyObject = msg_send![color, colorUsingColorSpace: srgb];
+        if converted.is_null() {
+            return None;
+        }
+        let (mut r, mut g, mut b, mut a) = (0f64, 0f64, 0f64, 0f64);
+        let _: () = msg_send![converted, getRed: &mut r as *mut f64, green: &mut g as *mut f64, blue: &mut b as *mut f64, alpha: &mut a as *mut f64];
+        let level = |v: f64| (v * 255.0).round().clamp(0.0, 255.0) as u8;
+        Some((level(r), level(g), level(b)))
+    }
+}
+
+/// Is the colour a window has more than 2 levels (of 255) away from the ground of the theme it has to show? (The two grounds are far apart; a colour in tao's colour space is 6 off.)
+fn ground_differs(have: (u8, u8, u8), dark: bool) -> bool {
+    let (r, g, b) = if dark { crate::bgcolor::DARK } else { crate::bgcolor::LIGHT };
+    [(have.0, r), (have.1, g), (have.2, b)].iter().any(|(a, b)| a.abs_diff(*b) > 2)
+}
+
+/// The global default `AppleInterfaceStyle` ("Dark" while dark mode is on, none in Light), read fresh: the OS colour mode, not what any window cached.
+pub fn os_style() -> Option<String> {
+    // SAFETY: Foundation messages (NSUserDefaults may be read from any thread); null is checked.
+    unsafe {
+        let (defaults, string) = (AnyClass::get(c"NSUserDefaults")?, AnyClass::get(c"NSString")?);
+        let standard: *mut AnyObject = msg_send![defaults, standardUserDefaults];
+        let key: *mut AnyObject = msg_send![string, stringWithUTF8String: c"AppleInterfaceStyle".as_ptr()];
+        if standard.is_null() || key.is_null() {
+            return None;
+        }
+        let value: *mut AnyObject = msg_send![standard, stringForKey: key];
+        if value.is_null() { None } else { Some(text(value)) }
+    }
+}
+
+/// The ground of the theme (`dark`) as the background colour of every window: tauri's windows and every other titled one. One line of the log per window that was not right.
+/// Main thread.
+pub fn ground_all(dark: bool, known: &[(String, *mut c_void)]) -> Vec<String> {
+    let mut out = Vec::new();
+    // SAFETY: main thread (caller); pointers from AppKit or tauri's live windows, checked for null.
+    unsafe {
+        for (label, w) in work_list(known, None) {
+            let before = read_ground(w);
+            set_ground(w, Some(dark));
+            if before.is_none_or(|c| ground_differs(c, dark)) {
+                out.push(format!("{label}: background colour {before:?} -> {:?}", read_ground(w)));
+            }
+        }
+    }
+    out
 }
 
 /// The window's own appearance name ("nil" = none of its own), the one it shows, and whether that is a dark one.
@@ -318,6 +643,9 @@ pub fn apply_appearance(dark: Option<bool>, known: &[(String, *mut c_void)], onl
             let class = text(msg_send![w, className]);
             let (own0, eff0, _) = read_back(w);
             set_one(w, dark);
+            // D-092: the colour behind the transparent title bar is the window's own background colour: set natively, for every window of every kind the same way, to the ground of the theme it
+            // shows (bgcolor.rs sets the same two values through tauri; a window drawn before that reached it would show the system's grey)
+            set_ground(w, expected);
             let (mut own, mut eff, mut eff_dark) = read_back(w);
             let mut note = String::new();
             if let Some(why) = crate::wintheme::judge(dark, &own, eff_dark, expected) {
@@ -652,7 +980,9 @@ pub fn mismatched(dark: Option<bool>, known: &[(String, *mut c_void)]) -> Vec<St
                 continue;
             }
             let (_, shown) = effective(w);
-            if shown.is_some_and(|s| s != expected) {
+            // D-099: the colour behind the transparent title bar is looked at too (a window that shows the right appearance with the wrong ground is not right)
+            let wrong_ground = read_ground(w).is_some_and(|c| ground_differs(c, expected));
+            if shown.is_some_and(|s| s != expected) || wrong_ground {
                 let label = known.iter().find(|(_, p)| *p as *mut AnyObject == w).map(|(l, _)| l.clone());
                 out.push(label.unwrap_or_else(|| {
                     let number: isize = msg_send![w, windowNumber];

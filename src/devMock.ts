@@ -1667,6 +1667,15 @@ export function installMock() {
         void emit("mail-synced", null);
         return removed;
       }
+      case "notify_caps": { // (W5.4) `#noactions`: a Linux notification service without buttons; macOS has none
+        const os = hashTokens().get("os") || "windows";
+        return { actions: os === "windows" || (os === "linux" && !hashTokens().has("noactions")) };
+      }
+      case "print_html": { // (macOS Print, W5.3) `#printfail` makes it fail; the documents are kept in window.__printed for a check
+        (((window as unknown as { __printed?: { html: string; title: string }[] }).__printed ??= [])).push({ html: String(a.html), title: String(a.title) });
+        if (hashTokens().has("printfail")) throw "mock: print failed";
+        return null;
+      }
       case "plugin:opener|open_url": // (Linux asks the backend: open_external)
       case "open_external":
         if (hashTokens().has("openfail")) throw "mock: no default browser"; // `#openfail` makes opening links fail (update check: copy-link path)
@@ -1698,12 +1707,30 @@ export function installMock() {
         return (window as unknown as { __mockClipboard?: { text: string; html: string } }).__mockClipboard ?? { text: "", html: "" };
       case "plugin:app|version": return "1.0.0";
       // `#os=macos|linux` (per-OS copy and shortcut labels), `#notray` (Linux without a tray host), `#nonotify` (Send test fails)
-      case "shell_info": { // `#pdf=frame|object|card` picks the PDF preview (default: the frame on Windows, the card elsewhere)
+      case "shell_info": { // `#pdf=frame|pdfjs|pdfjs-broken|card` picks the PDF preview (default: the frame on Windows, PDF.js elsewhere)
         const os = hashTokens().get("os") || "windows";
-        return { os, tray: !hashTokens().has("notray"), testData: null, pdfView: hashTokens().get("pdf") || (os === "windows" ? "frame" : "card"), pdfTest: hashTokens().has("pdftest"), copyFail: hashTokens().has("copyfail"), openFail: hashTokens().has("openfail"), accountsDelayMs: hashNum("accountsdelay", 0), managed: hashTokens().get("managed") || null }; // `#managed=apt|snap|msstore`: this copy is updated by apt / the Snap Store / the Microsoft Store (Settings > About). `#accountsdelay=<ms>`: the store takes the mailboxes that late (New mail before they are read)
+        return { os, tray: !hashTokens().has("notray"), testData: null, pdfView: hashTokens().get("pdf") || (os === "windows" ? "frame" : "pdfjs"), copyFail: hashTokens().has("copyfail"), openFail: hashTokens().has("openfail"), accountsDelayMs: hashNum("accountsdelay", 0), managed: hashTokens().get("managed") || null }; // `#managed=apt|snap|msstore`: this copy is updated by apt / the Snap Store / the Microsoft Store (Settings > About). `#accountsdelay=<ms>`: the store takes the mailboxes that late (New mail before they are read)
       }
+      // Linux (W5.2): the desktop's scheme as the backend resolves it: `#osdark=1` / `#osdark=0` (default: nothing, the engine's media query decides, as on Windows and macOS); a check changes it with
+      // window.__mockEmit("os-color-scheme", { dark: true })
+      case "os_color_scheme": { const v = hashTokens().get("osdark"); return v === "1" ? { dark: true, source: "portal" } : v === "0" ? { dark: false, source: "portal" } : { dark: null, source: "engine" }; }
       case "test_notification":
         if (hashTokens().has("nonotify")) throw "no notification server is running";
+        ((window as unknown as { __notifyLog?: string[] }).__notifyLog ??= []).push("test");
+        return null;
+      // macOS notification permission (W5.10): `#macnotify-denied` / `#macnotify-undetermined` (default granted); a check sets window.__mockPerm to change it ("System Settings"), window.__mockPermAnswer is what the
+      // person answers when asked (default granted); window.__notifyLog lists the asks and the tests
+      case "notify_permission": {
+        const w = window as unknown as { __mockPerm?: string; __mockPermAnswer?: string; __notifyLog?: string[] };
+        w.__mockPerm ??= hashTokens().has("macnotify-denied") ? "denied" : hashTokens().has("macnotify-undetermined") ? "undetermined" : "granted";
+        if (a.ask === "sendTest" && w.__mockPerm === "undetermined") {
+          (w.__notifyLog ??= []).push("ask");
+          w.__mockPerm = w.__mockPermAnswer ?? "granted";
+        }
+        return w.__mockPerm;
+      }
+      case "open_notification_settings":
+        ((window as unknown as { __notifyLog?: string[] }).__notifyLog ??= []).push("open-settings");
         return null;
       // `#nosound`: the preview cannot play (the toast "Couldn't play the sound"); `window.__mockSoundPlays` counts the calls
       case "play_notify_sound":
@@ -1891,7 +1918,9 @@ export function installMock() {
         const att = ([m4, ...messages, ...mockLayerMsgs] as { id: string; attachments: { index: number; name: string; mime: string }[] }[]).find((x) => x.id === a.messageId)?.attachments.find((z) => z.index === a.index);
         const name = att?.name ?? "file.pdf";
         const mime = att?.mime ?? "application/pdf";
-        return { name, mime, dataBase64: mime.startsWith("image/") ? PIC : mime === "application/pdf" ? MOCK_PDF : btoa(`Mock contents of ${name}\n`) };
+        // (a check sets window.__mockPdf = { "<attachment name>": "<base64>" } to preview another PDF: scripts/lib/pdf-fixtures.mjs)
+        const own = (window as unknown as { __mockPdf?: Record<string, string> }).__mockPdf?.[name];
+        return { name, mime, dataBase64: own ?? (mime.startsWith("image/") ? PIC : mime === "application/pdf" ? MOCK_PDF : btoa(`Mock contents of ${name}\n`)) };
       }
       case "inline_image": return { mime: "image/png", dataBase64: PIC, name: "picture.png" };
       case "save_attachments": return ["C:/Users/Me/Downloads/logo.png"];

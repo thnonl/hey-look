@@ -45,7 +45,6 @@ export default defineLocale<typeof ns.en>({
   "backend.SCHEDULE_IN_PAST": "Cette heure est passée. Choisissez une heure ultérieure ou envoyez maintenant.",
   "backend.SCHEDULE_TOO_FAR": "Choisissez une date dans l’année à venir.",
   "backend.NOTIFY_NO_SERVICE": "Aucun service de notification n’est actif dans cet environnement de bureau.",
-  "backend.NOTIFY_MAC_UNAVAILABLE": "indisponible sur macOS dans cette version",
   "backend.PGP_LOCKED_OUT": "Trop de tentatives. Patientez 30 secondes.",
   "backend.PGP_NO_KEY": "Vous n’avez pas de clé PGP pour {email}.",
   "backend.PGP_BAD_PASSPHRASE": "Phrase secrète incorrecte.",

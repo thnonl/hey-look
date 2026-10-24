@@ -36,12 +36,13 @@ export default function MiniToolbar({ editor, ctx, shown, onHide, onFocusBar, ap
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const [active, setActive] = useState<string>("bold");
 
-  // where it goes: centred on the selection, above it, below it when there is no room above (in a table: below first), nowhere when neither side has the room
+  // where it goes: centred on the selection, above it, below it when there is no room above (in a table: below first), nowhere when neither side has the room. "Room above" ends at the
+// bottom of the formatting toolbar (`roof`): in the first line of the text the mini toolbar goes below the word instead of over the formatting toolbar (D-090)
   useLayoutEffect(() => {
     const el = box.current;
     if (!el) return;
     const p = placePopover(shown.box, { w: el.offsetWidth, h: el.offsetHeight }, { w: window.innerWidth, h: window.innerHeight }, {
-      edge: 8, gap: 8, align: "center", prefer: shown.inTable ? "below" : "above", cover: false, toasts: toastBox(),
+      edge: 8, gap: 8, roof: shown.roof, align: "center", prefer: shown.inTable ? "below" : "above", cover: false, toasts: toastBox(),
     });
     setPos(p ? { top: p.top, left: p.left } : null);
   }, [shown]);

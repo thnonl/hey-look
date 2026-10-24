@@ -13,6 +13,8 @@ export default defineLocale<typeof ns.en>({
   "app.welcome.point.passwords": "Mật khẩu được lưu trong {store}",
   "app.welcome.point.privacy": "Ảnh từ xa và trình theo dõi bị chặn theo mặc định",
   "app.welcome.point.tray": "Vẫn kiểm tra thư từ khay hệ thống, có Hoàn tác cho mọi thao tác di chuyển",
+  "app.welcome.point.menuBar": "Vẫn kiểm tra thư từ thanh menu, có Hoàn tác cho mọi thao tác di chuyển",
+  "app.welcome.point.noTray": "Vẫn kiểm tra thư khi Hey Look! đang mở, có Hoàn tác cho mọi thao tác di chuyển",
 
   "app.date.today": "Hôm nay",
   "app.date.yesterday": "Hôm qua",
@@ -96,6 +98,7 @@ export default defineLocale<typeof ns.en>({
   "app.quit.scheduledBodyNext.many": "Nếu thoát bây giờ, các thư sẽ được gửi vào lần tới bạn mở Hey Look! Thư kế tiếp đến hạn lúc {when}.",
   "app.quit.keepRunning": "Tiếp tục chạy trong khay hệ thống",
   "app.quit.keepRunningMac": "Tiếp tục chạy trên thanh menu",
+  "app.quit.keepOpen": "Giữ Hey Look! đang mở",
   "app.quit.quitAnyway": "Vẫn thoát",
 
   "app.top.sync": "Đồng bộ ngay (F5)",

@@ -13,6 +13,8 @@ export default defineLocale<typeof ns.en>({
   "app.welcome.point.passwords": "密码保存在{store}中",
   "app.welcome.point.privacy": "默认阻止远程图片和跟踪器",
   "app.welcome.point.tray": "在托盘中持续检查邮件，每次移动邮件都可撤销",
+  "app.welcome.point.menuBar": "在菜单栏中持续检查邮件，每次移动邮件都可撤销",
+  "app.welcome.point.noTray": "Hey Look!打开期间持续检查邮件，每次移动邮件都可撤销",
   // ---- dates, sizes and times (src/util.ts)
   "app.date.today": "今天",
   "app.date.yesterday": "昨天",
@@ -89,6 +91,7 @@ export default defineLocale<typeof ns.en>({
   "app.quit.scheduledBodyNext.many": "如果现在退出，它们将在您下次打开Hey Look!时发送。下一封应于{when}发送。",
   "app.quit.keepRunning": "在托盘中继续运行",
   "app.quit.keepRunningMac": "在菜单栏中继续运行",
+  "app.quit.keepOpen": "保持Hey Look!打开",
   "app.quit.quitAnyway": "仍然退出",
   // ---- top bar and window controls
   "app.top.sync": "立即同步 (F5)",

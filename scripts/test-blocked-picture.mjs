@@ -45,8 +45,10 @@ const pane = read("src/components/ReadingPane.tsx");
 assert.match(pane, /img\[data-hl-blocked\]/, "the reading pane looks for the mark");
 assert.match(pane, /blockedPictureBox\(\{ width: img\.getAttribute\("width"\)/, "and sizes the box from the picture's own attributes");
 assert.match(pane, /aria-hidden/, "the box is not announced");
+// (the frame's style sheet lives in mailFrameCss.ts since the newsletter colour scheme work)
+const frameCss = read("src/mailFrameCss.ts");
 for (const rule of [".hl-bp{", "border:1px dashed #9aa3af", "border-radius:6px", "background:#f6f7f9", "color:#5b6470", "font:12px", "text-overflow:ellipsis", ".hl-bp-ico{", "data:image/svg+xml"]) {
-  assert.ok(pane.includes(rule), `the frame's style sheet has ${rule}`);
+  assert.ok(frameCss.includes(rule), `the frame's style sheet has ${rule}`);
 }
 assert.ok(!/\.hl-bp[^{]*\{[^}]*cursor:\s*pointer/.test(pane), "the box is not clickable");
 assert.match(read("src/i18n/ns/reading.ts"), /"reading\.body\.blocked"/, "the banner with its 'Load content' action stays the way to load them");

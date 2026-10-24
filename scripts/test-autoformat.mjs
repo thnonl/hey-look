@@ -274,6 +274,76 @@ function editor({ lang = "en", on = true, doc = [para("")] } = {}) {
   assert.ok(mark, "the sign is bold where the typed text was bold");
 }
 
+// ---- D-091: the first quote typed after focusing the body (Mac: "Hello" came out as H”ello”) - the opening / closing decision from every start of a paragraph
+{
+  const OPEN = { en: "“", de: "„", fr: "«" + NB, ja: "「" };
+  // each context gives an OPENING quote, in the languages whose quote differs most
+  const contexts = [
+    ["the very first key after focus in an empty body", "", ""],
+    ["a space", "word ", " "],
+    ["after (", "(", "("],
+    ["after a line break (a hard break counts as \n)", "line one\n", "\n"],
+    ["after a no-break space", "a" + NB, NB],
+    ["after an invisible zero-width space at the start (a marker left by a signature or a paste)", "\u200B", "\u200B"],
+    ["after a zero-width non-joiner and a BOM", "\u200C\uFEFF", "\u200C\uFEFF"],
+    ["after a direction mark", "\u200E", "\u200E"],
+    ["after a word joiner behind a space", "x \u2060", "\u2060"],
+  ];
+  for (const [what, before] of contexts) {
+    for (const lang of ["en", "de", "fr", "vi", "ru", "es"]) {
+      const e = autoFormatFor(before, '"', lang);
+      assert.ok(e && e.del === 0, `${what} (${lang}): a replacement`);
+      assert.equal(e.insert, styleFor(lang).dOpen, `${what} (${lang}): an OPENING quote`);
+    }
+  }
+  // the closing cases
+  const closing = [["after a letter", "Hello"], ["after a digit", "x2"], ["after a full stop", "Hello."], ["after a closing bracket", "(a)"], ["after a letter with an invisible mark behind it", "Hello\u200B"], ["after a closing single quote", "‘a’"]];
+  for (const [what, before] of closing) for (const lang of ["en", "de", "vi"]) assert.equal(autoFormatFor(before, '"', lang).insert, styleFor(lang).dClose, `${what} (${lang}): a CLOSING quote`);
+  // the single quote: the same contexts
+  assert.equal(autoFormatFor("", "'", "en").insert, "‘", "the first key: an opening single quote");
+  assert.equal(autoFormatFor("\u200B", "'", "en").insert, "‘", "behind an invisible mark: an opening single quote");
+  assert.equal(autoFormatFor("don", "'", "en").insert, "’", "an apostrophe in a word");
+  assert.equal(autoFormatFor("Hello\u200B", "'", "en").insert, "’", "an invisible mark does not hide the letter before it");
+  // the whole word, from every start
+  for (const start of ["", " ", "(", "\n", "\u200B", "\u200B ", "line\n"]) assert.ok(typed("en", '"Hello"', start).endsWith("“Hello”"), `typed after ${JSON.stringify(start)}`);
+  for (const lang of ["en", "de", "vi", "fr"]) {
+    const o = styleFor(lang);
+    assert.equal(typed(lang, '"Hello"'), o.dOpen + "Hello" + o.dClose, `${lang}: "Hello" from the first key`);
+  }
+  void OPEN;
+}
+// the same on a real state: the first key after a fresh editor (the focus), after Enter and a hard break, after a signature paragraph and its separator, behind an invisible character
+{
+  const sigDoc = [para("Body"), para("-- "), para("Ann Smith"), para("")];
+  const cases = [
+    ["a fresh empty body", { doc: [para("")] }, (v) => v],
+    ["a body that starts with a zero-width space", { doc: [para("\u200B")] }, (v) => v.dispatch(v.state.tr.setSelection(TextSelection.create(v.state.doc, 2)))],
+    ["the empty paragraph under the signature", { doc: sigDoc }, (v) => v.dispatch(v.state.tr.setSelection(TextSelection.atEnd(v.state.doc)))],
+    ["the start of the paragraph of a signature separator", { doc: [para("Body"), para("-- x")] }, (v) => v.dispatch(v.state.tr.setSelection(TextSelection.create(v.state.doc, 7)))],
+  ];
+  for (const [what, o, place] of cases) {
+    const v = editor(o);
+    place(v);
+    v.type('"Hello"');
+    assert.ok(v.text().includes("“Hello”"), `${what}: ${JSON.stringify(v.text())}`);
+  }
+  // the very first key is handled with nothing before it, not with the text of the paragraph before: the plugin reads the paragraph of the caret only
+  const v = editor({ doc: [para("Hello world"), para("")] });
+  v.dispatch(v.state.tr.setSelection(TextSelection.atEnd(v.state.doc)));
+  v.type('"');
+  assert.equal(v.text(), "Hello world\n“", "after the previous paragraph's last letter: still an opening quote in the new paragraph");
+  // after Enter in the middle of typing
+  const w = editor();
+  w.type("a");
+  w.dispatch(w.state.tr.split(w.state.selection.from));
+  w.type('"b"');
+  assert.equal(w.text(), "a\n“b”");
+  // the closing quote of a word typed in one go
+  const x = editor();
+  x.type('say "Hello" and "bye"');
+  assert.equal(x.text(), "say “Hello” and “bye”");
+}
+
 // ---- the wiring
 {
   const ext = read("src/editor/extensions.ts");

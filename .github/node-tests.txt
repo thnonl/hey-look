@@ -356,6 +356,36 @@ static | node --experimental-strip-types scripts/test-drag-drop.mjs
 ui-d | node scripts/test-popout-kinds.mjs --require-browser
 # 1.0.7 W4.2 / W4.6 / W4.9: the windows in a real debug build (skipped here: it needs --exe=<debug build with its own identifier>; QA and the coder run it): every kind opens with its title and kind, the cap of 8 counts all kinds, the ACL refuses what a kind may not call, set_setting(prefs) is main's alone, GET /native, and (Windows) a crashed page process reloads the window once and the second crash ends it
 static | node scripts/test-popout-real.mjs
+# 1.0.7 W5.10 (DEC-017): the two agreed texts of the macOS notification note in 8 languages, the old unavailable text and key gone from every dictionary and source, the two commands in the three places (main and settings windows only), the page asks before Send test on macOS only and shows the note only for denied, the debug seam
+static | node --experimental-strip-types scripts/test-mac-notify-texts.mjs
+# 1.0.7 W5.10 (AC-5.10.3, AC-5.10.4, AC-5.10.7, AC-5.10.9 page part): macOS Settings > Notifications & tray in the dev preview: the note and Open System Settings only for denied, Send test asks first when undetermined and sends nothing when denied, the note follows a change made in System Settings at the next focus, Windows and Linux never ask, 8 languages at 960x560 and 1280x800, light and dark
+ui-e | node scripts/test-mac-notify-ui.mjs --require-browser
+# 1.0.7 W5.1 (REQ-5.1.1-5.1.11, AC-5.1.12, AC-5.1.13): the pure rules of the PDF viewer (zoom steps, scales, canvas resolution, layout, page in the middle, pages drawn and dropped, the states and what a failed load means), the files of PDF.js that ship and the ones that must not, PDF.js a lazy chunk, the bytes pass isPdfBytes first, no blob / frame / object / embed / annotation layer / scripting / XFA / WebAssembly, the shipped policy unchanged, the decision per system
+static | node --experimental-strip-types scripts/test-pdf-viewer.mjs
+# 1.0.7 W5.1 (AC-5.1.1-5.1.9, AC-5.1.12, AC-5.1.13) in the dev preview with the fixtures of scripts/fixtures/pdf: one page, 30 pages (the page number follows the scroll, only the pages near the view keep a canvas), Fit / 100 / 150 / 200 % sharp at device pixel ratio 1 and 2, resize re-fits, pages of other sizes, CJK text from the cMaps, locked / damaged / not-a-PDF messages, JavaScript in a PDF runs nothing, keyboard, Light and Dark, the header on one line in 8 languages at 960x560, 10 open / close cycles leave nothing, the worker that cannot be found and the viewer that cannot be loaded end in the card, Windows keeps the frame
+ui-b | node scripts/test-pdf-viewer-ui.mjs --require-browser
+# 1.0.7 W5.1 (REQ-5.1.10, AC-5.1.10): PDF.js with the options of the viewer under the SHIPPED content security policy (sent as the header of the page, the worker and every asset file by a small server; a probe shows that eval is refused there): one page, CJK text from the cMaps, a PDF with JavaScript, 30 pages at 200 %; a real module worker; no securitypolicyviolation, no refused line in the console
+ui-e | node scripts/test-pdf-csp.mjs --require-browser
+# 1.0.7 W5.8 (REQ-5.8.1, REQ-5.8.2): the Windows setup follows the Windows display language: the 8 languages with English first, no selector in the release config, a custom file for each of the 7 others (BOM, the 27 ids of Tauri's English file, own language constant, balanced quotes, placeholders intact, text in its own script), the corrections agreed with the specialists in and the typos of Tauri's files out, the .msi stays English
+static | node scripts/test-nsis-languages.mjs
+# 1.0.7 W5.5 (REQ-5.5.1, REQ-5.5.2): the pure rewrite of prefers-color-scheme in a mail's <style> and media attributes to constants for the message background (plain, compound, not, only, comma lists, upper case, no space, @supports, media attributes, comments; the text of the mail untouched), the originals kept for the in-place switch, the wiring in ReadingPane
+static | node --experimental-strip-types scripts/test-color-scheme-media.mjs
+# 1.0.7 W5.5 (AC-5.5.1 to AC-5.5.4) in the dev preview with kit mail N1 and the OS emulated dark / light: Original = light (body, logo, picture, not-dark blocks) whatever the OS and the app theme, the Dark background = dark, compound screen and max-width queries keep working, the switch rewrites in place (same document, no reload), print is light, a mail without rules is not touched
+ui-a | node scripts/test-color-scheme-frame.mjs --require-browser
+# 1.0.7 W5.2 (REQ-5.2.4): one source of the OS scheme for every page: System / Light / Dark x OS dark / light, applyPrefs writes the resolved theme for System only where the backend decides (Linux) and nothing on Windows and macOS, the start screen knows the scheme of the last start, every reader of the OS scheme uses the one source, the command and the event in their places and in every window kind's capability
+static | node --experimental-strip-types scripts/test-os-theme.mjs
+# 1.0.7 W5.2 (AC-5.2.1-5.2.3, AC-5.2.7 page part): the dev preview plays the Linux backend (#osdark, the event os-color-scheme) while the engine's own scheme is emulated the opposite way: System follows the backend in the first page, in five switches within 2 s, in the Settings preview and in a reader window; Light / Dark chosen stay; back to System at once; Windows and macOS set no data-theme for System
+ui-d | node scripts/test-os-theme-ui.mjs --require-browser
+# 1.0.7 W5.3: the document macOS prints, the wiring of Print in the pages, the three places of print_html
+static | node --experimental-strip-types scripts/test-print-doc.mjs
+# 1.0.7 W5.3: Print on macOS in the dev preview (per-message menu, reader Cmd+P, failure toast)
+ui-c | node scripts/test-print-ui.mjs --require-browser
+# 1.0.7 W5.6: the five tray places pick the no-tray / menu-bar text
+static | node --experimental-strip-types scripts/test-no-tray-texts.mjs
+# 1.0.7 W5.6: no-tray texts and the Mac Welcome bullet in the dev preview, 8 languages
+ui-d | node scripts/test-no-tray-ui.mjs --require-browser
+# 1.0.7 W5.4: Settings notifications Buttons row or the no-buttons note per system / capability
+ui-b | node scripts/test-notify-buttons-ui.mjs --require-browser
 # 1.0.7 D-067: Reply / Reply all / Forward - from the press to 500 ms after the fill, on every animation frame, the pane, the head, the To row, the Subject row, the formatting row, the body and Send stay within 1 px of where they end (the list column no longer glides away under the shell in a window under 1100 px; the shell has the recipient row of the real field), in the pane and in the compose window at 960 x 560 and 1280 x 800
 ui-d | node scripts/test-answer-geometry.mjs --require-browser
 # 1.0.7 W3.2: AutoFormat as you type - the pure function for every pattern in the 8 languages (T-Q), opening / closing, apostrophe and the open single quote, French no-break spaces, the -- rules, URL / address / code / link exclusions, and the very plugin on a real state: replacement, Ctrl+Z gives the typed characters back, the second Ctrl+Z is the ordinary undo, Backspace, switch, IME, selection, language switch, wiring
@@ -368,6 +398,12 @@ static | node --experimental-strip-types scripts/test-format-painter.mjs
 ui-b | node scripts/test-painter-mini.mjs --require-browser
 # 1.0.7 W3.3: the mini toolbar rules - the show matrix (mouse / touch / pen / keyboard, empty, picture and cell selections, inside one link, painter on, composing, a menu open, setting off), the box of a selection and its clip, the keys that keep it, the wiring (preference, Settings row, lazy chunk, no live region, link anchor, mustBeLazy)
 static | node --experimental-strip-types scripts/test-mini-toolbar.mjs
+# 1.0.7 D-092 (Mac QA 9e / 10b): on macOS (the dev preview with #os=macos) the top 32 px of the reader, search, Scheduled, event and Settings windows are the ground colour --bg in Light and Dark at 960x560 and 1280x800 (the transparent title bar shows what is under it: the reader's toolbar and Settings' nav were --bg2); Windows keeps the toolbar colour
+ui-c | node scripts/test-mac-strip-ui.mjs --require-browser
+# 1.0.7 D-097: the three macOS window buttons no longer lie over the page headers - with the macOS class forced the page starts at y = 0 of the viewport in the main, reader and compose windows, nothing pads a header for the buttons, the reader bar is the ground colour (the native side is the Rust source guard no_window_has_the_full_size_content_view_on_macos)
+ui-d | node scripts/test-mac-window-top.mjs --require-browser
+# 1.0.7 fix33: the main page does not parse the open mail again for every reader window / refresh (2 MB and 1 MB fixtures)
+ui-c | node scripts/test-main-reader-memory.mjs --require-browser
 # 1.0.7 W6.1: `folder-reset` (the server renumbered a folder and it was read again): the folder on screen drops the selection, the checked rows and the open conversation and the list is read again; another folder or mailbox changes nothing; the all-mailboxes view follows every mailbox
 ui-b | node scripts/test-folder-reset.mjs --require-browser
 # 1.0.7 W6.17b: the toast "Downloading Hey Look!" is keyed and goes when the download leaves `downloading`: a fast download shows the ready text and no Downloading toast beside it, a slow one keeps it until it is over, a cancel takes it away
