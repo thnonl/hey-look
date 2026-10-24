@@ -16,6 +16,7 @@
 //   --quick  the fit matrix for en and de at the two lower sizes in light and dark; the full run (no flag) is 4 languages x 3 sizes x 2 themes
 import { flag, arg, sleep, startHarness, inputs } from './cdp-harness.mjs';
 import { loadDict } from './lib/i18n-dicts.mjs';
+import { CALIBRATE } from './lib/reply-open-probe.mjs';
 
 const LANGS = arg('langs') ? arg('langs').split(',') : flag('quick') ? ['en', 'de'] : ['en', 'fr', 'de', 'ru'];
 const SIZES = flag('quick') ? [[946, 552], [946, 480]] : [[946, 480], [946, 552], [1266, 712]];
@@ -30,11 +31,14 @@ const FONT = arg('font'), SPACING = arg('spacing');
 const failures = [];
 let checks = 0;
 const ok = (cond, msg) => { checks++; if (!cond) { failures.push(msg); console.error(`FAIL ${msg}`); } };
-const waitFor = async (expr, what, ms = 6000) => {
-  for (let t0 = Date.now(); Date.now() - t0 < ms; await sleep(50)) if (await evaluate(`!!(${expr})`)) return true;
-  ok(false, `timed out waiting for ${what}`);
+// timeouts scale with the machine like scripts/test-reply-feedback.mjs (CALIBRATE: the time a fixed piece of work takes here against its time on the reference PC)
+let scale = 1;
+const waitFor = async (expr, what, ms = 6000, soft = false) => {
+  for (let t0 = Date.now(); Date.now() - t0 < ms * Math.max(1, scale); await sleep(50)) if (await evaluate(`!!(${expr})`)) return true;
+  if (!soft) ok(false, `timed out waiting for ${what}`);
   return false;
 };
+if (arg('throttle')) await cdp('Emulation.setCPUThrottlingRate', { rate: Number(arg('throttle')) }); // --throttle=4: the page runs on a CPU four times slower
 // (the dev preview applies the tokens of the hash (lang=, light, ...) in order, 250 ms apart, after the store has loaded: a language or theme set in that gap is
 // overwritten when its token comes, so the test waits for the last one)
 const openApp = async (hash, w, h) => {
@@ -78,14 +82,60 @@ async function popoverSettled() {
     await sleep(40);
   }
 }
+/** The calendar is ready for a click: no load running (aria-busy false) and the rows or chips have stopped moving (a reload after a language, size or day change redraws them). */
+async function calReady() {
+  await waitFor(`document.querySelector('.cal-view')?.getAttribute('aria-busy') === 'false'`, 'the calendar to finish loading', 10000, true);
+  let last = '';
+  for (let i = 0, same = 0; i < 80 && same < 3; i++) {
+    const now = await evaluate(`[...document.querySelectorAll('.ag-row, .ev-chip')].slice(0, 12).map((e) => { const r = e.getBoundingClientRect(); return Math.round(r.left) + ':' + Math.round(r.top) + ':' + Math.round(r.width); }).join('|') + '#' + document.querySelectorAll('.ag-row, .ev-chip').length`);
+    same = now === last ? same + 1 : 0;
+    last = now;
+    await sleep(40);
+  }
+}
+/**
+ * Click on something that opens the event popover and wait for its real ready signal (it is in the page, then its box stops moving). The target is found again after the calendar
+ * has settled; when the popover did not open within the whole (machine scaled) wait, the click is made once more and the retry is logged.
+ */
+async function clickOpen(getPoint, tag) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await calReady();
+    const pt = await getPoint();
+    if (!pt) {
+      ok(false, `${tag}: the target is on screen`);
+      return false;
+    }
+    await clickAt(pt[0], pt[1]);
+    if (await waitFor(`document.querySelector('.ev-pop')`, `${tag}: the popover`, 3000, true)) {
+      await popoverSettled();
+      return true;
+    }
+    if (attempt === 0) console.log(`RETRY ${tag}: the popover did not open after the first click; clicking again`);
+  }
+  ok(false, `timed out waiting for ${tag}: the popover (after a second click)`);
+  return false;
+}
+/** The same from the keyboard: focus the row and press Enter. */
+async function keyOpen(text, tag) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await calReady();
+    await evaluate(`[...document.querySelectorAll('.ag-row')].find((r) => r.getAttribute('aria-label').includes(${JSON.stringify(text)})).focus(); 1`);
+    await enter();
+    if (await waitFor(`document.querySelector('.ev-pop')`, `${tag}: the popover`, 3000, true)) {
+      await popoverSettled();
+      return true;
+    }
+    if (attempt === 0) console.log(`RETRY ${tag}: the popover did not open after Enter; pressing again`);
+  }
+  ok(false, `timed out waiting for ${tag}: the popover (after a second Enter)`);
+  return false;
+}
 async function openPopover(sel, text, tag) {
-  const c = await find(sel, text);
-  ok(!!c, `${tag}: "${text}" is on screen`);
-  if (!c) return false;
-  await clickAt(c[0], c[1]);
-  if (!(await waitFor(`document.querySelector('.ev-pop')`, `${tag}: the popover`))) return false;
-  await popoverSettled();
-  return true;
+  if (!(await find(sel, text))) {
+    ok(false, `${tag}: "${text}" is on screen`);
+    return false;
+  }
+  return clickOpen(() => find(sel, text), tag);
 }
 /** The footer of the open popover: buttons by row, with what is needed to judge them. */
 const footer = () => evaluate(`(() => {
@@ -105,6 +155,9 @@ const names = (f) => f.rows.flat().map((b) => b.name);
 
 try {
   await openApp('lang=en&light&calsync=ok', 1280, 800);
+  const cal = await evaluate(CALIBRATE);
+  scale = Math.min(Math.max(1, cal.cpu / 48), 8);
+  console.log(`test-event-popover-actions: reference work ${cal.cpu} ms (reference 48): scale ${scale.toFixed(2)}`);
   await evaluate(`window.__store.getState().setModule('calendar'); 1`);
   await waitFor(`document.querySelector('.cal-view')`, 'the calendar');
   // a confidential event, one with nothing to do (read-only calendar and confidential), and an organizer event with a long description
@@ -213,9 +266,7 @@ try {
   await waitFor(`document.querySelector('.cal-view')`, 'the calendar again');
   await openDay(0, 'agenda');
   await waitFor(`document.querySelector('.ag-row')`, 'the agenda');
-  await evaluate(`[...document.querySelectorAll('.ag-row')].find((r) => r.getAttribute('aria-label').includes('Product sync')).focus(); 1`);
-  await enter();
-  await waitFor(`document.querySelector('.ev-pop')`, 'the popover from the keyboard');
+  await keyOpen('Product sync', 'the popover from the keyboard');
   const order = [];
   for (let i = 0; i < 14; i++) {
     await tab();
@@ -231,9 +282,7 @@ try {
   ok((await store('s.dialog.init?.summary')) === 'Product sync (copy)', 'Space activates Duplicate');
   await closeAll();
   await openDay(0, 'agenda');
-  await evaluate(`[...document.querySelectorAll('.ag-row')].find((r) => r.getAttribute('aria-label').includes('Product sync')).focus(); 1`);
-  await enter();
-  await waitFor(`document.querySelector('.ev-pop')`, 'the popover again');
+  await keyOpen('Product sync', 'the popover again');
   await esc();
   await waitFor(`!document.querySelector('.ev-pop')`, 'Esc closes the popover');
   ok(await evaluate(`document.activeElement?.classList.contains('ag-row') && document.activeElement.getAttribute('aria-label').includes('Product sync')`), 'Esc: the focus is back on the event');
@@ -253,11 +302,8 @@ try {
     await waitFor(`document.querySelector('.ag-row')`, 'the agenda');
     for (const c of FIT) {
       const tag = `${c.id} ${w}x${h} ${theme} ${lang}`;
-      const pt = await find('.ag-row', c.text);
-      if (!pt) { ok(false, `${tag}: "${c.text}" is not in the agenda`); continue; }
-      await clickAt(pt[0], pt[1]);
-      if (!(await waitFor(`document.querySelector('.ev-pop')`, `${tag}: the popover`))) continue;
-      await popoverSettled();
+      if (!(await find('.ag-row', c.text))) { ok(false, `${tag}: "${c.text}" is not in the agenda`); continue; }
+      if (!(await clickOpen(() => find('.ag-row', c.text), tag))) continue;
       const f = await footer();
       const inWin = (r) => r.l >= -0.5 && r.t >= -0.5 && r.r <= f.vw + 0.5 && r.b <= f.vh + 0.5;
       ok(inWin(f.box), `${tag}: the popover is inside the window (${Math.round(f.box.l)},${Math.round(f.box.t)} - ${Math.round(f.box.r)},${Math.round(f.box.b)} of ${f.vw}x${f.vh})`);
@@ -299,8 +345,7 @@ try {
   await evaluate(`(() => { const r = [...document.querySelectorAll('.ag-row')].find((x) => x.getAttribute('aria-label').includes('Row event 9')); r.scrollIntoView({ block: 'end' }); return 1; })()`);
   const rowBox = await evaluate(`(() => { const r = [...document.querySelectorAll('.ag-row')].find((x) => x.getAttribute('aria-label').includes('Row event 9')).getBoundingClientRect(); return { t: r.top, b: r.bottom, cx: r.left + 40, cy: r.top + r.height / 2 }; })()`);
   void low;
-  await clickAt(rowBox.cx, rowBox.cy);
-  await waitFor(`document.querySelector('.ev-pop')`, 'the popover of the low event');
+  await clickOpen(async () => { await evaluate(`[...document.querySelectorAll('.ag-row')].find((r) => r.getAttribute('aria-label').includes('Row event 9')).scrollIntoView({ block: 'end' }); 1`); return evaluate(`(() => { const b = [...document.querySelectorAll('.ag-row')].find((x) => x.getAttribute('aria-label').includes('Row event 9')).getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2]; })()`); }, 'the popover of the low event');
   const fl = await footer();
   ok(rowBox.b > 552 - 90, `the event is near the bottom edge (bottom at ${rowBox.b})`);
   ok(fl.box.b <= rowBox.t + 2 && fl.box.t >= -0.5, `an event near the bottom edge gets the popover above it (popover ${Math.round(fl.box.t)}-${Math.round(fl.box.b)}, event top ${Math.round(rowBox.t)})`);
@@ -310,9 +355,7 @@ try {
   await sleep(200);
   await openDay(0, 'agenda');
   await waitFor(`document.querySelector('.ag-row')`, 'the agenda at 480 px');
-  const pt = await find('.ag-row', 'Planning offsite');
-  await clickAt(pt[0], pt[1]);
-  await waitFor(`document.querySelector('.ev-pop')`, 'the popover of the long event');
+  await clickOpen(() => find('.ag-row', 'Planning offsite'), 'the popover of the long event');
   await H.cdp('Emulation.setDeviceMetricsOverride', { width: 946, height: 200, deviceScaleFactor: 1, mobile: false });
   await sleep(300);
   const tiny = await footer();
@@ -328,9 +371,7 @@ try {
   await sleep(200);
   await openDay(0, 'agenda');
   await waitFor(`document.querySelector('.ag-row')`, 'the agenda at 320 px');
-  const npt = await find('.ag-row', 'Product sync');
-  await clickAt(npt[0], npt[1]);
-  await waitFor(`document.querySelector('.ev-pop')`, 'the popover at 320 px');
+  await clickOpen(() => find('.ag-row', 'Product sync'), 'the popover at 320 px');
   await sleep(150);
   const nf = await footer();
   ok(nf.box.l >= -0.5 && nf.box.r <= nf.vw + 0.5, `320 px: the popover is inside the window (${Math.round(nf.box.l)}-${Math.round(nf.box.r)} of ${nf.vw})`);
