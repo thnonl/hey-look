@@ -589,7 +589,7 @@ function EventPopover({ state, tz, color, onClose, onEdit, onMove }: { state: Po
   };
 
   const remove = async () => {
-    const end = await deleteEventAsked(ev, syncedCal, tz, (text, kind) => showToast(text, undefined, kind));
+    const end = await deleteEventAsked(ev, syncedCal, tz, (text, kind) => showToast(() => text(), undefined, kind));
     if (end === "cancelled") return;
     bumpCal();
     onClose();
@@ -1032,7 +1032,7 @@ export function EventDialog({ eventId, init, draft, windowed, scope, occurrenceS
     if (!existing) return;
     // (the questions are about the part of the series this form is for)
     const target: CalEvent = scope ? { ...existing, series: true, occurrenceStart: occurrenceStart ?? existing.occurrenceStart } : existing;
-    const end = await deleteEventAsked(target, calInfo, tz, (text, kind) => (kind === "success" ? say(text, kind) : showToast(text, undefined, kind)));
+    const end = await deleteEventAsked(target, calInfo, tz, (text, kind) => (kind === "success" ? say(text, kind) : showToast(() => text(), undefined, kind)));
     if (end === "done") finish();
   };
 
