@@ -18,6 +18,8 @@ export default define({
     "backend.MSG_NOT_ON_SERVER": "message not found on server",
     "backend.FOLDER_MISSING": "Couldn’t find the {folder} folder on this account. The mail stays where it is.",
     "backend.FOLDER_NOT_CREATED": "Couldn’t find or create the {folder} folder on this account ({why}). The mail stays where it is.",
+    "backend.FOLDER_CHANGED": "This folder changed on the server, so nothing was done. Hey Look! is reading it again. Try again in a moment.",
+    "backend.DRAFTS_NOT_CREATED": "Couldn’t find or create the Drafts folder on this account ({why}).",
     "backend.ATT_NOT_FOUND": "attachment not found",
     "backend.KEYRING_TIMEOUT": "Your system keyring is locked or not answering. Unlock it (Passwords and Keys / KWallet) and try again.",
     "backend.ADD_CANCELLED": "Adding the account was cancelled.",

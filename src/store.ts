@@ -447,6 +447,8 @@ interface State {
   dismissToast: (id: number) => void;
   /** The backend finished moving these conversations (their Undo time is over): they leave the open list now, without a re-read. */
   dropThreads: (ids: string[]) => void;
+  /** (W6.1) `folder-reset`: the server renumbered a folder and its mail was read again. A selection, a checked row or an open conversation of that folder is dropped (the ids of its messages name other mail now) and the list is read again. */
+  folderReset: (accountId: string, role: string) => void;
   /** A toast that stays until it is answered (or `null` to remove it); one per `key`, a new text replaces the old in place. */
   setStickyToast: (
     key: string,
@@ -1482,6 +1484,14 @@ export const useStore = create<State>((set, get) => ({
   },
 
   dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+
+  folderReset: (accountId, role) => {
+    const s = get();
+    if (s.folder !== role || (s.accountId !== null && s.accountId !== accountId)) return;
+    set({ checked: new Set() });
+    if (s.selected) void get().select(null);
+    void get().refresh();
+  },
 
   dropThreads: (ids) => {
     const gone = new Set(ids);

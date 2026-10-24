@@ -374,3 +374,12 @@ fn the_refusal_asks_for_a_sync_and_every_write_function_checks_first() {
         assert!(!body.contains("s.select("), "{f} must not select without the check");
     }
 }
+
+#[test]
+fn the_test_seam_of_the_sync_is_read_by_debug_builds_only() {
+    let src = include_str!("lib.rs");
+    let f = &src[src.find("fn test_sync_delay_ms()").unwrap()..];
+    let f = &f[..f.find("\n}\n").unwrap()];
+    assert!(f.contains("if !cfg!(debug_assertions) {\n        return 0;"), "{f}");
+    assert!(f.contains("HEYLOOK_TEST_SYNC_DELAY_MS"));
+}

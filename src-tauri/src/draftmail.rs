@@ -1030,8 +1030,8 @@ mod tests {
         crate::test_guard::within(60, || {
             let (fake, db, acc, _) = opened_draft();
             let r1 = save(&fake, &db, &acc, "Original text plus edits", Some("m:a1:drafts:10".into())).unwrap();
-            // the server refuses the APPEND (here: the Drafts folder is gone)
-            crate::db::set_setting(&crate::lock(&db), &format!("fmap:{ACC}"), r#"{"inbox":"INBOX","drafts":"Gone"}"#).unwrap();
+            // the server refuses the APPEND (here: the mailbox is full; a folder that is gone is found again or made since W6.4)
+            fake.state.lock().unwrap().fail_append = true;
             let mut s = fake.connect();
             assert!(restore_on_session(&db, &acc, &mut s, &r1).is_err());
             let _ = s.logout();

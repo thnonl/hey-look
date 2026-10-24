@@ -19,6 +19,8 @@ export default defineLocale<typeof ns.en>({
   "backend.MSG_NOT_ON_SERVER": "Message introuvable sur le serveur.",
   "backend.FOLDER_MISSING": "Dossier {folder} introuvable sur ce compte. Le message reste à sa place.",
   "backend.FOLDER_NOT_CREATED": "Impossible de trouver ou de créer le dossier {folder} sur ce compte ({why}). Le message reste à sa place.",
+  "backend.FOLDER_CHANGED": "Ce dossier a changé sur le serveur : rien n’a été fait. Hey Look! le relit. Réessayez dans un instant.",
+  "backend.DRAFTS_NOT_CREATED": "Impossible de trouver ou de créer le dossier Brouillons sur ce compte ({why}).",
   "backend.ATT_NOT_FOUND": "Pièce jointe introuvable.",
   "backend.KEYRING_TIMEOUT": "Le trousseau de clés du système est verrouillé ou ne répond pas. Déverrouillez-le (Mots de passe et clés / KWallet) puis réessayez.",
   "backend.ADD_CANCELLED": "L’ajout du compte a été annulé.",

@@ -18,6 +18,8 @@ pub struct State {
     pub no_move: bool,
     /// `UID MOVE` and `UID COPY` answer `NO` (a full mailbox, no permission)
     pub fail_moves: bool,
+    /// `APPEND` answers `NO` (a full mailbox, no permission) although the folder exists
+    pub fail_append: bool,
     /// `UID FETCH` answers `NO` (a server that cannot give the headers back: nothing can be verified)
     pub fail_fetch: bool,
     /// every command received, without its tag (`UID MOVE 3 "Archive"`)
@@ -61,6 +63,7 @@ impl Fake {
             no_move: false,
             fail_moves: false,
             fail_fetch: false,
+            fail_append: false,
             log: vec![],
             appended: vec![],
             search_hits: None,
@@ -273,6 +276,8 @@ fn serve(c: TcpStream, shared: Arc<Mutex<State>>) {
             let size: usize = rest.rfind('{').and_then(|i| rest[i + 1..].trim_end_matches('}').trim_end_matches('+').parse().ok()).unwrap_or(0);
             if !st.folders.contains_key(&name) {
                 out += &format!("{tag} NO [TRYCREATE] no such mailbox\r\n");
+            } else if st.fail_append {
+                out += &format!("{tag} NO [OVERQUOTA] quota exceeded\r\n");
             } else {
                 // continuation request, then the literal and the end of its line
                 if w.write_all(b"+ go ahead\r\n").is_err() {

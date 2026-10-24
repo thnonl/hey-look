@@ -19,6 +19,8 @@ export default defineLocale<typeof ns.en>({
   "backend.MSG_NOT_ON_SERVER": "Không tìm thấy thư trên máy chủ.",
   "backend.FOLDER_MISSING": "Không tìm thấy thư mục {folder} trên tài khoản này. Thư vẫn ở nguyên chỗ cũ.",
   "backend.FOLDER_NOT_CREATED": "Không tìm thấy hoặc không tạo được thư mục {folder} trên tài khoản này ({why}). Thư vẫn ở nguyên chỗ cũ.",
+  "backend.FOLDER_CHANGED": "Thư mục này đã thay đổi trên máy chủ nên chưa có thao tác nào được thực hiện. Hey Look! đang đọc lại thư mục. Vui lòng thử lại sau giây lát.",
+  "backend.DRAFTS_NOT_CREATED": "Không tìm thấy hoặc không tạo được thư mục Thư nháp trên tài khoản này ({why}).",
   "backend.ATT_NOT_FOUND": "Không tìm thấy tệp đính kèm.",
   "backend.KEYRING_TIMEOUT": "Kho khóa của hệ thống đang bị khóa hoặc không phản hồi. Hãy mở khóa (Mật khẩu và Khóa / KWallet) rồi thử lại.",
   "backend.ADD_CANCELLED": "Đã hủy việc thêm tài khoản.",

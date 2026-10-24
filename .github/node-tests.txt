@@ -364,3 +364,5 @@ static | node --experimental-strip-types scripts/test-format-painter.mjs
 ui-b | node scripts/test-painter-mini.mjs --require-browser
 # 1.0.7 W3.3: the mini toolbar rules - the show matrix (mouse / touch / pen / keyboard, empty, picture and cell selections, inside one link, painter on, composing, a menu open, setting off), the box of a selection and its clip, the keys that keep it, the wiring (preference, Settings row, lazy chunk, no live region, link anchor, mustBeLazy)
 static | node --experimental-strip-types scripts/test-mini-toolbar.mjs
+# 1.0.7 W6.1: `folder-reset` (the server renumbered a folder and it was read again): the folder on screen drops the selection, the checked rows and the open conversation and the list is read again; another folder or mailbox changes nothing; the all-mailboxes view follows every mailbox
+ui-b | node scripts/test-folder-reset.mjs --require-browser

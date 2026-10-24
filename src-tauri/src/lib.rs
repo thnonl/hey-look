@@ -1001,7 +1001,21 @@ fn apply_server_flags(c: &Connection, guard: &flagguard::FlagGuard, started: u64
     Ok(())
 }
 
+/// A debug build can hold every sync back before it connects (`HEYLOOK_TEST_SYNC_DELAY_MS`, at most 120 s): QA of an action that runs before the first sync has recorded the numbering of
+/// the folders (1.0.7 W6.1, AC-6.1.7). Never in a release build.
+fn test_sync_delay_ms() -> u64 {
+    if !cfg!(debug_assertions) {
+        return 0;
+    }
+    std::env::var("HEYLOOK_TEST_SYNC_DELAY_MS").ok().and_then(|v| v.trim().parse::<u64>().ok()).unwrap_or(0).min(120_000)
+}
+
 fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
+    let delay = test_sync_delay_ms();
+    if delay > 0 {
+        startup::line("sync", &format!("test seam HEYLOOK_TEST_SYNC_DELAY_MS: waiting {delay} ms before the sync of {account_id}"));
+        std::thread::sleep(std::time::Duration::from_millis(delay));
+    }
     let acc = db::get_account(&lock(db), account_id)?;
     let sec = secret(db, &acc)?;
     let mut s = mail::connect(&acc, &sec)?;
@@ -8126,6 +8140,8 @@ mod fakeimap;
 mod foldermove_tests;
 #[cfg(test)]
 mod uidvalidity_tests;
+#[cfg(test)]
+mod drafts_tests;
 #[cfg(test)]
 mod readrace_tests;
 #[cfg(test)]
