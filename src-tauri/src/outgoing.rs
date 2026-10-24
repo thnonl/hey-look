@@ -5,7 +5,7 @@
 //! attributes, URL schemes and CSS properties named below are written to the output (rebuilt from the parsed pieces, never copied), so
 //! whatever the editor, a paste, a signature, a template or a tampered database row put into the HTML, what leaves the computer is:
 //!   - no script, frame, object, embed, form, base, meta, link, style or svg content (and no comment / conditional comment);
-//!   - no event attributes, `srcset`, `background`, `data-*`, `contenteditable`, ProseMirror classes (only `class="sig"` and the quote block's `class="hl-quote"`);
+//!   - no event attributes, `srcset`, `background`, `data-*`, `contenteditable`, ProseMirror classes (only `class="sig"`, the quote block's `class="hl-quote"` and the empty `class="hl-region"` mark of a signature region with no signature, which only a DRAFT keeps: `without_region`);
 //!   - links only to http, https, mailto and tel; picture sources only `cid:`, `data:image/(png|jpeg|gif|webp);base64,...` (size cap) and
 //!     http(s); never `file:`, UNC (`\\host\share`), `//host`, `ftp:`, `javascript:`, `vbscript:`, `data:text/html`;
 //!   - `style` only with the properties of `CSS_PROPS` and values without `url()`, `expression()`, escapes, `@import`.
@@ -236,9 +236,9 @@ fn clean_attrs(tag: &str, attrs: &[(String, String)]) -> Vec<(String, String)> {
             (_, "style") => put("style", clean_style(v)),
             (_, "dir") => put("dir", Some(decode_entities(v).trim().to_ascii_lowercase()).filter(|d| matches!(d.as_str(), "ltr" | "rtl" | "auto"))),
             (_, "align") => put("align", Some(decode_entities(v).trim().to_ascii_lowercase()).filter(|d| matches!(d.as_str(), "left" | "right" | "center" | "justify"))),
-            // the signature region and the quote block of a reply / forward are found again by their class when a draft is opened; no other class is written
+            // the signature region, the mark of a region with no signature and the quote block of a reply / forward are found again by their class when a draft is opened; no other class is written
             ("div", "class") => {
-                let kept: Vec<&str> = ["sig", "hl-quote"].into_iter().filter(|k| decode_entities(v).split_whitespace().any(|c| c.eq_ignore_ascii_case(k))).collect();
+                let kept: Vec<&str> = ["sig", "hl-quote", REGION_CLASS].into_iter().filter(|k| decode_entities(v).split_whitespace().any(|c| c.eq_ignore_ascii_case(k))).collect();
                 put("class", (!kept.is_empty()).then(|| kept.join(" ")))
             }
             ("a", "href") => put("href", safe_href(v)),
@@ -378,6 +378,31 @@ fn skip_nested(s: &str, from: usize, name: &str) -> usize {
             }
         }
     }
+}
+
+/// The class of the empty `div` a signature region leaves in the HTML when the message has no signature (src/signature.ts `REGION_HTML`): it tells a reopened draft, a failed
+/// send or an Undo where the region was, so text typed below it stays below it (V107-R10A-1).
+pub const REGION_CLASS: &str = "hl-region";
+
+/// `html` (already cleaned) without the mark of an empty signature region: a message that is SENT carries none, only a draft does. The empty paragraphs the editor keeps at the very end
+/// (below the region) go with it, as they do when a signature is printed (src/editor/messageBody.ts `fillSignatureStr`): nothing else about the message changes.
+pub fn without_region(html: &str) -> String {
+    let mark = format!(r#"<div class="{REGION_CLASS}"></div>"#);
+    if !html.contains(&mark) {
+        return html.to_string();
+    }
+    let mut out = html.replace(&mark, "");
+    // (`<p>` or `<p style="..">`, then nothing or a `<br>`, then `</p>`)
+    while let Some(head) = out.strip_suffix("</p>") {
+        let Some(open) = head.rfind("<p") else { break };
+        let (tag, inner) = head[open..].split_once('>').unwrap_or(("", ""));
+        let plain = tag == "<p" || tag.strip_prefix("<p style=\"").and_then(|r| r.strip_suffix('"')).is_some_and(|v| !v.contains('"'));
+        if !plain || !(inner.is_empty() || inner == "<br>") {
+            break;
+        }
+        out.truncate(open);
+    }
+    out
 }
 
 /// The cleaned HTML of a message body (see the module comment).
@@ -928,6 +953,31 @@ mod tests {
         let sign = |_: &[u8]| Ok(("-----BEGIN PGP SIGNATURE-----\nx\n-----END PGP SIGNATURE-----".to_string(), "pgp-sha256".to_string()));
         let out = html_part(&crate::smtp::build_signed(&account(), &d, false, &sign).unwrap());
         assert!(!out.contains("file:") && !out.contains("javascript") && !out.contains("<script"), "{out}");
+    }
+
+    /// V107-R10A-1: a message written with no signature leaves the empty region mark where the region was. The sanitiser keeps it (one class, no other attribute), a DRAFT (also a
+    /// signed or encrypted one, `lenient`) carries it, and a message that is SENT does not.
+    #[test]
+    fn region_mark_stays_in_a_draft_and_never_in_a_sent_message() {
+        let mark = r#"<div class="hl-region"></div>"#;
+        let html = format!("<p style=\"margin:0\"><br></p>{mark}<p style=\"margin:0\">typed below</p>");
+        assert_eq!(clean(&html), html, "the sanitiser leaves it as written");
+        assert_eq!(clean(r#"<div class="x hl-region" id="r" data-a="1"></div>"#), mark, "no other class or attribute comes along");
+        assert_eq!(without_region(&clean(&html)), r#"<p style="margin:0"><br></p><p style="margin:0">typed below</p>"#);
+        // the empty paragraphs at the very end go with it (the message the person sent with nothing below the region), and only those
+        assert_eq!(without_region(&format!("<p>Hi</p><p><br></p>{mark}<p style=\"margin:0\"><br></p><p></p>")), "<p>Hi</p>");
+        assert_eq!(without_region(&format!("<p><br></p>{mark}<p><br></p>")), "");
+        assert_eq!(without_region(&format!("<p>a</p>{mark}<p>b</p>")), "<p>a</p><p>b</p>");
+        assert_eq!(without_region(&format!("<p>a</p>{mark}<p class=x><br></p>")), "<p>a</p><p class=x><br></p>", "a paragraph with other attributes is not touched");
+        assert_eq!(without_region("<p>a</p><p><br></p>"), "<p>a</p><p><br></p>", "without a mark the message is left as it is");
+        let d: crate::smtp::Draft = serde_json::from_value(serde_json::json!({ "accountId": "a1", "to": ["ann@example.com"], "subject": "s", "html": html, "text": "typed below" })).unwrap();
+        assert!(html_part(&crate::smtp::build_draft(&account(), &d).unwrap()).contains(mark), "a draft keeps the mark");
+        assert!(!html_part(&crate::smtp::build(&account(), &d).unwrap()).contains("hl-region"), "a sent message has none");
+        let sign = |_: &[u8]| Ok(("-----BEGIN PGP SIGNATURE-----
+x
+-----END PGP SIGNATURE-----".to_string(), "pgp-sha256".to_string()));
+        assert!(!html_part(&crate::smtp::build_signed(&account(), &d, false, &sign).unwrap()).contains("hl-region"), "a signed message that is sent has none");
+        assert!(html_part(&crate::smtp::build_signed(&account(), &d, true, &sign).unwrap()).contains(mark), "a signed draft keeps it");
     }
 
     /// BUG-18: hostile attachment names reach the MIME as a clean base name; two files that only collide after cleaning stay two; two real

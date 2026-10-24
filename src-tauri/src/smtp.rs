@@ -499,9 +499,12 @@ fn exact_body(bytes: Vec<u8>) -> Body {
 }
 
 /// The content: text/plain + text/html (+ related pictures), then the real attachments.
-fn body(d: &Draft) -> R<MultiPart> {
+/// `draft`: the message is a DRAFT (saved to the Drafts folder, also an encrypted one), which keeps the mark of an empty signature region so that it opens with the region where it was;
+/// a message that is sent never carries it (V107-R10A-1).
+fn body(d: &Draft, draft: bool) -> R<MultiPart> {
     // the allow-list sanitiser (outgoing.rs) is the last step before the HTML becomes a MIME part: send, schedule, hold, outbox and drafts
-    let html = html_part(crate::outgoing::clean_html(&d.html));
+    let cleaned = crate::outgoing::clean_html(&d.html);
+    let html = html_part(if draft { cleaned } else { crate::outgoing::without_region(&cleaned) });
     let mut alt = if d.inline.is_empty() {
         MultiPart::alternative().singlepart(plain_part(d.text.clone())).singlepart(html)
     } else {
@@ -566,7 +569,7 @@ pub fn build_calendar_mail(acc: &Account, to: &[String], cc: &[String], subject:
 }
 
 pub fn build(acc: &Account, d: &Draft) -> R<Message> {
-    headers(acc, d, false)?.multipart(body(d)?).map_err(err)
+    headers(acc, d, false)?.multipart(body(d, false)?).map_err(err)
 }
 
 /// The finished message as it goes on the wire and into the Sent / Drafts folder: lettre's text with the lines of the header block and of every
@@ -578,7 +581,7 @@ pub fn wire(m: &Message) -> Vec<u8> {
 /// multipart/signed (RFC 3156): the signature covers the content entity exactly as it is written, without the
 /// line break that belongs to the next boundary line.
 pub fn build_signed(acc: &Account, d: &Draft, lenient: bool, sign: &dyn Fn(&[u8]) -> R<(String, String)>) -> R<Message> {
-    let inner = body(d)?;
+    let inner = body(d, lenient)?;
     // the part headers are folded BEFORE the signature is made: `wire` folds the finished message the same way, so the signed bytes are the ones sent
     let mut bytes = crate::headerfold::fold(inner.formatted());
     if bytes.ends_with(b"\r\n") {
@@ -595,7 +598,7 @@ pub fn build_signed(acc: &Account, d: &Draft, lenient: bool, sign: &dyn Fn(&[u8]
 /// multipart/encrypted (RFC 3156): a control part and the armored OpenPGP message.
 pub fn build_encrypted(acc: &Account, d: &Draft, lenient: bool, encrypt: &dyn Fn(&[u8]) -> R<String>) -> R<Message> {
     // what is encrypted has its part headers folded as well (the finished message folds only what it shows: the two parts of the envelope)
-    let armored = encrypt(&crate::headerfold::fold(body(d)?.formatted()))?;
+    let armored = encrypt(&crate::headerfold::fold(body(d, lenient)?.formatted()))?;
     let control = SinglePart::builder().header(ContentType::parse("application/pgp-encrypted").map_err(err)?).body(String::from("Version: 1"));
     let data = SinglePart::builder()
         .header(ContentType::parse("application/octet-stream; name=\"encrypted.asc\"").map_err(err)?)
@@ -905,7 +908,7 @@ pub(crate) fn test_with(acc: &Account, secret: &str, timeout: std::time::Duratio
 
 /// What is saved to the Drafts folder: like `build`, but a draft needs no recipient, no subject and may hold half-typed addresses.
 pub fn build_draft(acc: &Account, d: &Draft) -> R<Message> {
-    headers(acc, d, true)?.multipart(body(d)?).map_err(err)
+    headers(acc, d, true)?.multipart(body(d, true)?).map_err(err)
 }
 
 #[cfg(test)]

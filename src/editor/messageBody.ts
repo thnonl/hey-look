@@ -4,15 +4,18 @@
 // plain-text part (htmlText.ts) work on this result.
 
 import { docToHtml, wrapBase, type BaseFont, type JsonNode } from "./emailHtml.ts";
-import { sigBlockHtml } from "../signature.ts";
+import { REGION_HTML, sigBlockHtml } from "../signature.ts";
 
 const MARK = "<div data-sig-block></div>";
 // empty paragraphs at the very end (the one the editor keeps below the signature region): no stray blank line after the signature
 const TRAILING_EMPTY = /(?:<p(?: style="[^"]*")?>(?:<br>)?<\/p>)+$/;
 
-/** The signature region marker replaced by the signature (or removed), and the empty paragraphs at the end dropped. */
+/**
+ * The signature region marker replaced by the signature, and the empty paragraphs at the end dropped. With no signature the region leaves `REGION_HTML` where it was, so a draft,
+ * a failed send or an Undo gives it back at the same place (V107-R10A-1); the Rust side removes it from a message that is sent.
+ */
 export function fillSignatureStr(html: string, sigHtml: string | null): string {
-  const filled = html.split(MARK).join(sigHtml && sigHtml.trim() ? sigBlockHtml(sigHtml) : "");
+  const filled = html.split(MARK).join(sigHtml && sigHtml.trim() ? sigBlockHtml(sigHtml) : REGION_HTML);
   return filled.replace(TRAILING_EMPTY, "");
 }
 

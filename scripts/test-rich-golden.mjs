@@ -45,7 +45,7 @@ for (const name of names) {
     if (name !== "security" && name !== "paste-hostile") continue; // (the second one is what the editor made of a hostile paste: scripts/fixtures/paste/hostile.html)
     assert.ok(!html.toLowerCase().includes(bad), `${name}: ${bad} in ${html}`);
   }
-  assert.ok(!/\sclass="(?!(?:sig|hl-quote)")/.test(html) && !/<style|\sid=|\sdata-/.test(html), `${name}: no class (except sig and the quote block's hl-quote), id, data- or <style>`);
+  assert.ok(!/\sclass="(?!(?:sig|hl-quote|hl-region)")/.test(html) && !/<style|\sid=|\sdata-/.test(html), `${name}: no class (except sig, the quote block's hl-quote and the empty region mark hl-region), id, data- or <style>`);
   if (name === "kitchen-sink") assert.equal(inline.length, 1, "the picture is an inline part");
   if (name === "signature-picture") {
     // REQ-25 / AC-43: the logo of a signature is an inline related part (not an attachment) under the name it was added with
@@ -72,7 +72,9 @@ assert.equal(unwrapBase("").base, null);
 
 // ---- signature and pictures
 assert.equal(fillSignatureStr('<p style="margin:0">Hi</p><div data-sig-block></div><p style="margin:0"><br></p>', "Nam"), '<p style="margin:0">Hi</p><br><div class="sig">-- <br>Nam</div>');
-assert.equal(fillSignatureStr('<p style="margin:0">Hi</p><div data-sig-block></div><p style="margin:0"><br></p>', null), '<p style="margin:0">Hi</p>', "no signature: marker and trailing empty paragraphs go");
+// no signature: the region leaves its empty mark where it was (V107-R10A-1: a reopened draft puts it back there; smtp::body takes it out of a message that is sent), the empty paragraphs at the end go
+assert.equal(fillSignatureStr('<p style="margin:0">Hi</p><div data-sig-block></div><p style="margin:0"><br></p>', null), '<p style="margin:0">Hi</p><div class="hl-region"></div>', "no signature: the mark stays, trailing empty paragraphs go");
+assert.equal(fillSignatureStr('<p style="margin:0"><br></p><div data-sig-block></div><p style="margin:0">Below</p>', null), '<p style="margin:0"><br></p><div class="hl-region"></div><p style="margin:0">Below</p>', "no signature: text below the region stays below the mark");
 assert.equal(fillSignatureStr('<p style="margin:0">Hi</p><div data-sig-block></div><p style="margin:0">after</p>', "S").endsWith("after</p>"), true, "a paragraph with text after the signature stays");
 {
   let k = 0;

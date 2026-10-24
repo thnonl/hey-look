@@ -4,6 +4,14 @@
 /** HTML of the marker node (`SignatureBlock` in Compose.tsx parses and renders exactly this). */
 export const SIG_MARK = "<div data-sig-block></div>";
 
+/**
+ * What the region leaves in the stored HTML of a message written with NO signature (the region has nothing to print, but a reopened draft, a failed send or an Undo must put it back
+ * where it was: text typed below it stays below it, V107-R10A-1). An empty `div` with the one class the outgoing sanitiser keeps for it (src-tauri/src/outgoing.rs); a message that is
+ * SENT never carries it (smtp::body removes it), a draft does. `REGION_CLASS` is the single spelling on this side.
+ */
+export const REGION_CLASS = "hl-region";
+export const REGION_HTML = `<div class="${REGION_CLASS}"></div>`;
+
 const LEAD = /^\s*--\s*(<br\s*\/?>)?\s*/i;
 const parse = (html: string) => new DOMParser().parseFromString(html, "text/html");
 
@@ -26,6 +34,16 @@ export function extractSignature(html: string): { html: string; sig: string | nu
   // forward is a plain `div` without `hl-quote`) can never be taken for the person's own (W2.22 CF-14).
   const el = [...doc.querySelectorAll("div.sig")].find((d) => !d.closest("blockquote, div.hl-quote")) ?? null;
   if (!el) {
+    // a message written with no signature leaves the empty mark where its region was (REGION_HTML): the region goes back exactly there
+    const spot = [...doc.querySelectorAll(`div.${REGION_CLASS}`)].find((d) => !d.closest("blockquote, div.hl-quote")) ?? null;
+    if (spot) {
+      const mark = doc.createElement("div");
+      mark.setAttribute("data-sig-block", "");
+      spot.replaceWith(mark);
+      doc.querySelectorAll(`div.${REGION_CLASS}`).forEach((d) => { if (!d.closest("blockquote, div.hl-quote")) d.remove(); }); // (one region only)
+      if (!doc.body.lastElementChild || doc.body.lastElementChild === mark) doc.body.append(doc.createElement("p"));
+      return { html: doc.body.innerHTML, sig: null };
+    }
     // no signature in the stored message: the region goes where a new reply has it, above the quoted original (editor/quoteBlock.ts), else at the end
     const q = html.indexOf("<div data-quote-block=");
     return { html: q >= 0 ? html.slice(0, q) + SIG_MARK + html.slice(q) : html + SIG_MARK + "<p></p>", sig: null };
