@@ -227,6 +227,8 @@ export default defineLocale<typeof ns.en>({
   "reading.pv.showFailed": "Không hiển thị được tệp này. {error}",
   "reading.pv.notPdf": "Tệp này không phải PDF hợp lệ nên không thể hiển thị. Bạn vẫn có thể mở hoặc lưu nó.",
   "reading.pv.pdfNotDrawn": "Không thể hiển thị bản xem trước này tại đây. Hãy mở tệp bằng ứng dụng mặc định của máy.",
+  "reading.pv.page": "Trang {n}/{total}",
+  "reading.pv.pdfLocked": "PDF này được bảo vệ bằng mật khẩu nên không thể hiển thị ở đây. Bạn vẫn có thể mở hoặc lưu nó.",
   "reading.pv.pdfOutside": "Tệp PDF được mở bằng ứng dụng mặc định trên hệ thống này.",
   "reading.lb.label": "Ảnh {name}",
   "reading.lb.prev": "Ảnh trước",

@@ -1638,9 +1638,9 @@ export function installMock() {
         return (window as unknown as { __mockClipboard?: { text: string; html: string } }).__mockClipboard ?? { text: "", html: "" };
       case "plugin:app|version": return "1.0.0";
       // `#os=macos|linux` (per-OS copy and shortcut labels), `#notray` (Linux without a tray host), `#nonotify` (Send test fails)
-      case "shell_info": { // `#pdf=frame|object|card` picks the PDF preview (default: the frame on Windows, the card elsewhere)
+      case "shell_info": { // `#pdf=frame|pdfjs|pdfjs-broken|card` picks the PDF preview (default: the frame on Windows, PDF.js elsewhere)
         const os = hashTokens().get("os") || "windows";
-        return { os, tray: !hashTokens().has("notray"), testData: null, pdfView: hashTokens().get("pdf") || (os === "windows" ? "frame" : "card"), pdfTest: hashTokens().has("pdftest"), copyFail: hashTokens().has("copyfail"), openFail: hashTokens().has("openfail"), accountsDelayMs: hashNum("accountsdelay", 0), managed: hashTokens().get("managed") || null }; // `#managed=apt|snap|msstore`: this copy is updated by apt / the Snap Store / the Microsoft Store (Settings > About). `#accountsdelay=<ms>`: the store takes the mailboxes that late (New mail before they are read)
+        return { os, tray: !hashTokens().has("notray"), testData: null, pdfView: hashTokens().get("pdf") || (os === "windows" ? "frame" : "pdfjs"), copyFail: hashTokens().has("copyfail"), openFail: hashTokens().has("openfail"), accountsDelayMs: hashNum("accountsdelay", 0), managed: hashTokens().get("managed") || null }; // `#managed=apt|snap|msstore`: this copy is updated by apt / the Snap Store / the Microsoft Store (Settings > About). `#accountsdelay=<ms>`: the store takes the mailboxes that late (New mail before they are read)
       }
       case "test_notification":
         if (hashTokens().has("nonotify")) throw "no notification server is running";
@@ -1846,7 +1846,9 @@ export function installMock() {
         const att = ([m4, ...messages, ...mockLayerMsgs] as { id: string; attachments: { index: number; name: string; mime: string }[] }[]).find((x) => x.id === a.messageId)?.attachments.find((z) => z.index === a.index);
         const name = att?.name ?? "file.pdf";
         const mime = att?.mime ?? "application/pdf";
-        return { name, mime, dataBase64: mime.startsWith("image/") ? PIC : mime === "application/pdf" ? MOCK_PDF : btoa(`Mock contents of ${name}\n`) };
+        // (a check sets window.__mockPdf = { "<attachment name>": "<base64>" } to preview another PDF: scripts/lib/pdf-fixtures.mjs)
+        const own = (window as unknown as { __mockPdf?: Record<string, string> }).__mockPdf?.[name];
+        return { name, mime, dataBase64: own ?? (mime.startsWith("image/") ? PIC : mime === "application/pdf" ? MOCK_PDF : btoa(`Mock contents of ${name}\n`)) };
       }
       case "inline_image": return { mime: "image/png", dataBase64: PIC, name: "picture.png" };
       case "save_attachments": return ["C:/Users/Me/Downloads/logo.png"];

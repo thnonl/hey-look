@@ -2010,10 +2010,8 @@ struct ShellInfo {
     test_data: Option<String>,
     /// the store that updates this copy ("snap"), None when the app updates itself (update.rs `managed_by`)
     managed: Option<&'static str>,
-    /// how a PDF attachment is previewed here: "frame", "object" or "card" (pdfmode.rs)
+    /// how a PDF attachment is previewed here: "frame" (Windows), "pdfjs" (macOS, Linux), "pdfjs-broken" (debug seam) or "card" (pdfmode.rs)
     pdf_view: &'static str,
-    /// the PDF experiment of macOS / Linux is on (HEYLOOK_PDF_INLINE): the page shows a readout of what the engine did
-    pdf_test: bool,
     /// debug builds only, `HEYLOOK_TEST_COPY_FAIL=1`: every copy to the clipboard fails (QA of the "Couldn't copy" toasts)
     copy_fail: bool,
     /// debug builds only, `HEYLOOK_TEST_OPEN_FAIL=1`: opening a link in the browser always fails (QA of the "Couldn't open your browser" toasts)
@@ -2043,7 +2041,7 @@ fn accounts_delay_ms() -> u64 {
 
 #[tauri::command]
 fn shell_info() -> ShellInfo {
-    ShellInfo { os: std::env::consts::OS, tray: shell::tray_ready(), test_data: legacy_names::test_data_dir().map(|p| p.display().to_string()), managed: update::managed_by(), pdf_view: pdfmode::view().name(), pdf_test: pdfmode::experiment_on(), copy_fail: copy_forced_to_fail(), open_fail: open_forced_to_fail(), accounts_delay_ms: accounts_delay_ms() }
+    ShellInfo { os: std::env::consts::OS, tray: shell::tray_ready(), test_data: legacy_names::test_data_dir().map(|p| p.display().to_string()), managed: update::managed_by(), pdf_view: pdfmode::view().name(), copy_fail: copy_forced_to_fail(), open_fail: open_forced_to_fail(), accounts_delay_ms: accounts_delay_ms() }
 }
 
 /// The "Start Hey Look! when I sign in" switch: the registry entry of the autostart plugin, or in the Microsoft Store package the package's startup task
@@ -5781,8 +5779,8 @@ pub fn run() {
     startup::init_clock();
     // (the names shared with other copies of the app: credential store service, notification id; see identity.rs)
     let mut context = tauri::generate_context!();
-    // (the policy of this run: the PDF experiment on macOS / Linux changes one directive, see pdfmode.rs)
-    pdfmode::apply_csp(context.config_mut());
+    // (how a PDF attachment is previewed on this system is decided, and logged, once: pdfmode.rs; the content security policy is never changed for it)
+    pdfmode::view();
     identity::init(&context.config().identifier);
     // the Microsoft Store package keeps its data in its own folders: the data folder is LocalState and the web view's folder LocalCache (every window, the
     // main one, the gated one and the pop-outs, takes it from here; see pkg.rs). Unpackaged copies are not touched.

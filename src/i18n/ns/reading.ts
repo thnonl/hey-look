@@ -234,6 +234,8 @@ export default define({
     "reading.pv.showFailed": "Couldn’t show this file. {error}",
     "reading.pv.notPdf": "This file is not a valid PDF, so it can’t be shown. You can still open or save it.",
     "reading.pv.pdfNotDrawn": "This preview could not be drawn here. Open the file in your default app instead.",
+    "reading.pv.page": "Page {n} of {total}",
+    "reading.pv.pdfLocked": "This PDF is protected by a password, so it can’t be shown here. You can still open or save it.",
     "reading.pv.pdfOutside": "PDF files open in your default app on this system.",
     "reading.lb.label": "Picture {name}",
     "reading.lb.prev": "Previous picture",

@@ -228,6 +228,8 @@ export default defineLocale<typeof ns.en>({
   "reading.pv.showFailed": "无法显示此文件。{error}",
   "reading.pv.notPdf": "此文件不是有效的PDF，无法显示。您仍然可以打开或保存它。",
   "reading.pv.pdfNotDrawn": "无法在此处显示该预览。请改用默认应用打开此文件。",
+  "reading.pv.page": "第{n}页，共{total}页",
+  "reading.pv.pdfLocked": "此PDF受密码保护，无法在此处显示。您仍然可以打开或保存它。",
   "reading.pv.pdfOutside": "在此系统上，PDF文件会用默认应用打开。",
   "reading.lb.label": "图片{name}",
   "reading.lb.prev": "上一张图片",
