@@ -19,7 +19,8 @@ import { LANGS, t, type Key, type Lang } from "../i18n";
 import { useLang, useT } from "../i18n/react";
 import { fmtNumber } from "../i18n/format";
 import { tx } from "../i18n/rich";
-import { DARK_CANVAS, frameBaseCss, frameRootClass, toggleMailCanvas } from "../mailCanvas";
+import { DARK_CANVAS, effectiveCanvas, frameBaseCss, frameRootClass, pressCanvas } from "../mailCanvas";
+import { useAppDark } from "../useAppDark";
 import { MAIL_FRAME_CSS, MAIL_FRAME_SPIN_CSS } from "../mailFrameCss";
 import { reapply as reapplyColorScheme, rewriteMailHtml } from "../colorSchemeMedia";
 import { eff } from "../prefs";
@@ -202,12 +203,25 @@ function inlineImages(html: string): string {
   return doc.body.innerHTML;
 }
 
-/** Background the mail is shown on: the mail's own colours (default, in every app theme) or the dark one (see darkMail.ts); remembered as a preference. */
+/**
+ * Background the mail is shown on: the mail's own colours or the dark one (see darkMail.ts). In the light app theme always the original unless this session chose dark with the button
+ * (a session choice, never stored); in the dark app theme the stored choice, which the button changes (WP13g, mailCanvas.ts effectiveCanvas / pressCanvas).
+ */
 function useCanvas() {
-  const canvas = useStore((s) => s.prefs.mailCanvas);
+  const themeDark = useAppDark();
+  const stored = useStore((s) => s.prefs.mailCanvas);
+  const session = useStore((s) => s.mailCanvasSession);
   const setPrefs = useStore((s) => s.setPrefs);
-  const dark = canvas === "dark";
-  return { dark, toggle: () => setPrefs({ mailCanvas: toggleMailCanvas(canvas) }) };
+  const setSession = useStore((s) => s.setMailCanvasSession);
+  const dark = effectiveCanvas(themeDark, stored, session) === "dark";
+  return {
+    dark,
+    toggle: () => {
+      const press = pressCanvas(themeDark, stored, session);
+      if (press.pref) setPrefs({ mailCanvas: press.pref });
+      else if (press.session !== undefined) setSession(press.session);
+    },
+  };
 }
 
 /** The cleaned HTML of the last messages that were opened (W13.6 S2): opening a mail again, or switching the picture choice back, does not clean it again. Capped by count and by size. */

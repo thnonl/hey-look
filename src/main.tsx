@@ -7,6 +7,7 @@ import { GuardMenuHost } from "./components/GuardMenuHost";
 import { installContextGuard } from "./contextGuard";
 import { loadPlatform } from "./platform";
 import { onOsDarkChange, startOsTheme } from "./osTheme";
+import { installMailCanvasSync } from "./mailCanvasSync";
 import { applyPrefs, useStore } from "./store";
 import { installMacPasteMatch, installPlainPasteKey } from "./plainPasteKey";
 import { prefetchComposeWindow, prefetchReaderWindow, prefetchWindowView } from "./lazyViews";
@@ -41,6 +42,7 @@ async function boot(): Promise<boolean> {
   // Linux: what the OS scheme is comes from the backend (osTheme.ts, W5.2); asked before the first drawing, the answer waits for at most a second (never on Windows and macOS: no wait)
   void onOsDarkChange(() => applyPrefs(useStore.getState().prefs));
   const osAsked = startOsTheme();
+  installMailCanvasSync(route.kind === "main"); // a switch of the app theme clears the light theme's session mail background and the composer's preview choice (WP13g)
   if (/Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent)) await Promise.race([osAsked, new Promise((r) => setTimeout(r, 1200))]);
   // the saved language first: nothing is drawn, and no event handler exists yet, until it is applied (see bootLang.ts)
   await applySavedLanguage(api.getSetting);

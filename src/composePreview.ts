@@ -3,7 +3,7 @@
 // pane's own dark transformation (darkMail.ts, applied by composePreviewDom.ts). Nothing here is read by buildDraft, so what is
 // saved or sent is the same HTML with the preview on or off (scripts/test-compose-preview.mjs).
 // Imports only mailCanvas.ts, so a plain Node script can test it.
-import { DARK_CANVAS, type MailCanvas } from "./mailCanvas.ts";
+import { canvasForTheme, DARK_CANVAS, type MailCanvas } from "./mailCanvas.ts";
 
 export type PreviewBg = "light" | "dark";
 
@@ -19,9 +19,12 @@ export function togglePreview(p: PreviewBg): PreviewBg {
 // The choice lasts for the session: the next message opened in this run starts the way the last one was left.
 let chosen: PreviewBg | null = null;
 
-/** The preview for a new composer: the choice made in this session, else the one the message background preference implies. */
-export function startPreview(canvas: MailCanvas): PreviewBg {
-  return chosen ?? previewFromCanvas(canvas);
+/**
+ * The preview for a new composer: the choice made in this session, else the one the app theme implies (WP13g): light in the light theme, the stored message background in the dark one.
+ * A switch of the app theme forgets the choice (mailCanvasSync.ts), so the new theme's start value shows.
+ */
+export function startPreview(themeDark: boolean, stored: MailCanvas): PreviewBg {
+  return chosen ?? previewFromCanvas(canvasForTheme(themeDark, stored));
 }
 
 export function rememberPreview(p: PreviewBg): void {

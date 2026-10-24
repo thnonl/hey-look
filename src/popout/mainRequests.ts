@@ -11,6 +11,8 @@ import { calTz, today } from "../calendar";
 import { friendlyError, useStore, type Dialog } from "../store";
 import { CW_PREFIX } from "./composeRequests";
 import { DEFAULT_PREFS } from "../prefs";
+import { themeIsDark } from "../mailCanvas";
+import { osDark } from "../osTheme";
 import { useUpdates } from "../updates";
 import { parseRequest, type Envelope } from "./requestKinds";
 
@@ -34,6 +36,11 @@ async function run(env: Envelope): Promise<unknown> {
     case "prefs":
       st.setPrefs(p.patch as Partial<typeof st.prefs>);
       return null;
+    case "canvas-session": {
+      // (the light theme's session choice, WP13g: in the dark theme the button stores the preference instead, so a set is ignored there)
+      if (p.dark !== null && !themeIsDark(st.prefs.theme, osDark())) st.setMailCanvasSession(p.dark ? "dark" : null);
+      return { dark: useStore.getState().mailCanvasSession === "dark" };
+    }
     case "toast":
       st.showToast(p.text, undefined, p.level); // i18n-ok: made by the event window, in the language in use
       return null;

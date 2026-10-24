@@ -6,6 +6,7 @@ import { statusShown, STATUS_AFTER_MS, STATUS_MIN_MS } from "../composeShell";
 import { useDelayedFlag } from "../delayedFlag";
 import { useT } from "../i18n/react";
 import { useStore, type ComposeInit } from "../store";
+import { useAppDark } from "../useAppDark";
 import { LazyLoading } from "../lazy";
 
 /**
@@ -19,6 +20,7 @@ export function ComposeFrame({ init, late }: { init: ComposeInit; late: boolean 
   const t = useT();
   const accounts = useStore((s) => s.accounts);
   const canvas = useStore((s) => s.prefs.mailCanvas);
+  const themeDark = useAppDark();
   const preparing = init.preparing;
   // the same delay as the real pane's (counted from the press), so the status neither comes twice nor flashes
   const status = useDelayedFlag(!!preparing, preparing ? Math.max(0, STATUS_AFTER_MS - (Date.now() - preparing.at)) : STATUS_AFTER_MS, STATUS_MIN_MS);
@@ -63,7 +65,7 @@ export function ComposeFrame({ init, late }: { init: ComposeInit; late: boolean 
         </div>
       </div>
       <div className="cp-fmt" inert aria-hidden><span style={{ height: 28 }} /></div>
-      <div className={`cp-editor cp-pv pv-${startPreview(canvas)}`} style={previewVars(startPreview(canvas)) as React.CSSProperties} data-preparing={preparing ? "" : undefined}>
+      <div className={`cp-editor cp-pv pv-${startPreview(themeDark, canvas)}`} style={previewVars(startPreview(themeDark, canvas)) as React.CSSProperties} data-preparing={preparing ? "" : undefined}>
         {preparing ? (
           <div className="cp-prep" ref={prepRef} tabIndex={-1}>
             {status && (

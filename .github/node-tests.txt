@@ -406,6 +406,8 @@ ui-d | node scripts/test-mac-window-top.mjs --require-browser
 ui-c | node scripts/test-main-reader-memory.mjs --require-browser
 # 1.0.7 fix35: the message frame is written, not navigated: one frame, constant history, no srcdoc copy of the mail, over 20 selections
 ui-c | node scripts/test-mail-frame-history.mjs --require-browser
+# 1.0.7 WP13g (DEC-025): the app theme decides the mail background - Light shows the original whatever is stored, the button there is a session choice (nothing stored) that any theme switch clears, Dark shows the stored choice, System follows the OS (the app's OS-theme seam); the reading pane, the reader window and the composer's Preview as recipient follow within 1 s, the frame pixels show only the old and the new background through every switch, a mail with its own dark design is not recoloured, print is original
+ui-e | node scripts/test-mail-canvas-theme.mjs --require-browser
 # 1.0.7 W6.1: `folder-reset` (the server renumbered a folder and it was read again): the folder on screen drops the selection, the checked rows and the open conversation and the list is read again; another folder or mailbox changes nothing; the all-mailboxes view follows every mailbox
 ui-b | node scripts/test-folder-reset.mjs --require-browser
 # 1.0.7 W6.17b: the toast "Downloading Hey Look!" is keyed and goes when the download leaves `downloading`: a fast download shows the ready text and no Downloading toast beside it, a slow one keeps it until it is over, a cancel takes it away
