@@ -19,7 +19,7 @@ impl ProviderFactory for AppFactory {
         match src.kind {
             Kind::Google => super::google::provider(&self.db, src),
             Kind::Microsoft => super::microsoft::provider(&self.db, src),
-            Kind::CalDav => Err(SyncErr::NotSetUp(format!("{} sync is not part of this version", src.kind.service()))),
+            Kind::CalDav => super::caldav::provider(&self.db, src),
         }
     }
 }
@@ -169,6 +169,102 @@ pub async fn calendar_connect(app: tauri::AppHandle, state: tauri::State<'_, App
     Ok(info)
 }
 
+/// What the CalDAV dialog sends (REQ-7.4.2).
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DavConnect {
+    pub account_id: String,
+    /// "icloud" | "fastmail" | "nextcloud" | "other"
+    pub service: String,
+    /// the server address (ignored for iCloud and Fastmail, which have a fixed one)
+    #[serde(default)]
+    pub url: String,
+    pub username: String,
+    /// the app password typed in the dialog (not used when `use_mail_password`)
+    #[serde(default)]
+    pub password: String,
+    #[serde(default)]
+    pub use_mail_password: bool,
+    /// trust the server's certificate (Nextcloud and Other only)
+    #[serde(default)]
+    pub trust_cert: bool,
+}
+
+const NOT_AVAILABLE: &str = "CAL_NOT_SET_UP: This mailbox has no calendar that Hey Look! can sync.";
+
+/// Find the calendars of a server with these credentials (blocking: run it off the main thread). Nothing is stored here.
+fn find_on_server(args: &DavConnect, password: &str) -> Result<(super::caldav::DavSource, super::caldav::Discovered), super::caldav::DavErr> {
+    use super::caldav::{discover, parse_url, DavErr, DavHttp, DavSource, Preset};
+    let preset = Preset::from_str(&args.service);
+    let entered = preset.fixed_url().map(String::from).unwrap_or_else(|| args.url.trim().to_string());
+    let base = parse_url(&entered).ok_or(DavErr::NoServer)?;
+    let trust = args.trust_cert && matches!(preset, Preset::Nextcloud | Preset::Other);
+    let http = DavHttp::new(&base, args.username.trim(), password, preset, trust);
+    let found = discover(&http, &entered, preset)?;
+    let dav = DavSource { url: entered, username: args.username.trim().to_string(), preset, homes: found.homes.clone(), addresses: found.addresses.clone(), scheduling: found.scheduling, trust_cert: trust };
+    Ok((dav, found))
+}
+
+/// Turn calendar sync on for a mailbox with a CalDAV server (W7.4): discovery first; nothing is stored unless it finds at least one calendar. The password goes to the credential
+/// store as `<account id>:calendar` (the mailbox's own password is copied there when the person asked, so the two can differ later).
+#[tauri::command]
+pub async fn calendar_connect_caldav(app: tauri::AppHandle, state: tauri::State<'_, AppState>, args: DavConnect) -> R<SourceInfo> {
+    let db = state.db.clone();
+    let acc = {
+        let c = lock(&db);
+        let acc = db::get_account(&c, &args.account_id)?;
+        if !Kind::CalDav.enabled() || Kind::for_account(&acc).is_some() || store::source_of_account(&c, &acc.id).is_some() {
+            return Err(NOT_AVAILABLE.into());
+        }
+        acc
+    };
+    let password = if args.use_mail_password && Provider::from_auth(&acc.auth).is_none() { crate::password(&acc.id)? } else { args.password.clone() };
+    if password.is_empty() || args.username.trim().is_empty() {
+        return Err(super::caldav::DavErr::Auth.connect_text());
+    }
+    let a2 = DavConnect { account_id: args.account_id.clone(), service: args.service.clone(), url: args.url.clone(), username: args.username.clone(), password: String::new(), use_mail_password: false, trust_cert: args.trust_cert };
+    let pw = password.clone();
+    let (dav, found) = blocking(move || find_on_server(&a2, &pw).map_err(|e| e.connect_text())).await?;
+    crate::startup::line("calsync", &format!("{}: caldav connected to {} ({} calendars{})", acc.id, dav.host(), found.calendars.len(), if found.scheduling { ", the server sends invitations" } else { "" }));
+    let key = oauth::calendar_key(&acc.id);
+    crate::identity::entry(&key).and_then(|e| e.set_password(&password)).map_err(|e| format!("CAL_ERROR: Couldn’t save the calendar sign-in: {e}"))?;
+    let info = {
+        let c = lock(&db);
+        let src = store::create_dav_source(&c, &acc.id, chrono::Utc::now().timestamp(), &dav)?;
+        store::sources_info(&c)?.into_iter().find(|s| s.id == src.id).ok_or("calendar source missing")?
+    };
+    super::request_sync(&acc.id);
+    changed(&app);
+    Ok(info)
+}
+
+/// The password of a CalDAV source was refused: check the new one against the server, keep it, and sync again. The local copy of the calendars stays.
+#[tauri::command]
+pub async fn calendar_dav_password(app: tauri::AppHandle, state: tauri::State<'_, AppState>, account_id: String, password: String) -> R<SourceInfo> {
+    let db = state.db.clone();
+    let src = {
+        let c = lock(&db);
+        store::source_of_account(&c, &account_id).filter(|s| s.kind == Kind::CalDav && s.dav.is_some()).ok_or(NOT_AVAILABLE)?
+    };
+    let dav = src.dav.clone().ok_or(NOT_AVAILABLE)?;
+    if password.is_empty() {
+        return Err(super::caldav::DavErr::Auth.connect_text());
+    }
+    let args = DavConnect { account_id: account_id.clone(), service: dav.preset.as_str().into(), url: dav.url.clone(), username: dav.username.clone(), password: String::new(), use_mail_password: false, trust_cert: dav.trust_cert };
+    let pw = password.clone();
+    blocking(move || find_on_server(&args, &pw).map(|_| ()).map_err(|e| e.connect_text())).await?;
+    let key = oauth::calendar_key(&account_id);
+    crate::identity::entry(&key).and_then(|e| e.set_password(&password)).map_err(|e| format!("CAL_ERROR: Couldn’t save the calendar sign-in: {e}"))?;
+    let info = {
+        let c = lock(&db);
+        store::set_status(&c, &src.id, super::SYNCING, None, None, 0)?;
+        store::sources_info(&c)?.into_iter().find(|s| s.id == src.id).ok_or("calendar source missing")?
+    };
+    super::request_sync(&account_id);
+    changed(&app);
+    Ok(info)
+}
+
 /// What the person is told when this build has no OAuth client for the service (W7.8). The switch is disabled in that case, so this is
 /// only seen when something calls the command anyway.
 fn not_set_up_text(provider: Provider) -> String {
@@ -178,7 +274,7 @@ fn not_set_up_text(provider: Provider) -> String {
 /// The kinds a build can connect: Google and Microsoft when an OAuth client is configured for them (the environment, the build or Settings),
 /// the others (CalDAV, 7d) need none. `has_client` is asked per provider.
 pub fn kinds_available(has_client: impl Fn(Provider) -> bool) -> Vec<String> {
-    super::ENABLED_KINDS.iter().filter(|k| k.oauth().map(&has_client).unwrap_or(true)).map(|k| k.as_str().to_string()).collect()
+    [Kind::Google, Kind::Microsoft, Kind::CalDav].into_iter().filter(|k| k.enabled()).filter(|k| k.oauth().map(&has_client).unwrap_or(true)).map(|k| k.as_str().to_string()).collect()
 }
 
 /// The services this build can connect (`google`, `microsoft`, ...). The Calendar section of a mailbox whose kind is not in the list shows

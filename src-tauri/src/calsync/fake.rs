@@ -259,7 +259,7 @@ impl CalProvider for FakeProvider {
         let truncated = g.truncated;
         let all = g.events.get(&cal.id).cloned().unwrap_or_default();
         let pull = match &req.state {
-            None => Pull { upserts: all, removed: vec![], next_state: Some(token.clone()).filter(|_| !truncated), full: true, truncated },
+            None => Pull { upserts: all, removed: vec![], next_state: Some(token.clone()).filter(|_| !truncated), full: true, truncated, ..Default::default() },
             Some(t) => {
                 let from = *g.tokens.get(t).ok_or(SyncErr::Gone)?;
                 let log = g.log.get(&cal.id).cloned().unwrap_or_default();
@@ -276,7 +276,7 @@ impl CalProvider for FakeProvider {
                         removed.push(id.clone());
                     }
                 }
-                Pull { upserts, removed, next_state: Some(token.clone()), full: false, truncated }
+                Pull { upserts, removed, next_state: Some(token.clone()), full: false, truncated, ..Default::default() }
             }
         };
         g.tokens.insert(token, log_len);

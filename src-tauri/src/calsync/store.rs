@@ -44,9 +44,11 @@ pub struct Source {
     pub connected_at: i64,
     /// the token of the provider's calendar list (Google `nextSyncToken`); `None` = ask for the whole list
     pub list_state: Option<String>,
+    /// CalDAV: the server, the user name and what discovery found; `None` for the other kinds
+    pub dav: Option<super::caldav::DavSource>,
 }
 
-const SOURCE_COLS: &str = "id,account_id,kind,status,last_sync,last_error,retry_at,fail_count,connected_at,list_state";
+const SOURCE_COLS: &str = "id,account_id,kind,status,last_sync,last_error,retry_at,fail_count,connected_at,list_state,dav_url,dav_user,dav_preset,dav_homes,dav_addresses,dav_sched,dav_trust";
 
 fn row_source(r: &rusqlite::Row) -> rusqlite::Result<Source> {
     let kind: String = r.get(2)?;
@@ -61,6 +63,18 @@ fn row_source(r: &rusqlite::Row) -> rusqlite::Result<Source> {
         fail_count: r.get(7)?,
         connected_at: r.get(8)?,
         list_state: r.get(9)?,
+        dav: match r.get::<_, Option<String>>(10)? {
+            Some(url) => Some(super::caldav::DavSource {
+                url,
+                username: r.get::<_, Option<String>>(11)?.unwrap_or_default(),
+                preset: super::caldav::Preset::from_str(&r.get::<_, Option<String>>(12)?.unwrap_or_default()),
+                homes: serde_json::from_str(&r.get::<_, Option<String>>(13)?.unwrap_or_default()).unwrap_or_default(),
+                addresses: serde_json::from_str(&r.get::<_, Option<String>>(14)?.unwrap_or_default()).unwrap_or_default(),
+                scheduling: r.get::<_, Option<i64>>(15)?.unwrap_or(0) != 0,
+                trust_cert: r.get::<_, Option<i64>>(16)?.unwrap_or(0) != 0,
+            }),
+            None => None,
+        },
     })
 }
 
@@ -92,6 +106,23 @@ pub fn create_source(c: &Connection, account_id: &str, kind: Kind, now: i64) -> 
     )
     .map_err(err)?;
     get_source(c, &id).ok_or_else(|| "calendar source missing".to_string())
+}
+
+/// Start syncing a mailbox's calendars with a CalDAV server (W7.4): the source with what the person entered and discovery found. The password is in the credential store.
+pub fn create_dav_source(c: &Connection, account_id: &str, now: i64, dav: &super::caldav::DavSource) -> R<Source> {
+    let s = create_source(c, account_id, Kind::CalDav, now)?;
+    c.execute(
+        "UPDATE cal_sources SET dav_url=?2, dav_user=?3, dav_preset=?4, dav_homes=?5, dav_addresses=?6, dav_sched=?7, dav_trust=?8 WHERE id=?1",
+        params![s.id, dav.url, dav.username, dav.preset.as_str(), serde_json::to_string(&dav.homes).map_err(err)?, serde_json::to_string(&dav.addresses).map_err(err)?, dav.scheduling as i64, dav.trust_cert as i64],
+    )
+    .map_err(err)?;
+    get_source(c, &s.id).ok_or_else(|| "calendar source missing".to_string())
+}
+
+/// The version tag of every resource of a CalDAV calendar that is stored here (address -> etag).
+pub fn resource_etags(c: &Connection, calendar_id: &str) -> Vec<(String, String)> {
+    let Ok(mut st) = c.prepare("SELECT href,etag FROM cal_resources WHERE calendar_id=?1") else { return vec![] };
+    st.query_map([calendar_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))).map(|it| it.filter_map(|r| r.ok()).collect()).unwrap_or_default()
 }
 
 pub fn set_status(c: &Connection, id: &str, status: &str, error: Option<&str>, retry_at: Option<i64>, fail_count: i64) -> R<()> {
@@ -282,6 +313,7 @@ fn upsert_calendar(tx: &Connection, src: &Source, old: Option<&CalRow>, rc: &Rem
 
 pub fn drop_calendar(c: &Connection, id: &str) -> R<()> {
     c.execute("DELETE FROM events WHERE calendar_id=?1", [id]).map_err(err)?;
+    c.execute("DELETE FROM cal_resources WHERE calendar_id=?1", [id]).map_err(err)?;
     c.execute("DELETE FROM cal_tombstones WHERE calendar_id=?1", [id]).map_err(err)?;
     c.execute("DELETE FROM calendars WHERE id=?1", [id]).map_err(err)?;
     Ok(())
@@ -303,6 +335,7 @@ pub fn set_calendar_sync(c: &Connection, id: &str, on: bool) -> R<()> {
 /// Drop the events, tombstones and token of a calendar that stays in the list.
 pub fn clear_events(c: &Connection, id: &str) -> R<()> {
     c.execute("DELETE FROM events WHERE calendar_id=?1", [id]).map_err(err)?;
+    c.execute("DELETE FROM cal_resources WHERE calendar_id=?1", [id]).map_err(err)?;
     c.execute("DELETE FROM cal_tombstones WHERE calendar_id=?1", [id]).map_err(err)?;
     c.execute("UPDATE calendars SET sync_state=NULL, event_count=0, truncated=0, window_from=NULL, full_at=NULL WHERE id=?1", [id]).map_err(err)?;
     Ok(())
@@ -362,6 +395,7 @@ pub fn prune_orphans(c: &Connection) -> R<usize> {
     for sql in [
         "DELETE FROM calendars WHERE source_id NOT IN (SELECT id FROM cal_sources)",
         "DELETE FROM cal_tombstones WHERE calendar_id NOT IN (SELECT id FROM calendars)",
+        "DELETE FROM cal_resources WHERE calendar_id NOT IN (SELECT id FROM calendars)",
         "DELETE FROM events WHERE remote_id IS NOT NULL AND calendar_id NOT IN (SELECT id FROM calendars)",
     ] {
         n += c.execute(sql, []).map_err(err)?;
@@ -531,6 +565,18 @@ pub fn apply_pull(c: &Connection, cal: &CalRow, account_id: &str, pull: &Pull, f
         }
         // the download is the whole truth: what was deleted is not in it, and the cancelled instances come with it
         tx.execute("DELETE FROM cal_tombstones WHERE calendar_id=?1", [&cal.id]).map_err(err)?;
+        tx.execute("DELETE FROM cal_resources WHERE calendar_id=?1", [&cal.id]).map_err(err)?;
+    }
+    // CalDAV: a resource that was downloaded again replaces every row it had (its master and its overrides), so an override that is gone from it is gone here too
+    for href in &pull.replace {
+        changed |= tx.execute("DELETE FROM events WHERE calendar_id=?1 AND (remote_id=?2 OR series_id=?2)", params![cal.id, href]).map_err(err)? > 0;
+        tx.execute("DELETE FROM cal_tombstones WHERE calendar_id=?1 AND series_id=?2", params![cal.id, href]).map_err(err)?;
+    }
+    for href in &pull.removed {
+        tx.execute("DELETE FROM cal_resources WHERE calendar_id=?1 AND href=?2", params![cal.id, href]).map_err(err)?;
+    }
+    for r in &pull.resources {
+        tx.execute("INSERT OR REPLACE INTO cal_resources(calendar_id,href,etag,uid,raw,updated_at) VALUES(?1,?2,?3,?4,?5,?6)", params![cal.id, r.href, r.etag, r.uid, r.raw, now]).map_err(err)?;
     }
     let mut series: BTreeSet<String> = BTreeSet::new();
     for rid in &pull.removed {
@@ -632,6 +678,21 @@ pub struct SourceInfo {
     /// the first download is running: nothing was synced yet
     pub first_sync: bool,
     pub calendars: Vec<CalendarSyncInfo>,
+    /// CalDAV: how the server is named and who signed in (the status line and the line under the switch say it)
+    pub dav: Option<DavInfo>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct DavInfo {
+    /// "iCloud" / "Fastmail" / "Nextcloud", else the host of the server
+    pub label: String,
+    pub username: String,
+    pub host: String,
+    /// "icloud" | "fastmail" | "nextcloud" | "other"
+    pub preset: String,
+    /// the server sends invitations itself
+    pub scheduling: bool,
 }
 
 pub fn sources_info(c: &Connection) -> R<Vec<SourceInfo>> {
@@ -651,6 +712,7 @@ pub fn sources_info(c: &Connection) -> R<Vec<SourceInfo>> {
             last_error: s.last_error,
             retry_at: s.retry_at,
             calendars,
+            dav: s.dav.as_ref().map(|d| DavInfo { label: d.label(), username: d.username.clone(), host: d.host(), preset: d.preset.as_str().to_string(), scheduling: d.scheduling }),
         });
     }
     Ok(out)
@@ -693,7 +755,7 @@ pub(crate) mod tests {
     }
 
     fn pull(upserts: Vec<RemoteEvent>, removed: Vec<&str>, state: &str, full: bool) -> Pull {
-        Pull { upserts, removed: removed.into_iter().map(String::from).collect(), next_state: Some(state.into()), full, truncated: false }
+        Pull { upserts, removed: removed.into_iter().map(String::from).collect(), next_state: Some(state.into()), full, truncated: false, ..Default::default() }
     }
 
     #[test]

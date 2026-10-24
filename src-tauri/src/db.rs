@@ -111,6 +111,25 @@ pub fn migrate(conn: &Connection) -> R<()> {
     add_column(conn, "ALTER TABLE events ADD COLUMN rdates TEXT NOT NULL DEFAULT '[]'")?;
     // the provider's own UID of a synced event whose `uid` was worked out from it (Graph: the Global Object ID of a meeting from another service)
     add_column(conn, "ALTER TABLE events ADD COLUMN ext_uid TEXT")?;
+    // CalDAV (1.0.7 W7.4): the server of a source and the iCalendar text of its resources (the source of later writes)
+    for ddl in [
+        "ALTER TABLE cal_sources ADD COLUMN dav_url TEXT",
+        "ALTER TABLE cal_sources ADD COLUMN dav_user TEXT",
+        "ALTER TABLE cal_sources ADD COLUMN dav_preset TEXT",
+        "ALTER TABLE cal_sources ADD COLUMN dav_homes TEXT",
+        "ALTER TABLE cal_sources ADD COLUMN dav_addresses TEXT",
+        "ALTER TABLE cal_sources ADD COLUMN dav_sched INTEGER",
+        "ALTER TABLE cal_sources ADD COLUMN dav_trust INTEGER",
+    ] {
+        add_column(conn, ddl)?;
+    }
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS cal_resources(
+           calendar_id TEXT NOT NULL, href TEXT NOT NULL, etag TEXT NOT NULL DEFAULT '', uid TEXT NOT NULL DEFAULT '', raw TEXT NOT NULL, updated_at INTEGER NOT NULL DEFAULT 0,
+           PRIMARY KEY(calendar_id, href)
+         );",
+    )
+    .map_err(err)?;
     conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_events_remote ON events(calendar_id, remote_id);").map_err(err)?;
     series_unlock(conn)?;
     // the message being written, kept until it is sent, discarded or saved (crash recovery, see recover.rs)

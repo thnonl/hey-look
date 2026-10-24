@@ -17,7 +17,9 @@
 //! (`series.rs`; Google keeps the series as one master, Outlook lists occurrences and its master is fetched when needed). There is no offline queue:
 //! a write without a connection fails with `CAL_OFFLINE` and changes nothing.
 
+pub mod caldav;
 pub mod cmds;
+pub mod dav_xml;
 pub mod engine;
 pub mod google;
 pub mod graph_recur;
@@ -91,8 +93,20 @@ impl Kind {
         self == Kind::Microsoft
     }
 
+    /// Is this kind switched on in this build? CalDAV stays out of `ENABLED_KINDS` until it can write (W7.4 part 2); a debug build shows it with `HEYLOOK_TEST_CALDAV=1` (release
+    /// builds never read the variable).
     pub fn enabled(self) -> bool {
-        ENABLED_KINDS.contains(&self)
+        ENABLED_KINDS.contains(&self) || self.debug_enabled()
+    }
+
+    #[cfg(debug_assertions)]
+    fn debug_enabled(self) -> bool {
+        self == Kind::CalDav && debug_switch(std::env::var("HEYLOOK_TEST_CALDAV").ok().as_deref())
+    }
+
+    #[cfg(not(debug_assertions))]
+    fn debug_enabled(self) -> bool {
+        false
     }
 
     /// The kind an account can sync, `None` for a mailbox with no calendar service (iCloud, plain IMAP). Gmail by app password counts
@@ -113,6 +127,12 @@ impl Kind {
             Kind::CalDav => None,
         }
     }
+}
+
+/// The value of `HEYLOOK_TEST_CALDAV` that shows CalDAV in a debug build.
+#[cfg(any(debug_assertions, test))]
+pub fn debug_switch(value: Option<&str>) -> bool {
+    value.is_some_and(|v| v.trim() == "1")
 }
 
 pub fn source_id(account_id: &str, kind: Kind) -> String {
@@ -355,6 +375,15 @@ impl Rsvp {
     }
 }
 
+/// A resource of a CalDAV server as it was downloaded: its address, version tag, UID and the server's own iCalendar text (the source of later writes, D-7.4f).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct RawResource {
+    pub href: String,
+    pub etag: String,
+    pub uid: String,
+    pub raw: String,
+}
+
 /// What to pull for one calendar.
 #[derive(Clone, Debug)]
 pub struct PullReq {
@@ -364,6 +393,8 @@ pub struct PullReq {
     pub window_from: i64,
     /// (Google reads everything after `window_from`; a provider whose delta covers a window, like Graph, uses both ends)
     pub window_to: i64,
+    /// The resources the app already has with their version tags (address, etag), for a provider that has to compare (CalDAV without sync tokens); `None` for the others.
+    pub known: Option<Vec<(String, String)>>,
 }
 
 /// The answer of a pull. `upserts` and `removed` are applied together with `next_state`.
@@ -378,6 +409,10 @@ pub struct Pull {
     pub full: bool,
     /// more than `MAX_EVENTS_PER_CALENDAR` events: the rest was not downloaded
     pub truncated: bool,
+    /// CalDAV: the resources that were downloaded again: every row of such a resource (the master, its overrides) is replaced by what `upserts` holds for it
+    pub replace: Vec<String>,
+    /// CalDAV: the iCalendar text of the resources in `replace`, kept for later writes (`cal_resources`); `removed` resources are forgotten there
+    pub resources: Vec<RawResource>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -465,6 +500,10 @@ pub trait CalProvider: Send {
     /// Set the user's own answer on an event without telling the organizer again (the iMIP reply is sent by the app).
     /// `attendees` is the event's stored guest list with the user's answer already set.
     fn respond(&self, cal: &RemoteCalendar, remote_id: &str, etag: &str, status: Rsvp, me: &str, attendees: &[CalAttendee]) -> Result<(), SyncErr>;
+    /// The provider compares version tags itself and wants the ones the app has (`PullReq::known`): CalDAV.
+    fn wants_known_etags(&self) -> bool {
+        false
+    }
     /// Delta tokens that only cover a window (Microsoft): download everything again when the window started more than this many
     /// days ago. `None` = never.
     fn rebaseline_after_days(&self) -> Option<i64> {

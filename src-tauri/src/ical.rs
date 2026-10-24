@@ -52,6 +52,8 @@ pub struct IcsEvent {
     pub dtstamp: i64,
     /// part of the event was left out because it was over a size cap (very long RRULE, huge attendee or EXDATE list)
     pub trimmed: bool,
+    /// minutes before the start of the first DISPLAY alarm with a relative trigger (VALARM), if the event has one
+    pub reminder_min: Option<i64>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -530,6 +532,9 @@ pub fn parse(text: &str) -> Result<IcsCalendar, String> {
     let mut depth_event: Option<Vec<Line>> = None;
     let mut skip_depth = 0usize; // nested VALARM / VTIMEZONE etc. inside the walk
     let mut in_tz = false;
+    // the alarm being read inside the event (action, trigger) and the first usable reminder of the event
+    let mut alarm: Option<(Option<String>, Option<String>)> = None;
+    let mut reminder: Option<i64> = None;
     for l in &lines {
         let Some(p) = parse_line(l) else { continue };
         if p.name == "BEGIN" {
@@ -537,9 +542,13 @@ pub fn parse(text: &str) -> Result<IcsCalendar, String> {
             if v == "VEVENT" {
                 depth_event = Some(vec![]);
                 skip_depth = 0;
+                reminder = None;
             } else if v == "VTIMEZONE" {
                 in_tz = true;
             } else if depth_event.is_some() {
+                if v == "VALARM" && skip_depth == 0 {
+                    alarm = Some((None, None));
+                }
                 skip_depth += 1;
             }
             continue;
@@ -548,7 +557,8 @@ pub fn parse(text: &str) -> Result<IcsCalendar, String> {
             let v = p.value.trim().to_ascii_uppercase();
             if v == "VEVENT" {
                 if let Some(props) = depth_event.take() {
-                    if let Some(ev) = build_event(&props, &ctx) {
+                    if let Some(mut ev) = build_event(&props, &ctx) {
+                        ev.reminder_min = reminder.take();
                         cal.events.push(ev);
                     }
                 }
@@ -556,6 +566,16 @@ pub fn parse(text: &str) -> Result<IcsCalendar, String> {
                 in_tz = false;
             } else if depth_event.is_some() && skip_depth > 0 {
                 skip_depth -= 1;
+                if v == "VALARM" && skip_depth == 0 {
+                    // a display alarm that fires before the start (TRIGGER:-PT15M); the first one counts
+                    if let Some((action, Some(trigger))) = alarm.take() {
+                        let display = action.as_deref().is_none_or(|a| a.trim().eq_ignore_ascii_case("DISPLAY"));
+                        let minutes = trigger.trim().strip_prefix('-').and_then(parse_duration).map(|secs| secs / 60).filter(|m| *m >= 0);
+                        if reminder.is_none() && display {
+                            reminder = minutes;
+                        }
+                    }
+                }
             }
             continue;
         }
@@ -564,7 +584,16 @@ pub fn parse(text: &str) -> Result<IcsCalendar, String> {
         }
         match depth_event.as_mut() {
             Some(props) if skip_depth == 0 => props.push(p),
-            Some(_) => {}
+            Some(_) => {
+                // (inside an alarm: its action and trigger)
+                if let (1, Some(a)) = (skip_depth, alarm.as_mut()) {
+                    match p.name.as_str() {
+                        "ACTION" => a.0 = Some(p.value.clone()),
+                        "TRIGGER" if p.param("VALUE").is_none_or(|v| v.eq_ignore_ascii_case("DURATION")) && p.param("RELATED").is_none_or(|r| r.eq_ignore_ascii_case("START")) => a.1 = Some(p.value.clone()),
+                        _ => {}
+                    }
+                }
+            }
             None => {
                 if p.name == "METHOD" {
                     cal.method = Some(p.value.trim().to_ascii_uppercase());
@@ -574,7 +603,8 @@ pub fn parse(text: &str) -> Result<IcsCalendar, String> {
     }
     // a message cut off inside the event: keep what was read
     if let Some(props) = depth_event.take() {
-        if let Some(ev) = build_event(&props, &ctx) {
+        if let Some(mut ev) = build_event(&props, &ctx) {
+            ev.reminder_min = reminder.take();
             cal.events.push(ev);
         }
     }

@@ -124,7 +124,7 @@ pub(super) fn list_ok(r: &Req) -> Option<Resp> {
 }
 
 fn req_window() -> PullReq {
-    PullReq { state: None, window_from: T0 - 365 * DAY, window_to: T0 + 730 * DAY }
+    PullReq { state: None, window_from: T0 - 365 * DAY, window_to: T0 + 730 * DAY, known: None }
 }
 
 // ---------------------------------------------------------------- calendars

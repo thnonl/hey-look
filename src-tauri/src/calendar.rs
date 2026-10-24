@@ -1064,6 +1064,7 @@ pub(crate) fn to_ics_event(e: &CalEvent) -> IcsEvent {
         comment: None,
         dtstamp: now(),
         trimmed: false,
+        reminder_min: e.reminder_min,
     }
 }
 

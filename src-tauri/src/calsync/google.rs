@@ -1491,7 +1491,7 @@ mod tests {
             }
             Resp::json(200, v)
         });
-        let pull = provider(&srv).pull(&cal(), &PullReq { state: None, window_from: T0 - 365 * 86_400, window_to: T0 + 730 * 86_400 }).unwrap();
+        let pull = provider(&srv).pull(&cal(), &PullReq { state: None, window_from: T0 - 365 * 86_400, window_to: T0 + 730 * 86_400, known: None }).unwrap();
         assert!(pull.truncated && pull.next_state.is_none() && pull.full);
         assert_eq!(pull.upserts.len(), MAX_EVENTS_PER_CALENDAR);
     }
@@ -1500,7 +1500,7 @@ mod tests {
     fn calendar_ids_with_special_characters_are_encoded_in_the_path() {
         let srv = FakeServer::start(|_| Resp::json(200, events_page(vec![], None, Some("S"))));
         let c = RemoteCalendar { id: "en.vietnamese#holiday@group.v.calendar.google.com".into(), ..cal() };
-        provider(&srv).pull(&c, &PullReq { state: Some("a b+c".into()), window_from: 0, window_to: 1 }).unwrap();
+        provider(&srv).pull(&c, &PullReq { state: Some("a b+c".into()), window_from: 0, window_to: 1, known: None }).unwrap();
         let r = &srv.requests()[0];
         assert_eq!(r.path(), "/calendars/en.vietnamese%23holiday%40group.v.calendar.google.com/events");
         assert_eq!(r.query("syncToken").as_deref(), Some("a b+c"), "the token is encoded and decoded intact");

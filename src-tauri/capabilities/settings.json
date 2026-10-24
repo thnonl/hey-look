@@ -90,6 +90,8 @@
     "allow-calendar-sources",
     "allow-calendar-kinds-available",
     "allow-calendar-connect",
+    "allow-calendar-connect-caldav",
+    "allow-calendar-dav-password",
     "allow-calendar-cancel-connect",
     "allow-calendar-disconnect",
     "allow-calendar-set-sync",
