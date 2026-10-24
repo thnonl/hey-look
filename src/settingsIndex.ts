@@ -7,7 +7,7 @@
 import { t, getLang, LANGUAGES } from "./i18n/index.ts";
 import type { Key } from "./i18n/index.ts";
 import { providerName, serviceName } from "./calendarSync.ts";
-import { filtersIntroKey, trayTabTitleKey } from "./trayWords.ts";
+import { filtersIntroKey, keepRunningLabelKey, startsMinimizedKey, trayBadgeLabelKey, trayTabTitleKey } from "./trayWords.ts";
 
 // ------------------------------------------------------------------------------------------------ folding
 /** One text after `fold`: `s` is the folded text; `from[i]` / `to[i]` are the range of the ORIGINAL text that the folded UTF-16 unit `i` stands for. */
@@ -309,11 +309,11 @@ export function buildIndex(ctx: IndexCtx): Entry[] {
   add({ id: "pg-tray", tab: "tray", kind: "page", label: trayTitle, hint: t(win ? "settings.tray.introWindows" : "settings.tray.intro"), lead: nav.more });
   Y("testNotify", "settings.tray.test");
   Y("sentSound", "settings.tray.sentSound");
-  Y("keepRunning", "settings.tray.keepRunning", !ctx.tray ? "settings.tray.noTray" : mac ? "settings.tray.keepRunningMac" : "settings.tray.keepRunningHint", { kw: "settings.kw.keepRunning" });
-  if (ctx.tray) Y("trayBadge", "settings.tray.trayBadge", "settings.tray.trayBadgeHint");
+  Y("keepRunning", keepRunningLabelKey(ctx.os), !ctx.tray ? "settings.tray.noTray" : mac ? "settings.tray.keepRunningMac" : "settings.tray.keepRunningHint", { kw: "settings.kw.keepRunning" });
+  if (ctx.tray) Y("trayBadge", trayBadgeLabelKey(ctx.os), "settings.tray.trayBadgeHint");
   if (win || mac) Y("taskbarBadge", mac ? "settings.tray.dockBadge" : "settings.tray.taskbarBadge");
   Y("countOther", "settings.tray.countOther", "settings.tray.countOtherHint");
-  Y("autostart", win ? "settings.tray.autostartWindows" : "settings.tray.autostart", ctx.os === "linux" && !ctx.tray ? "settings.tray.startsOpen" : "settings.tray.startsMinimized", { kw: "settings.kw.autostart" });
+  Y("autostart", win ? "settings.tray.autostartWindows" : "settings.tray.autostart", ctx.os === "linux" && !ctx.tray ? "settings.tray.startsOpen" : startsMinimizedKey(ctx.os), { kw: "settings.kw.autostart" });
 
   const actionsTitle = t("settings.actions.title");
   add({ id: "pg-actions", tab: "actions", kind: "page", label: actionsTitle, hint: t("settings.actions.intro"), lead: nav.more });

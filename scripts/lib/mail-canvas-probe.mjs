@@ -7,6 +7,7 @@
 //   node scripts/lib/mail-canvas-probe.mjs pixel <png> <x> <y>
 //                                                          the RGB of one pixel of a PNG (a bridge `/snapshot` is 2x on a Retina Mac: pass device pixels, i.e. CSS px * scale)
 //
+// (the stored choice and the session choice come from `window.__mailCanvas`, a read-only report of the page; the dev preview's `window.__store` is the fallback; D-105: on a built app the store is not there)
 // The state: { theme (prefs.theme), themeAttr (data-theme of <html>, null = the CSS follows the media query), osDark (the engine's prefers-color-scheme), mailCanvas (the stored choice),
 //   session (the light theme's session choice, null or "dark"), pressed (aria-pressed of the message background button, null when there is none), frame: null | { cls (classes of the frame's
 //   <html>), hmBg (its --hm-bg), bodyBg, bodyVis, frameBg (the iframe element's own background), painted ([r,g,b] the colour the empty parts of the mail show: the body's if opaque, else the
@@ -14,7 +15,7 @@
 const oneLine = (t) => t.split('\n').map((l) => l.trim()).join(' '); // (the bridge's /eval takes one line)
 export const mailCanvasProbe = () => oneLine(`(() => {
   const rgb = (s) => { const m = /rgba?\\(([^)]+)\\)/.exec(s || ''); if (!m) return null; const p = m[1].split(/[ ,/]+/).filter(Boolean).map(Number); return [p[0], p[1], p[2], p.length > 3 ? p[3] : 1]; };
-  const st = window.__store && window.__store.getState();
+  const mc = window.__mailCanvas || null, st = window.__store && window.__store.getState();
   const f = document.querySelector('.msg-frame'), d = f && f.contentDocument;
   const btn = document.querySelector('button[aria-pressed][aria-label="Message background: original / dark"]');
   const cp = document.querySelector('.cp-pv');
@@ -24,7 +25,7 @@ export const mailCanvasProbe = () => oneLine(`(() => {
     const painted = body && body[3] === 1 ? body.slice(0, 3) : fb && fb[3] > 0 ? fb.slice(0, 3) : null;
     frame = { cls: d.documentElement.className, hmBg: w.getComputedStyle(d.documentElement).getPropertyValue('--hm-bg').trim(), bodyBg: w.getComputedStyle(d.body).backgroundColor, bodyVis: w.getComputedStyle(d.body).visibility, frameBg: getComputedStyle(f).backgroundColor, painted, rect: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)], dpr: window.devicePixelRatio };
   }
-  return JSON.stringify({ theme: st ? st.prefs.theme : null, themeAttr: document.documentElement.getAttribute('data-theme'), osDark: matchMedia('(prefers-color-scheme: dark)').matches, mailCanvas: st ? st.prefs.mailCanvas : null, session: st ? st.mailCanvasSession : null,
+  return JSON.stringify({ theme: mc ? mc.theme : st ? st.prefs.theme : null, themeAttr: document.documentElement.getAttribute('data-theme'), osDark: matchMedia('(prefers-color-scheme: dark)').matches, mailCanvas: mc ? mc.stored : st ? st.prefs.mailCanvas : null, session: mc ? mc.session : st ? st.mailCanvasSession : null,
     pressed: btn ? btn.getAttribute('aria-pressed') : null, frame, composer: cp ? { cls: [...cp.classList].find((c) => c.startsWith('pv-')) || null, bg: getComputedStyle(cp).backgroundColor } : null });
 })()`);
 

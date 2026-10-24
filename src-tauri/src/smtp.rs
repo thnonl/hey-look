@@ -2248,6 +2248,37 @@ END:VCALENDAR
         assert_eq!(a.email, "qa@example.test");
     }
 
+    /// D-006 (1.0.6 QA: a typed SMTP port 31501 was seen saved as 31502): the ports of the form reach the connection checks and the stored row unchanged, for
+    /// the ports of the report and the ends of the range. (The +1 came from the page's number box, see scripts/test-smtp-port-ui.mjs; the save path adds nothing.)
+    #[test]
+    fn add_account_stores_the_ports_it_was_given() {
+        for (imap_port, smtp_port) in [(31500u16, 31501u16), (993, 587), (143, 465), (1, 1), (65535, 65535), (31501, 31502)] {
+            let db = memory_db();
+            let checked = std::cell::RefCell::new(vec![]);
+            let imap_check = |a: &Account, _: &str| -> R<()> {
+                checked.borrow_mut().push(("imap", a.imap_port));
+                Ok(())
+            };
+            let smtp_check = |a: &Account, _: &str| -> R<()> {
+                checked.borrow_mut().push(("smtp", a.smtp_port));
+                Ok(())
+            };
+            let stored_secret = |_: &str, _: &str, _: &dyn Fn() -> bool| -> R<()> { Ok(()) };
+            let a = crate::add_account_cancellable(&db, input(imap_port, true, smtp_port, "starttls"), "secret", None, &imap_check, &smtp_check, &|| false, &stored_secret).unwrap();
+            assert_eq!((a.imap_port, a.smtp_port), (imap_port, smtp_port), "the account that comes back");
+            assert_eq!(*checked.borrow(), vec![("imap", imap_port), ("smtp", smtp_port)], "the connection checks are made with the typed ports");
+            let rows = crate::db::list_accounts(&crate::lock(&db)).unwrap();
+            assert_eq!(rows.len(), 1);
+            assert_eq!((rows[0].imap_port, rows[0].smtp_port), (imap_port, smtp_port), "the stored row");
+            // the page sends the numbers it shows: camelCase, plain numbers
+            let json = format!(r#"{{"email":"qa@example.test","displayName":"QA","imapHost":"h","imapPort":{imap_port},"imapSsl":true,"smtpHost":"s","smtpPort":{smtp_port},"smtpSecurity":"ssl","username":"qa"}}"#);
+            let parsed: crate::AccountInput = serde_json::from_str(&json).unwrap();
+            assert_eq!((parsed.imap_port, parsed.smtp_port), (imap_port, smtp_port), "the call's JSON");
+        }
+        // a number the box cannot make is refused when the call is read (the page refuses it first, src/portField.ts)
+        assert!(serde_json::from_str::<crate::AccountInput>(r#"{"email":"a","displayName":"b","imapHost":"h","imapPort":65536,"imapSsl":true,"smtpHost":"s","smtpPort":465,"smtpSecurity":"ssl","username":"u"}"#).is_err());
+    }
+
     /// QA v1.0.1 round 2, BUG-1: an SMTP server that cannot be secured (a plain port or a silent one, with SSL/TLS or STARTTLS) gets the
     /// secure connection hint and no account is stored, whatever the security mode and whether the SMTP login is shared or separate.
     /// The IMAP login is stood in for by a check that passes: the point is what the SMTP side does to the add.

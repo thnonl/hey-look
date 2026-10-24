@@ -5919,6 +5919,19 @@ pub(crate) fn request_quit(app: &tauri::AppHandle) {
     finish_sends_then(app, quit_final);
 }
 
+/// The event a page emits when the person presses Ctrl+Q (Linux only, D-021; src/quitKey.ts). It is the tray's "Quit Hey Look!" without the tray: the
+/// same `request_quit`, so the question about scheduled messages, the draft that is saved and the sends that go out first all happen as they do there.
+/// An event, not a command: every window kind may emit it (core:event:default) and none gets a new way to end the app, only the one the tray menu has.
+pub(crate) const QUIT_KEY_EVENT: &str = "quit-key";
+
+/// Calls `on_key` for each Ctrl+Q a page reports (the closure is the seam of the test; `setup` passes `request_quit`).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn listen_quit_key<R: tauri::Runtime>(app: &tauri::AppHandle<R>, on_key: impl Fn(&tauri::AppHandle<R>) + Send + Sync + 'static) {
+    use tauri::Listener;
+    let handle = app.clone();
+    app.listen_any(QUIT_KEY_EVENT, move |_| on_key(&handle));
+}
+
 /// Quit from the "could not load its window" message (startup.rs): the page that would be asked to save its draft and send what waits
 /// is not there (a page that answered after all is asked as usual), and the question about scheduled messages would go to nobody.
 pub(crate) fn quit_without_page(app: &tauri::AppHandle) {
@@ -6511,6 +6524,9 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             wintheme::watch_os(app.handle());
             shell::register_aumid(app.handle());
+            // Linux: Ctrl+Q quits like the tray's Quit item does (D-021); Windows and macOS have their own ways (Alt+F4 / the tray, Cmd+Q)
+            #[cfg(target_os = "linux")]
+            listen_quit_key(app.handle(), request_quit);
             // a missing tray is not fatal: without it the close button quits instead of hiding (shell::close_to_tray)
             if let Err(e) = shell::setup_tray(app.handle(), &db) {
                 eprintln!("tray icon unavailable: {e}");
@@ -7278,6 +7294,46 @@ mod quit_tests {
         let last = &src[src.find("fn quit_final").expect("quit_final")..];
         let last = &last[..last.find("\n}\n").unwrap()];
         assert!(last.contains("flush_pending") && last.contains("QUITTING.store(true") && last.contains("app.exit(0)"), "{last}");
+    }
+
+    /// D-021: Ctrl+Q on Linux. A page that sees the key emits `quit-key`; the backend answers each one with the tray's quit (`request_quit`, so the
+    /// scheduled-messages question and the draft / sends flush come first), on Linux only, and no new command is added for it.
+    #[test]
+    fn ctrl_q_on_linux_quits_through_request_quit() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tauri::Emitter;
+        let app = tauri::test::mock_builder().build(tauri::test::mock_context(tauri::test::noop_assets())).unwrap();
+        let keys = std::sync::Arc::new(AtomicUsize::new(0));
+        let seen = keys.clone();
+        listen_quit_key(app.handle(), move |_| {
+            seen.fetch_add(1, Ordering::SeqCst);
+        });
+        app.handle().emit("other-event", ()).unwrap();
+        assert_eq!(keys.load(Ordering::SeqCst), 0, "only the quit key event counts");
+        app.handle().emit(QUIT_KEY_EVENT, ()).unwrap();
+        app.handle().emit(QUIT_KEY_EVENT, ()).unwrap();
+        let t0 = std::time::Instant::now();
+        while keys.load(Ordering::SeqCst) < 2 && t0.elapsed() < std::time::Duration::from_secs(3) {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(keys.load(Ordering::SeqCst), 2, "one call per key press");
+        // the real wiring: Linux only, the same function as the tray item, and nothing else ends the app
+        let src = include_str!("lib.rs");
+        let at = src.find("listen_quit_key(app.handle(), request_quit)").expect("setup listens for the quit key");
+        assert!(src[..at].trim_end().ends_with("#[cfg(target_os = \"linux\")]"), "Ctrl+Q is for Linux only");
+        assert_eq!(QUIT_KEY_EVENT, "quit-key");
+        assert!(include_str!("../../src/quitKey.ts").contains("\"quit-key\""), "the page emits the same event");
+        let rq = &src[src.find("fn listen_quit_key").unwrap()..];
+        let rq = &rq[..rq.find("
+}
+").unwrap()];
+        assert!(!rq.contains("quit_now") && !rq.contains(".exit(") && !rq.contains("quit_final"), "the key only asks, request_quit decides: {rq}");
+    }
+
+    /// The Linux wiring of `setup` type-checks on every platform (the call itself is `cfg(target_os = "linux")`).
+    #[allow(dead_code)]
+    fn linux_quit_key_wiring_type_checks(app: &tauri::AppHandle) {
+        listen_quit_key(app, request_quit);
     }
 
     /// QA Mac round 2 (Q3 Cmd+Q, Q4 app menu Quit): on macOS the predefined Quit item, Cmd+Q and the Dock's Quit are `[NSApp terminate:]`,
