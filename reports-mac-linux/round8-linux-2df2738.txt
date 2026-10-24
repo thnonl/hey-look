@@ -3,3 +3,7 @@ WK-33.01/.02 PASS (8 languages, 960x560): 4 About links, cut 0, 24 px, scrollX 0
 WK-32.01/.02/.05 PASS (8 languages): panelW == boxW exactly, scrollOver 0, bottom 401-438 < 560, cut [], advanced titles translated, foot true, out 0.
 WK-28.01/.02 PARTIAL/FAIL: Reply: shellMs 96, statusMs 202 (limit 200), statusGone-statusMs 361, filledMs 563, toMovedPx 306 (To box 564 px at x382 before, 870 px at x76 after the fill) FAIL; Reply all: shellMs 37, no status, filledMs 77, toMovedPx 0; Forward: shellMs 37, status 'Preparing forward…' at 161, filledMs 197, toMovedPx 115 (w 564 -> 679, x 382 -> 267) FAIL.
 WK-F18.01-.03 PASS (MiniBrowser WebKitGTK, dev preview 1280x800): live lines 3 in all 8 languages (ja 3, was 5), at 248 px real 3 / long 3-4 (de/es/ja/zh/long 4), at 180 px 4-5 (ru long 5; no limit), no over/outside, emailCut true.
+R8b Linux (same build, VM is slow: software rendering, 1 core):
+WK-30.01/.02 PASS: settings frame 45 part 66 focus 162 handoff true; calendar frame 16 part 155 focus 155 handoff false; anims 0, lookMs null.
+WK-30.03 FAIL by the probe limit: compose (13 s after start) frame 128 part 128 focus 128 (> 100). WK-30.04 reply: frame 134 part 226 focus 230 (probe says > 100; spec for reply frame <= 200: ok).
+WK-31.03/.04 PASS (same values as Mac; typed true, changed true).
