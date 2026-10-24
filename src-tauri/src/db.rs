@@ -476,6 +476,12 @@ pub fn migrate_stored_prefs(c: &Connection) -> R<bool> {
     Ok(false)
 }
 
+/// Turn one bit of a message's `pgp` flags on (never off): a message the app learns something about only when it opens it - the signature inside an encrypted
+/// message, the Sensitivity header inside it (1.0.7 W8.8b). Returns whether the bit was not set before.
+pub fn or_pgp_flag(c: &Connection, message_id: &str, flag: u8) -> bool {
+    c.execute("UPDATE messages SET pgp = pgp | ?2 WHERE id=?1 AND pgp & ?2 = 0", rusqlite::params![message_id, flag as i64]).map(|n| n > 0).unwrap_or(false)
+}
+
 pub fn get_setting(c: &Connection, key: &str) -> Option<String> {
     c.query_row("SELECT value FROM settings WHERE key=?1", [key], |r| r.get(0))
         .ok()

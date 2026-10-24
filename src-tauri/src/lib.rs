@@ -2996,6 +2996,16 @@ fn note_signed(c: &Connection, id: &str, sec: &pgpmail::Security) {
     }
 }
 
+/// The Sensitivity header or Purview label of the decrypted content (1.0.7 W8.8b): the outer headers of an encrypted message cannot carry them, so the flag is set when the
+/// message is first opened. The bit is stored (the list, `ensure_not_confidential`, calendar events from the message and later opens follow) and never removed.
+fn note_confidential(c: &Connection, id: &str, plain: &[u8]) -> bool {
+    if !mail::is_confidential(plain) {
+        return false;
+    }
+    db::or_pgp_flag(c, id, pgpmail::FLAG_CONFIDENTIAL);
+    true
+}
+
 /// What a PGP message that cannot be opened says: no local copy of its data.
 fn data_not_here(encrypted: bool) -> Option<pgpmail::Security> {
     encrypted.then(|| pgpmail::Security {
@@ -3024,6 +3034,9 @@ fn apply_pgp<A: pgpstore::Access + ?Sized>(a: &A, m: &mut MessageFull, pgp: i64,
             a.with(|c| note_signed(c, &m.id, &o.security));
             m.security = Some(o.security.clone());
             if let Some(plain) = &o.plain {
+                if a.with(|c| note_confidential(c, &m.id, plain)) {
+                    m.confidential = true;
+                }
                 if let Some(p) = mail::parse(0, plain, true, false, 0) {
                     m.html = p.html;
                     m.text = p.text;
@@ -3064,6 +3077,11 @@ fn apply_pgp_state(db: &Db, m: &mut MessageFull, pgp: i64) {
     match opened {
         Ok(o) => {
             note_signed(&lock(db), &m.id, &o.security);
+            if let Some(plain) = &o.plain {
+                if note_confidential(&lock(db), &m.id, plain) {
+                    m.confidential = true;
+                }
+            }
             m.security = Some(o.security.clone());
         }
         Err(e) => m.security = Some(pgpmail::Security { encrypted, decryption: "error".into(), error: Some(e), ..Default::default() }),

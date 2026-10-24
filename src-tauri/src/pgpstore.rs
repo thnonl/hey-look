@@ -1168,6 +1168,66 @@ mod tests {
         assert_eq!(unlock_state(&fpr), (true, true), "remembered until quit");
     }
 
+    /// 1.0.7 W8.8b: a Sensitivity header INSIDE an encrypted message (the outer headers carry none) protects the message once it is opened: the shown message is confidential at
+    /// once, the stored row gets the bit (the list, the refusals of `ensure_not_confidential`, later opens), nothing changes while it is locked, and the bit is never taken away.
+    #[test]
+    fn pgp_inner_sensitivity_marks_the_message_confidential() {
+        let (c, _acc, _g) = setup();
+        let fpr = add_own(&c, "me@example.com", "my-pass-1234");
+        let store = load_store(&c).unwrap();
+        let public = store.by_fpr(&fpr).unwrap().public.clone();
+        let outer = "From: Linh <linh@example.com>\r\nTo: me@example.com\r\nSubject: Board pack\r\nDate: Mon, 12 Oct 2026 09:00:00 +0000\r\nMessage-ID: <w88b@x>\r\n";
+        let mut uid = 0;
+        let mut put = |id: &str, inner: &str| {
+            let armored = openpgp::encrypt(inner.as_bytes(), &[openpgp::Recipient { key: &public, hidden: false }], None).unwrap();
+            let raw = format!(
+                "{outer}MIME-Version: 1.0\r\nContent-Type: multipart/encrypted; protocol=\"application/pgp-encrypted\"; boundary=\"ENC\"\r\n\r\n--ENC\r\nContent-Type: application/pgp-encrypted\r\n\r\nVersion: 1\r\n\r\n--ENC\r\nContent-Type: application/octet-stream; name=\"encrypted.asc\"\r\n\r\n{}\r\n--ENC--\r\n",
+                armored.replace('\n', "\r\n")
+            );
+            uid += 1;
+            c.execute(
+                "INSERT INTO messages(id,account_id,folder,uid,thread_id,subject,from_name,from_email,to_addrs,cc_addrs,date,snippet,pgp,pgp_raw) VALUES(?1,'a1','inbox',?2,?1,'Board pack','Linh','linh@example.com','','',1,'',?3,?4)",
+                rusqlite::params![id, uid, pgpmail::FLAG_ENCRYPTED as i64, raw.into_bytes()],
+            )
+            .unwrap();
+        };
+        put("conf", "Content-Type: text/plain; charset=utf-8\r\nSensitivity: Company-Confidential\r\n\r\nthe zebra plan\r\n");
+        put("label", "Content-Type: text/plain; charset=utf-8\r\nMSIP_Label_1f2e_Name: Tuyệt mật\r\n\r\nthe zebra plan\r\n");
+        put("plain", "Content-Type: text/plain; charset=utf-8\r\nSensitivity: Normal\r\n\r\nlunch at noon\r\n");
+        let bits = |id: &str| -> i64 { c.query_row("SELECT pgp FROM messages WHERE id=?1", [id], |r| r.get(0)).unwrap() };
+        let conf = pgpmail::FLAG_CONFIDENTIAL as i64;
+        // locked: nothing is known, nothing changes (REQ-8.8b.3)
+        for id in ["conf", "label", "plain"] {
+            let m = crate::message_full(&c, id).unwrap();
+            assert!(!m.confidential, "{id}: locked");
+            assert_ne!(m.security.as_ref().unwrap().decryption, "ok", "{id}");
+            assert_eq!(bits(id), pgpmail::FLAG_ENCRYPTED as i64);
+            assert!(crate::ensure_not_confidential(&c, id).is_ok());
+        }
+        unlock_key(&load_store(&c).unwrap(), &fpr, "my-pass-1234", false).unwrap();
+        for id in ["conf", "label"] {
+            let m = crate::message_full(&c, id).unwrap();
+            assert_eq!(m.security.as_ref().unwrap().decryption, "ok", "{id}");
+            assert!(m.confidential, "{id}: shown as confidential at once");
+            assert_eq!(bits(id), pgpmail::FLAG_ENCRYPTED as i64 | conf, "{id}: the bit is stored");
+            assert!(crate::ensure_not_confidential(&c, id).is_err(), "{id}: save, open, raw source and .ics refuse");
+        }
+        let m = crate::message_full(&c, "plain").unwrap();
+        assert!(!m.confidential && m.text.as_deref().unwrap_or("").contains("lunch"));
+        assert_eq!(bits("plain"), pgpmail::FLAG_ENCRYPTED as i64, "an ordinary encrypted message stays ordinary");
+        // AC-8.8b.2: a restart (no views, locked again): confidential before the unlock and after it; the flag is never removed
+        lock_all_now();
+        invalidate();
+        assert!(crate::message_full(&c, "conf").unwrap().confidential, "still confidential while locked (the stored bit)");
+        unlock_key(&load_store(&c).unwrap(), &fpr, "my-pass-1234", false).unwrap();
+        assert!(crate::message_full(&c, "conf").unwrap().confidential);
+        assert_eq!(bits("conf") & conf, conf);
+        // a message whose OUTER headers already say so keeps the bit even when the inside does not
+        c.execute("UPDATE messages SET pgp = pgp | ?1 WHERE id='plain'", [conf]).unwrap();
+        assert!(crate::message_full(&c, "plain").unwrap().confidential);
+        assert_eq!(bits("plain") & conf, conf);
+    }
+
     #[test]
     fn signed_message_verifies_on_the_other_side() {
         let (c, acc, _g) = setup();
