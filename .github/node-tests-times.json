@@ -262,6 +262,7 @@
   "node --experimental-strip-types scripts/test-mailto-link.mjs": 0,
   "node --experimental-strip-types scripts/test-ctx-search.mjs --require-browser": 45,
   "node --experimental-strip-types scripts/test-ai-models-key.mjs": 0,
-  "node --experimental-strip-types scripts/test-ai-models-once.mjs --require-browser": 40
+  "node --experimental-strip-types scripts/test-ai-models-once.mjs --require-browser": 95,
+  "node --experimental-strip-types scripts/test-ai-models-url.mjs": 0
  }
 }

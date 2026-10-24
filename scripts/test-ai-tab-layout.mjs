@@ -51,10 +51,11 @@ const PAGE = `(() => {
   const sample = () => {
     const body = document.querySelector('.settings-body'), form = body && body.querySelector('.form');
     if (!form) return null;
-    const labels = [...form.querySelectorAll('label')], inputs = [...form.querySelectorAll('input, select')];
+    // (what is inside Advanced is not one of the form's own fields: it is checked by its own phases, the fields above it must not move when it opens)
+    const labels = [...form.querySelectorAll('label')].filter((l) => !l.closest('details')), inputs = [...form.querySelectorAll('input, select')].filter((i) => !i.closest('details'));
     const a = document.activeElement, link = form.querySelector('button.link');
     return {
-      pos: { h3: R(body.querySelector('h3')), intro: R(body.querySelector('h3 + .muted')), labels: labels.map(R), url: R(inputs[0]), key: R(inputs[1]), model: R(inputs[2]), save: R(form.querySelector('.btn.primary')), slot: R(form.querySelector('.ai-status, [role=status]')), form: R(form), modal: R(document.querySelector('.modal')), scroll: body.scrollTop, scrollH: body.scrollHeight },
+      pos: { summary: R(form.querySelector('details.advanced > summary')), h3: R(body.querySelector('h3')), intro: R(body.querySelector('h3 + .muted')), labels: labels.map(R), url: R(inputs[0]), key: R(inputs[1]), model: R(inputs[2]), save: R(form.querySelector('.btn.primary')), slot: R(form.querySelector('.ai-status, [role=status]')), form: R(form), modal: R(document.querySelector('.modal')), scroll: body.scrollTop, scrollH: body.scrollHeight },
       text: (form.querySelector('.ai-status, [role=status]') || {}).textContent || '', modelTag: inputs[2] ? inputs[2].tagName : '', link: !!link, linkInHead: link ? !!link.closest('.field-head') : null,
       active: a === inputs[0] ? 'url' : a === inputs[1] ? 'key' : a === inputs[2] ? 'model' : a === link ? 'link' : a && a.classList.contains('primary') ? 'save' : a && a.tagName === 'BODY' ? 'body' : 'other',
       caret: a && a.selectionStart != null && a.type !== 'password' ? a.selectionStart : null, value: a && a.value != null ? a.value : null,
@@ -65,6 +66,7 @@ const PAGE = `(() => {
   tick();
 })()`;
 
+const ADVANCED = new Set(['open Advanced', 'type a list URL on another server', 'turn the key permission on and off', 'type an invalid list URL']);
 const failures = [];
 let checks = 0;
 const fail = (cfg, msg) => failures.push(`[${cfg.lang} ${cfg.w}x${cfg.h} ${cfg.theme}] ${msg}`);
@@ -205,6 +207,28 @@ async function runConfig(cfg) {
   if (!(await evaluate(`!!document.querySelector('.settings-body .form button.link')`))) fail(cfg, 'the link to remove the saved key went away although removing failed');
   await sleep(300);
 
+  // 9. (W8.11) Advanced, the last thing in the form: open it, type a list URL on another server (the warning and the switch appear), turn the permission on and off, type a value that is none of the three forms
+  await phase('open Advanced');
+  await click('.settings-body details.advanced summary');
+  await waitFor('Advanced open', `document.querySelector('.settings-body details.advanced').open`);
+  await sleep(200);
+  await phase('type a list URL on another server');
+  await evaluate(`(() => { const e = document.getElementById('set-aiModelsUrl'); e.focus(); e.select(); })()`);
+  await typeText('http://127.0.0.1:31842/v1/models', 15);
+  await waitFor('the warning and the switch', `!!document.querySelector('.settings-body details.advanced .switch')`);
+  await shot('advanced');
+  await phase('turn the key permission on and off');
+  await click('.settings-body details.advanced .switch');
+  await sleep(900);
+  await click('.settings-body details.advanced .switch');
+  await sleep(900);
+  await phase('type an invalid list URL');
+  await evaluate(`(() => { const e = document.getElementById('set-aiModelsUrl'); e.focus(); e.select(); })()`);
+  await typeText('models', 15);
+  await waitFor('the invalid list URL message', `${last}.text.includes('https://')`);
+  await fits('invalid list URL');
+  await sleep(300);
+
   const log = await evaluate('window.__log');
   const first = log.find((e) => e.s)?.s;
   if (!first) { fail(cfg, 'the AI tab never rendered'); return; }
@@ -213,7 +237,11 @@ async function runConfig(cfg) {
   for (const { phase: ph, s } of log) {
     if (!s) continue;
     checks++;
-    for (const k of Object.keys(first.pos)) if (flat(s.pos[k]) !== flat(first.pos[k])) { const key = `${k} (${ph})`; if (!moved.has(key)) moved.set(key, `${flat(first.pos[k])} -> ${flat(s.pos[k])}`); }
+    // (Advanced grows the form and the page by its own height; everything above it, and the summary, must not move)
+    const growing = ADVANCED.has(ph);
+    // (in a low window the page scrolls to the field being typed in: the fields are compared in the page's own coordinates, rectangle + scroll)
+    const inPage = (v, scroll) => (Array.isArray(v) && v.length === 4 && typeof v[0] === 'number' ? [v[0], v[1] + scroll, v[2], v[3]] : Array.isArray(v) ? v.map((x) => inPage(x, scroll)) : v);
+    for (const k of Object.keys(first.pos)) if (!(growing && (k === 'form' || k === 'scrollH' || k === 'scroll')) && flat(growing && k !== 'modal' ? inPage(s.pos[k], s.pos.scroll) : s.pos[k]) !== flat(growing && k !== 'modal' ? inPage(first.pos[k], first.pos.scroll) : first.pos[k])) { const key = `${k} (${ph})`; if (!moved.has(key)) moved.set(key, `${flat(first.pos[k])} -> ${flat(s.pos[k])}`); }
     if (s.link && s.linkInHead === false) moved.set('Remove the saved key is not on the key label\'s line', '');
   }
   for (const [k, v] of moved) fail(cfg, `${k} moved: ${v}`);
@@ -238,7 +266,7 @@ async function runConfig(cfg) {
   // the transient messages really appeared, in the slot (otherwise this test would prove nothing)
   const texts = new Set(log.map((e) => e.s?.text).filter(Boolean));
   const longest = Math.max(0, ...[...texts].map((x) => x.length));
-  if (texts.size < 6) fail(cfg, `only ${texts.size} different status texts were seen (loading, no models, error, unreachable, save failed, key store expected)`);
+  if (texts.size < 7) fail(cfg, `only ${texts.size} different status texts were seen (loading, no models, error, unreachable, save failed, key store, invalid list URL expected)`);
   if (!log.some((e) => e.s?.text && e.s.pos.slot[3] > 0)) fail(cfg, 'the status slot has no height');
   console.log(`  ok ${tag}: ${log.length} layout changes, ${checks} frames compared, ${texts.size} status texts (longest ${longest} chars)`);
 }

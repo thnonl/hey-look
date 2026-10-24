@@ -15,12 +15,14 @@ const { evaluate, cdp } = H;
 const { click, press } = inputs(H, null, 'ai-once');
 const failures = [];
 let checks = 0;
-const ok = (cond, msg) => { checks++; if (!cond) { failures.push(msg); console.error('FAIL', msg); } return !!cond; };
+let tag = '';
+const ok = (cond, msg) => { checks++; if (!cond) { failures.push((tag ? '[' + tag + '] ' : '') + msg); console.error('FAIL', msg); } return !!cond; };
 const waitFor = async (js, ms = 8000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { try { if (await evaluate(js)) return true; } catch { /* between renders */ } await sleep(40); } return false; };
 const calls = () => evaluate(`(window.__aiModelsCalls || []).map((c) => c.endpoint + (c.keySent ? ' +key' : ''))`);
 const count = async () => (await calls()).length;
 const insert = (text) => cdp('Input.insertText', { text });
 const focusField = (id) => evaluate(`(() => { const e = document.getElementById(${JSON.stringify(id)}); e.focus(); e.select && e.select(); return 1; })()`);
+const backspace = async () => { await cdp('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 }); await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 }); };
 const settle = (ms = 1700) => sleep(ms); // (the 600 ms of rest and the 60 ms answer of the preview, with room for a slow machine)
 const toasts = () => evaluate(`window.__store.getState().toasts.map((t) => t.textFn ? t.textFn() : t.text)`);
 
@@ -58,8 +60,11 @@ try {
   // AC-8.2.3: a trailing / added and taken back inside the debounce
   await focusField('set-aiBaseUrl');
   await evaluate(`(() => { const e = document.getElementById('set-aiBaseUrl'); e.setSelectionRange(e.value.length, e.value.length); return 1; })()`);
+  const url0 = await evaluate(`document.getElementById('set-aiBaseUrl').value`);
   await insert('/');
-  await press('Backspace', 'Backspace');
+  ok((await evaluate(`document.getElementById('set-aiBaseUrl').value`)) === url0 + '/', 'the / is typed');
+  await backspace();
+  ok((await evaluate(`document.getElementById('set-aiBaseUrl').value`)) === url0, 'and taken back');
   await settle();
   ok((await count()) === 2, `AC-8.2.3: a trailing / added and taken back: nothing (${JSON.stringify(await calls())})`);
   await focusField('set-aiBaseUrl');
@@ -79,6 +84,101 @@ try {
   await openAiTab();
   await settle();
   ok((await count()) === 6, `AC-8.2.5: the tab opened again: +1 (${JSON.stringify(await calls())})`);
+  // ------------------------------------------------------------------ W8.11: the model list URL
+  await evaluate(`(async () => { const i = window.__TAURI_INTERNALS__.invoke; await i('set_setting', { key: 'ai_endpoint', value: 'http://127.0.0.1:31841/v1' }); await i('set_setting', { key: 'ai_model', value: 'qa-stub-model' }); await i('set_setting', { key: 'ai_models_url', value: '' }); await i('set_setting', { key: 'ai_models_key_origin', value: '' }); await i('set_secret', { name: 'ai_key', value: 'qa-key-1' }); window.__aiModelsCalls = []; return 1; })()`);
+  const last = () => evaluate(`window.__aiModelsCalls[window.__aiModelsCalls.length - 1]`);
+  const rects = () => evaluate(`['set-aiBaseUrl', 'set-aiKey', 'set-aiModel'].map((id) => { const r = document.getElementById(id).getBoundingClientRect(); return [r.left, r.top, r.width, r.height].map((n) => Math.round(n * 10) / 10); }).concat([[...document.querySelectorAll('.ai-actions .btn, .ai-status')].map((e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.width, r.height].map((n) => Math.round(n * 10) / 10); })]).concat([[document.querySelector('.modal').getBoundingClientRect().height, document.querySelector('.settings-body').scrollTop]])`);
+  const setField = async (id, text) => { await focusField(id); await insert(text); };
+  const models = () => evaluate(`(() => { const e = document.getElementById('set-aiModel'); return e.tagName === 'SELECT' ? [...e.options].map((o) => o.value).filter(Boolean) : null; })()`);
+  const slot = () => evaluate(`document.querySelector('.ai-status').textContent`);
+  const warning = () => evaluate(`(() => { const d = document.querySelector('details.advanced'); const w = [...d.querySelectorAll('.muted.small')].find((e) => e.textContent.includes('not the Base URL')); const sw = d.querySelector('.switch input'); return w ? { text: w.textContent, label: sw ? sw.closest('.switch').textContent : null, on: sw ? sw.checked : null } : null; })()`);
+  const setting = (key) => evaluate(`window.__TAURI_INTERNALS__.invoke('get_setting', { key: ${JSON.stringify(key)} })`);
+  tag = 'W8.11';
+
+  // AC-8.11.1: Advanced is the last thing in the form, closed; opening it moves nothing above it
+  await openAiTab();
+  await settle();
+  ok((await count()) === 1 && (await last()).url === 'http://127.0.0.1:31841/v1/models' && (await last()).keySent === true, `AC-8.11.1: the automatic request, as before (${JSON.stringify(await last())})`);
+  ok(await evaluate(`(() => { const d = document.querySelector('.settings-body details.advanced'); return !!d && !d.open && d.parentElement.classList.contains('form') && d === d.parentElement.lastElementChild; })()`), 'Advanced is closed and is the last child of the form');
+  const before = await rects();
+  await click('details.advanced summary');
+  ok(await waitFor(`document.querySelector('details.advanced').open`), 'Advanced opens');
+  ok((await evaluate(`document.getElementById('set-aiModelsUrl').placeholder`)) === 'http://127.0.0.1:31841/v1/models', 'the placeholder is the automatic address');
+  ok(await evaluate(`document.getElementById('set-aiModelsUrl').value === '' && document.getElementById('set-aiModelsUrlHint').textContent.startsWith('Leave empty')`), 'an empty box and the hint');
+  ok(JSON.stringify(await rects()) === JSON.stringify(before), `Base URL, key, Model, Save and the slot did not move when Advanced opened (${JSON.stringify(before)} / ${JSON.stringify(await rects())})`);
+  // AC-8.11.2
+  await setField('set-aiModelsUrl', '/api/tags');
+  await settle();
+  ok((await count()) === 2 && (await last()).url === 'http://127.0.0.1:31841/api/tags' && (await last()).keySent === true, `AC-8.11.2: /api/tags: one request with the key (${JSON.stringify(await last())}, ${await count()} in all)`);
+  ok((await models()).includes('llama3.2:latest') && (await models()).includes('qwen2.5:7b'), `Model lists the models of /api/tags (${JSON.stringify(await models())})`);
+  ok((await warning()) === null, 'no warning for the same server');
+  ok(JSON.stringify(await rects()) === JSON.stringify(before), 'and nothing above Advanced moved while typing');
+  // AC-8.11.3
+  await setField('set-aiModelsUrl', '/model/info');
+  await settle();
+  ok((await models()).includes('litellm-claude') && (await models()).includes('litellm-gpt'), `AC-8.11.3: /model/info lists litellm-claude and litellm-gpt (${JSON.stringify(await models())})`);
+  await setField('set-aiModelsUrl', 'http://127.0.0.1:31841/openai/models?api-version=2024-10-21');
+  await settle();
+  ok((await last()).url === 'http://127.0.0.1:31841/openai/models?api-version=2024-10-21' && (await last()).keySent === true && (await models()).includes('azure-dep-1') && (await warning()) === null, `an absolute URL on the same server: its query, the key, azure-dep-1, no warning (${JSON.stringify(await last())})`);
+  // AC-8.11.4: another server: the warning, the switch off, no key; the switch on: one more request with the key
+  let n0 = await count();
+  await setField('set-aiModelsUrl', 'http://127.0.0.1:31842/v1/models');
+  await settle();
+  const w = await warning();
+  ok(w && w.text.startsWith('127.0.0.1:31842 is not the Base URL’s server. The API key is sent there only if you allow it.') && w.label === 'Send the API key to 127.0.0.1:31842' && w.on === false, `AC-8.11.4: the warning and the switch (off) (${JSON.stringify(w)})`);
+  ok((await count()) === n0 + 1 && (await last()).keySent === false && (await last()).url === 'http://127.0.0.1:31842/v1/models', `one request, without the key (${JSON.stringify(await last())})`);
+  ok(JSON.stringify(await rects()) === JSON.stringify(before), 'nothing above moved when the warning appeared');
+  n0 = await count();
+  await click('details.advanced .switch');
+  await settle();
+  ok((await count()) === n0 + 1 && (await last()).keySent === true && (await models()).includes('gpt-4o'), `the switch on: one more request, with the key (${JSON.stringify(await last())})`);
+  // AC-8.11.5: Save keeps the permission; reopening shows Advanced open with the switch on; another port turns it off
+  n0 = await count();
+  await click('.ai-actions .btn.primary');
+  ok(await waitFor(`window.__store.getState().toasts.some((t) => (t.textFn ? t.textFn() : t.text) === 'AI Assistant settings saved')`, 4000), 'AC-8.11.5: Save: the toast');
+  await sleep(3000);
+  ok((await count()) === n0, `and no new request within 3 s (${await count()} / ${n0})`);
+  ok((await setting('ai_models_url')) === 'http://127.0.0.1:31842/v1/models' && (await setting('ai_models_key_origin')) === 'http://127.0.0.1:31842', 'the list URL and the permission (an origin) are stored');
+  n0 = await count();
+  await openAiTab();
+  await settle();
+  ok((await evaluate(`document.querySelector('details.advanced').open && document.getElementById('set-aiModelsUrl').value === 'http://127.0.0.1:31842/v1/models'`)) && (await warning()).on === true, 'reopened: Advanced is open, the URL is there, the switch is on');
+  ok((await count()) === n0 + 1 && (await last()).keySent === true, `and one request with the key (${JSON.stringify(await last())})`);
+  await setField('set-aiModelsUrl', 'http://127.0.0.1:31843/v1/models');
+  await settle();
+  const w2 = await warning();
+  ok(w2 && w2.label === 'Send the API key to 127.0.0.1:31843' && w2.on === false, `another port: the switch names it and is off (${JSON.stringify(w2)})`);
+  ok((await last()).keySent === false && /Could not load the model list/.test(await slot()), `the slot says the list could not be loaded, no key went (${await slot()})`);
+  // AC-8.11.8: invalid values: after 0.6 s the slot says so, nothing is asked, Model is a text box, Save works
+  for (const bad of ['models', 'ftp://127.0.0.1/x', '//127.0.0.1:31841/v1/models', 'javascript:alert(1)']) {
+    n0 = await count();
+    await setField('set-aiModelsUrl', bad);
+    await settle();
+    ok((await slot()) === 'The model list URL must start with “https://”, “http://” or “/”.' && (await count()) === n0, `AC-8.11.8: "${bad}": the slot says so and nothing is asked (${await slot()})`);
+  }
+  ok((await evaluate(`document.getElementById('set-aiModel').tagName`)) === 'INPUT', 'Model is a text box');
+  await evaluate(`window.__store.setState({ toasts: [] }); 1`);
+  await click('.ai-actions .btn.primary');
+  ok(await waitFor(`window.__store.getState().toasts.some((t) => (t.textFn ? t.textFn() : t.text) === 'AI Assistant settings saved')`, 4000), 'Save is not blocked by an invalid list URL');
+  ok((await setting('ai_models_url')) === 'javascript:alert(1)' && (await setting('ai_models_key_origin')) === '', 'the value is stored as typed, and no permission');
+  // AC-8.11.12: back to automatic
+  n0 = await count();
+  await focusField('set-aiModelsUrl');
+  await backspace();
+  await settle();
+  ok((await count()) === n0 + 1 && (await last()).url === 'http://127.0.0.1:31841/v1/models', `AC-8.11.12: the field cleared: the automatic request (${JSON.stringify(await last())})`);
+  // AC-8.11.13: letter by letter: one request; Save twice: none
+  n0 = await count();
+  await focusField('set-aiModelsUrl');
+  for (const ch of '/api/tags') { await cdp('Input.dispatchKeyEvent', { type: 'keyDown', text: ch, key: ch }); await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: ch }); await sleep(20); }
+  await settle();
+  ok((await count()) === n0 + 1, `AC-8.11.13: /api/tags typed quickly: one request (${(await count()) - n0})`);
+  await click('.ai-actions .btn.primary');
+  await sleep(2500);
+  await click('.ai-actions .btn.primary');
+  await sleep(2500);
+  ok((await count()) === n0 + 1, 'Save twice: no request');
+  tag = '';
   console.log(`test-ai-models-once: ${checks} checks`);
 } catch (e) {
   failures.push(e.stack || String(e));

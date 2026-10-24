@@ -31,6 +31,8 @@ export default defineLocale<typeof ns.en>({
   "backend.AI_CANCELLED": "AIアシスタントへのリクエストをキャンセルしました。",
   "backend.AI_TIMEOUT_TOTAL": "翻訳全体で{mins}分以上かかりました。「再試行」で中断したところから続けます。",
   "backend.AI_BAD_RESPONSE": "AIアシスタントから、アプリが読み取れない応答が返されました。",
+  "backend.AI_MODELS_URL_BAD": "モデル一覧のURLは、「https://」「http://」「/」のいずれかで始めてください。",
+  "backend.AI_MODELS_REDIRECT": "{host}へのリダイレクトには従いませんでした",
   "backend.AI_HTTP": "AIアシスタントがエラーを返しました（{status}）：{detail}",
   "backend.AI_HTTP.plain": "AIアシスタントがエラーを返しました（{status}）。",
   "backend.UPDATE_BUSY": "ダウンロードは既に実行中です。",

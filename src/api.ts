@@ -935,7 +935,8 @@ export const api = {
   /** `jobId` makes the call cancellable: `aiCancel(jobId)` drops the request to the provider (the call then fails with AI_CANCELLED). */
   aiComplete: (system: string, prompt: string, jobId?: string) => invoke<string>("ai_complete", { system, prompt, jobId: jobId ?? null }),
   aiCancel: (jobId: string) => invoke<void>("ai_cancel", { jobId }),
-  aiListModels: (endpoint: string, key?: string) => invoke<string[]>("ai_list_models", { endpoint, key: key ?? null }),
+  /** `modelsUrl`: the list URL of Settings > AI Assistant > Advanced (empty = {Base URL}/models); `keyOrigin`: the one other server the key may go to (W8.11) */
+  aiListModels: (endpoint: string, key?: string, modelsUrl?: string, keyOrigin?: string) => invoke<string[]>("ai_list_models", { endpoint, key: key ?? null, modelsUrl: modelsUrl ?? null, keyOrigin: keyOrigin ?? null }),
   /** Whether any account exists: the tray menu items "New mail" and "Check mail now" are enabled only then. */
   /** The UI has painted its first screen: the backend may show the window (it reloads the page when this never comes). */
   frontendReady: () => invoke<void>("frontend_ready"),

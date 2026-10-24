@@ -6348,10 +6348,11 @@ fn ai_cancel(job_id: String) {
 }
 
 #[tauri::command]
-async fn ai_list_models(endpoint: String, key: Option<String>) -> R<Vec<String>> {
+async fn ai_list_models(endpoint: String, key: Option<String>, models_url: Option<String>, key_origin: Option<String>) -> R<Vec<String>> {
     // a key typed in Settings but not saved yet wins over the saved one
     let key = key.filter(|k| !k.trim().is_empty()).unwrap_or_else(|| secret_get("ai_key").unwrap_or_default());
-    ai::list_models(&endpoint, key.trim()).await
+    // the list URL and the one other server the key may go to are the page's (W8.11); the backend decides again where the key goes and where a redirect may lead (ai.rs)
+    ai::list_models(&endpoint, key.trim(), models_url.as_deref().unwrap_or(""), key_origin.as_deref().unwrap_or("")).await
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

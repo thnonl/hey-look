@@ -30,6 +30,8 @@ export default define({
     "backend.AI_CANCELLED": "The AI Assistant request was cancelled.",
     "backend.AI_TIMEOUT_TOTAL": "The translation took longer than {mins} minutes in all. Retry goes on where it stopped.",
     "backend.AI_BAD_RESPONSE": "The AI Assistant sent an answer the app can’t read.",
+    "backend.AI_MODELS_URL_BAD": "The model list URL must start with “https://”, “http://” or “/”.",
+    "backend.AI_MODELS_REDIRECT": "Redirect to {host} was not followed",
     "backend.AI_HTTP": "The AI Assistant returned an error ({status}): {detail}",
     "backend.AI_HTTP.plain": "The AI Assistant returned an error ({status}).",
     "backend.UPDATE_BUSY": "A download is already running.",

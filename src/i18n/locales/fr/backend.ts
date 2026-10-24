@@ -31,6 +31,8 @@ export default defineLocale<typeof ns.en>({
   "backend.AI_CANCELLED": "La requête envoyée à l’assistant IA a été annulée.",
   "backend.AI_TIMEOUT_TOTAL": "La traduction a pris plus de {mins} minutes au total. Réessayer reprend là où elle s’est arrêtée.",
   "backend.AI_BAD_RESPONSE": "L’assistant IA a envoyé une réponse que l’application ne peut pas lire.",
+  "backend.AI_MODELS_URL_BAD": "L’URL de la liste des modèles doit commencer par « https:// », « http:// » ou « / ».",
+  "backend.AI_MODELS_REDIRECT": "Redirection vers {host} non suivie",
   "backend.AI_HTTP": "L’assistant IA a renvoyé une erreur ({status})\u00a0: {detail}",
   "backend.AI_HTTP.plain": "L’assistant IA a renvoyé une erreur ({status}).",
   "backend.UPDATE_BUSY": "Un téléchargement est déjà en cours.",

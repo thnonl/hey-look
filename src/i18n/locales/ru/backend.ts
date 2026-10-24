@@ -31,6 +31,8 @@ export default defineLocale<typeof ns.en>({
   "backend.AI_CANCELLED": "Запрос к ИИ-помощнику отменён.",
   "backend.AI_TIMEOUT_TOTAL": "Перевод занял больше {mins} мин. «Повторить» продолжит с того места, где он остановился.",
   "backend.AI_BAD_RESPONSE": "ИИ-помощник прислал ответ, который приложение не может прочитать.",
+  "backend.AI_MODELS_URL_BAD": "URL списка моделей должен начинаться с «https://», «http://» или «/».",
+  "backend.AI_MODELS_REDIRECT": "Перенаправление на {host} не выполнено",
   "backend.AI_HTTP": "ИИ-помощник вернул ошибку ({status}): {detail}",
   "backend.AI_HTTP.plain": "ИИ-помощник вернул ошибку ({status}).",
   "backend.UPDATE_BUSY": "Скачивание уже идёт.",

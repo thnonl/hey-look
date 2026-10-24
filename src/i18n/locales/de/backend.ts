@@ -31,6 +31,8 @@ export default defineLocale<typeof ns.en>({
   "backend.AI_CANCELLED": "Die Anfrage an den KI-Assistenten wurde abgebrochen.",
   "backend.AI_TIMEOUT_TOTAL": "Die Übersetzung hat insgesamt länger als {mins} Minuten gedauert. „Erneut versuchen“ macht dort weiter, wo sie aufgehört hat.",
   "backend.AI_BAD_RESPONSE": "Der KI-Assistent hat eine Antwort gesendet, die die App nicht lesen kann.",
+  "backend.AI_MODELS_URL_BAD": "Die URL der Modellliste muss mit „https://“, „http://“ oder „/“ beginnen.",
+  "backend.AI_MODELS_REDIRECT": "Weiterleitung an {host} wurde nicht befolgt",
   "backend.AI_HTTP": "Der KI-Assistent hat einen Fehler gemeldet ({status}): {detail}",
   "backend.AI_HTTP.plain": "Der KI-Assistent hat einen Fehler gemeldet ({status}).",
   "backend.UPDATE_BUSY": "Ein Download läuft bereits.",

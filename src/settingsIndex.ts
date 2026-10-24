@@ -339,6 +339,8 @@ export function buildIndex(ctx: IndexCtx): Entry[] {
   add({ id: "aiBaseUrl", tab: "ai", kind: "group", label: t("settings.ai.baseUrl"), path: [ai] });
   add({ id: "aiKey", tab: "ai", kind: "group", label: t("settings.ai.apiKey"), path: [ai] });
   add({ id: "aiModel", tab: "ai", kind: "group", label: t("settings.ai.model"), path: [ai] });
+  // (W8.11) the model list URL sits in the closed "Advanced" of the tab: the jump opens it first
+  add({ id: "aiModelsUrl", tab: "ai", kind: "group", label: t("settings.ai.modelsUrl"), hint: t("settings.ai.modelsUrlHint"), path: [ai], inDetails: true });
 
   add({ id: "pg-shortcuts", tab: "shortcuts", kind: "page", label: t("settings.nav.shortcuts"), lead: nav.more, hint: t("settings.keys.title") });
 

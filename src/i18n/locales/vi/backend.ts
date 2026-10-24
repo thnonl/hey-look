@@ -31,6 +31,8 @@ export default defineLocale<typeof ns.en>({
   "backend.AI_CANCELLED": "Yêu cầu gửi tới Trợ lý AI đã bị hủy.",
   "backend.AI_TIMEOUT_TOTAL": "Bản dịch mất hơn {mins} phút. Thử lại sẽ tiếp tục từ chỗ đã dừng.",
   "backend.AI_BAD_RESPONSE": "Trợ lý AI đã gửi về một phản hồi mà ứng dụng không đọc được.",
+  "backend.AI_MODELS_URL_BAD": "URL danh sách mô hình phải bắt đầu bằng “https://”, “http://” hoặc “/”.",
+  "backend.AI_MODELS_REDIRECT": "Đã không theo chuyển hướng đến {host}",
   "backend.AI_HTTP": "Trợ lý AI trả về lỗi ({status}): {detail}",
   "backend.AI_HTTP.plain": "Trợ lý AI trả về lỗi ({status}).",
   "backend.UPDATE_BUSY": "Đã có một lượt tải xuống đang diễn ra.",

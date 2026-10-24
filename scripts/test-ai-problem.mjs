@@ -184,7 +184,10 @@ assert.match(overlays, /e\.preventDefault\(\);\s*e\.stopPropagation\(\);\s*st\.d
 // the code of every AI error the backend makes is one this file sorts
 const rs = read("src-tauri/src/ai.rs");
 const codes = new Set([...rs.slice(0, rs.indexOf("#[cfg(test)]")).matchAll(/"(AI_[A-Z_]+)[|:"]/g)].map((m) => m[1]));
-for (const c of codes) assert.ok(["AI_CANCELLED", "AI_NOT_CONFIGURED", "AI_TIMEOUT", "AI_BAD_RESPONSE", "AI_HTTP"].includes(c), `the backend sends ${c}: src/aiProblem.ts must sort it`);
+// (W8.11: AI_MODELS_URL_BAD and AI_MODELS_REDIRECT come only from the model LIST, which shows them in the status slot of Settings > AI Assistant; no feature of the toast ever gets them)
+const LIST_ONLY = ["AI_MODELS_URL_BAD", "AI_MODELS_REDIRECT"];
+for (const c of codes) assert.ok(["AI_CANCELLED", "AI_NOT_CONFIGURED", "AI_TIMEOUT", "AI_BAD_RESPONSE", "AI_HTTP", ...LIST_ONLY].includes(c), `the backend sends ${c}: src/aiProblem.ts must sort it`);
+for (const c of LIST_ONLY) assert.ok(read("src/i18n/ns/backend.ts").includes(`"backend.${c}"`), `${c} has its text in the dictionary`);
 for (const c of ["AI_CANCELLED", "AI_NOT_CONFIGURED", "AI_TIMEOUT", "AI_BAD_RESPONSE", "AI_HTTP"]) assert.ok(codes.has(c), `ai.rs still sends ${c}`);
 
 console.log(`ok - test-ai-problem (${TABLE.length} errors sorted, ${seen.size} texts in ${LANGS.length} languages)`);

@@ -200,6 +200,7 @@ async function jump(c, entries, e) {
   check(r.visible && (r.dy <= 24 || r.atEdge || r.tall), `${label}: the target is not in the middle of the page (off by ${Math.round(r.dy)} px, scrolled to an edge: ${r.atEdge}; ${JSON.stringify(r)})`);
   check(r.outline.startsWith('solid') && !r.outline.endsWith(' 0px'), `${label}: the lit target has no outline (${r.outline})`);
   check(r.listed > 0 && r.sel === 1 && r.query === e.label, `${label}: the results must stay listed with the chosen one marked (${r.listed} options, ${r.sel} marked, text "${r.query}")`);
+  if (e.inDetails) check(await evaluate(`document.getElementById('set-${e.id}').closest('details').open`), `${label}: the closed Advanced is open after the jump (AC-8.12.10)`);
   if (e.kind === 'page') check(r.tabindex === '-1', `${label}: a heading takes the focus with tabindex -1`);
   return r;
 }
@@ -210,9 +211,9 @@ async function jumps(c) {
     entries.find((e) => e.id === 'undoSend'), entries.find((e) => e.id === 'aiBaseUrl'), entries.find((e) => e.id === 'pg-ai'), entries.find((e) => e.id === 'theme'),
     entries.filter((e) => e.id === 'replyTo')[1], entries.find((e) => e.id === 'keepRunning'), entries.find((e) => e.id === 'pgpImport'), entries.find((e) => e.id === 'updateCheck'),
     entries.find((e) => e.id === 'calendar' && e.tab === 'mb:a2'), entries.find((e) => e.id === 'loadRemote'), entries.find((e) => e.id === 'sec' && e.section === 'server'),
-    entries.find((e) => e.id === 'taskbarBadge') ?? entries.find((e) => e.id === 'autostart'), entries.find((e) => e.id === 'act-flag'),
+    entries.find((e) => e.id === 'taskbarBadge') ?? entries.find((e) => e.id === 'autostart'), entries.find((e) => e.id === 'act-flag'), entries.find((e) => e.id === 'aiModelsUrl'),
   ].filter(Boolean);
-  check(some.length >= 12, `${some.length} sample entries`);
+  check(some.length >= 13, `${some.length} sample entries`);
   const only = arg('ids') ? arg('ids').split(',') : null; // (--ids=undoSend,pictures: only those entries, for a look at one jump)
   const list = only ? entries.filter((e) => only.includes(e.id)) : !QUICK && c.lang === 'en' && c.os === 'windows' ? entries : some;
   for (const e of list) await jump(c, entries, e);

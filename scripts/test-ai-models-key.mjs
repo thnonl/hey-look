@@ -126,10 +126,10 @@ class Tab {
 // ---- the wiring in AiTab (source pins)
 const tsx = read("../src/components/SettingsDialog.tsx");
 const tab = tsx.slice(tsx.indexOf("function AiTab()"), tsx.indexOf("\nfunction KeyRow("));
-assert.match(tab, /const fetchKey = modelsFetchKey\(v\.ai_endpoint, key, \{ has: hasKey, tag: savedTag \}\);/, "the fetch key comes from the inputs");
+assert.match(tab, /const fetchKey = modelsFetchKey\(v\.ai_endpoint, key, \{ has: hasKey, tag: savedTag \}, resolved\.kind === "none" \? undefined : \{ url: resolved\.kind === "url" \? resolved\.url : "invalid", sendKey \}\);/, "the fetch key comes from the inputs (the Base URL, the key used, the resolved list and whether the key goes there)");
 assert.match(tab, /if \(!ready \|\| fetchKey === asked\?\.k\) return;/, "nothing is asked when the key is the one of the last request");
-assert.match(tab, /setTimeout\(\(\) => setAsked\(\{ k: fetchKey, endpoint: v\.ai_endpoint\.trim\(\), key: key\.trim\(\) \}\), 600\)/, "the request is due when the typing rests for 600 ms");
-assert.match(tab, /api\.aiListModels\(asked\.endpoint, asked\.key \|\| undefined\)/, "the request is made from what was asked");
+assert.match(tab, /const due = \{ k: fetchKey, endpoint: v\.ai_endpoint\.trim\(\), key: key\.trim\(\), modelsUrl: modelsUrl\.trim\(\), keyOrigin, invalid: resolved\.kind === "invalid" \};[\s\S]*?setTimeout\(\(\) => setAsked\(due\), 600\)/, "the request is due when the typing rests for 600 ms");
+assert.match(tab, /api\.aiListModels\(asked\.endpoint, asked\.key \|\| undefined, asked\.modelsUrl \|\| undefined, asked\.keyOrigin \|\| undefined\)/, "the request is made from what was asked");
 assert.match(tab, /\}, \[asked\]\);/, "and only when the request changes");
 assert.match(tab, /setSavedTag\(keyTag\(key\)\);\s*\/\/[^\n]*\n\s*setHasKey\(true\);\s*setKey\(""\);/, "Save: the typed key becomes the saved key with the same identity");
 assert.doesNotMatch(tab, /\}, \[ready, v\.ai_endpoint, key, hasKey\]\);/, "the old effect that asked on every change of the key box and hasKey is gone");

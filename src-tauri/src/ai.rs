@@ -204,31 +204,167 @@ fn provider_message(body: &str, key: &str) -> Option<String> {
     Some(line)
 }
 
-/// OpenAI-compatible `GET {endpoint}/models`: the model ids the endpoint offers (sorted, unique).
-pub async fn list_models(endpoint: &str, key: &str) -> R<Vec<String>> {
-    if endpoint.trim().is_empty() {
-        return Ok(vec![]);
+/// How the model list URL of Settings > AI Assistant > Advanced is read (W8.11). The same rules as `resolveModelsUrl` in src/aiModelsUrl.ts; scripts/fixtures/ai-models-url/cases.json is run by both.
+#[derive(Debug, PartialEq)]
+pub enum ModelsUrl {
+    /// no Base URL: nothing to ask
+    None,
+    /// the list URL is none of the three forms (empty, a path starting with one /, a full http(s) URL), or is longer than 2,000 characters
+    Invalid,
+    /// the address that is asked (for an empty list URL: the Base URL and /models, not parsed)
+    Url(String),
+}
+
+/// The longest list URL (characters).
+const MODELS_URL_MAX: usize = 2000;
+
+/// A web address (scheme http or https, a host), or None.
+fn web_url(text: &str) -> Option<reqwest::Url> {
+    reqwest::Url::parse(text).ok().filter(|u| matches!(u.scheme(), "http" | "https") && u.host_str().is_some_and(|h| !h.is_empty()))
+}
+
+/// The origin of an address (scheme, host, the port unless it is the default one), or None when it is not an http(s) address.
+pub fn origin_of(url: &str) -> Option<String> {
+    web_url(url.trim()).map(|u| u.origin().ascii_serialization())
+}
+
+/// Where the model list is asked: no Base URL = None; an empty list URL = the Base URL and /models; a value that starts with a single / = the Base URL's scheme, user info, host and
+/// port with that path and query (fragment dropped); a full http(s) URL = that URL (fragment dropped); anything else, or too long = Invalid.
+pub fn resolve_models_url(base: &str, value: &str) -> ModelsUrl {
+    let base = base.trim().trim_end_matches('/');
+    if base.is_empty() {
+        return ModelsUrl::None;
     }
-    let url = format!("{}/models", endpoint.trim().trim_end_matches('/'));
-    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(10)).build().map_err(net_error)?;
+    let value = value.trim();
+    if value.is_empty() {
+        return ModelsUrl::Url(format!("{base}/models"));
+    }
+    if value.chars().count() > MODELS_URL_MAX {
+        return ModelsUrl::Invalid;
+    }
+    if value.starts_with('/') && !value.starts_with("//") {
+        let Some(b) = web_url(base) else { return ModelsUrl::Invalid };
+        // (a browser reads "/\host" like "//host": whatever the rules said, the result must stay on the Base URL's server)
+        return match b.join(value) {
+            Ok(mut u) if u.origin() == b.origin() && u.username() == b.username() && u.password() == b.password() => {
+                u.set_fragment(None);
+                ModelsUrl::Url(u.to_string())
+            }
+            _ => ModelsUrl::Invalid,
+        };
+    }
+    match web_url(value) {
+        Some(mut u) => {
+            u.set_fragment(None);
+            ModelsUrl::Url(u.to_string())
+        }
+        None => ModelsUrl::Invalid,
+    }
+}
+
+/// The coded error of a model list URL that is none of the three forms.
+fn models_url_bad() -> String {
+    crate::i18n::coded("AI_MODELS_URL_BAD", &[], "The model list URL must start with “https://”, “http://” or “/”.")
+}
+
+/// The coded error of a redirect to another server that was not followed (nothing was sent there).
+fn models_redirect(host: &str) -> String {
+    crate::i18n::coded("AI_MODELS_REDIRECT", &[("host", host)], &format!("Redirect to {host} was not followed"))
+}
+
+/// The most the list answer may be (bytes), and the most of an error answer that is read for its message.
+const MODELS_BODY_MAX: usize = 8 * 1024 * 1024;
+const MODELS_ERROR_BODY_MAX: usize = 64 * 1024;
+/// The most redirects (on the list's own server) that are followed.
+const MODELS_MAX_HOPS: usize = 5;
+/// The most ids kept, the longest id, and what an id may not contain.
+const MODELS_MAX_IDS: usize = 5000;
+const MODEL_ID_MAX: usize = 200;
+
+/// The body of an answer, at most `max` bytes; None when it is longer (the rest is not read and the connection is dropped with `resp`).
+async fn read_limited(mut resp: reqwest::Response, max: usize) -> Result<Option<Vec<u8>>, reqwest::Error> {
+    let mut buf: Vec<u8> = Vec::new();
+    while let Some(chunk) = resp.chunk().await? {
+        if buf.len() + chunk.len() > max {
+            return Ok(None);
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    Ok(Some(buf))
+}
+
+/// The model ids of a list answer: the first of `data`, `models` or the body itself that is an array; per item a string as it is, or the first non-empty string of
+/// `id`, `name`, `model`, `model_name` of an object; trimmed; an empty id, one over 200 characters or with a control character is dropped; sorted, unique, at most 5,000.
+/// (OpenAI and Anthropic `data[].id`, Ollama `models[].name`, LiteLLM `data[].model_name`, Google `models[].name`, bare arrays.)
+fn models_from(body: &serde_json::Value) -> Vec<String> {
+    let items = body["data"].as_array().or_else(|| body["models"].as_array()).or_else(|| body.as_array());
+    let mut ids: Vec<String> = items
+        .map(|a| {
+            a.iter()
+                .filter_map(|m| match m {
+                    serde_json::Value::String(s) => Some(s.as_str()),
+                    serde_json::Value::Object(_) => ["id", "name", "model", "model_name"].iter().find_map(|k| m[*k].as_str().filter(|s| !s.trim().is_empty())),
+                    _ => None,
+                })
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty() && s.chars().count() <= MODEL_ID_MAX && !s.chars().any(char::is_control))
+                .collect()
+        })
+        .unwrap_or_default();
+    ids.sort();
+    ids.dedup();
+    ids.truncate(MODELS_MAX_IDS);
+    ids
+}
+
+/// The model ids the endpoint offers (sorted, unique): `GET {Base URL}/models`, or the list URL of the settings (W8.11).
+/// - The key goes as `Authorization: Bearer` only when there is one AND the list is on the Base URL's server (an empty list URL always is) or `key_origin` is the list's origin.
+/// - A redirect is followed only on the list's own server (at most 5 hops, the key kept); any other ends with `AI_MODELS_REDIRECT`: nothing was sent to the other server.
+/// - The status is read first (`AI_HTTP`), at most 8 MB are read, an answer that is not JSON is `AI_BAD_RESPONSE`.
+pub async fn list_models(endpoint: &str, key: &str, models_url: &str, key_origin: &str) -> R<Vec<String>> {
+    let url = match resolve_models_url(endpoint, models_url) {
+        ModelsUrl::None => return Ok(vec![]),
+        ModelsUrl::Invalid => return Err(models_url_bad()),
+        ModelsUrl::Url(u) => u,
+    };
+    let list_origin = origin_of(&url);
+    let same_server = models_url.trim().is_empty() || (list_origin.is_some() && list_origin == origin_of(endpoint.trim().trim_end_matches('/')));
+    let allowed = !key_origin.trim().is_empty() && list_origin.as_deref() == Some(key_origin.trim());
+    let send_key = !key.is_empty() && (same_server || allowed);
+    let first = list_origin.clone().unwrap_or_default();
+    let policy = reqwest::redirect::Policy::custom(move |attempt| {
+        if attempt.previous().len() > MODELS_MAX_HOPS || attempt.url().origin().ascii_serialization() != first {
+            attempt.stop()
+        } else {
+            attempt.follow()
+        }
+    });
+    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(10)).redirect(policy).build().map_err(net_error)?;
     let mut req = client.get(url);
-    if !key.is_empty() {
+    if send_key {
         req = req.bearer_auth(key);
     }
     let resp = req.send().await.map_err(net_error)?;
     let status = resp.status();
-    let body: serde_json::Value = resp.json().await.map_err(net_error)?;
-    if !status.is_success() {
-        return Err(format!("Models request failed ({status})"));
+    if status.is_redirection() {
+        // (stopped by the policy above: another server, or too many hops)
+        let target = resp
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|l| resp.url().join(l).ok())
+            .and_then(|u| u.host_str().map(|h| u.port().map_or_else(|| h.to_string(), |p| format!("{h}:{p}"))));
+        if let Some(host) = target {
+            return Err(models_redirect(&host));
+        }
     }
-    // OpenAI: {"data":[{"id":..}]}; some gateways return a bare array or {"models":[..]}
-    let items = body["data"].as_array().or_else(|| body["models"].as_array()).or_else(|| body.as_array());
-    let mut ids: Vec<String> = items
-        .map(|a| a.iter().filter_map(|m| m["id"].as_str().or_else(|| m["name"].as_str()).or_else(|| m.as_str()).map(String::from)).collect())
-        .unwrap_or_default();
-    ids.sort();
-    ids.dedup();
-    Ok(ids)
+    if !status.is_success() {
+        let body = read_limited(resp, MODELS_ERROR_BODY_MAX).await.ok().flatten().unwrap_or_default();
+        return Err(http_error(status.as_u16(), &String::from_utf8_lossy(&body), key));
+    }
+    let Some(bytes) = read_limited(resp, MODELS_BODY_MAX).await.map_err(net_error)? else { return Err(bad_response()) };
+    let body: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| bad_response())?;
+    Ok(models_from(&body))
 }
 
 #[cfg(test)]
@@ -518,5 +654,245 @@ mod tests {
     fn an_unconfigured_assistant_is_said_so_before_any_request() {
         let r = tauri::async_runtime::block_on(complete_within("", "", "", "s", "p", 1));
         assert!(r.unwrap_err().starts_with("AI_NOT_CONFIGURED: "));
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------- model list URL (W8.11)
+
+    /// What a local test server answers: status, extra headers, body (the body is cut to the Content-Length the client is told).
+    struct Answer {
+        status: u16,
+        headers: Vec<(String, String)>,
+        body: Vec<u8>,
+        /// tell the client this many bytes and send them (for an answer larger than the app reads); 0 = the length of `body`
+        length: usize,
+    }
+
+    fn answer(status: u16, body: &str) -> Answer {
+        Answer { status, headers: vec![("Content-Type".into(), "application/json".into())], body: body.as_bytes().to_vec(), length: 0 }
+    }
+
+    fn redirect(to: &str) -> Answer {
+        Answer { status: 302, headers: vec![("Location".into(), to.to_string())], body: vec![], length: 0 }
+    }
+
+    /// A local HTTP server: every request line (target) and whether it had an Authorization header is recorded, \`route\` answers per target. It never ends (a thread of the test run).
+    struct Server {
+        port: u16,
+        seen: std::sync::Arc<std::sync::Mutex<Vec<(String, bool)>>>,
+    }
+
+    impl Server {
+        fn start(route: impl Fn(&str) -> Answer + Send + Sync + 'static) -> Server {
+            use std::io::Write;
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let seen: std::sync::Arc<std::sync::Mutex<Vec<(String, bool)>>> = Default::default();
+            let log = seen.clone();
+            let route = std::sync::Arc::new(route);
+            std::thread::spawn(move || {
+                for conn in listener.incoming() {
+                    let Ok(mut sock) = conn else { continue };
+                    let (log, route) = (log.clone(), route.clone());
+                    std::thread::spawn(move || {
+                        let mut head = Vec::new();
+                        let mut buf = [0u8; 2048];
+                        while !head.windows(4).any(|w| w == b"\r\n\r\n") {
+                            match sock.read(&mut buf) {
+                                Ok(0) | Err(_) => return,
+                                Ok(n) => head.extend_from_slice(&buf[..n]),
+                            }
+                        }
+                        let text = String::from_utf8_lossy(&head).to_string();
+                        let target = text.lines().next().unwrap_or("").split(' ').nth(1).unwrap_or("").to_string();
+                        let auth = text.lines().any(|l| l.to_ascii_lowercase().starts_with("authorization:"));
+                        log.lock().unwrap().push((target.clone(), auth));
+                        let a = route(&target);
+                        let len = if a.length > 0 { a.length } else { a.body.len() };
+                        let mut out = format!("HTTP/1.1 {} X\r\nContent-Length: {}\r\nConnection: close\r\n", a.status, len).into_bytes();
+                        for (k, v) in &a.headers {
+                            out.extend_from_slice(format!("{k}: {v}\r\n").as_bytes());
+                        }
+                        out.extend_from_slice(b"\r\n");
+                        if sock.write_all(&out).is_err() {
+                            return;
+                        }
+                        if a.length > a.body.len() {
+                            // (more than the app reads: stream until it hangs up)
+                            let chunk = vec![b' '; 64 * 1024];
+                            let mut sent = 0;
+                            let _ = sock.write_all(&a.body);
+                            while sent < a.length - a.body.len() && sock.write_all(&chunk).is_ok() {
+                                sent += chunk.len();
+                            }
+                        } else {
+                            let _ = sock.write_all(&a.body);
+                        }
+                    });
+                }
+            });
+            Server { port, seen }
+        }
+        fn base(&self) -> String {
+            format!("http://127.0.0.1:{}/v1", self.port)
+        }
+        fn origin(&self) -> String {
+            format!("http://127.0.0.1:{}", self.port)
+        }
+        fn log(&self) -> Vec<(String, bool)> {
+            self.seen.lock().unwrap().clone()
+        }
+    }
+
+    fn list(base: &str, key: &str, url: &str, origin: &str) -> R<Vec<String>> {
+        tauri::async_runtime::block_on(list_models(base, key, url, origin))
+    }
+
+    #[test]
+    fn models_url_is_resolved_like_the_settings_tab() {
+        let cases: serde_json::Value = serde_json::from_str(include_str!("../../scripts/fixtures/ai-models-url/cases.json")).unwrap();
+        let cases = cases["cases"].as_array().unwrap();
+        assert!(cases.len() >= 30);
+        for c in cases {
+            let name = c["name"].as_str().unwrap();
+            let base = c["base"].as_str().unwrap();
+            let value = match c["valueLen"].as_u64() {
+                Some(n) => format!("/{}", "a".repeat(n as usize - 1)),
+                None => c["value"].as_str().unwrap().to_string(),
+            };
+            let want = match c["result"].as_str().unwrap() {
+                "none" => ModelsUrl::None,
+                "invalid" => ModelsUrl::Invalid,
+                "long" => ModelsUrl::Url(format!("https://x.test/{}", "a".repeat(c["valueLen"].as_u64().unwrap() as usize - 1))),
+                u => ModelsUrl::Url(u.to_string()),
+            };
+            let got = resolve_models_url(base, &value);
+            assert_eq!(got, want, "{name}");
+            if let (Some(o), ModelsUrl::Url(u)) = (c["origin"].as_str(), &got) {
+                assert_eq!(origin_of(u).as_deref(), Some(o), "{name}: origin");
+            }
+        }
+    }
+
+    #[test]
+    fn models_list_reads_every_known_answer_shape() {
+        let shapes = |body: &str| models_from(&serde_json::from_str(body).unwrap());
+        assert_eq!(shapes(r#"{"object":"list","data":[{"id":"qa-stub-model"},{"id":"qa-stub-model-2"}]}"#), ["qa-stub-model", "qa-stub-model-2"], "OpenAI data[].id");
+        assert_eq!(shapes(r#"{"models":[{"name":"llama3.2:latest"},{"name":"qwen2.5:7b"}]}"#), ["llama3.2:latest", "qwen2.5:7b"], "Ollama models[].name");
+        assert_eq!(shapes(r#"{"data":[{"model_name":"litellm-gpt"},{"model_name":"litellm-claude"}]}"#), ["litellm-claude", "litellm-gpt"], "LiteLLM data[].model_name, sorted");
+        assert_eq!(shapes(r#"{"models":[{"name":"models/gemini-1.5-pro"}]}"#), ["models/gemini-1.5-pro"], "Google: no prefix is removed");
+        assert_eq!(shapes(r#"{"models":["a","b"]}"#), ["a", "b"], "models[] as strings");
+        assert_eq!(shapes(r#"["str-a","str-b","str-a"," "]"#), ["str-a", "str-b"], "a bare array: duplicates and blanks go");
+        assert_eq!(shapes(r#"{"data":[{"id":"ok-1"},{"foo":1},42,null,{"id":""},{"id":"x\u0007y"},{"name":"ok-2"}]}"#), ["ok-1", "ok-2"], "AC-8.11.9 /mixed");
+        assert_eq!(shapes(r#"{"data":[{"id":"","name":"second"},{"id":"  trimmed  "},{"model":"third"}]}"#), ["second", "third", "trimmed"], "the first non-empty of id, name, model, model_name; trimmed");
+        assert!(shapes("{}").is_empty() && shapes(r#"{"data":[]}"#).is_empty() && shapes(r#"{"data":{}}"#).is_empty() && shapes("null").is_empty(), "no list: empty");
+        let long = "x".repeat(201);
+        assert_eq!(shapes(&format!(r#"{{"data":[{{"id":"{long}"}},{{"id":"{}"}}]}}"#, "y".repeat(200))), ["y".repeat(200)], "an id over 200 characters is dropped, 200 stay");
+        let many: Vec<String> = (0..6000).map(|i| format!(r#"{{"id":"m{i:05}"}}"#)).collect();
+        let ids = shapes(&format!(r#"{{"data":[{}]}}"#, many.join(",")));
+        assert_eq!(ids.len(), MODELS_MAX_IDS, "at most 5,000 ids");
+        assert_eq!(ids[0], "m00000");
+    }
+
+    #[test]
+    fn models_list_failures_are_coded_and_hide_the_key_and_query() {
+        let srv = Server::start(|t| match t.split('?').next().unwrap() {
+            "/v1/missing-json" => answer(404, r#"{"error":{"message":"no such route"}}"#),
+            "/v1/missing-html" => Answer { status: 404, headers: vec![("Content-Type".into(), "text/html".into())], body: b"<html>Not found</html>".to_vec(), length: 0 },
+            "/v1/html" => Answer { status: 200, headers: vec![("Content-Type".into(), "text/html".into())], body: b"<html>login</html>".to_vec(), length: 0 },
+            "/v1/huge" => Answer { status: 200, headers: vec![], body: b"{\"data\":[".to_vec(), length: 9 * 1024 * 1024 },
+            _ => answer(200, r#"{"data":[{"id":"ok"}]}"#),
+        });
+        let to = |p: &str| list(&srv.base(), "qa-key-1", &format!("{}{p}", srv.origin()), "");
+        let e = to("/v1/missing-json").unwrap_err();
+        assert_eq!(e, "AI_HTTP|status=404|detail=no such route: The AI Assistant returned an error (404): no such route", "the status first, with the provider's message");
+        let e = to("/v1/missing-html").unwrap_err();
+        assert_eq!(e, "AI_HTTP|v=plain|status=404: The AI Assistant returned an error (404).", "a 404 page is the status, not a decode error");
+        let e = to("/v1/html").unwrap_err();
+        assert!(e.starts_with("AI_BAD_RESPONSE: ") && !e.contains("login"), "200 with HTML: {e}");
+        let started = std::time::Instant::now();
+        let e = to("/v1/huge").unwrap_err();
+        assert!(e.starts_with("AI_BAD_RESPONSE: "), "more than 8 MB: {e}");
+        assert!(started.elapsed().as_secs() < 10, "and it ends within the 10 s");
+        assert_eq!(to("/v1/models").unwrap(), ["ok"], "an ordinary answer");
+        // an invalid list URL makes no request and is the coded error
+        let before = srv.log().len();
+        for bad in ["models", "ftp://127.0.0.1/x", "//127.0.0.1/x", "javascript:alert(1)"] {
+            assert_eq!(list(&srv.base(), "qa-key-1", bad, "").unwrap_err(), models_url_bad(), "{bad}");
+        }
+        assert_eq!(srv.log().len(), before, "no request for an invalid URL");
+        // a nothing-listens address with ?key=SECRET in the URL: the text has neither the query nor the key
+        let dead = {
+            let l = TcpListener::bind("127.0.0.1:0").unwrap();
+            l.local_addr().unwrap().port()
+        };
+        let e = list("http://127.0.0.1:1/v1", "qa-key-1", &format!("http://127.0.0.1:{dead}/missing?key=SECRET-QA-123"), "").unwrap_err();
+        assert!(!e.contains("SECRET-QA-123") && !e.contains("qa-key-1") && !e.contains("key="), "no query and no key in: {e}");
+        assert!(e.contains(&format!("127.0.0.1:{dead}/missing")), "the address without its query is there: {e}");
+        // a key echoed by the provider is hidden
+        let echo = Server::start(|_| answer(401, r#"{"error":{"message":"Incorrect API key provided: qa-key-1."}}"#));
+        let e = list(&echo.base(), "qa-key-1", "", "").unwrap_err();
+        assert!(!e.contains("qa-key-1"), "the key is hidden: {e}");
+    }
+
+    #[test]
+    fn models_list_sends_the_key_only_to_the_base_url_server_or_the_allowed_one() {
+        let ok = |_: &str| answer(200, r#"{"data":[{"id":"m"}]}"#);
+        let (a, b) = (Server::start(ok), Server::start(ok));
+        let auth = |s: &Server| s.log().last().map(|l| l.1);
+        // the list on the Base URL's server (an empty list URL, a path, an absolute URL): the key goes
+        assert_eq!(list(&a.base(), "k", "", "").unwrap(), ["m"]);
+        assert_eq!(auth(&a), Some(true), "empty list URL: Bearer present");
+        list(&a.base(), "k", "/api/tags", "").unwrap();
+        assert_eq!(a.log().last().unwrap(), &("/api/tags".to_string(), true), "a path on the Base URL's server: Bearer present");
+        list(&a.base(), "k", &format!("{}/x?api-version=1", a.origin()), "").unwrap();
+        assert_eq!(a.log().last().unwrap(), &("/x?api-version=1".to_string(), true), "an absolute URL on the same server: Bearer present");
+        // on another server: not without the permission
+        list(&a.base(), "k", &format!("{}/v1/models", b.origin()), "").unwrap();
+        assert_eq!(auth(&b), Some(false), "another server without keyOrigin: no Authorization header");
+        list(&a.base(), "k", &format!("{}/v1/models", b.origin()), &b.origin()).unwrap();
+        assert_eq!(auth(&b), Some(true), "keyOrigin = that server's origin: present");
+        list(&a.base(), "k", &format!("{}/v1/models", b.origin()), "http://127.0.0.1:9").unwrap();
+        assert_eq!(auth(&b), Some(false), "keyOrigin of another server: absent");
+        list(&a.base(), "k", &format!("{}/v1/models", b.origin()), &a.origin()).unwrap();
+        assert_eq!(auth(&b), Some(false), "keyOrigin = the Base URL's own server does not open the other one");
+        // no key: never
+        list(&a.base(), "", "", "").unwrap();
+        assert_eq!(auth(&a), Some(false), "an empty key: absent");
+        list(&a.base(), "", &format!("{}/v1/models", b.origin()), &b.origin()).unwrap();
+        assert_eq!(auth(&b), Some(false), "an empty key even for the allowed server");
+        // localhost is not 127.0.0.1
+        list(&a.base(), "k", &format!("http://localhost:{}/v1/models", b.port), "").ok();
+        assert!(b.log().iter().rev().take(1).all(|l| !l.1), "localhost: another server");
+    }
+
+    #[test]
+    fn models_list_never_follows_a_redirect_to_another_server() {
+        let b = Server::start(|_| answer(200, r#"{"data":[{"id":"m"}]}"#));
+        let target = format!("{}/v1/models", b.origin());
+        let a = Server::start(move |t| if t.starts_with("/redirect-other") { redirect(&target) } else { answer(200, r#"{"data":[{"id":"m"}]}"#) });
+        for key in ["k", ""] {
+            let e = list(&a.base(), key, "/redirect-other", "").unwrap_err();
+            assert_eq!(e, format!("AI_MODELS_REDIRECT|host=127.0.0.1%3A{}: Redirect to 127.0.0.1:{} was not followed", b.port, b.port), "with key {key:?}");
+        }
+        assert!(b.log().is_empty(), "the other server received nothing: {:?}", b.log());
+        // also when the other server was allowed to get the key: a redirect is never followed to it
+        let e = list(&a.base(), "k", "/redirect-other", &b.origin()).unwrap_err();
+        assert!(e.starts_with("AI_MODELS_REDIRECT|host="), "{e}");
+        assert!(b.log().is_empty(), "still nothing: {:?}", b.log());
+    }
+
+    #[test]
+    fn models_list_follows_a_redirect_on_the_same_server_with_the_key() {
+        let a = Server::start(|t| match t {
+            "/redirect-same" => redirect("/v1/models"),
+            t if t.starts_with("/hop/") => redirect(&format!("/hop/{}", t[5..].parse::<u32>().unwrap() + 1)),
+            _ => answer(200, r#"{"data":[{"id":"after-redirect"}]}"#),
+        });
+        assert_eq!(list(&a.base(), "k", "/redirect-same", "").unwrap(), ["after-redirect"]);
+        assert_eq!(a.log(), [("/redirect-same".to_string(), true), ("/v1/models".to_string(), true)], "both hops carry the key");
+        let before = a.log().len();
+        let e = list(&a.base(), "k", "/hop/0", "").unwrap_err();
+        assert!(e.starts_with("AI_MODELS_REDIRECT|host=127.0.0.1"), "after 5 hops the request stops: {e}");
+        assert_eq!(a.log().len() - before, 6, "the first request and five hops");
     }
 }

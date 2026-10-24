@@ -1,5 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
-import { ExternalLink, KeyRound, Lock, Plus, Trash2, Upload, Volume2 } from "lucide-react";
+import { ExternalLink, KeyRound, Lock, Plus, ShieldAlert, Trash2, Upload, Volume2 } from "lucide-react";
 import { openPopout } from "../popout/open";
 import { SETTINGS_KEY } from "../popout/windowKinds";
 import { openUpdateLink } from "../updates";
@@ -17,6 +17,7 @@ import { NewCalendarDialog } from "./NewCalendarDialog";
 import { ACCENT_PRESETS, ACCOUNT_PALETTE, accountColor, DEFAULT_PREFS, eff, folderLabel, folderTitle, isOverridden, MAX_DOWNLOAD_PRESETS, NOTIFY_ACTIONS, Overridable, Prefs, staleAccountPrefs, validHex } from "../prefs";
 import { aiSettingsSaved } from "../aiGuide";
 import { keyTag, modelsFetchKey, NO_LIST } from "../aiModelsKey";
+import { hostLabel, keyIsSent, originOf, otherServer, resolveModelsUrl } from "../aiModelsUrl";
 import { normalizeSidebar } from "../sidebarState";
 import { folderVisible, ruleTargetProblem } from "../junk";
 import { cutAtWord, friendlyError, useStore } from "../store";
@@ -2006,14 +2007,24 @@ function AiTab() {
   const { showToast, refreshAi } = useStore();
   // model ids offered by {Base URL}/models (fetched by the backend: no CORS, Bearer key); refetched when URL or key change
   const [models, setModels] = useState<string[]>([]);
-  const [fetchState, setFetchState] = useState<"idle" | "loading" | "error">("idle");
+  const [fetchState, setFetchState] = useState<"idle" | "loading" | "error" | "invalid">("idle");
   const [modelsErr, setModelsErr] = useState("");
   const [ready, setReady] = useState(false);
   // the saved key, for the rule "ask only when the request changed" (aiModelsKey.ts): which one it is ("s" = the one that was saved before this tab opened; a key saved here keeps the tag of the text typed)
   const [savedTag, setSavedTag] = useState("s");
   // what the list was last asked for (after the 600 ms the typing has to rest): Save moves the typed key to the saved key, which is the same request, so it asks nothing
-  const [asked, setAsked] = useState<{ k: string; endpoint: string; key: string } | null>(null);
-  const fetchKey = modelsFetchKey(v.ai_endpoint, key, { has: hasKey, tag: savedTag });
+  const [asked, setAsked] = useState<{ k: string; endpoint: string; key: string; modelsUrl: string; keyOrigin: string; invalid: boolean } | null>(null);
+  // "Advanced": the model list URL (W8.11) and the one other server the key may go to (the origin; "" = none). The disclosure is closed unless a list URL is saved
+  const [modelsUrl, setModelsUrl] = useState("");
+  const [keyOrigin, setKeyOrigin] = useState("");
+  const [advOpen, setAdvOpen] = useState(false);
+  const resolved = resolveModelsUrl(v.ai_endpoint, modelsUrl);
+  const other = otherServer(v.ai_endpoint, modelsUrl, resolved);
+  const sendKey = keyIsSent(v.ai_endpoint, modelsUrl, resolved, keyOrigin);
+  const listHost = resolved.kind === "url" ? hostLabel(resolved.url) : "";
+  const auto = resolveModelsUrl(v.ai_endpoint, "");
+  const autoUrl = auto.kind === "url" ? auto.url : undefined; // (the placeholder of the field: where the list is asked when it stays empty)
+  const fetchKey = modelsFetchKey(v.ai_endpoint, key, { has: hasKey, tag: savedTag }, resolved.kind === "none" ? undefined : { url: resolved.kind === "url" ? resolved.url : "invalid", sendKey });
   // Save (or Remove the saved key) failed: said in the slot under Save, in place of the model list's text, until something is typed or tried again
   const [saveErr, setSaveErr] = useState("");
   // the Model control is a list when the endpoint listed models and a text box otherwise. It is never swapped under the user's hands: while
@@ -2025,22 +2036,24 @@ function AiTab() {
   // the request that is due: when the typing rests for 600 ms and it differs from the last one (so typing a letter and taking it back, Save, a second Save, ask nothing)
   useEffect(() => {
     if (!ready || fetchKey === asked?.k) return;
-    if (fetchKey === NO_LIST) return setAsked({ k: fetchKey, endpoint: "", key: "" }); // (an emptied Base URL clears the list at once, as it always did)
-    const timer = setTimeout(() => setAsked({ k: fetchKey, endpoint: v.ai_endpoint.trim(), key: key.trim() }), 600);
+    const due = { k: fetchKey, endpoint: v.ai_endpoint.trim(), key: key.trim(), modelsUrl: modelsUrl.trim(), keyOrigin, invalid: resolved.kind === "invalid" };
+    if (fetchKey === NO_LIST) return setAsked({ ...due, endpoint: "", key: "" }); // (an emptied Base URL clears the list at once, as it always did)
+    const timer = setTimeout(() => setAsked(due), 600);
     return () => clearTimeout(timer);
   }, [ready, fetchKey, asked]); // eslint-disable-line react-hooks/exhaustive-deps
   // while the typing waits for its 600 ms the slot already says Loading (a change that is taken back before it ends leaves nothing behind)
   const modelsState = ready && fetchKey !== NO_LIST && fetchKey !== asked?.k ? "loading" : fetchState;
   useEffect(() => {
     if (!asked) return;
-    if (asked.k === NO_LIST) {
+    if (asked.k === NO_LIST || asked.invalid) {
+      // (no request: no Base URL, or a list URL that is none of the three forms - the slot says so, Save is not blocked, Model is a text box)
       setModels([]);
-      setFetchState("idle");
+      setFetchState(asked.invalid ? "invalid" : "idle");
       return;
     }
     let stale = false;
     setFetchState("loading");
-    api.aiListModels(asked.endpoint, asked.key || undefined)
+    api.aiListModels(asked.endpoint, asked.key || undefined, asked.modelsUrl || undefined, asked.keyOrigin || undefined)
       .then((ids) => {
         if (stale) return;
         setModels(ids);
@@ -2057,18 +2070,23 @@ function AiTab() {
     };
   }, [asked]);
   useEffect(() => {
-    void Promise.all([api.getSetting("ai_endpoint"), api.getSetting("ai_model"), api.hasSecret("ai_key")]).then(([a, c, h]) => {
+    void Promise.all([api.getSetting("ai_endpoint"), api.getSetting("ai_model"), api.hasSecret("ai_key"), api.getSetting("ai_models_url"), api.getSetting("ai_models_key_origin")]).then(([a, c, h, u, o]) => {
       setV({ ai_endpoint: a ?? "", ai_model: c ?? "" });
       setHasKey(h);
+      setModelsUrl(u ?? "");
+      setKeyOrigin(o ?? "");
+      setAdvOpen(!!u?.trim()); // (a list URL in effect is never hidden; it does not open by itself otherwise)
       setReady(true);
     });
   }, []);
   // typing clears it (an effect on the values would also clear an error that arrives right after Save emptied the key box)
   const edit = (patch: Partial<typeof v>) => (setSaveErr(""), setV({ ...v, ...patch }));
+  /** what is stored for the permission: the list's origin while the switch is on for it, else nothing */
+  const permitted = other && sendKey && resolved.kind === "url" ? (originOf(resolved.url) ?? "") : "";
   const save = async () => {
     setSaveErr("");
     try {
-      await Promise.all([api.setSetting("ai_endpoint", v.ai_endpoint), api.setSetting("ai_model", v.ai_model)]);
+      await Promise.all([api.setSetting("ai_endpoint", v.ai_endpoint), api.setSetting("ai_model", v.ai_model), api.setSetting("ai_models_url", modelsUrl.trim()), api.setSetting("ai_models_key_origin", permitted)]);
       if (key.trim()) {
         await api.setSecret("ai_key", key.trim());
         setSavedTag(keyTag(key)); // (the typed key is now the saved one: the same key, so the list is not asked again)
@@ -2096,6 +2114,7 @@ function AiTab() {
   const modelFocus = { onFocus: () => (setHeldList(asList), setModelFocused(true)), onBlur: () => setModelFocused(false) };
   // what the model list is doing, in the slot under Save: the slot is always there (two lines high), so these texts coming and going move nothing
   const status = saveErr ? saveErr
+    : modelsState === "invalid" ? t("backend.AI_MODELS_URL_BAD")
     : modelsState === "loading" ? t("settings.ai.loadingModels")
     : modelsState === "error" ? t("settings.ai.modelsError", { error: modelsErr })
     : models.length === 0 && v.ai_endpoint.trim() ? t("settings.ai.noModels") : "";
@@ -2133,6 +2152,21 @@ function AiTab() {
           <button className="btn primary" onClick={() => void save()}>{t("common.save")}</button>
           <div className={`ai-status small ${saveErr ? "bad" : "muted"}`} role="status" title={status || undefined}>{status}</div>
         </div>
+        {/* Advanced (W8.11): the last child of the form, after Save and the status slot, so that opening it or typing in it moves nothing above it */}
+        <details className="advanced" open={advOpen} onToggle={(e) => setAdvOpen(e.currentTarget.open)}>
+          <summary>{t("settings.add.advanced")}</summary>
+          <div className="form">
+            <label>{t("settings.ai.modelsUrl")}</label>
+            <input id="set-aiModelsUrl" aria-label={t("settings.ai.modelsUrl")} aria-describedby="set-aiModelsUrlHint" spellCheck={false} autoComplete="off" placeholder={autoUrl} value={modelsUrl} onChange={(e) => (setSaveErr(""), setModelsUrl(e.target.value))} />
+            <div id="set-aiModelsUrlHint" className="muted small">{t("settings.ai.modelsUrlHint")}</div>
+            {other && (
+              <>
+                <div className="muted small"><ShieldAlert size={13} aria-hidden style={{ verticalAlign: "-2px", marginRight: 4 }} />{t("settings.ai.modelsUrlOtherHost", { host: listHost })}</div>
+                <Switch checked={sendKey} onChange={(on) => setKeyOrigin(on && resolved.kind === "url" ? (originOf(resolved.url) ?? "") : "")} label={t("settings.ai.modelsUrlSendKey", { host: listHost })} />
+              </>
+            )}
+          </div>
+        </details>
       </div>
     </div>
   );

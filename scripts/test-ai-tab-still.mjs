@@ -29,7 +29,15 @@ assert.deepEqual(conditionals.map((l) => l.trim().slice(0, 12)), ["{asList ? ("]
 assert.equal((tab.match(/role="status"/g) || []).length, 1, "one live region (not one per message)");
 assert.doesNotMatch(tab, /modelsState === "(loading|error|idle)" &&\s*<div/, "no message row is inserted for Loading / error / no models");
 assert.match(tab, /<div className="ai-actions">\s*<button className="btn primary"[^\n]*\n\s*<div className=\{\`ai-status small \$\{saveErr \? "bad" : "muted"\}\`\} role="status"[^\n]*>\{status\}<\/div>\s*<\/div>/, "Save, then the status slot (the slot is under the button: nothing above it can move)");
-assert.match(tab, /const status = saveErr \? saveErr\n\s*: modelsState === "loading" \? [^\n]*\n\s*: modelsState === "error" \? [^\n]*\n\s*: models\.length === 0 && v\.ai_endpoint\.trim\(\) \? t\("settings\.ai\.noModels"\) : "";/, "the messages (a failed save, loading, error, no models) are texts of one slot");
+assert.match(tab, /const status = saveErr \? saveErr\n\s*: modelsState === "invalid" \? t\("backend\.AI_MODELS_URL_BAD"\)\n\s*: modelsState === "loading" \? [^\n]*\n\s*: modelsState === "error" \? [^\n]*\n\s*: models\.length === 0 && v\.ai_endpoint\.trim\(\) \? t\("settings\.ai\.noModels"\) : "";/, "the messages (a failed save, an invalid list URL, loading, error, no models) are texts of one slot");
+// 2b. (W8.11) Advanced is the LAST child of the form, after Save and the status slot: a <details> that is always there (closed unless a list URL is saved); opening it or typing in it moves nothing above it
+assert.ok(tab.indexOf('<details className="advanced"') > tab.indexOf('<div className="ai-actions">'), "Advanced comes after Save and the status slot");
+assert.equal((tab.match(/<details /g) || []).length, 1, "one disclosure");
+assert.match(tab, /<details className="advanced" open=\{advOpen\} onToggle=\{\(e\) => setAdvOpen\(e\.currentTarget\.open\)\}>/, "it is controlled: closed on load unless a list URL is saved, and it opens when the person opens it");
+assert.match(tab, /setAdvOpen\(!!u\?\.trim\(\)\);/, "it opens by itself only for a saved list URL");
+assert.match(tab.slice(tab.indexOf("</details>")), /^<\/details>\n      <\/div>/, "nothing follows it inside the form");
+assert.match(tab, /\{other && \(\s*<>\s*<div className="muted small"><ShieldAlert[\s\S]*?<Switch checked=\{sendKey\}/, "the warning and the switch are inside it, only for another server");
+assert.doesNotMatch(tab.slice(tab.indexOf('<button className="btn primary"'), tab.indexOf("</button>", tab.indexOf('<button className="btn primary"'))), /disabled/, "Save is never disabled by the list");
 assert.match(tab, /setModelsErr\(cutAtWord\(friendlyError\(e\), \d+\)\)/, "the error reason is cut so the two-line slot always shows the instruction after it");
 
 // 3. "Remove the saved key" sits on the key label's line (appears after Save without moving anything), and gives the focus back to the key box

@@ -3,6 +3,7 @@ import { deleteScoped, expandRow, getScoped, saveScoped, type Row as SeriesRow, 
 import { emit } from "@tauri-apps/api/event";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { gmailSearchUrl, toGmailQuery, toWebmailQuery, webmailOf, webmailTargets, WebmailId } from "./webmail";
+import { keyIsSent, resolveModelsUrl } from "./aiModelsUrl";
 import { darkMessages, darkThreadRows } from "./devMockDark";
 import { extractSignature, fillSignatureHtml, normalizeHtml, SIG_MARK } from "./signature";
 import { ACCOUNT_PALETTE, accountColor, pickAccountColor } from "./prefs";
@@ -2338,15 +2339,36 @@ export function installMock() {
       }
       case "suggest_contacts": return [{ name: "Linh Tran", email: "linh@example.com" }];
       case "ai_list_models": {
-        // like the real command: a key typed in Settings but not saved yet wins over the saved one; `#modelsms=N` sets the answer time (500 ms default)
+        // like the real command (src-tauri/src/ai.rs): a key typed in Settings but not saved yet wins over the saved one; `#modelsms=N` sets the answer time (500 ms default).
+        // W8.11: `modelsUrl` is resolved with the same rules as the backend (aiModelsUrl.ts), the key goes only to the Base URL's server or to `keyOrigin`; every call is logged in
+        // window.__aiModelsCalls ({ endpoint, url, keySent }). Routes of the list URL: /api/tags, /model/info, /openai/models, /strings, /mixed, /empty, /html, /huge, /missing, /redirect-other, /redirect-same
         const endpoint = String(a.endpoint);
+        const listUrl = String(a.modelsUrl ?? "");
         const key = String(a.key ?? "") || mockSecrets.get("ai_key") || "";
-        ((window as unknown as { __aiModelsCalls?: { endpoint: string; keySent: boolean }[] }).__aiModelsCalls ??= []).push({ endpoint, keySent: !!key }); // (W8.2: how many times the tab asked, and whether a key went with it)
-        if (endpoint.includes("bad")) throw "Models request failed (404 Not Found)"; // lets the error state be tried in the browser
+        const resolved = resolveModelsUrl(endpoint, listUrl);
+        const url = resolved.kind === "url" ? resolved.url : "";
+        const keySent = !!key && resolved.kind === "url" && keyIsSent(endpoint, listUrl, resolved, String(a.keyOrigin ?? ""));
+        ((window as unknown as { __aiModelsCalls?: { endpoint: string; url: string; keySent: boolean }[] }).__aiModelsCalls ??= []).push({ endpoint, url, keySent }); // (W8.2: how many times the tab asked, and whether a key went with it)
+        if (resolved.kind === "invalid") throw "AI_MODELS_URL_BAD: The model list URL must start with “https://”, “http://” or “/”.";
+        if (resolved.kind === "none") return [];
+        const path = (() => { try { return new URL(url).pathname; } catch { return ""; } })();
+        const http = (status: number, detail?: string) => (detail ? `AI_HTTP|status=${status}|detail=${detail}: The AI Assistant returned an error (${status}): ${detail}` : `AI_HTTP|v=plain|status=${status}: The AI Assistant returned an error (${status}).`);
+        if (endpoint.includes("bad")) throw http(404); // lets the error state be tried in the browser
+        if (path === "/missing") throw http(404, "no such route");
+        if (path === "/html" || path === "/huge") throw "AI_BAD_RESPONSE: The AI Assistant sent an answer the app can’t read.";
+        if (url.includes(":31843/")) throw `error sending request for url (${url.split("?")[0]}): error trying to connect: tcp connect error: No connection could be made because the target machine actively refused it. (os error 10061)`; // (nothing listens there: AC-8.11.5)
+        if (path === "/redirect-other") throw "AI_MODELS_REDIRECT|host=127.0.0.1%3A31842: Redirect to 127.0.0.1:31842 was not followed";
+        const answer = (ids: string[]) => new Promise((r) => setTimeout(() => r(ids), hashNum("modelsms", 500)));
+        const routes: Record<string, string[]> = {
+          "/api/tags": ["llama3.2:latest", "qwen2.5:7b"], "/model/info": ["litellm-claude", "litellm-gpt"], "/openai/models": ["azure-dep-1"], "/strings": ["str-a", "str-b"],
+          "/mixed": ["ok-1", "ok-2"], "/empty": [], "/redirect-same": ["qa-stub-model", "qa-stub-model-2"],
+        };
+        if (listUrl.trim() && path in routes) return answer(routes[path]);
         // a half-typed address cannot be reached; a "keyed" address needs a key (typed or saved); an "empty" one lists nothing
-        if (!/^https?:\/\/[^/\s]+\.[a-z]{2,}(\/|$)/i.test(endpoint)) throw `error sending request for url (${endpoint}/models): error trying to connect: dns error: failed to lookup address information`;
-        if (endpoint.includes("keyed") && !key) throw "Models request failed (401 Unauthorized)";
-        return new Promise((r) => setTimeout(() => r(endpoint.includes("empty") ? [] : ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "o3-mini", "text-embedding-3-small"]), hashNum("modelsms", 500)));
+        const reach = /^https?:\/\/([^/\s]+\.[a-z]{2,}|\d+\.\d+\.\d+\.\d+|localhost|\[[0-9a-f:]+\])(:\d+)?(\/|$)/i;
+        if (!reach.test(url)) throw `error sending request for url (${url}): error trying to connect: dns error: failed to lookup address information`;
+        if (endpoint.includes("keyed") && !keySent) throw http(401);
+        return answer(endpoint.includes("empty") || url.includes("/empty") ? [] : ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "o3-mini", "text-embedding-3-small"]);
       }
       case "ai_complete": {
         // dev switches for the waiting states of an AI call: #slowai[=ms] answers after 20 s (or ms); #failai[=timeout|nokey|server|plain|auth|forbidden|model|url|busy|bad|network|total|cancelled|once] fails after 5 s (or #failaims=ms; "once": the first call only)
