@@ -142,6 +142,7 @@
     "allow-queue-action",
     "allow-cancel-action",
     "allow-load-older",
+    "allow-prune-to-limit",
     "allow-attachment-data",
     "allow-set-secret",
     "allow-has-secret",

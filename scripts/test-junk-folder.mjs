@@ -4,7 +4,7 @@
 // Run: node --experimental-strip-types scripts/test-junk-folder.mjs
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { accountHasJunk, accountsOf, canMoveToJunk, folderVisible, JUNK_ACTIONS } from "../src/junk.ts";
+import { accountHasJunk, accountsOf, canMoveToJunk, folderVisible, JUNK_ACTIONS, ruleTargetProblem } from "../src/junk.ts";
 
 const KEYS = ["inbox", "drafts", "sent", "archive", "junk", "trash"];
 // what `list_folders` gives: every standard row for every account, `listed` = the saved list names it
@@ -70,6 +70,27 @@ assert.equal(accountHasJunk([{ accountId: "a1", key: "junk" }, { accountId: "a1"
   assert.match(read("../src/components/CommandBar.tsx"), /folderVisible\(s\.folders, s\.accountId, f\)/);
   assert.match(read("../src/components/SettingsDialog.tsx"), /folderVisible\(folders, scope, k\.key\)/);
   assert.match(read("../src-tauri/src/lib.rs"), /listed: map\.contains_key\(&k\)/, "the backend says which rows its saved list names");
+}
+
+// 5. (W6.2) a filter that moves mail to Junk: the editor greys the option out and the list tags the rule where the mailbox has no Junk folder
+{
+  const ids = ["a1", "a2"];
+  const junkRule = (accountId) => ({ action: "junk", accountId });
+  assert.equal(ruleTargetProblem(junkRule("a1"), folders, ids), null, "a mailbox with Junk");
+  assert.equal(ruleTargetProblem(junkRule("a2"), folders, ids), "no-junk", "a mailbox without Junk");
+  assert.equal(ruleTargetProblem(junkRule(null), folders, ids), null, "all mailboxes: works where there is a Junk folder");
+  assert.equal(ruleTargetProblem(junkRule(null), noJunk, ["a2"]), "no-junk", "all mailboxes and none has Junk");
+  assert.equal(ruleTargetProblem(junkRule(null), [], ids), null, "all mailboxes, folders not loaded yet: not judged");
+  assert.equal(ruleTargetProblem(junkRule("zz"), folders, ids), null, "a mailbox whose folders are not loaded: not judged");
+  assert.equal(ruleTargetProblem(junkRule(undefined), noJunk, ["a2"]), "no-junk", "no mailbox field counts as all mailboxes");
+  for (const action of ["archive", "trash", "read", "star", "pin", "move"]) assert.equal(ruleTargetProblem({ action, accountId: "a2" }, folders, ids), null, action);
+  // a Junk folder the server gains: the next sync names it and the rule works again with no change
+  const gained = [...withJunk, ...rows("a2", ["inbox", "sent", "drafts", "junk"])];
+  assert.equal(ruleTargetProblem(junkRule("a2"), gained, ids), null);
+  const dlg = readFileSync(new URL("../src/components/SettingsDialog.tsx", import.meta.url), "utf8").replaceAll(String.fromCharCode(13), "");
+  assert.ok(dlg.includes('ruleTargetProblem(r, folders, accountIds) && <span className="ov-tag">{t("mail.junk.none")}</span>'), "the list tag");
+  assert.ok(dlg.includes('<option value="junk" disabled={junkProblem && cur.action !== "junk"}>{junkProblem ? t("settings.filters.toJunkNone") : t("settings.filters.toJunk")}</option>'), "the option");
+  assert.ok(dlg.includes('cur.action === "junk" && junkProblem && <div className="muted small" role="note">{t("mail.junk.noneTip")}</div>'), "the hint under the select");
 }
 
 console.log("ok - test-junk-folder");

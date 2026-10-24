@@ -1149,8 +1149,21 @@ pub fn update_startup_ack(state: tauri::State<'_, AppState>) {
     crate::startup::line("update", "the page showed the install result: marker cleared");
 }
 
+/// (W6.11) The stored result of the last check was made by another version than the one that runs (the app was updated since): the row goes, so nothing shows the old version
+/// until the next check writes a new one. The screens already ignore such a row (`valid_cache`); `update_last_check` stays (the throttle of the next check does not start over).
+fn clear_stale_cache(c: &rusqlite::Connection, current: &str) {
+    let Some(stored) = db::get_setting(c, "update_cache").filter(|s| !s.trim().is_empty()) else { return };
+    let made_by = serde_json::from_str::<serde_json::Value>(&stored).ok().and_then(|v| v.get("current").and_then(|x| x.as_str()).map(str::to_string));
+    let same = matches!((made_by.as_deref().and_then(parse_version), parse_version(current)), (Some(a), Some(b)) if a == b);
+    if !same {
+        let _ = db::set_setting(c, "update_cache", "");
+        crate::startup::line("update", &format!("the stored check was made by {}; cleared", made_by.as_deref().unwrap_or("an unknown version")));
+    }
+}
+
 fn startup_state(db: &Db, current: &str) -> StartupState {
     let c = lock(db);
+    clear_stale_cache(&c, current);
     let installing = db::get_setting(&c, "update_installing").filter(|s| !s.is_empty());
     let draft = db::get_setting(&c, "update_restart_draft").as_deref() == Some("1");
     let running = parse_version(current);
@@ -1650,6 +1663,28 @@ mod tests {
         db::set_setting(&lock(&db), "update_installing", "0.9.0>banana").unwrap();
         // a target that is no version cannot be compared: told as not finished rather than as done
         assert_eq!(startup_state(&db, "1.0.0").outcome.as_deref(), Some("failed"));
+    }
+
+    #[test]
+    fn a_cache_made_by_another_version_is_cleared_at_start() {
+        let db: Db = Arc::new(Mutex::new(db::test_conn(&[])));
+        db::set_setting(&lock(&db), "update_last_check", "123456").unwrap();
+        db::set_setting(&lock(&db), "update_cache", &cache("1.0.6", Kind::Available, "1.0.7")).unwrap();
+        startup_state(&db, "1.0.7");
+        assert_eq!(db::get_setting(&lock(&db), "update_cache").unwrap_or_default(), "", "the old check is gone");
+        assert_eq!(db::get_setting(&lock(&db), "update_last_check").as_deref(), Some("123456"), "the time of the last check stays");
+        // a cache made by the version that runs stays (a restart of the same version)
+        db::set_setting(&lock(&db), "update_cache", &cache("1.0.7", Kind::UpToDate, "1.0.7")).unwrap();
+        startup_state(&db, "1.0.7");
+        assert!(valid_cache(db::get_setting(&lock(&db), "update_cache").as_deref(), &v("1.0.7")).is_some());
+        // a row that is not a cache at all, or has no version: cleared (nothing can be said of it); an empty row: nothing to do
+        db::set_setting(&lock(&db), "update_cache", "garbage").unwrap();
+        startup_state(&db, "1.0.7");
+        assert_eq!(db::get_setting(&lock(&db), "update_cache").unwrap_or_default(), "");
+        startup_state(&db, "1.0.7");
+        // the log line names the old version
+        let src = include_str!("update.rs");
+        assert!(src.contains("the stored check was made by {}; cleared"));
     }
 
     #[test]

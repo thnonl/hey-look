@@ -929,6 +929,9 @@ struct SyncResult {
     /// (W6.1) the roles whose folder the server renumbered: their stored mail was dropped and read again (`folder-reset`)
     #[serde(skip)]
     resets: Vec<String>,
+    /// (W6.3) the prune after this sync removed this many local messages, and the mailbox is at or above its cap afterwards (`mail-pruned`)
+    #[serde(skip)]
+    pruned: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -1028,7 +1031,7 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
     custom.sort();
     roles.extend(custom);
 
-    let mut result = SyncResult { added: 0, new_inbox: vec![], arrivals: vec![], resets: vec![] };
+    let mut result = SyncResult { added: 0, new_inbox: vec![], arrivals: vec![], resets: vec![], pruned: None };
     // (W13.2) the mail of the person's own mailboxes is not new mail; neither is mail that only moved between folders
     let own = newmail::own_set(db::list_accounts(&lock(db)).unwrap_or_default().iter().map(|a| a.email.as_str()));
     let mut tally = newmail::Tally::default();
@@ -1143,6 +1146,12 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
             .into_iter()
             .filter(|r| r.account_id.as_deref().map_or(true, |a| a == acc.id))
             .collect();
+        // (W6.2) a filter that moves mail to Junk does nothing on a mailbox without a Junk folder (the saved list was refreshed at the start of this sync): one line per run, no
+        // error for the person (the filter list says "No Junk folder"); a Junk folder that appears later makes it work again by itself
+        let (rules, skipped) = usable_rules(rules, map.contains_key("junk"));
+        if skipped > 0 {
+            startup::line("filters", &format!("account {}: {skipped} filter(s) that move mail to Junk were skipped: this mailbox has no Junk folder", acc.id));
+        }
         startup::line("filters", &format!("{} filter(s) apply to this account", rules.len()));
         let outcome = apply_rules(&rules, &to_rule, &mut |r, tid| {
             let res = action_impl_in(db, vec![tid.to_string()], r.action.clone(), r.arg.clone(), Some("inbox".into()), false);
@@ -1173,10 +1182,21 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
     result.arrivals = std::mem::take(&mut tally.arrivals);
     // new mail arrived: keep the account at its cap by dropping its oldest local mail (a failure here never fails the sync)
     if result.added > 0 {
-        match prune_oldest(db, account_id, max_download(db), &fresh) {
-            Ok(0) => {}
-            Ok(n) => eprintln!("pruned {n} oldest local messages of account {account_id} (download cap)"),
-            Err(e) => eprintln!("pruning account {account_id} failed: {e}"),
+        let cap = max_download(db);
+        let removed = match prune_oldest(db, account_id, cap, &fresh) {
+            Ok(0) => 0,
+            Ok(n) => {
+                eprintln!("pruned {n} oldest local messages of account {account_id} (download cap)");
+                n
+            }
+            Err(e) => {
+                eprintln!("pruning account {account_id} failed: {e}");
+                0
+            }
+        };
+        // (W6.3) a mailbox that is at its cap after a sync says so (the notice at the end of its lists does not wait for a "Load older" that is answered "limited")
+        if account_total(db, account_id).is_ok_and(|n| n >= cap) {
+            result.pruned = Some(removed);
         }
     }
     Ok(result)
@@ -1204,6 +1224,14 @@ fn reset_folder(c: &Connection, account_id: &str, role: &str, name: &str, known:
     };
     startup::line("sync", &format!("account {account_id} folder {role}: the server renumbered this folder ({was}): reading it again"));
     Ok(())
+}
+
+/// The filters that can run on a mailbox, and how many were left out: the ones that move mail to Junk when the mailbox has no Junk folder (W6.2).
+fn usable_rules(rules: Vec<Rule>, has_junk: bool) -> (Vec<Rule>, usize) {
+    let total = rules.len();
+    let kept: Vec<Rule> = rules.into_iter().filter(|r| has_junk || r.action != "junk").collect();
+    let skipped = total - kept.len();
+    (kept, skipped)
 }
 
 /// What running the filters over new mail came to: the threads that left the inbox, and one message per failed filter run.
@@ -1301,6 +1329,9 @@ fn run_sync_inner(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<SyncRe
     // (W6.1) every window drops a selection or an open conversation of a folder that was read again, and re-reads its list
     for role in &r.resets {
         let _ = app.emit("folder-reset", serde_json::json!({ "accountId": account_id, "role": role }));
+    }
+    if let Some(removed) = r.pruned {
+        let _ = app.emit_to("main", "mail-pruned", serde_json::json!({ "accountId": account_id, "removed": removed }));
     }
     for why in take_rule_errors_to_tell() {
         let _ = app.emit_to("main", "filter-failed", why);
@@ -1802,6 +1833,60 @@ fn prune_oldest(db: &Db, account_id: &str, cap: u32, keep: &std::collections::Ha
         rawcache::forget(id);
     }
     Ok(ids.len() as u32)
+}
+
+/// (W6.3) Bring every mailbox to the "Max emails to download" cap NOW: the person lowered it, and the extra local mail goes at once instead of at the next arrival. The same rules
+/// as the prune after new mail (`prune_oldest`: drafts, flagged, pinned and snoozed mail and the newest message of every folder stay, the server is never touched) plus the
+/// conversations in `keep_threads` (the one in the reading pane, the ones in reader windows): an open conversation does not vanish under the person's eyes. Returns, per mailbox,
+/// (account id, messages removed, the mailbox is at or above the cap afterwards).
+fn prune_all_to_limit(db: &Db, keep_threads: &[String]) -> R<Vec<(String, u32, bool)>> {
+    let cap = max_download(db);
+    let accounts = db::list_accounts(&lock(db))?;
+    let keep: std::collections::HashSet<String> = {
+        let c = lock(db);
+        let mut out = std::collections::HashSet::new();
+        for t in keep_threads.iter().take(200) {
+            let mut st = c.prepare("SELECT id FROM messages WHERE thread_id=?1").map_err(err)?;
+            for id in st.query_map([t], |r| r.get::<_, String>(0)).map_err(err)?.flatten() {
+                out.insert(id);
+            }
+        }
+        out
+    };
+    let mut out = vec![];
+    for a in accounts {
+        let removed = prune_oldest(db, &a.id, cap, &keep).unwrap_or_else(|e| {
+            eprintln!("pruning account {} failed: {e}", a.id);
+            0
+        });
+        if removed > 0 {
+            startup::line("prune", &format!("account {}: the download limit is {cap} mails: {removed} oldest local messages removed (the server keeps them)", a.id));
+        }
+        let at_limit = account_total(db, &a.id).map(|n| n >= cap).unwrap_or(false);
+        out.push((a.id, removed, at_limit));
+    }
+    Ok(out)
+}
+
+/// The person lowered the download limit (Settings > Mailboxes > Reading & sync): the extra local mail goes at once, in the background, and the lists read again. `keep_threads`:
+/// the conversation open in the reading pane; the reader windows' are added here. A mailbox that is at the cap afterwards tells the page (`mail-pruned`), which then shows the
+/// notice "Download limit reached" without a sync. Nothing is removed when the limit is higher than before: the page does not ask then.
+#[tauri::command]
+async fn prune_to_limit(app: tauri::AppHandle, state: tauri::State<'_, AppState>, keep_threads: Vec<String>) -> R<u32> {
+    let db = state.db.clone();
+    let mut threads = keep_threads;
+    threads.extend(popout::reader_keys(&app));
+    let done = blocking(move || prune_all_to_limit(&db, &threads)).await?;
+    let mut removed = 0;
+    for (account_id, n, at_limit) in done {
+        removed += n;
+        if at_limit {
+            let _ = app.emit_to("main", "mail-pruned", serde_json::json!({ "accountId": account_id, "removed": n }));
+        }
+    }
+    // the lists (and the reader windows) read again
+    let _ = app.emit("mail-synced", ());
+    Ok(removed)
 }
 
 /// Pause between two chunks of the background download, so the server (and the database lock) are never hammered.
@@ -6439,6 +6524,7 @@ pub fn run() {
             queue_action,
             cancel_action,
             load_older,
+            prune_to_limit,
             attachment_data,
             set_secret,
             has_secret,
@@ -6850,7 +6936,7 @@ mod quit_tests {
         }
         let main_only = [
             "confirm-quit", "tray-compose", "open-thread", "notify-reply", "app-shown", "signin-state", "backfill-progress", "action-verify-failed",
-            "action-failed", "moves-committed", "outbox-leftover", "outbox-catchup", "filter-failed", "event-reminder", "download-dir-fallback", "frame-caption",
+            "action-failed", "moves-committed", "mail-pruned", "outbox-leftover", "outbox-catchup", "filter-failed", "event-reminder", "download-dir-fallback", "frame-caption",
         ];
         for ev in main_only {
             assert!(!code.contains(&format!("emit(\"{ev}\"")), "{ev} is broadcast");
@@ -7157,7 +7243,7 @@ mod capability_tests {
             "quit_now", "quit_cancelled", "sends_flushed", "quit_page_alive", "quit_dialog", "frontend_ready", "page_state", "page_pong", "show_window", "set_mail_available", "take_tray_compose",
             // calendar connections, sync triggers, mail actions that belong to the main page's intent layer
             "calendar_connect", "calendar_disconnect", "calendar_sources", "calendar_set_sync", "calendar_sync_now", "sync_account", "refresh_badge", "thread_action",
-            "queue_action", "cancel_action", "sender_action", "load_older", "idle_states", "frame_info", "frame_caption_rect", "frame_system_menu", "test_notification", "play_notify_sound", "create_mail_folder",
+            "queue_action", "cancel_action", "sender_action", "load_older", "prune_to_limit", "idle_states", "frame_info", "frame_caption_rect", "frame_system_menu", "test_notification", "play_notify_sound", "create_mail_folder",
             // the caption colours are the main page's to hand over (W4.3): a window never sets its own
             "window_caption_colors",
             // a secondary window asks the main page (popout_request); only the main page answers
@@ -7190,7 +7276,7 @@ mod capability_tests {
         // what no secondary window ever gets (REQ-S2 and the quit, update and frame commands)
         let never = [
             "quit_now", "quit_cancelled", "sends_flushed", "quit_page_alive", "quit_dialog", "frontend_ready", "page_state", "page_pong", "popout_reply", "popout_save_all", "update_install",
-            "thread_action", "queue_action", "cancel_action", "sender_action", "prepare_action", "load_older", "frame_info", "frame_caption_rect", "frame_system_menu", "show_window", "set_mail_available",
+            "thread_action", "queue_action", "cancel_action", "sender_action", "prepare_action", "load_older", "prune_to_limit", "frame_info", "frame_caption_rect", "frame_system_menu", "show_window", "set_mail_available",
             "take_tray_compose", "idle_states", "window_caption_colors", "update_startup_state", "update_startup_ack", "refresh_badge", "sync_account", "popout_show", "popout_park", "popout_set_key",
             "drag_begin", "drag_take", "send_message", "save_draft", "discard_draft", "recovery_save", "recovery_clear", "outbox_hold", "outbox_hold_send", "outbox_update", "outbox_reschedule", "create_mail_folder",
         ];
@@ -8311,6 +8397,8 @@ mod uidvalidity_tests;
 mod drafts_tests;
 #[cfg(test)]
 mod sendonce_tests;
+#[cfg(test)]
+mod limit_tests;
 #[cfg(test)]
 mod readrace_tests;
 #[cfg(test)]

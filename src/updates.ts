@@ -368,7 +368,8 @@ export const useUpdates = create<UpdatesState>((set, get) => {
       startedAt = Date.now();
       set({ flow: { ...IDLE, state: "downloading", version: info.latest } });
       useStore.getState().setStickyToast("update-available", null); // the announcement is answered
-      useStore.getState().showToast(t("updates.toast.downloading", { version: info.latest }), undefined, "info");
+      // "Downloading…" stays while the download runs and goes when the flow leaves `downloading` (ready, failed, cancelled): a fast download no longer shows it next to the ready text (W6.17b)
+      useStore.getState().setStickyToast(DOWNLOADING_TOAST, { text: () => t("updates.toast.downloading", { version: info.latest }), kind: "info", busy: true, closeLabel: () => t("common.close") });
       try {
         await api.updateDownload(info.latest, (e) => onEvent(id, e));
       } catch (e) {
@@ -545,6 +546,14 @@ export const useUpdates = create<UpdatesState>((set, get) => {
       }
     },
   };
+});
+
+/** The key of the toast "Downloading Hey Look! …" (a keyed, sticky toast: it is taken away when the download is over). */
+export const DOWNLOADING_TOAST = "update-downloading";
+
+// The toast goes whenever the flow leaves `downloading`, however it leaves it (ready, failed, cancelled, a new run): one place instead of every path.
+useUpdates.subscribe((s, prev) => {
+  if (prev.flow.state === "downloading" && s.flow.state !== "downloading") useStore.getState().setStickyToast(DOWNLOADING_TOAST, null);
 });
 
 /** Download progress in whole percent (null while the total is unknown). */

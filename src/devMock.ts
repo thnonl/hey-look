@@ -1607,6 +1607,22 @@ export function installMock() {
           return { added, exhausted, limited: !exhausted && have + added >= cap };
         });
       }
+      case "prune_to_limit": {
+        // the person lowered the cap (W6.3): every mailbox is brought to it at once; the call is logged for a check (window.__pruneCalls = [{ keep, cap }])
+        const w = window as unknown as { __pruneCalls?: { keep: unknown; cap: number }[] };
+        (w.__pruneCalls ??= []).push({ keep: a.keepThreads, cap: mockCap() });
+        const cap = mockCap();
+        let removed = 0;
+        for (const id of Object.keys(mockMail.local)) {
+          if (mockMail.local[id] > cap) {
+            removed += mockMail.local[id] - cap;
+            mockMail.local[id] = cap;
+          }
+          if (mockMail.local[id] >= cap) void emit("mail-pruned", { accountId: id, removed });
+        }
+        void emit("mail-synced", null);
+        return removed;
+      }
       case "plugin:opener|open_url": // (Linux asks the backend: open_external)
       case "open_external":
         if (hashTokens().has("openfail")) throw "mock: no default browser"; // `#openfail` makes opening links fail (update check: copy-link path)

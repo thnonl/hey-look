@@ -169,6 +169,8 @@ function App() {
       listen("mail-synced", () => void useStore.getState().refresh()),
       // an archive / delete / move whose Undo time is over has been done (also while the window was hidden to the tray): the messages leave the list now
       listen<{ threadIds: string[] }>("moves-committed", (e) => useStore.getState().dropThreads(e.payload.threadIds)),
+      // a mailbox is at its download limit after a prune (W6.3): the notice at the end of its lists needs no sync
+      listen<{ accountId: string; removed: number }>("mail-pruned", (e) => useStore.getState().onPruned(e.payload.accountId)),
       // the server renumbered a folder and its mail was read again (W6.1): a selection or an open conversation of it goes, the list is read again
       listen<{ accountId: string; role: string }>("folder-reset", (e) => useStore.getState().folderReset(e.payload.accountId, e.payload.role)),
       // the window comes back (from the tray, a second start): what changed meanwhile is read at once, not at the next 30 s refresh

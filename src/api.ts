@@ -644,6 +644,8 @@ export const api = {
   cancelAction: (id: string) => invoke<boolean>("cancel_action", { id }),
   /** Downloads up to `limit` (max 50) messages older than what is stored. Rejects with the server's error; never turns it into "none". */
   loadOlder: (accountId: string, role: string, limit = 50) => invoke<LoadOlderResult>("load_older", { accountId, role, limit }),
+  /** The download limit was lowered (W6.3): every mailbox is brought to it at once, except the conversations in `keepThreads` (and the ones in reader windows). Resolves to how many messages went. */
+  pruneToLimit: (keepThreads: string[]) => invoke<number>("prune_to_limit", { keepThreads }),
   attachmentData: (messageId: string, index: number) =>
     invoke<{ name: string; mime: string; dataBase64: string }>("attachment_data", { messageId, index }),
   setSecret: (name: SecretName, value: string) => invoke<void>("set_secret", { name, value }),
