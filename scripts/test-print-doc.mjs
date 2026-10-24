@@ -87,10 +87,11 @@ check("REQ-5.3.1 / 5.3.5: Print is in both More menus on every system, disabled 
   const rv = read("src/popout/ReaderView.tsx");
   assert.ok(!rv.includes('osNow() === "macos" ? [] : [{ label: t("reading.msg.print")'), "no more hidden entry on macOS (reader)");
   assert.ok(rv.includes('{ label: t("reading.msg.print"), disabled: conf || printing, onClick: printLast }'));
-  assert.ok(rv.includes('case "print": return conf ? undefined : printLast();'), "Cmd+P does nothing for confidential mail");
-  assert.ok(rv.includes('osNow() === "macos") void printFrameNative('));
+  assert.ok(rv.includes('case "print": return conf ? undefined : printLast();'), "Ctrl+P does nothing for confidential mail");
+  assert.ok(rv.includes('if (osNow() === "macos") return void printOpenMessage();'), "macOS prints through the backend");
+  // W5.11: on macOS Cmd+P is the File > Print… item of the menu bar; the page takes no second Cmd+P (no double print)
   const key = read("src/popout/readerLogic.ts");
-  assert.ok(key.includes('k.toLowerCase() === "p") return "print";') && !key.includes('ctx.mac ? null : "print"'), "Cmd+P is a reader key on macOS");
+  assert.ok(key.includes('!ctx.mac && cmd && !e.altKey && !e.shiftKey && k.toLowerCase() === "p") return "print";'), "Ctrl+P is a reader key, not on macOS");
 });
 
 check("REQ-5.3.6: the command is in the three places, and in the reader's capability (not in the other pop-outs)", () => {

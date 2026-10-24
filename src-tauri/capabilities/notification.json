@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "notification",
+  "description": "The notification plugin (macOS and Linux only; Windows has its own toasts and does not load the plugin) puts a script into every window that asks the system once, as soon as the page loads, whether notifications are allowed (plugin:notification|is_permission_granted). The page itself never calls the plugin (the permission and the notifications are handled by the backend, macnotify.rs / shell.rs), so this is the one command every kind of window needs, and nothing else of the plugin (D-104).",
+  "windows": [
+    "*"
+  ],
+  "platforms": [
+    "macOS",
+    "linux"
+  ],
+  "permissions": [
+    "notification:allow-is-permission-granted"
+  ]
+}

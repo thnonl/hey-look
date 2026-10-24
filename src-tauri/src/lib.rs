@@ -2239,6 +2239,13 @@ async fn print_html(app: tauri::AppHandle, window: tauri::WebviewWindow, html: S
     blocking(move || macprint::print(&app, &label, html, title)).await
 }
 
+/// A page tells the macOS menu bar whether it shows a message that can be printed (File > Print…, W5.11): main and reader windows, on every change. The item follows the window with
+/// the focus. Windows and Linux have no such item and the pages do not call it there.
+#[tauri::command]
+fn mac_menu_state(app: tauri::AppHandle, window: tauri::WebviewWindow, can_print: bool) {
+    shell::note_can_print(&app, window.label(), can_print);
+}
+
 /// Settings > Notifications & tray > "Open System Settings" (macOS, notifications turned off for the app): the Notifications pane of System Settings.
 #[tauri::command]
 async fn open_notification_settings(app: tauri::AppHandle) -> R<()> {
@@ -6483,6 +6490,9 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            // macOS: which window has the focus and which ones can print decides File > Print… (every window, main or not)
+            #[cfg(target_os = "macos")]
+            shell::menu_window_event(window, event);
             // the OS changed its theme (any window says so): with the System setting every window's frame follows (wintheme.rs)
             if let tauri::WindowEvent::ThemeChanged(theme) = event {
                 wintheme::on_os_theme_changed(window.app_handle(), &format!("tao ThemeChanged({theme:?}) of {}", window.label()));
@@ -6537,6 +6547,7 @@ pub fn run() {
             os_color_scheme,
             open_notification_settings,
             print_html,
+            mac_menu_state,
             notify_caps,
             play_notify_sound,
             create_mail_folder,

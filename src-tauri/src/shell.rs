@@ -3,7 +3,8 @@
 use crate::{action_impl, db, lock, now, AppState, Db, NewMsg};
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::OnceLock;
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 use tauri::image::Image;
 use tauri::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, MenuItemKind, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -291,6 +292,16 @@ pub fn mac_app_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     if let Err(e) = add_paste_match_item(app, &menu) {
         crate::startup::line("menu", &format!("the Edit menu has no Paste and Match Style item ({e})"));
     }
+    // W5.11: the standard items of a Mac mail app, each one left out (and logged) rather than failing the menu
+    if let Err(e) = add_settings_item(app, &menu) {
+        crate::startup::line("menu", &format!("the app menu has no Settings item ({e})"));
+    }
+    if let Err(e) = add_print_item(app, &menu) {
+        crate::startup::line("menu", &format!("the File menu has no Print item ({e})"));
+    }
+    if let Err(e) = add_help_item(app, &menu) {
+        crate::startup::line("menu", &format!("the Help menu has no Hey Look! Help item ({e})"));
+    }
     Ok(menu)
 }
 
@@ -323,13 +334,13 @@ pub enum AppMenuEntry {
 }
 
 /// The app menu of macOS as the app builds it: tauri's default menu (About, separator, Services, separator, Hide, Hide Others, separator, Quit) with the Show All item that
-/// Apple's standard menu has under Hide Others added (`localize_app_menu`) and the Quit item replaced by ours (`replace_quit_item`): six items and three separators, in the app's
-/// language. Pure: the list the test compares with what the two functions do (W5.7: Show All stays).
+/// Apple's standard menu has under Hide Others added (`localize_app_menu`), the Settings item after About (`add_settings_item`, W5.11) and the Quit item replaced by ours
+/// (`replace_quit_item`): seven items and four separators, in the app's language. Pure: the list the test compares with what the functions do (W5.7: Show All stays).
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn app_menu_plan() -> Vec<AppMenuEntry> {
     use crate::i18n::K;
     use AppMenuEntry::{Item, Separator};
-    vec![Item(K::MacAbout), Separator, Item(K::MacServices), Separator, Item(K::MacHide), Item(K::MacHideOthers), Item(K::MacShowAll), Separator, Item(K::MacQuit)]
+    vec![Item(K::MacAbout), Separator, Item(K::MacSettings), Separator, Item(K::MacServices), Separator, Item(K::MacHide), Item(K::MacHideOthers), Item(K::MacShowAll), Separator, Item(K::MacQuit)]
 }
 
 /// Puts the language of the app on the predefined items of the app menu. macOS' standard menu has a Show All item right under Hide Others;
@@ -399,6 +410,144 @@ fn add_paste_match_item(app: &AppHandle, menu: &Menu<tauri::Wry>) -> Result<(), 
     Err("the menu has no Paste item".into())
 }
 
+/// Ids of the items W5.11 adds to the macOS menu bar (the page is told through the events `mac-open-settings`, `mac-print`, `mac-help`).
+pub const MAC_SETTINGS_ID: &str = "app-settings";
+pub const MAC_PRINT_ID: &str = "file-print";
+pub const MAC_HELP_ID: &str = "help-app";
+/// The three items, kept to change their text when the language changes (Print also to switch it on and off).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+static MAC_SETTINGS_ITEM: OnceLock<MenuItem<tauri::Wry>> = OnceLock::new();
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+static MAC_PRINT_ITEM: OnceLock<MenuItem<tauri::Wry>> = OnceLock::new();
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+static MAC_HELP_ITEM: OnceLock<MenuItem<tauri::Wry>> = OnceLock::new();
+
+/// App menu: "Settings…" (Cmd+,) right after About and its separator, with a separator of its own after it (REQ-5.11.1). Choosing it shows the main window and opens Settings as the gear does.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn add_settings_item(app: &AppHandle, menu: &Menu<tauri::Wry>) -> Result<(), String> {
+    let first = menu.items().map_err(|e| e.to_string())?.into_iter().next();
+    let Some(MenuItemKind::Submenu(app_menu)) = first else { return Err("the menu does not start with the app menu".into()) };
+    let items = app_menu.items().map_err(|e| e.to_string())?;
+    let after_about = matches!(items.first(), Some(MenuItemKind::Predefined(p)) if p.text().map(|t| t.replace('&', "").trim().starts_with("About")).unwrap_or(false));
+    if !after_about || !matches!(items.get(1), Some(MenuItemKind::Predefined(_))) {
+        return Err("the app menu does not start with About and a separator".into());
+    }
+    let ours = MenuItem::with_id(app, MAC_SETTINGS_ID, crate::i18n::tr(crate::i18n::K::MacSettings), true, Some("CmdOrCtrl+,")).map_err(|e| e.to_string())?;
+    let sep = PredefinedMenuItem::separator(app).map_err(|e| e.to_string())?;
+    app_menu.insert(&ours, 2).map_err(|e| e.to_string())?;
+    app_menu.insert(&sep, 3).map_err(|e| e.to_string())?;
+    let _ = MAC_SETTINGS_ITEM.set(ours);
+    Ok(())
+}
+
+/// File menu: "Print…" (Cmd+P) after Close Window, behind a separator (REQ-5.11.2). It starts switched off; the pages say when there is something to print (`note_can_print`).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn add_print_item(app: &AppHandle, menu: &Menu<tauri::Wry>) -> Result<(), String> {
+    for item in menu.items().map_err(|e| e.to_string())? {
+        let MenuItemKind::Submenu(file) = item else { continue };
+        if file.text().map_err(|e| e.to_string())?.replace('&', "").trim() != "File" {
+            continue;
+        }
+        let ours = MenuItem::with_id(app, MAC_PRINT_ID, crate::i18n::tr(crate::i18n::K::MacPrint), false, Some("CmdOrCtrl+P")).map_err(|e| e.to_string())?;
+        file.append(&PredefinedMenuItem::separator(app).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+        file.append(&ours).map_err(|e| e.to_string())?;
+        let _ = MAC_PRINT_ITEM.set(ours);
+        return Ok(());
+    }
+    Err("the menu has no File menu".into())
+}
+
+/// Help menu: "Hey Look! Help" (REQ-5.11.3). The Help menu is the one tauri registers with the system, so macOS keeps its own search field in it.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn add_help_item(app: &AppHandle, menu: &Menu<tauri::Wry>) -> Result<(), String> {
+    let Some(MenuItemKind::Submenu(help)) = menu.get(tauri::menu::HELP_SUBMENU_ID) else { return Err("the menu has no Help menu".into()) };
+    let ours = MenuItem::with_id(app, MAC_HELP_ID, crate::i18n::tr(crate::i18n::K::MacHelp), true, None::<&str>).map_err(|e| e.to_string())?;
+    help.append(&ours).map_err(|e| e.to_string())?;
+    let _ = MAC_HELP_ITEM.set(ours);
+    Ok(())
+}
+
+/// Which window has the keyboard focus and which windows said they show a printable message.
+#[derive(Default)]
+struct PrintState {
+    focused: Option<String>,
+    can: HashMap<String, bool>,
+}
+
+fn print_state() -> &'static Mutex<PrintState> {
+    static STATE: OnceLock<Mutex<PrintState>> = OnceLock::new();
+    STATE.get_or_init(Mutex::default)
+}
+
+/// Only the main window and the reader windows print a message (a compose, Settings, search, Scheduled or event window never does).
+fn prints_in(label: &str) -> bool {
+    label == "main" || label.starts_with("reader-")
+}
+
+/// Is File > Print… on: the focused window is one that prints and it said that a printable message is open (not Confidential, W5.3). Pure.
+pub fn print_enabled(focused: Option<&str>, can: &HashMap<String, bool>) -> bool {
+    focused.is_some_and(|l| prints_in(l) && can.get(l).copied().unwrap_or(false))
+}
+
+/// Switches the Print item to what the state says. Main thread only (the item is a native menu item): called from the window events and, through `run_on_main_thread`, after a page's report,
+/// so the last report always wins and the state is read when the switch is made.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn apply_print_item() {
+    let on = {
+        let st = print_state().lock().unwrap_or_else(|e| e.into_inner());
+        print_enabled(st.focused.as_deref(), &st.can)
+    };
+    if let Some(item) = MAC_PRINT_ITEM.get() {
+        let _ = item.set_enabled(on);
+    }
+}
+
+/// A page says whether it shows a printable message (command `mac_menu_state`): the item follows at once. The window is the one that calls, so a page can only speak for itself.
+pub fn note_can_print(app: &AppHandle, label: &str, can: bool) {
+    if !prints_in(label) {
+        return;
+    }
+    {
+        let mut st = print_state().lock().unwrap_or_else(|e| e.into_inner());
+        if can {
+            st.can.insert(label.to_string(), true);
+        } else {
+            st.can.remove(label);
+        }
+    }
+    if MAC_PRINT_ITEM.get().is_some() {
+        let _ = app.run_on_main_thread(apply_print_item);
+    }
+}
+
+/// Window events that decide File > Print… (macOS): the window with the focus, and a window that is gone forgets what it said. Runs on the main thread.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn menu_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
+    let label = window.label();
+    {
+        let mut st = print_state().lock().unwrap_or_else(|e| e.into_inner());
+        match event {
+            tauri::WindowEvent::Focused(true) => st.focused = Some(label.to_string()),
+            tauri::WindowEvent::Focused(false) if st.focused.as_deref() == Some(label) => st.focused = None,
+            tauri::WindowEvent::Destroyed => {
+                st.can.remove(label);
+                if st.focused.as_deref() == Some(label) {
+                    st.focused = None;
+                }
+            }
+            _ => return,
+        }
+    }
+    apply_print_item();
+}
+
+/// The window a menu item acts on: the one with the focus, else the first one the system says has it.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn focused_label(app: &AppHandle) -> Option<String> {
+    let tracked = print_state().lock().unwrap_or_else(|e| e.into_inner()).focused.clone();
+    tracked.or_else(|| app.webview_windows().into_iter().find(|(_, w)| w.is_focused().unwrap_or(false)).map(|(l, _)| l))
+}
+
 /// The macOS app menu's items (the tray's items are handled in `setup_tray`).
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn mac_menu_event(app: &AppHandle, event: MenuEvent) {
@@ -409,6 +558,28 @@ pub fn mac_menu_event(app: &AppHandle, event: MenuEvent) {
         // the focused window pastes (a page that is not an editor does nothing)
         let label = app.webview_windows().into_iter().find(|(_, w)| w.is_focused().unwrap_or(false)).map(|(l, _)| l).unwrap_or_else(|| "main".into());
         let _ = app.emit_to(label.as_str(), "mac-paste-match", ());
+    } else if event.id().as_ref() == MAC_SETTINGS_ID {
+        // as the gear: the main window first (shown, in front), then the page opens Settings (or its window)
+        crate::startup::line("menu", "Settings… chosen in the app menu");
+        show_main(app);
+        let _ = app.emit_to("main", "mac-open-settings", ());
+    } else if event.id().as_ref() == MAC_PRINT_ID {
+        // the focused window prints its own message through the page (the same path as its More > Print); the item is off unless that window said it can
+        let target = focused_label(app).filter(|l| {
+            let st = print_state().lock().unwrap_or_else(|e| e.into_inner());
+            print_enabled(Some(l), &st.can)
+        });
+        match target {
+            Some(label) => {
+                crate::startup::line("menu", &format!("Print… chosen in the app menu: {label} prints"));
+                let _ = app.emit_to(label.as_str(), "mac-print", ());
+            }
+            None => crate::startup::line("menu", "Print… chosen with nothing to print: ignored"),
+        }
+    } else if event.id().as_ref() == MAC_HELP_ID {
+        // the page of the focused window opens help.html in the app language and tells a failure in its own window; any other window asks the main page
+        let label = focused_label(app).filter(|l| prints_in(l)).unwrap_or_else(|| "main".into());
+        let _ = app.emit_to(label.as_str(), "mac-help", ());
     }
 }
 
@@ -463,6 +634,15 @@ pub fn refresh_language(app: &AppHandle, db: &Db) {
     }
     if let Some(p) = MAC_PASTE_MATCH_ITEM.get() {
         let _ = p.set_text(tr(K::MacPasteMatch));
+    }
+    if let Some(i) = MAC_SETTINGS_ITEM.get() {
+        let _ = i.set_text(tr(K::MacSettings));
+    }
+    if let Some(i) = MAC_PRINT_ITEM.get() {
+        let _ = i.set_text(tr(K::MacPrint));
+    }
+    if let Some(i) = MAC_HELP_ITEM.get() {
+        let _ = i.set_text(tr(K::MacHelp));
     }
     for (item, k) in MAC_MENU_ITEMS.get().into_iter().flatten() {
         let _ = item.set_text(tr(*k));
@@ -1112,18 +1292,19 @@ mod platform_tests {
 
     /// The localised items are rebuilt with the language: the app menu code and the language refresh use the same list, and the menu code is only
     /// ever compiled in for macOS (this reads the source, like the quit tests do).
-    /// W5.7: the app menu has exactly the agreed items, Show All stays (Apple's standard menu has it; it only un-hides other apps).
+    /// W5.7 + W5.11: the app menu has exactly the agreed items, Show All stays (Apple's standard menu has it; it only un-hides other apps) and Settings… follows About.
     #[test]
     fn the_mac_app_menu_has_exactly_the_agreed_items() {
         use crate::i18n::K;
         let plan = app_menu_plan();
         let items: Vec<K> = plan.iter().filter_map(|e| if let AppMenuEntry::Item(k) = e { Some(*k) } else { None }).collect();
-        assert_eq!(items, [K::MacAbout, K::MacServices, K::MacHide, K::MacHideOthers, K::MacShowAll, K::MacQuit], "six items, in this order");
-        assert_eq!(plan.iter().filter(|e| **e == AppMenuEntry::Separator).count(), 3, "three separators");
-        assert_eq!(plan[1], AppMenuEntry::Separator);
-        assert_eq!(plan[3], AppMenuEntry::Separator);
-        assert_eq!(plan[7], AppMenuEntry::Separator);
-        assert_eq!(plan.len(), 9);
+        assert_eq!(items, [K::MacAbout, K::MacSettings, K::MacServices, K::MacHide, K::MacHideOthers, K::MacShowAll, K::MacQuit], "seven items, in this order");
+        assert_eq!(plan.iter().filter(|e| **e == AppMenuEntry::Separator).count(), 4, "four separators");
+        // About, separator, Settings…, separator, Services, separator, Hide, Hide Others, Show All, separator, Quit
+        for at in [1, 3, 5, 9] {
+            assert_eq!(plan[at], AppMenuEntry::Separator, "separator at {at}");
+        }
+        assert_eq!(plan.len(), 11);
         // what builds it: the localisation inserts Show All right under Hide Others when tauri's menu has none, and the Quit item is ours; the six texts are in every language
         let src = crate::test_guard::non_test_code(include_str!("shell.rs"));
         let localize = &src[src.find("fn localize_app_menu(").unwrap()..];
@@ -1132,6 +1313,12 @@ mod platform_tests {
 ").unwrap()];
         assert!(localize.contains("PredefinedMenuItem::show_all(app, Some(tr(K::MacShowAll)))") && localize.contains("app_menu.insert(&show, at + 1)") && localize.contains("K::MacHideOthers"), "Show All under Hide Others: {localize}");
         assert!(src.contains("MAC_QUIT_ID, crate::i18n::tr(crate::i18n::K::MacQuit)"), "our Quit item");
+        // Settings… with Cmd+, goes in at 2 (after About and its separator) with a separator of its own at 3
+        let settings = &src[src.find("fn add_settings_item(").unwrap()..];
+        let settings = &settings[..settings.find("
+}
+").unwrap()];
+        assert!(settings.contains("MAC_SETTINGS_ID, crate::i18n::tr(crate::i18n::K::MacSettings), true, Some(\"CmdOrCtrl+,\")") && settings.contains("app_menu.insert(&ours, 2)") && settings.contains("app_menu.insert(&sep, 3)"), "{settings}");
         // (the texts of the six keys exist in every language: the i18n tests check every key; here, that the menu uses these six)
         for k in items {
             assert!(!crate::i18n::tr(k).is_empty());
@@ -1151,6 +1338,68 @@ mod platform_tests {
         // Paste and Match Style (AC-2.24.1): added to the Edit menu with Cmd+Option+Shift+V, and the menu event reaches the focused window as `mac-paste-match`
         assert!(src.contains("add_paste_match_item(app, &menu)") && src.contains("\"CmdOrCtrl+Alt+Shift+V\""), "the Edit menu item is not added");
         assert!(src.contains("emit_to(label.as_str(), \"mac-paste-match\""), "the menu event does not reach the window");
+    }
+
+    /// W5.11 (REQ-5.11.2): File > Print… is on only while the window that has the focus is the main window or a reader window that said it shows a printable message.
+    #[test]
+    fn print_follows_the_focused_window_that_can_print() {
+        let mut can: HashMap<String, bool> = HashMap::new();
+        assert!(!print_enabled(None, &can) && !print_enabled(Some("main"), &can), "nothing reported: off");
+        for label in ["main", "reader-3", "compose-1", "settings-1", "search-1", "scheduled-1", "event-1"] {
+            can.insert(label.to_string(), true);
+        }
+        assert!(print_enabled(Some("main"), &can) && print_enabled(Some("reader-3"), &can));
+        assert!(!print_enabled(Some("reader-4"), &can), "a reader window that said nothing");
+        for label in ["compose-1", "settings-1", "search-1", "scheduled-1", "event-1", "print-view"] {
+            assert!(!print_enabled(Some(label), &can), "{label} never prints, whatever it says");
+        }
+        assert!(!print_enabled(None, &can), "no window has the focus");
+        can.insert("main".to_string(), false);
+        assert!(!print_enabled(Some("main"), &can), "an open mail that is Confidential or gone: off");
+    }
+
+    /// W5.11: how the menu bar is built and what the items do (the macOS code cannot be compiled here: this reads the sources).
+    #[test]
+    fn the_menu_bar_items_of_w5_11_are_wired() {
+        let src = crate::test_guard::non_test_code(include_str!("shell.rs"));
+        let body = |name: &str| {
+            let at = src.find(name).unwrap_or_else(|| panic!("{name}"));
+            let rest = &src[at..];
+            rest[..rest.find("
+}
+").unwrap()].to_string()
+        };
+        // File > Print…: Cmd+P, after Close Window behind a separator, off until a page says it can
+        let print = body("fn add_print_item(");
+        assert!(print.contains("MAC_PRINT_ID, crate::i18n::tr(crate::i18n::K::MacPrint), false, Some(\"CmdOrCtrl+P\")"), "{print}");
+        assert!(print.contains("== \"File\"") && print.find("file.append(&PredefinedMenuItem::separator").unwrap() < print.find("file.append(&ours)").unwrap(), "{print}");
+        // Help > Hey Look! Help: in the Help menu tauri registers with the system (the search field stays)
+        let help = body("fn add_help_item(");
+        assert!(help.contains("tauri::menu::HELP_SUBMENU_ID") && help.contains("MAC_HELP_ID, crate::i18n::tr(crate::i18n::K::MacHelp)"), "{help}");
+        // the menu event: Settings shows the main window first, then tells it; Print tells the focused window that can print; Help tells the focused main / reader window (else main)
+        let event = body("pub fn mac_menu_event(");
+        let settings = &event[event.find("MAC_SETTINGS_ID").unwrap()..];
+        assert!(settings.find("show_main(app)").unwrap() < settings.find("emit_to(\"main\", \"mac-open-settings\"").unwrap(), "{event}");
+        assert!(event.contains("print_enabled(Some(l), &st.can)") && event.contains("emit_to(label.as_str(), \"mac-print\"") && event.contains("emit_to(label.as_str(), \"mac-help\""), "{event}");
+        // the three items follow a language switch, and the windows decide the Print item
+        let refresh = body("pub fn refresh_language(");
+        for item in ["MAC_SETTINGS_ITEM", "MAC_PRINT_ITEM", "MAC_HELP_ITEM"] {
+            assert!(refresh.contains(item), "{item} does not follow the language");
+        }
+        for call in ["add_settings_item(app, &menu)", "add_print_item(app, &menu)", "add_help_item(app, &menu)"] {
+            assert!(src.contains(call), "{call}");
+        }
+        let lib = crate::test_guard::non_test_code(include_str!("lib.rs"));
+        let at = lib.find(".on_window_event(|window, event| {").expect("window event handler");
+        let handler = &lib[at..];
+        assert!(handler.find("shell::menu_window_event(window, event)").unwrap() < handler.find("if window.label() != \"main\"").unwrap(), "every window, not only main, reaches the menu state");
+        // the command answers for the window that calls it, and the item is switched on the main thread
+        assert!(lib.contains("shell::note_can_print(&app, window.label(), can_print)"), "a page speaks for itself only");
+        assert!(body("pub fn note_can_print(").contains("run_on_main_thread(apply_print_item)"));
+        // no manual release of anything in the menu code (DEC-024: the frameworks own their objects)
+        for word in ["autorelease", "CFRelease", "objc_release", ".release()", "msg_send"] {
+            assert!(!src.contains(word), "shell.rs must not use {word}");
+        }
     }
 
     #[test]

@@ -44,7 +44,8 @@ import { EmptyState } from "./overlays";
 import { useDelayedFlag } from "../delayedFlag";
 import { hlMark } from "../perfMarks";
 import { printFrame, usePrinting } from "../printStatus";
-import { printFrameNative, setPrintSource } from "../printNative";
+import { useMacPrint } from "../macMenu";
+import { printFrameNative, printOpenMessage, setPrintSource } from "../printNative";
 import { pendingToast } from "../pendingToast";
 import { announceFrame, isHeavy, RpBody, useOpeningPending } from "../openStatus";
 import { ImportanceMark } from "./Importance";
@@ -1021,6 +1022,10 @@ export function ReadingPane() {
   const openError = useStore((s) => s.openError);
   const opening = useOpeningPending(selected && summ ? selected : null, messages, hasFrame) && openError !== selected;
   const printing = usePrinting((s) => s.on);
+  // macOS File > Print… (W5.11): on while the message it would print is open, shows its text (not an encrypted card) and is not Confidential, and no dialog is in front
+  const lastOpen = [...messages].reverse().find((m) => openIds.has(m.id));
+  const dialogOpen = useStore((s) => !!s.dialog);
+  useMacPrint(!!selected && !!summ && !!lastOpen && hasFrame(lastOpen) && !lastOpen.confidential && !dialogOpen, () => void printOpenMessage());
 
   // another conversation: a summary still being made is dropped (its request too), so it is never shown on the wrong mail
   useEffect(() => ai.cancel, [selected]); // eslint-disable-line react-hooks/exhaustive-deps

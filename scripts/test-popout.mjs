@@ -176,7 +176,8 @@ assert.equal(readerAllowed("scheduled", "outbox"), false);
   assert.equal(readerKey(k("w", { ctrlKey: true }), ctx()), "close");
   assert.equal(readerKey(k("w", { metaKey: true }), ctx({ mac: true })), "close");
   assert.equal(readerKey(k("p", { ctrlKey: true }), ctx()), "print");
-  assert.equal(readerKey(k("p", { metaKey: true }), ctx({ mac: true })), "print", "Cmd+P prints on macOS (W5.3)");
+  assert.equal(readerKey(k("p", { metaKey: true }), ctx({ mac: true })), null, "Cmd+P is the File > Print… item of the menu bar on macOS (W5.11): the page takes no second one");
+  assert.equal(readerKey(k("p", { ctrlKey: true }), ctx({ mac: true })), null, "Ctrl+P does not print on macOS");
   assert.equal(readerKey(k("p", { ctrlKey: true, shiftKey: true }), ctx()), null);
   // not while typing, not behind a dialog (Esc closes the dialog first), no other modifier combination
   for (const key of Object.keys(table)) {

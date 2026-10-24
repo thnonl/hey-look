@@ -651,6 +651,8 @@ export const api = {
   openExternal: (url: string) => invoke<void>("open_external", { url }),
   /** macOS Print (W5.3): the print document (printDoc.ts) and the job title; the system print sheet opens on the calling window. */
   printHtml: (html: string, title: string) => invoke<void>("print_html", { html, title }),
+  /** macOS: whether this window shows a message that can be printed now; File > Print… in the menu bar follows the window with the focus (macMenu.ts, W5.11) */
+  macMenuState: (canPrint: boolean) => invoke<void>("mac_menu_state", { canPrint }),
   /** text on the system clipboard through the backend (Linux only; see open.ts) */
   copyText: (text: string) => invoke<void>("copy_text", { text }),
   /** the text and the HTML on the system clipboard through the backend (macOS only: Cmd+Shift+V in the editors, see editor/pasteOptions.tsx) */

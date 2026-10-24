@@ -3,6 +3,7 @@ import type { MouseEvent } from "react";
 import logo from "../assets/logo.png";
 import { api } from "../api";
 import { useT } from "../i18n/react";
+import { openSettingsLikeGear } from "../macMenu";
 import { useStore } from "../store";
 import { pendingVersion, useUpdates } from "../updates";
 import { useAppDark } from "../useAppDark";
@@ -15,8 +16,7 @@ import { WindowControls } from "./WindowControls";
 
 export function TopBar() {
   const t = useT();
-  const { sync, syncing, firstSync, setDialog, setPrefs } = useStore();
-  const openSettingsAbout = useUpdates((s) => s.openSettingsAbout);
+  const { sync, syncing, firstSync, setPrefs } = useStore();
   const skipped = useStore((s) => s.prefs.skippedUpdate);
   const newVersion = useUpdates((s) => pendingVersion(s.update, skipped));
   const dark = useAppDark();
@@ -55,7 +55,7 @@ export function TopBar() {
           className={`icon-btn${newVersion ? " has-dot" : ""}`}
           title={newVersion ? t("app.top.settingsUpdate", { version: newVersion }) : t("app.top.settings")}
           aria-label={newVersion ? t("app.top.settingsUpdateAria") : t("app.top.settings")}
-          onClick={() => (newVersion ? openSettingsAbout(false) : setDialog({ type: "settings" }))}
+          onClick={openSettingsLikeGear}
         >
           <Settings size={16} />
         </button>
