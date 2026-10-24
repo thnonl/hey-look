@@ -4,7 +4,7 @@
 //! Why: after a compose or reader window has ended (its `Destroyed` event came) and the app side has let go of everything it can (`macwin::sweep`), the weak reference still finds the
 //! `NSWindow` alive with a retain count of 4: three references that nobody will ever use or release (the owners are inside tao / wry / WebKit / AppKit and cannot be removed from our
 //! side). The Mac QA released them by hand in the experiment `HEYLOOK_MAC_RELEASE_LEAK=1`: the window list of AppKit shrank after every release, 3 warm-up + 20 cycles of compose and
-//! reader kept `nsapp.total` flat, and the app ran for 3 minutes 20 seconds without a crash. This is the same release, guarded, and on by default.
+//! reader kept `nsapp.total` flat, and the app ran for 3 minutes 20 seconds without a crash. This is the same release, guarded; since fix29 it is OFF unless HEYLOOK_MAC_LEAK_FIX=1 (fix28 crashed on the first close: see `release_plan`).
 //!
 //! The count that may be released is computed, not guessed: `retainCount - the references this code knows it holds itself`. The only one at the moment of the check is the strong reference
 //! that `check` takes from the weak one (the references of `sweep` were dropped before the weak reference was made). A future macOS, tao or wry that fixes the leak lowers the count to
@@ -18,8 +18,15 @@ pub const MAX_RELEASES: usize = 4;
 /// A retain count above this is not a count of a few forgotten references (an immortal or a tagged object, or something that is not what we think): nothing is released.
 pub const MAX_PLAUSIBLE: usize = 16;
 
-/// The kill switch: `HEYLOOK_MAC_NO_LEAK_FIX=1`, in any build.
+/// fix29 (round 13: fix28 released one reference too many and crashed the app on the first close): the release is OFF unless `HEYLOOK_MAC_LEAK_FIX=1` is set, until the Mac QA has
+/// tested the corrected arithmetic. `HEYLOOK_MAC_NO_LEAK_FIX=1` is a hard off that wins over it.
+pub const ENABLE: &str = "HEYLOOK_MAC_LEAK_FIX";
 pub const KILL_SWITCH: &str = "HEYLOOK_MAC_NO_LEAK_FIX";
+
+/// Whether the release may run: asked for (`enable` = `HEYLOOK_MAC_LEAK_FIX`) and not forced off (`kill` = `HEYLOOK_MAC_NO_LEAK_FIX`).
+pub fn enabled(enable: Option<&str>, kill: Option<&str>) -> bool {
+    !switched_off(kill) && enable.map(str::trim) == Some("1")
+}
 
 /// How many references may be released from a window whose retain count is `retain_count` when `own_refs` of them are the ones this code holds itself (and releases itself later).
 pub fn expected_extra(retain_count: usize, own_refs: usize) -> usize {
@@ -53,7 +60,7 @@ pub struct WindowState {
 /// Why nothing may be released from this window, `None` when it may be.
 pub fn refusal(s: &WindowState) -> Option<&'static str> {
     Some(match s {
-        _ if s.switched_off => "switched off (HEYLOOK_MAC_NO_LEAK_FIX)",
+        _ if s.switched_off => "off (HEYLOOK_MAC_LEAK_FIX=1 turns it on; HEYLOOK_MAC_NO_LEAK_FIX=1 forces it off)",
         _ if s.is_main_label => "the main window",
         _ if s.quitting => "the app is quitting",
         _ if !s.destroyed => "the window did not end by its Destroyed event",
@@ -96,6 +103,14 @@ mod tests {
     }
 
     #[test]
+    fn the_release_is_off_unless_asked_for_and_the_kill_switch_wins() {
+        assert!(!enabled(None, None), "off by default (fix29)");
+        assert!(!enabled(Some("0"), None) && !enabled(Some(""), None) && !enabled(Some("true"), None));
+        assert!(enabled(Some("1"), None) && enabled(Some(" 1 "), Some("0")));
+        assert!(!enabled(Some("1"), Some("1")), "the hard off wins");
+    }
+
+    #[test]
     fn a_window_that_is_finished_and_quiet_may_be_released_and_every_other_state_may_not() {
         assert_eq!(refusal(&clean()), None);
         let cases: [(&str, WindowState); 10] = [
@@ -131,7 +146,7 @@ mod tests {
         assert!(pop.contains("after_destroyed(app, &label, true)") && pop.contains("after_destroyed(app, label, false)"), "a window that was given up is never released");
         // the guards, before the first release
         let first_release = fix.find("msg_send![ptr, release]").unwrap();
-        for guard in ["leakfix::refusal(&state)", "leakfix::expected_extra(", "isVisible", "isKeyWindow", "isMainWindow", "attachedSheet", "childWindows", "parentWindow", "crate::QUITTING", "leakfix::KILL_SWITCH"] {
+        for guard in ["leakfix::refusal(&state)", "leakfix::expected_extra(", "isVisible", "isKeyWindow", "isMainWindow", "attachedSheet", "childWindows", "parentWindow", "crate::QUITTING", "leakfix::ENABLE", "leakfix::KILL_SWITCH"] {
             let at = fix.find(guard).unwrap_or_else(|| panic!("{guard}"));
             assert!(at < first_release, "{guard} must come before the release");
         }

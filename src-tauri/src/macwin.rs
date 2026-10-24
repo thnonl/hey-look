@@ -375,7 +375,7 @@ pub fn check(label: &str, destroyed: bool) -> Option<String> {
 }
 
 /// The release of the extra references of a finished window (D-093, round 12b; the reasoning and the numbers are in leakfix.rs). Main thread, after `Destroyed` and `sweep` (the caller is the
-/// check that runs a second after the sweep). On by default; `HEYLOOK_MAC_NO_LEAK_FIX=1` switches it off. Takes the strong reference that `check` made (it is dropped here, once, on every path).
+/// check that runs a second after the sweep). OFF by default since fix29 (round 13: fix28 over-released and crashed); `HEYLOOK_MAC_LEAK_FIX=1` turns it on, `HEYLOOK_MAC_NO_LEAK_FIX=1` forces it off. Takes the strong reference that `check` made (it is dropped here, once, on every path).
 ///
 /// The references that may be released are `retainCount - OWN_REFS`, where OWN_REFS is the one reference this function holds itself (`strong`); `sweep` dropped its own before the weak
 /// reference was made. The count is read again before every release, and the loop stops at 4 releases or when nothing is left over. `strong` keeps the window alive for the whole loop, so
@@ -402,7 +402,7 @@ fn leak_fix(strong: Retained<AnyObject>, weak: &objc2::rc::Weak<AnyObject>, labe
             has_sheet: !sheet.is_null(),
             has_children: child_count > 0,
             has_parent: !parent.is_null(),
-            switched_off: leakfix::switched_off(std::env::var(leakfix::KILL_SWITCH).ok().as_deref()),
+            switched_off: !leakfix::enabled(std::env::var(leakfix::ENABLE).ok().as_deref(), std::env::var(leakfix::KILL_SWITCH).ok().as_deref()),
         }
     };
     if let Some(why) = leakfix::refusal(&state) {
