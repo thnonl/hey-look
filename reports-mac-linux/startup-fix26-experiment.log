@@ -1,0 +1,50 @@
+[bridge +285 ms] test bridge: listening on 127.0.0.1:57386, token e9610aaa65a1f57a7797a76fc7bbe6a2cc2a9e5a58d57ba50430543898e30d8e
+[wintheme +145739 ms]   strategy: none (mode 0, the control)
+[popout +145745 ms] reader-22: ready
+[popout +145781 ms] reader-22: page says strip: html bg rgb(27, 28, 32), body bg rgb(27, 28, 32), color-scheme dark, data-theme (none); topmost at y=1: div.reader-bar.part position static bg rgb(27, 28, 32); 0 element(s) stick to the top edge
+[popout +146071 ms] reader-20: native window 11555: STILL ALIVE after being finished, retain count 4 (this check's own reference is one of them); NSApp lists 8 window(s), 5 visible; released 3 reference(s) (HEYLOOK_MAC_RELEASE_LEAK, keeping 0): the window is STILL ALIVE
+[popout +146072 ms] reader-20: 3 s after closing: 2 window(s) left in the app (main, reader-22), NSApp lists 8 window(s), 5 visible
+[popout +146085 ms] reader-22: close requested (reader window)
+[popout +146087 ms] reader-22: destroy done (the Destroyed event came)
+[popout +146087 ms] reader-22: closed
+[popout +146087 ms] reader-22: 1 window(s) left in the app: main
+[update +146100 ms] check shown 2026-10-24 04:03:56Z: skipped, not due: the last attempt was 138 s ago and got an answer (an automatic check waits 7200 s, so the next one is in 7062 s); stored answer: up to date (latest 1.0.6)
+[popout +146495 ms] reader-22: native window 11557: teardown done (teardown: first responder TaoWindow cleared true; 2 drag destination(s) unregistered; 6 observer removal(s); 0 web view(s) detached; 0 title bar accessory(ies) removed; frame view children before: wry::wkwebview::class::wry_web_view_parent::WryWebViewParent0.57.0, NSTitlebarContainerView; 1 view(s) below the content view); visible false then false, retain count 4 then 25 (this log's own reference is one of them), delegate retain count 2; NSApp lists 7 window(s), 4 visible
+[popout +147323 ms] open requested by main: reader key=cc41a212b011f58a 
+[wintheme +147371 ms] system -> applied to 2 windows: [main, reader-23] (reader-23 created; library step Release)
+[wintheme +147372 ms]   background colour dark on 2 windows (reader-23 created)
+[wintheme +147372 ms]   strategy: none (mode 0, the control)
+[wintheme +147373 ms]   application: appearance nil / effective NSAppearanceNameDarkAqua; windows have to show dark
+[wintheme +147373 ms]   main [TaoWindow #11487, visible true]: was nil / NSAppearanceNameDarkAqua, now nil / NSAppearanceNameDarkAqua ok
+[wintheme +147373 ms]   reader-23 [TaoWindow #11558, visible false]: was nil / NSAppearanceNameDarkAqua, now nil / NSAppearanceNameDarkAqua ok
+[wintheme +147373 ms]   ns#11556 [TaoWindow #11556, visible false]: was nil / NSAppearanceNameDarkAqua, now nil / NSAppearanceNameDarkAqua ok
+[wintheme +147373 ms]   ns#11557 [TaoWindow #11557, visible false]: was nil / NSAppearanceNameDarkAqua, now nil / NSAppearanceNameDarkAqua ok
+[wintheme +147373 ms]   native appearance applied (reader-23 created): 4 window line(s), 0 MISMATCH, macOS shows AppleInterfaceStyle=Dark
+[wintheme +147374 ms]   title bar mode 0 [none] (reader-23 created)
+[wintheme +147374 ms]   window: main [#11487] title 'Hey Look!': styleMask 0x800f (titled true, fullSizeContentView true), titlebarAppearsTransparent true, titleVisibility 0, backgroundColor sRGB IEC61966-2.1 colorspace 0.105882 0.109804 0.12549 1 (opaque true), key true, visible true, documentEdited false, sharingType 1, level 0, hasShadow true; window frame {{260, 261}, {1280, 800}}, contentLayoutRect {{0, 0}, {1280, 768}}; contentView wry::wkwebview::class::wry_web_view_parent::WryWebViewParent0.57.0 {{0, 0}, {1280, 800}} with subviews [wry::wkwebview::class::wry_web_view::WryWebView0.57.0 {{0, 0}, {1280, 800}}]; frame view NSThemeFrame with subviews [wry::wkwebview::class::wry_web_view_parent::WryWebViewParent0.57.0 {{0, 0}, {1280, 800}}, NSTitlebarContainerView {{0, 768}, {1280, 32}}]
+[wintheme +147374 ms]   window: reader-23 [#11558] title 'Hey Look!': styleMask 0x800f (titled true, fullSizeContentView true), titlebarAppearsTransparent true, titleVisibility 0, backgroundColor sRGB IEC61966-2.1 colorspace 0.105882 0.109804 0.12549 1 (opaque true), key false, visible false, documentEdited false, sharingType 1, level 0, hasShadow true; window frame {{640, 471}, {520, 520}}, contentLayoutRect {{0, 0}, {520, 488}}; contentView wry::wkwebview::class::wry_web_view_parent::WryWebViewParent0.57.0 {{0, 0}, {520, 520}} with subviews [wry::wkwebview::class::wry_web_view::WryWebView0.57.0 {{0, 0}, {520, 520}}]; frame view NSThemeFrame with subviews [wry::wkwebview::class::wry_web_view_parent::WryWebViewParent0.57.0 {{0, 0}, {520, 520}}, NSTitlebarContainerView {{0, 488}, {520, 32}}]
+[wintheme +147374 ms]   window: ns#11556 [#11556] title 'LONGMSG 2MB – Hey Look!': styleMask 0x800f (titled true, fullSizeContentView true), titlebarAppearsTransparent true, titleVisibility 0, backgroundColor sRGB IEC61966-2.1 colorspace 0.105882 0.109804 0.12549 1 (opaque true), key false, visible false, documentEdited false, sharingType 1, level 0, hasShadow true; window frame {{900, 269}, {520, 520}}, contentLayoutRect {{0, 0}, {520, 488}}; contentView NSView {{0, 0}, {520, 520}} with subviews []; frame view NSThemeFrame with subviews [NSView {{0, 0}, {520, 520}}, NSTitlebarContainerView {{0, 488}, {520, 32}}]
+[wintheme +147374 ms]   window: ns#11557 [#11557] title 'LONGMSG 2MB – Hey Look!': styleMask 0x800f (titled true, fullSizeContentView true), titlebarAppearsTransparent true, titleVisibility 0, backgroundColor sRGB IEC61966-2.1 colorspace 0.105882 0.109804 0.12549 1 (opaque true), key false, visible false, documentEdited false, sharingType 1, level 0, hasShadow true; window frame {{900, 269}, {520, 520}}, contentLayoutRect {{0, 0}, {520, 488}}; contentView NSView {{0, 0}, {520, 520}} with subviews []; frame view NSThemeFrame with subviews [NSView {{0, 0}, {520, 520}}, NSTitlebarContainerView {{0, 488}, {520, 32}}]
+[popout +147375 ms] reader-23: created hidden (520 x 520 logical)
+[popout +147375 ms] reader-23: reader window created for key cc41a212b011f58a
+[wintheme +147448 ms] reader-23: its page asks for the frame theme again (page data-theme 'system', page prefers dark: Some(true)); setting system; window found
+[wintheme +147448 ms]   application: appearance nil / effective NSAppearanceNameDarkAqua; windows have to show dark
+[wintheme +147448 ms]   reader-23 [TaoWindow #11558, visible false]: was nil / NSAppearanceNameDarkAqua, now nil / NSAppearanceNameDarkAqua ok
+[wintheme +147449 ms]   native appearance applied (reader-23 page request): 1 window line(s), 0 MISMATCH, macOS shows AppleInterfaceStyle=Dark
+[wintheme +147449 ms]   title bar mode 0 [none] (reader-23 page request)
+[wintheme +147449 ms]   window: reader-23 [#11558] title 'Hey Look!': styleMask 0x800f (titled true, fullSizeContentView true), titlebarAppearsTransparent true, titleVisibility 0, backgroundColor sRGB IEC61966-2.1 colorspace 0.105882 0.109804 0.12549 1 (opaque true), key false, visible false, documentEdited false, sharingType 1, level 0, hasShadow true; window frame {{900, 269}, {520, 520}}, contentLayoutRect {{0, 0}, {520, 488}}; contentView wry::wkwebview::class::wry_web_view_parent::WryWebViewParent0.57.0 {{0, 0}, {520, 520}} with subviews [wry::wkwebview::class::wry_web_view::WryWebView0.57.0 {{0, 0}, {520, 520}}]; frame view NSThemeFrame with subviews [wry::wkwebview::class::wry_web_view_parent::WryWebViewParent0.57.0 {{0, 0}, {520, 520}}, NSTitlebarContainerView {{0, 488}, {520, 32}}]
+[wintheme +147449 ms]   strategy: none (mode 0, the control)
+[popout +147454 ms] reader-23: ready
+[popout +147488 ms] reader-23: page says strip: html bg rgb(27, 28, 32), body bg rgb(27, 28, 32), color-scheme dark, data-theme (none); topmost at y=1: div.reader-bar.part position static bg rgb(27, 28, 32); 0 element(s) stick to the top edge
+[popout +147786 ms] reader-21: native window 11556: STILL ALIVE after being finished, retain count 4 (this check's own reference is one of them); NSApp lists 8 window(s), 5 visible; released 3 reference(s) (HEYLOOK_MAC_RELEASE_LEAK, keeping 0): the window is STILL ALIVE
+[popout +147787 ms] reader-21: 3 s after closing: 2 window(s) left in the app (main, reader-23), NSApp lists 8 window(s), 5 visible
+[popout +147796 ms] reader-23: close requested (reader window)
+[popout +147807 ms] reader-23: destroy done (the Destroyed event came)
+[popout +147808 ms] reader-23: closed
+[popout +147808 ms] reader-23: 1 window(s) left in the app: main
+[update +147820 ms] check shown 2026-10-24 04:03:58Z: skipped, not due: the last attempt was 140 s ago and got an answer (an automatic check waits 7200 s, so the next one is in 7060 s); stored answer: up to date (latest 1.0.6)
+[popout +148216 ms] reader-23: native window 11558: teardown done (teardown: first responder TaoWindow cleared true; 2 drag destination(s) unregistered; 6 observer removal(s); 0 web view(s) detached; 0 title bar accessory(ies) removed; frame view children before: wry::wkwebview::class::wry_web_view_parent::WryWebViewParent0.57.0, NSTitlebarContainerView; 1 view(s) below the content view); visible false then false, retain count 4 then 25 (this log's own reference is one of them), delegate retain count 2; NSApp lists 7 window(s), 4 visible
+[popout +149498 ms] reader-22: native window 11557: STILL ALIVE after being finished, retain count 4 (this check's own reference is one of them); NSApp lists 7 window(s), 4 visible; released 3 reference(s) (HEYLOOK_MAC_RELEASE_LEAK, keeping 0): the window is STILL ALIVE
+[popout +149499 ms] reader-22: 3 s after closing: 1 window(s) left in the app (main), NSApp lists 7 window(s), 4 visible
+[popout +151214 ms] reader-23: native window 11558: STILL ALIVE after being finished, retain count 4 (this check's own reference is one of them); NSApp lists 6 window(s), 4 visible; released 3 reference(s) (HEYLOOK_MAC_RELEASE_LEAK, keeping 0): the window is STILL ALIVE
+[popout +151216 ms] reader-23: 3 s after closing: 1 window(s) left in the app (main), NSApp lists 6 window(s), 4 visible
