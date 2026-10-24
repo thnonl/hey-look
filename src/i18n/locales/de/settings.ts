@@ -534,4 +534,11 @@ export default defineLocale<typeof ns.en>({
   "settings.calendar.davConnect": "Verbinden",
   "settings.calendar.davConnecting": "Wird verbunden…",
   "settings.calendar.davEnterPassword": "Passwort erneut eingeben…",
+  "settings.calendar.newCalendar": "Neuer Kalender…",
+  "settings.calendar.newCalendarTitle": "Neuer Kalender in {service}",
+  "settings.calendar.calName": "Name",
+  "settings.calendar.create": "Erstellen",
+  "settings.calendar.created": "Kalender „{name}“ erstellt",
+  "settings.calendar.colorOf": "Farbe von {name}",
+  "settings.calendar.colorDefault": "Farbe aus {service}",
 });

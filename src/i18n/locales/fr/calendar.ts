@@ -313,4 +313,13 @@ export default defineLocale<typeof ns.en>({
   "calendar.err.davRedirect": "Le serveur a redirigé Hey Look! vers une autre adresse ({host}). Hey Look! s’est arrêté pour protéger votre mot de passe.",
   "calendar.err.davAuthMethod": "Le serveur exige une méthode de connexion que Hey Look! ne prend pas en charge.",
   "calendar.sync.davAuth": "Impossible de se connecter à {service} avec {username}. Saisissez à nouveau le mot de passe pour continuer la synchronisation.",
+  "calendar.dialog.appSendsFrom": "Hey Look! envoie les invitations depuis {email}.",
+  "calendar.pop.moveTo": "Déplacer vers un autre calendrier…",
+  "calendar.move.title": "Déplacer « {summary} »",
+  "calendar.move.to": "Déplacer vers",
+  "calendar.move.confirm": "Déplacer",
+  "calendar.move.seriesNote": "La série entière est déplacée.",
+  "calendar.move.guests": "Un événement avec des invités ne peut pas être déplacé ici vers un autre calendrier. Vous pouvez le déplacer dans {service}.",
+  "calendar.toast.moved": "Déplacé vers {calendar}",
+  "calendar.err.needsAccess": "Pour créer des calendriers dans {service}, autorisez de nouveau l’accès.",
 });

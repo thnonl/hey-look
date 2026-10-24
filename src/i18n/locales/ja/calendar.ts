@@ -314,4 +314,13 @@ export default defineLocale<typeof ns.en>({
   "calendar.err.davRedirect": "サーバーがHey Look!を別のアドレス（{host}）に転送しました。パスワードを守るため、Hey Look!はそこで処理を中止しました。",
   "calendar.err.davAuthMethod": "サーバーが要求するサインイン方法には、Hey Look!は対応していません。",
   "calendar.sync.davAuth": "{service}に{username}としてサインインできませんでした。同期を続けるには、パスワードをもう一度入力してください。",
+  "calendar.dialog.appSendsFrom": "Hey Look!が{email}から招待を送信します。",
+  "calendar.pop.moveTo": "別のカレンダーに移動…",
+  "calendar.move.title": "「{summary}」を移動",
+  "calendar.move.to": "移動先",
+  "calendar.move.confirm": "移動",
+  "calendar.move.seriesNote": "繰り返しの予定のすべての回が移動されます。",
+  "calendar.move.guests": "ゲストのいる予定は、ここでは別のカレンダーに移動できません。{service}で移動できます。",
+  "calendar.toast.moved": "{calendar}に移動しました",
+  "calendar.err.needsAccess": "{service}にカレンダーを作成するには、もう一度アクセスを許可してください。",
 });

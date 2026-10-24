@@ -1611,6 +1611,12 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 .dav-form .dav-check label { display: flex; gap: 8px; align-items: flex-start; font-size: .92em; cursor: pointer; }
 .dav-form .dav-check input { margin-top: 3px; flex: none; }
 .dav-who { margin: 2px 0 6px; overflow-wrap: anywhere; }
+/* the colour of a synced calendar (W7.5): the dot is a button that opens the choice under its row */
+.dot-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin: -4px 4px -4px -4px; padding: 0; border: 0; border-radius: 50%; background: transparent; vertical-align: middle; cursor: pointer; }
+.dot-btn:hover { background: var(--bg3); }
+.dot-btn .dot { margin: 0 !important; }
+.cal-color-row { padding: 2px 0 10px 24px; }
+.cal-colors { margin: 0; gap: 8px; flex-wrap: wrap; justify-content: flex-start; align-items: center; }
 .ev-invite .cf-field { border: 1px solid var(--border); border-radius: var(--r-sm); padding: 2px 8px; background: var(--bg); }
 .ev-invite .cf-field:focus-within { border-color: var(--accent); }
 .cp-event .when .dt-date { width: 152px; } .cp-event .when .dt-time { width: 112px; }

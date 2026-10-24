@@ -313,4 +313,13 @@ export default defineLocale<typeof ns.en>({
   "calendar.err.davRedirect": "Máy chủ đã chuyển Hey Look! sang một địa chỉ khác ({host}). Hey Look! đã dừng lại ở đó để giữ an toàn cho mật khẩu của bạn.",
   "calendar.err.davAuthMethod": "Máy chủ yêu cầu một phương thức đăng nhập mà Hey Look! không hỗ trợ.",
   "calendar.sync.davAuth": "Không đăng nhập được vào {service} bằng {username}. Hãy nhập lại mật khẩu để tiếp tục đồng bộ.",
+  "calendar.dialog.appSendsFrom": "Hey Look! sẽ gửi lời mời từ {email}.",
+  "calendar.pop.moveTo": "Chuyển sang lịch khác…",
+  "calendar.move.title": "Chuyển “{summary}”",
+  "calendar.move.to": "Chuyển đến",
+  "calendar.move.confirm": "Chuyển",
+  "calendar.move.seriesNote": "Cả chuỗi sẽ được chuyển.",
+  "calendar.move.guests": "Sự kiện có khách mời không thể chuyển sang lịch khác tại đây. Bạn có thể chuyển trong {service}.",
+  "calendar.toast.moved": "Đã chuyển đến {calendar}",
+  "calendar.err.needsAccess": "Để tạo lịch trong {service}, hãy cho phép truy cập lại.",
 });

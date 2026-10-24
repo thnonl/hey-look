@@ -534,4 +534,11 @@ export default defineLocale<typeof ns.en>({
   "settings.calendar.davConnect": "Kết nối",
   "settings.calendar.davConnecting": "Đang kết nối…",
   "settings.calendar.davEnterPassword": "Nhập lại mật khẩu…",
+  "settings.calendar.newCalendar": "Lịch mới…",
+  "settings.calendar.newCalendarTitle": "Lịch mới trong {service}",
+  "settings.calendar.calName": "Tên",
+  "settings.calendar.create": "Tạo",
+  "settings.calendar.created": "Đã tạo lịch “{name}”",
+  "settings.calendar.colorOf": "Màu của {name}",
+  "settings.calendar.colorDefault": "Màu từ {service}",
 });

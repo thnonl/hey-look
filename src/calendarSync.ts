@@ -8,7 +8,7 @@ import type { Key } from "./i18n/index.ts";
 export type SyncKind = "google" | "microsoft";
 
 /** The services this build can sync. Keep in sync with `ENABLED_KINDS` in src-tauri/src/calsync/mod.rs (a Rust test compares them). */
-export const CALENDAR_SYNC_KINDS: string[] = ["google", "microsoft"];
+export const CALENDAR_SYNC_KINDS: string[] = ["google", "microsoft", "caldav"];
 
 /** Which service a mailbox could sync its calendar with: Google and Gmail mailboxes, Microsoft mailboxes; none for iCloud / IMAP. */
 export function calendarSyncKind(a: { auth: string; imapHost: string }): SyncKind | null {
@@ -28,6 +28,18 @@ export function davPreset(imapHost: string): DavPreset {
 
 /** Does this mailbox get the CalDAV option (W7.4): any mailbox that is not a Google or Microsoft one (their calendars come from their own service). */
 export const calendarDavEligible = (a: { auth: string; imapHost: string }) => calendarSyncKind(a) === null;
+
+/**
+ * Making a calendar in Google Calendar needs one more permission (calendar.app.created) that is not part of the consent yet (owner step O-03, D-7.5c): the button is not offered for Google until it is.
+ * Keep in sync with GOOGLE_CREATE_CALENDARS in src-tauri/src/oauth.rs (a Rust test compares them).
+ */
+export const GOOGLE_CREATE_CALENDARS = false;
+
+/** Can the service of this source make a calendar from here (W7.5). */
+export const canCreateCalendar = (kind: string) => kind === "microsoft" || kind === "caldav" || (kind === "google" && GOOGLE_CREATE_CALENDARS);
+
+/** The service a source syncs with, as the person knows it: Google Calendar, Outlook, or a CalDAV server by its name or host. */
+export const sourceService = (src: { kind: string; dav?: { label: string; host: string } | null }) => (src.kind === "caldav" ? src.dav?.label || src.dav?.host || "" : serviceName(kindOf(src.kind)));
 
 export const providerName = (k: SyncKind) => (k === "google" ? "Google" : "Microsoft");
 export const serviceName = (k: SyncKind) => (k === "google" ? "Google Calendar" : "Outlook");
@@ -174,6 +186,9 @@ export const BACKEND_ERRORS: { re: RegExp; key: Key; names: string[] }[] = [
   { re: /^You allowed access for (.+?)\. Sign in as (.+?) to sync this mailbox’s calendar\.$/s, key: "calendar.err.wrongAccount", names: ["signedIn", "mailbox"] },
   { re: /^Hey Look! needs every calendar permission it asked for\. Try again and keep all boxes ticked\.$/s, key: "calendar.err.partial", names: [] },
   { re: /^This build of Hey Look! can’t sync calendars with (.+)\.$/s, key: "calendar.err.noClient", names: ["provider"] },
+  // moving an event and making a calendar (W7.5)
+  { re: /^An event with guests can’t be moved to another calendar here\. You can move it in (.+)\.$/s, key: "calendar.move.guests", names: ["service"] },
+  { re: /^To create calendars in (.+), allow access again\.$/s, key: "calendar.err.needsAccess", names: ["service"] },
   // CalDAV (W7.4): the connect dialog's sentences
   { re: /^Couldn’t sign in to the calendar server\. Check the username and the password\.$/s, key: "calendar.err.davAuth", names: [] },
   { re: /^No server answered at this address\. Check the server address\.$/s, key: "calendar.err.davNotFound", names: [] },
@@ -190,7 +205,7 @@ export const BACKEND_ERRORS: { re: RegExp; key: Key; names: string[] }[] = [
  * is shown in the language in use; any other text of such an error is shown as the backend wrote it.
  */
 export function calendarErrorText(raw: string): string | null {
-  const m = /^CAL_(OFFLINE|CONFLICT|GONE|READ_ONLY|AUTH|BUSY|NOT_SET_UP|DENIED|WRONG_ACCOUNT|PARTIAL|TIMEOUT|CANCELLED|BLOCKED|ERROR|DAV_[A-Z_]+):\s*(.+)$/s.exec(raw.trim());
+  const m = /^CAL_(OFFLINE|CONFLICT|GONE|READ_ONLY|AUTH|BUSY|NOT_SET_UP|DENIED|WRONG_ACCOUNT|PARTIAL|TIMEOUT|CANCELLED|BLOCKED|ERROR|MOVE_GUESTS|NEEDS_ACCESS|DAV_[A-Z_]+):\s*(.+)$/s.exec(raw.trim());
   if (!m) return null;
   const text = m[2].trim();
   for (const e of BACKEND_ERRORS) {
@@ -205,7 +220,7 @@ export function calendarErrorText(raw: string): string | null {
 
 /** The code of such an error ("CONFLICT"), or null. */
 export function calendarErrorCode(raw: string): string | null {
-  return /^CAL_(OFFLINE|CONFLICT|GONE|READ_ONLY|AUTH|BUSY|NOT_SET_UP|DENIED|WRONG_ACCOUNT|PARTIAL|TIMEOUT|CANCELLED|BLOCKED|ERROR|DAV_[A-Z_]+):/.exec(raw.trim())?.[1] ?? null;
+  return /^CAL_(OFFLINE|CONFLICT|GONE|READ_ONLY|AUTH|BUSY|NOT_SET_UP|DENIED|WRONG_ACCOUNT|PARTIAL|TIMEOUT|CANCELLED|BLOCKED|ERROR|MOVE_GUESTS|NEEDS_ACCESS|DAV_[A-Z_]+):/.exec(raw.trim())?.[1] ?? null;
 }
 
 /** Colour for a synced calendar's events and sidebar box: its own colour, else the mailbox's. */

@@ -328,4 +328,13 @@ export default defineLocale<typeof ns.en>({
   "calendar.err.davRedirect": "Сервер перенаправил Hey Look! на другой адрес ({host}). Hey Look! остановился, чтобы защитить ваш пароль.",
   "calendar.err.davAuthMethod": "Сервер требует способ входа, который Hey Look! не поддерживает.",
   "calendar.sync.davAuth": "Не удалось войти в {service} как {username}. Введите пароль снова, чтобы синхронизация продолжилась.",
+  "calendar.dialog.appSendsFrom": "Приглашения отправляет Hey Look! с адреса {email}.",
+  "calendar.pop.moveTo": "Переместить в другой календарь…",
+  "calendar.move.title": "Перемещение «{summary}»",
+  "calendar.move.to": "Переместить в",
+  "calendar.move.confirm": "Переместить",
+  "calendar.move.seriesNote": "Будет перемещена вся серия.",
+  "calendar.move.guests": "Событие с гостями нельзя перенести в другой календарь здесь. Это можно сделать в {service}.",
+  "calendar.toast.moved": "Перемещено в «{calendar}»",
+  "calendar.err.needsAccess": "Чтобы создавать календари в {service}, разрешите доступ снова.",
 });

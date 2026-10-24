@@ -533,5 +533,12 @@ export default define({
     "settings.calendar.davConnect": "Connect",
     "settings.calendar.davConnecting": "Connecting…",
     "settings.calendar.davEnterPassword": "Enter password again…",
+    "settings.calendar.newCalendar": "New calendar…",
+    "settings.calendar.newCalendarTitle": "New calendar in {service}",
+    "settings.calendar.calName": "Name",
+    "settings.calendar.create": "Create",
+    "settings.calendar.created": "Calendar “{name}” created",
+    "settings.calendar.colorOf": "Color of {name}",
+    "settings.calendar.colorDefault": "Color from {service}",
   },
 });

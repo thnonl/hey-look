@@ -10,8 +10,10 @@ import { Account, api, AutostartInfo, CalSource, Discovered, NotifyPermission, P
 import { singleLabelHostsOf } from "../addresses";
 import { backendText } from "../backendErrors";
 import { parseReplyTo } from "../replyTo";
-import { calendarDavEligible, calendarErrorCode, calendarStepFailure, calendarSyncKind, providerName, serviceName, statusLine, truncatedNote } from "../calendarSync";
+import { calendarDavEligible, calendarErrorCode, calendarStepFailure, calendarSyncKind, canCreateCalendar, providerName, serviceName, sourceService, statusLine, truncatedNote } from "../calendarSync";
 import { CalDavDialog } from "./CalDavDialog";
+import { CalColorChoice } from "./CalColorChoice";
+import { NewCalendarDialog } from "./NewCalendarDialog";
 import { ACCENT_PRESETS, ACCOUNT_PALETTE, accountColor, DEFAULT_PREFS, eff, folderLabel, folderTitle, isOverridden, MAX_DOWNLOAD_PRESETS, NOTIFY_ACTIONS, Overridable, Prefs, staleAccountPrefs, validHex } from "../prefs";
 import { aiSettingsSaved } from "../aiGuide";
 import { normalizeSidebar } from "../sidebarState";
@@ -1406,30 +1408,63 @@ function CalendarPanel({ account }: { account: Account }) {
   return calendarSyncKind(account) ? <OauthCalendarPanel account={account} /> : <DavCalendarPanel account={account} />;
 }
 
-/** The calendars of a synced mailbox with their Sync switches (the same list for every service). */
+/** The calendars of a synced mailbox with their Sync switches (the same list for every service), the colour of each, and New calendar where the service can make one. */
 function CalendarsList({ account, src, onError }: { account: Account; src: CalSource; onError: (e: string | null) => void }) {
   const t = useT();
   const { bumpCal, loadCalSources, prefs } = useStore();
-  if (src.calendars.length === 0) return null;
+  const [colorOf, setColorOf] = useState<string | null>(null);
+  const [making, setMaking] = useState(false);
+  const newBtn = useRef<HTMLButtonElement>(null);
+  const service = sourceService(src);
+  const setColor = (id: string, hex: string | null) => {
+    onError(null);
+    void api.calendarSetColor(id, hex).then(() => { bumpCal(); return loadCalSources(); }).catch((e) => onError(friendlyError(e)));
+  };
+  if (src.calendars.length === 0 && !canCreateCalendar(src.kind)) return null;
   return (
     <>
       <h4 style={{ margin: "16px 0 2px" }}>{t("settings.calendar.calendars")}</h4>
       <div className="muted small">{t("settings.calendar.calendarsHint")}</div>
-      {src.calendars.map((c) => (
-        <div className="set-row" key={c.id}>
-          <div className="set-lbl">
-            <div>
-              <span className="dot" style={{ background: c.color || accountColor(account, prefs.accent), marginRight: 8 }} aria-hidden />
-              {c.name}
-              {c.primary && <span className="muted small"> · {t("settings.calendar.primary")}</span>}
-              {c.readOnly && <span className="muted small"> · {t("settings.calendar.readOnly")}</span>}
+      {src.calendars.map((c) => {
+        const shown = c.color || accountColor(account, prefs.accent);
+        return (
+          <Fragment key={c.id}>
+            <div className="set-row">
+              <div className="set-lbl">
+                <div>
+                  <button type="button" className="dot-btn" aria-label={t("settings.calendar.colorOf", { name: c.name })} aria-expanded={colorOf === c.id} aria-controls={`cal-color-${c.id}`} onClick={() => setColorOf(colorOf === c.id ? null : c.id)}>
+                    <span className="dot" style={{ background: shown }} aria-hidden />
+                  </button>
+                  {c.name}
+                  {c.primary && <span className="muted small"> · {t("settings.calendar.primary")}</span>}
+                  {c.readOnly && <span className="muted small"> · {t("settings.calendar.readOnly")}</span>}
+                </div>
+              </div>
+              <div className="set-ctl">
+                <Switch checked={c.syncOn} ariaLabel={t("settings.calendar.syncCal", { name: c.name })} onChange={(v) => { onError(null); void api.calendarSetSync(c.id, v).then(() => { bumpCal(); return loadCalSources(); }).catch((e) => onError(friendlyError(e))); }} />
+              </div>
             </div>
-          </div>
-          <div className="set-ctl">
-            <Switch checked={c.syncOn} ariaLabel={t("settings.calendar.syncCal", { name: c.name })} onChange={(v) => { onError(null); void api.calendarSetSync(c.id, v).then(() => { bumpCal(); return loadCalSources(); }).catch((e) => onError(friendlyError(e))); }} />
-          </div>
+            {colorOf === c.id && (
+              <div className="cal-color-row" id={`cal-color-${c.id}`}>
+                <CalColorChoice value={c.customColor ? c.color : null} label={t("settings.calendar.colorOf", { name: c.name })} service={service} onChange={(hex) => setColor(c.id, hex)} />
+              </div>
+            )}
+          </Fragment>
+        );
+      })}
+      {canCreateCalendar(src.kind) && (
+        <div className="row-inline set-actions">
+          <button ref={newBtn} className="btn small" onClick={() => setMaking(true)}>{t("settings.calendar.newCalendar")}</button>
         </div>
-      ))}
+      )}
+      {making && (
+        <NewCalendarDialog
+          account={account}
+          service={service}
+          onClose={() => (setMaking(false), requestAnimationFrame(() => newBtn.current?.focus()))}
+          onDone={() => (setMaking(false), bumpCal(), void loadCalSources(), requestAnimationFrame(() => newBtn.current?.focus()))}
+        />
+      )}
     </>
   );
 }

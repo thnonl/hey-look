@@ -169,15 +169,17 @@ try {
   await waitFor(`document.querySelectorAll('.ag-row').length > 4`, 'the agenda rows');
 
   // ---------------------------------------------------------------- AC-7.12.1/.2: which buttons, in which order
+  // W7.5: an event of the user with a calendar to go to also has the icon-only button "Move to another calendar…" (after Duplicate)
+  const MOVE = L('en', 'calendar.pop.moveTo');
   const CASES = [
-    { tag: 'My events', text: 'Lunch with Alice', want: ['Edit', 'Duplicate', 'Save .ics', 'Delete'] },
-    { tag: 'Google primary', text: 'Coffee with Minh', want: ['Edit', 'Duplicate', 'Save .ics', 'Delete'] },
+    { tag: 'My events', text: 'Lunch with Alice', want: ['Edit', 'Duplicate', MOVE, 'Save .ics', 'Delete'] },
+    { tag: 'Google primary', text: 'Coffee with Minh', want: ['Edit', 'Duplicate', MOVE, 'Save .ics', 'Delete'] },
     { tag: 'read-only calendar', text: 'Reunification Day', want: ['Duplicate', 'Save .ics'], note: true },
     { tag: 'Google event only its organizer may change', text: 'Design crit', want: ['Duplicate', 'Save .ics'], note: true },
     { tag: 'invitation with answers and a link', text: 'Product sync', want: ['Accept', 'Tentative', 'Decline', 'Join', 'Open invitation email', 'Duplicate', 'Save .ics', 'Delete'] },
     { tag: 'invitation', text: 'Design review', want: ['Accept', 'Tentative', 'Decline', 'Open invitation email', 'Duplicate', 'Save .ics', 'Delete'] },
     { tag: 'invitation with a link and no answer buttons', text: 'Standup', want: ['Join', 'Duplicate', 'Save .ics', 'Delete'] },
-    { tag: 'confidential', text: 'Board secret', want: ['Edit', 'Delete'] },
+    { tag: 'confidential', text: 'Board secret', want: ['Edit', MOVE, 'Delete'] },
     { tag: 'nothing to do', text: 'Sealed holiday', want: [], none: true },
   ];
   for (const c of CASES) {

@@ -18,7 +18,7 @@ assert.equal(calendarSyncKind({ auth: "password", imapHost: "mail.example.com" }
 // Microsoft mailboxes (Outlook.com, Hotmail, Microsoft 365) have it too, whatever their IMAP host
 assert.equal(calendarSyncKind({ auth: "oauth_microsoft", imapHost: "outlook.office365.com" }), "microsoft");
 assert.equal(calendarSyncKind({ auth: "password", imapHost: "outlook.office365.com" }), null, "a password mailbox on Outlook has no OAuth grant to extend");
-assert.deepEqual(CALENDAR_SYNC_KINDS, ["google", "microsoft"]);
+assert.deepEqual(CALENDAR_SYNC_KINDS, ["google", "microsoft", "caldav"]);
 
 // ---- ids
 assert.ok(isSyncedCalendarId("google:acc:primary") && isSyncedCalendarId("ms:acc:x") && isSyncedCalendarId("caldav:a:b"));

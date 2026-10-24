@@ -246,6 +246,8 @@
   "node scripts/test-main-reader-memory.mjs --require-browser": 60,
   "node --experimental-strip-types scripts/test-calendar-series.mjs": 1,
   "node --experimental-strip-types scripts/test-calendar-series-ui.mjs --quick --require-browser": 75,
-  "node --experimental-strip-types scripts/test-caldav-dialog.mjs --quick --require-browser": 45
+  "node --experimental-strip-types scripts/test-caldav-dialog.mjs --quick --require-browser": 60,
+  "node --experimental-strip-types scripts/test-calendar-move.mjs": 1,
+  "node --experimental-strip-types scripts/test-calendar-move-ui.mjs --quick --require-browser": 70
  }
 }

@@ -5,8 +5,9 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, Account, CalSource } from "../api";
 import { davPreset, type DavPreset } from "../calendarSync";
-import { friendlyError, useStore } from "../store";
+import { friendlyError } from "../store";
 import { useT } from "../i18n/react";
+import { useNestedEsc } from "./nestedEsc";
 import { Modal } from "./ui";
 
 const FIXED: Partial<Record<DavPreset, string>> = { icloud: "https://caldav.icloud.com/", fastmail: "https://caldav.fastmail.com/" };
@@ -31,18 +32,8 @@ export function CalDavDialog({ account, mode, source, onClose, onDone }: { accou
   useEffect(() => {
     first.current?.focus();
   }, []);
-  // Esc closes this dialog only: Settings (which this dialog is opened from) has its own Esc handler, so this one takes the key first, in the capture phase
-  const closeRef = useRef(() => {});
-  closeRef.current = () => !busy && onClose();
-  useEffect(() => {
-    const k = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || useStore.getState().ask) return;
-      e.stopPropagation();
-      closeRef.current();
-    };
-    window.addEventListener("keydown", k, true);
-    return () => window.removeEventListener("keydown", k, true);
-  }, []);
+  // Esc closes this dialog only (Settings, which it is opened from, keeps its own)
+  useNestedEsc(() => !busy && onClose());
   // the mailbox-password choice follows the service the person picks (on for iCloud and Fastmail, off for a server of their own)
   const choose = (p: DavPreset) => {
     setPreset(p);

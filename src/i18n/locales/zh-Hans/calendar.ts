@@ -314,4 +314,13 @@ export default defineLocale<typeof ns.en>({
   "calendar.err.davRedirect": "服务器将Hey Look!重定向到了另一个地址（{host}）。为保护您的密码安全，Hey Look!已在此停止。",
   "calendar.err.davAuthMethod": "服务器要求的登录方式，Hey Look!不支持。",
   "calendar.sync.davAuth": "无法以{username}的身份登录{service}。请重新输入密码以继续同步。",
+  "calendar.dialog.appSendsFrom": "Hey Look!会以{email}的名义发送邀请。",
+  "calendar.pop.moveTo": "移动到其他日历…",
+  "calendar.move.title": "移动“{summary}”",
+  "calendar.move.to": "移动到",
+  "calendar.move.confirm": "移动",
+  "calendar.move.seriesNote": "整个系列都会被移动。",
+  "calendar.move.guests": "有与会者的事件无法在此移到其他日历。您可以在{service}中移动。",
+  "calendar.toast.moved": "已移动到{calendar}",
+  "calendar.err.needsAccess": "要在{service}中创建日历，请重新允许访问。",
 });

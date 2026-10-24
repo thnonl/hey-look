@@ -249,13 +249,17 @@ export interface CalendarInfo {
   remote?: boolean;
   /** new events can be added to it */
   writable?: boolean;
-  /** "Google Calendar" / "Outlook" for a synced calendar */
+  /** "Google Calendar" / "Outlook" for a synced calendar, a CalDAV server by its name or host */
   service?: string | null;
+  /** this app sends the invitations of the events in this calendar (a CalDAV server that does not send them itself), else the service does */
+  appInvites?: boolean;
+  /** an event with guests can be moved out of this calendar here (Google, a CalDAV server without invitations); not Outlook */
+  movesGuests?: boolean;
   /** a mailbox's Invitations entry that is shown as part of its main synced calendar: that calendar's id (the lists leave the entry out, its events follow the calendar) */
   foldedInto?: string | null;
 }
 /** One calendar of a synced mailbox, as Settings lists it. */
-export interface CalendarSyncInfo { id: string; name: string; color: string; readOnly: boolean; primary: boolean; syncOn: boolean; eventCount: number; truncated: boolean }
+export interface CalendarSyncInfo { id: string; name: string; color: string; /** the colour is the person's own, not the service's */ customColor?: boolean; readOnly: boolean; primary: boolean; syncOn: boolean; eventCount: number; truncated: boolean }
 /** The calendar sync of one mailbox: its state and calendars. */
 export interface CalSource {
   id: string;
@@ -837,6 +841,9 @@ export const api = {
   calendarSources: () => invoke<CalSource[]>("calendar_sources"),
   /** the services this build can connect ("google", "microsoft"): a mailbox whose service is not in it cannot turn calendar sync on */
   calendarKindsAvailable: () => invoke<string[]>("calendar_kinds_available"),
+  calendarMoveEvent: (eventId: string, targetCalendarId: string) => invoke<CalEvent>("calendar_move_event", { eventId, targetCalendarId }),
+  calendarCreateCalendar: (accountId: string, name: string, color: string | null) => invoke<CalSource>("calendar_create_calendar", { accountId, name, color }),
+  calendarSetColor: (calendarId: string, color: string | null) => invoke<void>("calendar_set_color", { calendarId, color }),
   calendarConnectCaldav: (args: DavConnectArgs) => invoke<CalSource>("calendar_connect_caldav", { args }),
   calendarDavPassword: (accountId: string, password: string) => invoke<CalSource>("calendar_dav_password", { accountId, password }),
   calendarConnect: (accountId: string) => invoke<CalSource>("calendar_connect", { accountId }),

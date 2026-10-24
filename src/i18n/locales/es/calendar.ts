@@ -314,4 +314,13 @@ export default defineLocale<typeof ns.en>({
   "calendar.err.davRedirect": "El servidor redirigió Hey Look! a otra dirección ({host}). Hey Look! se detuvo ahí para proteger tu contraseña.",
   "calendar.err.davAuthMethod": "El servidor pide un método de inicio de sesión que Hey Look! no admite.",
   "calendar.sync.davAuth": "No se pudo iniciar sesión en {service} como {username}. Introduce la contraseña de nuevo para seguir sincronizando.",
+  "calendar.dialog.appSendsFrom": "Hey Look! envía las invitaciones desde {email}.",
+  "calendar.pop.moveTo": "Mover a otro calendario…",
+  "calendar.move.title": "Mover “{summary}”",
+  "calendar.move.to": "Mover a",
+  "calendar.move.confirm": "Mover",
+  "calendar.move.seriesNote": "Se mueve toda la serie.",
+  "calendar.move.guests": "Un evento con invitados no se puede mover a otro calendario desde aquí. Puedes moverlo en {service}.",
+  "calendar.toast.moved": "Movido a {calendar}",
+  "calendar.err.needsAccess": "Para crear calendarios en {service}, permite el acceso de nuevo.",
 });

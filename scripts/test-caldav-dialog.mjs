@@ -93,22 +93,22 @@ try {
   await openApp("lang=en&light");
   const cal = await evaluate(CALIBRATE);
   scale = Math.min(Math.max(1, cal.cpu / 48), 8);
-  // ------------------------------------------------------------------ AC-7.4.1: only where the build offers CalDAV
-  await openApp('lang=en&light');
+  // ------------------------------------------------------------------ AC-7.4.1: a mailbox with no service of its own gets CalDAV (every build has it), also in a build without the Google and Microsoft clients
+  await openApp('lang=en&light&calkinds=none');
   await openSettings('a5');
-  ok(!(await exists('#set-calendar')), 'a build that does not offer CalDAV: the custom-domain mailbox has no Calendar section');
-  await openApp('lang=en&light&calkinds=all');
+  ok(await exists('#set-calendar') && !!(await exists(setUp)), 'a build without the OAuth clients still offers CalDAV to the custom-domain mailbox');
+  await openApp("lang=en&light");
   await openSettings('a5');
-  ok(await exists('#set-calendar'), 'CalDAV offered: the custom-domain mailbox has the Calendar section');
+  ok(await exists('#set-calendar'), 'the custom-domain mailbox has the Calendar section');
   const label = await evaluate(`document.querySelector('#set-calendar .set-lbl').textContent`);
   ok(label.includes(D['settings.calendar.davLabel']) && label.includes(D['settings.calendar.davHint']), `the row says what CalDAV does (${label})`);
   ok((await evaluate(`document.querySelector(${JSON.stringify(setUp)}).textContent`)) === D['settings.calendar.davSetUp'], 'the button is "Set up..."');
-  await openApp('lang=en&light&calkinds=all');
+  await openApp("lang=en&light");
   await openSettings('a2');
   ok(!(await evaluate(`!!document.querySelector('#set-calendar button.btn.small') && document.querySelector('#set-calendar button').textContent === ${JSON.stringify(D['settings.calendar.davSetUp'])}`)), 'a Google mailbox keeps its own Google sync (no Set up button)');
 
   // ------------------------------------------------------------------ AC-7.4.2: the dialog per service
-  await openApp('lang=en&light&calkinds=all');
+  await openApp("lang=en&light");
   await openSettings('a5');
   await openDialog();
   let s = await state();
@@ -144,7 +144,7 @@ try {
   ok((await exists('#dav-pw')) && (await evaluate(`document.querySelector('.dav-check input')?.checked === false`)), 'Other: the mailbox password is off and a password box shows');
 
   // ------------------------------------------------------------------ AC-7.4.3: the server's answers; the values stay
-  await openApp('lang=en&light&calkinds=all');
+  await openApp("lang=en&light");
   await openSettings('a5');
   await openDialog();
   await typeInto('#dav-url', 'https://nowhere.example.org');
@@ -204,7 +204,7 @@ try {
   ok(!(await exists('.dav-who')), 'Stop removes the connection');
 
   // ------------------------------------------------------------------ AC-7.4.2/7.4.3: iCloud with the mailbox password, one call; pending state
-  await openApp('lang=en&light&calkinds=all');
+  await openApp("lang=en&light");
   await openSettings('a5');
   await openDialog();
   await pick('icloud');
@@ -224,7 +224,7 @@ try {
   ok((await evaluate(`document.querySelector('.dav-who').textContent`)) === 'nam@pro66.emailserver.vn · caldav.icloud.com', 'iCloud host shown');
 
   // ------------------------------------------------------------------ AC-7.4.6: keyboard
-  await openApp('lang=en&light&calkinds=all');
+  await openApp("lang=en&light");
   await openSettings('a5');
   await openDialog();
   ok((await state()).focus === 'dav-service', 'keyboard: the focus starts on the service');
@@ -241,7 +241,7 @@ try {
   await waitFor(`!document.querySelector('.dav-form')`, 'Enter to connect', 6000);
   ok((await connects()).length === 1, 'Enter in a field connects');
 
-  await openApp('lang=en&light&calkinds=all');
+  await openApp("lang=en&light");
   await openSettings('a5');
   await openDialog();
   await press('Escape', 'Escape');
@@ -276,8 +276,33 @@ try {
   await waitFor(`!document.querySelector('.set-actions .btn.primary')`, 'the button to go once the password works');
   ok(!(await evaluate(`(document.querySelector('.set-status')?.textContent ?? '').includes(${JSON.stringify(D['settings.calendar.davEnterPassword'])})`)), 'the status no longer asks for the password');
 
+  // ------------------------------------------------------------------ AC-7.4.15: who sends the invitations (the dialog line, and whether the app sends them)
+  for (const sched of [false, true]) {
+    await openApp(`lang=en&light&calsyncdav=ok${sched ? '&davsched' : ''}`, 1280, 800);
+    await evaluate(`(() => { const s = window.__store.getState(); s.setModule('calendar'); return 1; })()`);
+    await waitFor(`window.__store.getState().calendars.some((c) => c.id === 'caldav:a5:work')`, 'the CalDAV calendars');
+    const info = await evaluate(`window.__store.getState().calendars.find((c) => c.id === 'caldav:a5:work')`);
+    ok(info.appInvites === !sched && info.movesGuests === !sched && info.service === 'Nextcloud', `${sched ? 'scheduling' : 'plain'}: the calendar says who sends (${JSON.stringify({ a: info.appInvites, m: info.movesGuests, s: info.service })})`);
+    await evaluate(`(() => { const s = window.__store.getState(); s.setPrefs({ calDefaultCalendar: 'caldav:a5:work' }); s.setDialog({ type: 'event' }); return 1; })()`);
+    await waitFor(`document.querySelector('.ev-invite')`, 'the event dialog');
+    await sleep(300);
+    const line = await evaluate(`[...document.querySelectorAll('.ev-form .muted.small')].map((e) => e.textContent).find((x) => /invitations/.test(x)) || ''`);
+    const want = sched ? tr('en', 'calendar.dialog.serviceSendsFrom', { service: 'Nextcloud', email: 'nam@pro66.emailserver.vn' }) : tr('en', 'calendar.dialog.appSendsFrom', { email: 'nam@pro66.emailserver.vn' });
+    ok(line === want, `${sched ? 'scheduling' : 'plain'}: the line says "${want}" (${line})`);
+    // a guest: the app asks its backend to send the invitations only where the server does not
+    await evaluate(`(() => { const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; const t = document.querySelector('#ev-title') || document.querySelector('.ev-form input'); set.call(t, 'Planning'); t.dispatchEvent(new Event('input', { bubbles: true })); return 1; })()`);
+    await click('.ev-invite input');
+    await typeText('guest@example.org');
+    await press('Enter', 'Enter');
+    await sleep(200);
+    await click('.modal .row-inline .btn.primary');
+    await waitFor(`(window.__mockCalls || []).some((c) => c.cmd === 'calendar_save_event')`, 'the save call');
+    const call = await evaluate(`(window.__mockCalls || []).filter((c) => c.cmd === 'calendar_save_event').at(-1)`);
+    ok(call.args.notify === !sched && call.args.event.attendees.length === 1, `${sched ? 'scheduling' : 'plain'}: notify is ${!sched} (${JSON.stringify(call.args.notify)}, ${call.args.event.attendees.length} guest)`);
+  }
+
   // ------------------------------------------------------------------ AC-7.4.7: fit and words in 8 languages, Light and Dark
-  await openApp('lang=en&light&calkinds=all');
+  await openApp("lang=en&light");
   await openSettings('a5');
   await openDialog();
   for (const theme of ['light', 'dark']) for (const lang of LANGS) {

@@ -534,4 +534,11 @@ export default defineLocale<typeof ns.en>({
   "settings.calendar.davConnect": "连接",
   "settings.calendar.davConnecting": "正在连接…",
   "settings.calendar.davEnterPassword": "重新输入密码…",
+  "settings.calendar.newCalendar": "新建日历…",
+  "settings.calendar.newCalendarTitle": "在{service}中新建日历",
+  "settings.calendar.calName": "名称",
+  "settings.calendar.create": "创建",
+  "settings.calendar.created": "已创建日历“{name}”",
+  "settings.calendar.colorOf": "{name}的颜色",
+  "settings.calendar.colorDefault": "来自{service}的颜色",
 });
