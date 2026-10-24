@@ -474,3 +474,9 @@ static | node --experimental-strip-types scripts/test-reply-last.mjs
 static | node --experimental-strip-types scripts/test-compose-start.mjs
 # 1.0.7 WP13f-3 (AC-13.13.16): ten fixtures (reply, reply all with Cc, forward with 3 attachments, encrypted reply, confidential reply, Reply-To note, signature above the quote, no signature on replies, plain-text original, HTML original) - the message handed to the outbox after the in-place fill is equal to the one a fresh mount of the same finished message gives (pictures ids masked)
 ui-e | node scripts/test-reply-golden.mjs --require-browser
+# 1.0.7 D-006: the port boxes of Add account are text boxes (a number box adds one on ArrowUp / the mouse wheel: a typed SMTP port 31501 was reported saved as 31502); digits only, empty = no port, over 65535 refused
+static | node --experimental-strip-types scripts/test-port-field.mjs
+# 1.0.7 D-006 in the real page: typed 31501 / 587 / 465 / 65535, ArrowUp, the wheel, a paste, Backspace to empty, then the add_account call carries the typed ports
+ui-d | node scripts/test-smtp-port-ui.mjs --require-browser
+# 1.0.7 D-021: Ctrl+Q on Linux emits the quit-key event (main window, reader window, a message frame, a text box); other chords, Windows and macOS do not
+ui-d | node scripts/test-quit-key-ui.mjs --require-browser
