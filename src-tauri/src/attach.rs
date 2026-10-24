@@ -240,6 +240,31 @@ mod tests {
         }
     }
 
+    /// W6.15: the types of macOS and Linux/Unix that open a target or run code, and the cross-platform packages, ask like `.exe` does (the F-19 types stay in).
+    #[test]
+    fn the_types_of_macos_and_linux_are_risky_too() {
+        let added = [
+            "webloc", "inetloc", "fileloc", "kext", "prefpane", "dylib", "plugin", "osax", // macOS
+            "bash", "zsh", "csh", "ksh", "fish", "flatpakref", "flatpak", "snap", // Linux / Unix
+            "apk", "xpi", // everywhere
+        ];
+        let before = ["app", "pkg", "mpkg", "scpt", "applescript", "workflow", "terminal", "command", "desktop", "appimage", "run", "deb", "rpm", "bin", "sh", "dmg"];
+        for e in added.iter().chain(before.iter()) {
+            assert!(RISKY_EXT.contains(*e), "{e} is in the shared list");
+            for n in [format!("a.{e}"), format!("install.{}", e.to_uppercase()), format!("dir/x.y.{e}"), format!("x.{e}. "), format!("x.{e}\u{a0}")] {
+                assert!(is_risky(&n), "{n:?}");
+            }
+        }
+        // the names of the plan
+        for n in ["install.command", "x.AppImage", "a.webloc", "y.deb", "setup.exe"] {
+            assert!(is_risky(n), "{n}");
+        }
+        // ordinary files are not asked about
+        for n in ["a.pdf", "plugin.txt", "snap.png", "fish.jpg", "apk", "notes.webloc.txt", "x.xpi.pdf"] {
+            assert!(!is_risky(n), "{n}");
+        }
+    }
+
     #[test]
     fn names_are_made_safe_for_windows() {
         assert_eq!(clean_name("../../etc/passwd"), "passwd");
