@@ -57,6 +57,7 @@ try {
     };
     for (const [lang, text] of Object.entries(want)) {
       await open(`lang=${lang}&os=linux&noactions`);
+      for (let i = 0; i < 60 && !(await state()).notes.includes(text); i++) await sleep(100); // (a language is loaded on demand)
       const s = await state();
       assert.ok(s.notes.includes(text), `${lang}: ${JSON.stringify(s)}`);
       assert.equal(s.selects, 0, `${lang}: no row`);
