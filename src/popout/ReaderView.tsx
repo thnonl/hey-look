@@ -368,7 +368,7 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
     const frames = document.querySelectorAll<HTMLIFrameElement>(".rp-msg.open iframe.msg-frame");
     const frame = frames[frames.length - 1];
     // macOS: the backend prints a document made from the message (W5.3); elsewhere the frame prints itself
-    if (osNow() === "macos") void printFrameNative(frame ?? null, (text) => useStore.getState().showToast(text, undefined, "error"));
+    if (osNow() === "macos") void printFrameNative(frame ?? null, (text) => useStore.getState().showToast(() => text, undefined, "error"));
     else frame?.contentWindow?.print();
   };
   const summarize = async () => {

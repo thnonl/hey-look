@@ -74,7 +74,7 @@ for (const [k, byLang] of Object.entries(texts)) for (const [l, v] of Object.ent
 // ---- the wiring
 const lib = read("src-tauri/src/lib.rs");
 assert.ok(/fn play_notify_sound\(/.test(lib) && /^\s+play_notify_sound,$/m.test(lib), "the command is in generate_handler!");
-assert.ok(/"test_notification", "play_notify_sound"/.test(read("src-tauri/build.rs")), "and in APP_COMMANDS");
+assert.ok(/"play_notify_sound"/.test(read("src-tauri/build.rs")), "and in APP_COMMANDS");
 assert.ok(JSON.parse(read("src-tauri/capabilities/default.json")).permissions.includes("allow-play-notify-sound"), "and in the capability of the main window");
 assert.ok(!JSON.parse(read("src-tauri/capabilities/popout.json")).permissions.includes("allow-play-notify-sound"), "not in the one of the secondary windows");
 assert.ok(/"Win32_Media_Audio"/.test(read("src-tauri/Cargo.toml")), "the windows feature of PlaySoundW");

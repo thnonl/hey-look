@@ -848,7 +848,7 @@ export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boole
               items={[
                 { label: t("reading.msg.showOriginal"), disabled: conf, onClick: () => setDialog({ type: "original", messageId: m.id }) },
                 // macOS: WKWebView cannot print the frame itself, the backend prints a document made from it (printNative.ts, W5.3)
-                { label: t("reading.msg.print"), disabled: conf || printing, onClick: () => void (osNow() === "macos" ? printFrameNative(frameRef.current, (text) => useStore.getState().showToast(text, undefined, "error")) : printFrame(frameRef.current)) },
+                { label: t("reading.msg.print"), disabled: conf || printing, onClick: () => void (osNow() === "macos" ? printFrameNative(frameRef.current, (text) => useStore.getState().showToast(() => text, undefined, "error")) : printFrame(frameRef.current)) },
                 {
                   label: t("reading.msg.createEvent"),
                   onClick: () => setDialog({ type: "event", init: { summary: m.subject.replace(/^((re|fwd?):\s*)+/i, ""), description: conf ? "" : (m.text ?? "").trim().slice(0, 1500) } }),
