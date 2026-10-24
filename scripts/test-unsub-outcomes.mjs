@@ -27,6 +27,7 @@ const norm = (s) => s.replace(/\s+/g, ' ').trim();
 
 const H = await startHarness('test-unsub-outcomes', { vitePort0: 5780 });
 const { evaluate } = H;
+if (arg('throttle')) await H.cdp('Emulation.setCPUThrottlingRate', { rate: Number(arg('throttle')) }); // (--throttle=4: a slow computer)
 const { click } = inputs(H, arg('shots'), 'unsub');
 const failures = [];
 let checks = 0;
@@ -48,6 +49,24 @@ const browserGot = () => evaluate(`JSON.stringify(window.__mockMail.opened)`).th
 const busy = () => evaluate(`document.querySelector(${JSON.stringify(LINK)})?.getAttribute('aria-busy') === 'true'`);
 const clear = () => evaluate(`window.__unsubCalls = []; window.__unsubOpened = []; window.__mockMail.opened.length = 0; window.__store.setState({ toasts: [] }); 1`);
 const setMode = (mode, ms = 0) => evaluate(`history.replaceState(null, '', '#' + location.hash.slice(1).replace(/(^|&)unsub(ms)?=[^&]*/g, '').replace(/^&/, '') + '&unsub=${mode}&unsubms=${ms}'); 1`);
+
+/**
+ * Waits until the page is at rest before a click: the language pack is in (a pack that arrives late re-draws the reading pane and replaces the link between the moment the test looks
+ * for it and the moment the button is pressed, the press then lands on a link that is gone and nothing starts: the CI runs 40040153330 and 40043898375) and the link has not moved
+ * for two looks 150 ms apart. A mail that is opened again shows "Opening message…" over its body (W13.6: from 150 ms, for 300 ms at least) and a press then lands on that block, not on the link under it:
+ * the block is waited out (it is up after 150 ms, so the first look is after 450 ms; slow computers keep it longer).
+ */
+const settled = async (lang) => {
+  await waitFor(`window.__store.getState().langLoading === null && window.__store.getState().prefs.language === ${JSON.stringify(lang)}`, `${lang}: the language pack`, 25000);
+  let last = '';
+  await sleep(450);
+  for (let i = 0; i < 60; i++) {
+    const now = await evaluate(`JSON.stringify((() => { if (document.querySelector('.rp-opening')) return 'opening'; const r = document.querySelector(${JSON.stringify(LINK)})?.getBoundingClientRect(); return r && [r.left, r.top, r.width, r.height]; })())`);
+    if (now === last && now !== 'null' && now !== '"opening"') return;
+    last = now;
+    await sleep(150);
+  }
+};
 
 const openPage = async (hash, w = 1280, h = 800) => {
   await H.openApp(hash, w, h);
@@ -181,10 +200,10 @@ try {
         await setMode(mode, 0);
         await evaluate(`window.__store.setState({ compose: null, composeDirty: false }); window.__store.getState().openMail('t1'); 1`);
         await waitFor(`document.querySelector(${JSON.stringify(LINK)})`, `${lang} ${mode}: the Unsubscribe link`, 8000);
-        await sleep(200);
+        await settled(lang);
         await click(LINK);
         const want = norm(tr(lang, mode === 'open' ? 'reading.msg.unsubscribeOpened' : 'reading.msg.unsubscribeMailto'));
-        await waitFor(`document.querySelector('.toasts .toast')`, `${lang} ${mode}: the toast`, 5000);
+        if (!(await waitFor(`document.querySelector('.toasts .toast')`, `${lang} ${mode}: the toast`, 5000))) console.error('DIAG', await evaluate(`JSON.stringify({ calls: (window.__unsubCalls || []).length, opened: window.__unsubOpened, mail: window.__mockMail.opened, busy: document.querySelector(${JSON.stringify(LINK)})?.getAttribute('aria-busy'), link: !!document.querySelector(${JSON.stringify(LINK)}), overlay: !!document.querySelector('[aria-busy=true][role=status]'), top: (() => { const l = document.querySelector(${JSON.stringify(LINK)}); if (!l) return null; const r = l.getBoundingClientRect(); const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return e ? e.tagName + '.' + e.className : null; })(), rect: (() => { const r = document.querySelector(${JSON.stringify(LINK)})?.getBoundingClientRect(); return r && [r.left, r.top, r.width, r.height]; })(), lang: document.documentElement.lang, loading: window.__store.getState().langLoading, toasts: document.querySelectorAll('.toasts .toast').length })`));
         await sleep(250);
         const m = await evaluate(`(() => { const t = document.querySelector('.toasts .toast'); if (!t) return null; const x = t.querySelector('.toast-text'); const r = t.getBoundingClientRect(); return { text: x.textContent.replace(/\\s+/g, ' ').trim(), over: x.scrollWidth - x.clientWidth, overY: x.scrollHeight - x.clientHeight, l: r.left, r: r.right, t: r.top, b: r.bottom, vw: innerWidth, vh: innerHeight }; })()`);
         const tag = `${lang} ${mode} ${w}x${h}`;
