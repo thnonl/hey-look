@@ -59,7 +59,12 @@ export interface AutoCtx {
 
 // an opening quote follows: the start of the paragraph, a space, one of these, or an opening quote of any language
 const OPENERS = new Set(["(", "[", "{", "<", "/", "–", "—", "“", "‘", "„", "‚", "«", "‹"]);
-const lastChar = (s: string): string => s.slice(-1);
+/**
+ * The last character that is SEEN: invisible format characters (a zero-width space or joiner, a direction mark, a word joiner, a BOM) at the end do not count, so a paragraph that
+ * starts with one (a marker some editors, signatures and pasted texts leave) still opens with an opening quote (D-091: the first quote typed after focusing the body must not be
+ * taken for a closing one because of what is invisible before it).
+ */
+const lastChar = (s: string): string => s.replace(/\p{Cf}+$/u, "").slice(-1);
 const opensAfter = (prev: string): boolean => prev === "" || /\s/u.test(prev) || OPENERS.has(prev);
 const alnum = (c: string): boolean => /[\p{L}\p{N}]/u.test(c);
 /** A run of non-space characters that is an address or a URL (or is on its way to be one): nothing in it is replaced. */

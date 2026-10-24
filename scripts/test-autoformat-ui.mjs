@@ -83,6 +83,41 @@ try {
     assert.equal(await para(ED), '', 'Backspace deletes the sign');
   });
 
+  // D-091 (Mac: the first quote typed right after focusing the body came out as a closing one: "Hello" gave H”ello”): real keys, nothing waited for between the focus and the first key,
+  // from every start of a paragraph - the first key after focus, after Enter, after a hard break (Shift+Enter), under a signature, after a space and after (, behind an invisible character
+  await check('D-091 the first quote typed after the focus opens, from every start of a paragraph', async () => {
+    // (the body of the Compose ends with the signature block and a paragraph under it: the text of every paragraph, joined by |)
+    const all = () => evaluate(`${ED}.state.doc.textBetween(0, ${ED}.state.doc.content.size, '|', '|')`);
+    const focusAndType = async (html, place, keys) => {
+      await evaluate(`(() => { const e = ${ED}; e.commands.setContent(${JSON.stringify(html)}); e.commands.blur(); return 1; })()`);
+      await evaluate(`(() => { const e = ${ED}; e.commands.focus(${JSON.stringify(place)}); return 1; })()`);
+      // (the focus, and the very next thing is the first key)
+      assert.ok(await waitFor(`${ED}.view.hasFocus()`, 3000), 'the editor has the focus');
+      await keys();
+      await sleep(80);
+    };
+    const typeHello = () => I.type('"Hello"', 0);
+    await focusAndType('<p></p>', 'start', typeHello);
+    assert.ok((await all()).startsWith('“Hello”'), `the very first key after the focus: ${await all()}`);
+    await focusAndType('<p>One</p><p></p>', 'end', typeHello);
+    assert.ok((await all()).includes('“Hello”') && !(await all()).includes('”H'), `in a paragraph under the others: ${await all()}`);
+    await focusAndType('<p>One</p>', 'start', async () => { await I.keys.end(); await I.keys.enter(); await typeHello(); });
+    assert.ok((await all()).startsWith('One|“Hello”'), `after Enter: ${await all()}`);
+    await focusAndType('<p>One</p>', 'start', async () => { await I.keys.end(); await I.key('Enter', 'Enter', 13, 8); await typeHello(); });
+    assert.ok(/^One[|\n]“Hello”/.test(await all()), `after Shift+Enter (a hard break or a new paragraph): ${JSON.stringify(await all())}`);
+    await focusAndType('<p>Body</p><p>-- </p><p>Ann Smith</p>', 'end', typeHello);
+    assert.ok((await all()).includes('“Hello”'), `under the signature: ${await all()}`);
+    await focusAndType('<p>Body (</p>', 'start', async () => { await I.keys.end(); await typeHello(); });
+    assert.ok((await all()).startsWith('Body (“Hello”'), `after (: ${await all()}`);
+    await focusAndType('<p></p>', 'start', async () => { await I.type('Body ', 0); await typeHello(); }); // (a trailing space is not kept by setContent: it is typed)
+    assert.ok((await all()).startsWith('Body “Hello”'), `after a space: ${await all()}`);
+    await focusAndType('<p>​</p>', 'start', async () => { await I.keys.end(); await typeHello(); });
+    assert.ok((await all()).replace(/​/g, '').startsWith('“Hello”'), `behind a zero-width space: ${await all()}`);
+    // the closing cases are still closing
+    await focusAndType('<p></p>', 'start', () => I.type('say "Hello" and (b)"', 0));
+    assert.ok((await all()).startsWith('say “Hello” and (b)”'), `after a letter and after a bracket: closing: ${await all()}`);
+  });
+
   await check('AC-3.2.5 / 3.2.6 URLs, addresses, the Code style, `---`, `-- `, `a---b`', async () => {
     await reset(ED);
     await I.type('https://a.test/x--y... ');
