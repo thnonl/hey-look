@@ -7,7 +7,7 @@ import { GuardMenuHost } from "./components/GuardMenuHost";
 import { installContextGuard } from "./contextGuard";
 import { loadPlatform } from "./platform";
 import { installMacPasteMatch, installPlainPasteKey } from "./plainPasteKey";
-import { prefetchComposeWindow, prefetchReaderWindow } from "./lazyViews";
+import { prefetchComposeWindow, prefetchReaderWindow, prefetchWindowView } from "./lazyViews";
 import PopoutRoot from "./popout/PopoutRoot";
 import { installModifierTracking } from "./popout/modifier";
 import { routeOf } from "./popout/route";
@@ -18,6 +18,7 @@ const route = routeOf(window.location.search);
 // a window's view (and the editor for a compose window) is asked for now, beside the language and the preferences, before React renders (REQ-9.2.3)
 if (route.kind === "compose") prefetchComposeWindow();
 else if (route.kind === "reader") prefetchReaderWindow();
+else if (route.kind === "event" || route.kind === "settings" || route.kind === "search" || route.kind === "scheduled") prefetchWindowView(route.kind);
 
 async function boot(): Promise<boolean> {
   // debug builds only (src-tauri/src/startup.rs boot_delay_*): HEYLOOK_TEST_BOOT_DELAY_MS keeps the start screen of index.html on the window that long, for the first

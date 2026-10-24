@@ -71,13 +71,29 @@ pub const PREFS_EVENT: &str = "prefs-changed";
 pub enum Kind {
     Compose,
     Reader,
+    /// A calendar event in a window of its own (W4.6): the key is the event id, a new event has none.
+    Event,
+    /// Settings in a window of its own (W4.6): one at a time.
+    Settings,
+    /// The results of a search in a window of its own (W4.6): the key is the normalised search.
+    Search,
+    /// The Scheduled list in a window of its own (W4.6): one at a time.
+    Scheduled,
 }
+
+/// Every kind of window, in the order of `Kind::index` (the tests walk it).
+#[cfg(test)]
+pub const KINDS: [Kind; 6] = [Kind::Compose, Kind::Reader, Kind::Event, Kind::Settings, Kind::Search, Kind::Scheduled];
 
 impl Kind {
     pub fn parse(s: &str) -> Option<Kind> {
         match s {
             "compose" => Some(Kind::Compose),
             "reader" => Some(Kind::Reader),
+            "event" => Some(Kind::Event),
+            "settings" => Some(Kind::Settings),
+            "search" => Some(Kind::Search),
+            "scheduled" => Some(Kind::Scheduled),
             _ => None,
         }
     }
@@ -86,6 +102,25 @@ impl Kind {
         match self {
             Kind::Compose => "compose",
             Kind::Reader => "reader",
+            Kind::Event => "event",
+            Kind::Settings => "settings",
+            Kind::Search => "search",
+            Kind::Scheduled => "scheduled",
+        }
+    }
+
+    /// Does the PAGE of this kind decide what a close request means (it may ask a question first and ends the window itself)? A compose window with text
+    /// asks Save / Discard; an event window with changes asks the discard question (REQ-4.6.7). The other kinds close at once, like a reader.
+    pub fn page_decides_close(self) -> bool {
+        matches!(self, Kind::Compose | Kind::Event)
+    }
+
+    /// The key of a kind of which only one window exists (Settings, the Scheduled list): asking again focuses it (REQ-4.6.8, 4.6.17).
+    pub fn single_key(self) -> Option<&'static str> {
+        match self {
+            Kind::Settings => Some("settings"),
+            Kind::Scheduled => Some("scheduled"),
+            _ => None,
         }
     }
 
@@ -98,6 +133,10 @@ impl Kind {
         match self {
             Kind::Compose => "window.compose",
             Kind::Reader => "window.reader",
+            Kind::Event => "window.event",
+            Kind::Settings => "window.settings",
+            Kind::Search => "window.search",
+            Kind::Scheduled => "window.scheduled",
         }
     }
 
@@ -106,6 +145,10 @@ impl Kind {
         match self {
             Kind::Compose => (760.0, 680.0),
             Kind::Reader => (820.0, 720.0),
+            Kind::Event => (640.0, 720.0),
+            Kind::Settings => (900.0, 680.0),
+            Kind::Search => (760.0, 720.0),
+            Kind::Scheduled => (720.0, 640.0),
         }
     }
 
@@ -114,6 +157,10 @@ impl Kind {
         match self {
             Kind::Compose => (560.0, 440.0),
             Kind::Reader => (520.0, 400.0),
+            Kind::Event => (480.0, 480.0),
+            Kind::Settings => (720.0, 500.0),
+            Kind::Search => (520.0, 400.0),
+            Kind::Scheduled => (520.0, 400.0),
         }
     }
 }
@@ -377,7 +424,7 @@ pub enum Request {
 #[derive(Default)]
 pub struct Registry {
     /// Next number per kind; only ever goes up, so a label is never reused in a run.
-    next: [u32; 2],
+    next: [u32; 6],
     pub entries: Vec<Entry>,
 }
 
@@ -647,6 +694,8 @@ pub fn open(app: &AppHandle, from: &str, kind: Kind, key: Option<String>, init: 
         });
     }
     // (a message handed over with the id of its snapshot keeps that id: the reloaded window finds the snapshot under it, W4.2)
+    // (asked for again with new data: Settings is brought to the tab that is asked for, `popout-refocus`)
+    let refocus = if kind == Kind::Settings { init.clone() } else { None };
     let handed_recovery = init.as_ref().and_then(|i| i.get("recoveryId")).and_then(Value::as_str).filter(|id| is_recovery_id(id)).map(String::from);
     // (the cascade and the placement are decided together with the registration, under one lock)
     let token = new_token();
@@ -657,6 +706,9 @@ pub fn open(app: &AppHandle, from: &str, kind: Kind, key: Option<String>, init: 
                 drop(r);
                 log(&format!("{label}: asked for again, focused"));
                 bring_to_front(app, &label);
+                if let Some(i) = refocus {
+                    let _ = app.emit_to(label.as_str(), REFOCUS_EVENT, i);
+                }
                 return Ok(Opened { status: "focused", label: Some(label) });
             }
             Request::TooMany => {
@@ -945,8 +997,8 @@ pub fn on_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
             log(&format!("{label}: close requested ({} window)", kind.name()));
             if !on_close_requested(app, &label) {
                 api.prevent_close();
-            } else if kind == Kind::Reader {
-                // a reader window has no page that asks first: its close goes through, so it is on its way out from now on
+            } else if !kind.page_decides_close() {
+                // a window whose page does not ask first (a reader, Settings, a search, the Scheduled list): its close goes through, so it is on its way out from now on
                 // (it stops counting, takes no more shows, frees its key)
                 if reg(app).start_retire(&label) == Some(true) {
                     announce_counts(app);
@@ -1076,7 +1128,9 @@ pub struct Init {
 #[tauri::command]
 pub async fn popout_open(app: AppHandle, window: tauri::Window, kind: String, key: Option<String>, init: Option<Value>, focus_only: Option<bool>) -> R<Opened> {
     let kind = Kind::parse(&kind).ok_or_else(|| format!("unknown window kind: {kind}"))?;
-    open(&app, window.label(), kind, key.filter(|k| !k.is_empty()), init, focus_only.unwrap_or(false))
+    // (Settings and the Scheduled list exist once: whoever asks without a key asks for the one window)
+    let key = key.filter(|k| !k.is_empty()).or_else(|| kind.single_key().map(String::from));
+    open(&app, window.label(), kind, key, init, focus_only.unwrap_or(false))
 }
 
 /// The page of a secondary window asks who it is. The token of its address must be the one this window was made with.
@@ -1121,13 +1175,16 @@ pub fn popout_close(app: AppHandle, label: String) -> bool {
 /// Event to `main`: how many windows of each kind exist now, `{ compose, reader }`. The main page keeps the count (the support reminder does
 /// not appear while a compose window is open, REQ-W15). Sent when a window is created and when one is destroyed.
 pub const COUNT_EVENT: &str = "popout-count";
+/// Event to one window that was asked for again with new data (the Settings window: `{ tab, focus, nonce }` of the dialog that was meant): it goes there (W4.6, REQ-4.6.9).
+pub const REFOCUS_EVENT: &str = "popout-refocus";
 
 fn announce_counts(app: &AppHandle) {
-    let (compose, reader) = {
+    let (compose, reader, settings) = {
         let r = reg(app);
-        (r.count(Kind::Compose), r.count(Kind::Reader))
+        (r.count(Kind::Compose), r.count(Kind::Reader), r.count(Kind::Settings))
     };
-    let _ = app.emit_to("main", COUNT_EVENT, serde_json::json!({ "compose": compose, "reader": reader }));
+    // (`settings`: while the Settings window exists every way of opening Settings goes to it, W4.6)
+    let _ = app.emit_to("main", COUNT_EVENT, serde_json::json!({ "compose": compose, "reader": reader, "settings": settings }));
 }
 
 /// The calling window goes out of sight but stays alive: its page still has work to finish (a message in its Undo time, the send under way)
@@ -1461,7 +1518,6 @@ pub fn popout_reply(app: AppHandle, window: tauri::Window, to: String, id: Strin
 mod tests {
     use super::*;
 
-    const KINDS: [Kind; 2] = [Kind::Compose, Kind::Reader];
 
     #[test]
     fn the_ai_calls_of_a_window_are_known_until_they_end_or_the_window_goes() {
@@ -1564,6 +1620,49 @@ mod tests {
         assert_ne!(Kind::Compose.setting_key(), Kind::Reader.setting_key());
     }
 
+    /// W4.6 REQ-4.6.1: the four new kinds have a label, the sizes of the spec, a setting key of their own, and the rules of their kind.
+    #[test]
+    fn every_window_kind_has_its_label_size_and_setting_key() {
+        let want = [
+            (Kind::Compose, "compose", "window.compose", (760.0, 680.0), (560.0, 440.0)),
+            (Kind::Reader, "reader", "window.reader", (820.0, 720.0), (520.0, 400.0)),
+            (Kind::Event, "event", "window.event", (640.0, 720.0), (480.0, 480.0)),
+            (Kind::Settings, "settings", "window.settings", (900.0, 680.0), (720.0, 500.0)),
+            (Kind::Search, "search", "window.search", (760.0, 720.0), (520.0, 400.0)),
+            (Kind::Scheduled, "scheduled", "window.scheduled", (720.0, 640.0), (520.0, 400.0)),
+        ];
+        assert_eq!(want.len(), KINDS.len());
+        for (i, (k, name, key, def, min)) in want.into_iter().enumerate() {
+            assert_eq!(KINDS[i], k, "the order of KINDS is the order of index()");
+            assert_eq!(k.index(), i);
+            assert_eq!((k.name(), k.setting_key(), k.default_size(), k.min_size()), (name, key, def, min));
+            assert_eq!(Kind::parse(name), Some(k));
+            assert_eq!(kind_of_label(&format!("{name}-7")), Some(k));
+            assert!(is_secondary(&format!("{name}-1")));
+        }
+        let keys: std::collections::HashSet<_> = KINDS.iter().map(|k| k.setting_key()).collect();
+        assert_eq!(keys.len(), KINDS.len(), "the place of each kind is remembered separately");
+        // who decides what a close means, and who exists once
+        assert!(Kind::Compose.page_decides_close() && Kind::Event.page_decides_close());
+        assert!(!Kind::Reader.page_decides_close() && !Kind::Settings.page_decides_close() && !Kind::Search.page_decides_close() && !Kind::Scheduled.page_decides_close());
+        assert_eq!((Kind::Settings.single_key(), Kind::Scheduled.single_key()), (Some("settings"), Some("scheduled")));
+        assert!([Kind::Compose, Kind::Reader, Kind::Event, Kind::Search].iter().all(|k| k.single_key().is_none()));
+        // Settings and the Scheduled list exist once; an event is one window per event, a search one per search; all of them count for the cap of 8 together
+        let mut r = Registry::default();
+        let Request::Create { label: a } = ask(&mut r, Kind::Settings, Some("settings")) else { panic!() };
+        assert_eq!(ask(&mut r, Kind::Settings, Some("settings")), Request::Focus { label: a });
+        let Request::Create { label: e } = ask(&mut r, Kind::Event, Some("event-id-1")) else { panic!() };
+        assert_eq!(ask(&mut r, Kind::Event, Some("event-id-1")), Request::Focus { label: e });
+        assert!(matches!(ask(&mut r, Kind::Event, Some("event-id-2")), Request::Create { .. }));
+        assert!(matches!(ask(&mut r, Kind::Event, None), Request::Create { .. }), "a new event has no key");
+        assert!(matches!(ask(&mut r, Kind::Event, None), Request::Create { .. }), "and may be opened twice");
+        for _ in 0..3 {
+            assert!(matches!(ask(&mut r, Kind::Search, None), Request::Create { .. }));
+        }
+        assert_eq!(r.entries.len(), 8);
+        assert_eq!(ask(&mut r, Kind::Scheduled, Some("scheduled")), Request::TooMany, "the cap of 8 counts every kind");
+    }
+
     // ---- registry
 
     fn ask(r: &mut Registry, kind: Kind, key: Option<&str>) -> Request {
@@ -1579,6 +1678,10 @@ mod tests {
                 let Request::Create { label } = ask(&mut r, k, None) else { panic!("create {i}") };
                 assert!(seen.insert(label.clone()), "{label} twice");
                 assert_eq!(kind_of_label(&label), Some(k));
+                // (the other kinds end at once: the cap of 8 is for all kinds together)
+                if !matches!(k, Kind::Compose | Kind::Reader) {
+                    r.remove(&label).unwrap();
+                }
             }
         }
         assert_eq!(r.entries.len(), 6);
@@ -1597,10 +1700,13 @@ mod tests {
         for _ in 0..3 {
             for k in KINDS {
                 let Request::Create { label } = ask(&mut r, k, None) else { panic!("create") };
-                labels.push(label);
+                labels.push(label.clone());
+                if !matches!(k, Kind::Compose | Kind::Reader) {
+                    r.remove(&label).unwrap();
+                }
             }
         }
-        assert!(labels.iter().any(|l| l.starts_with("compose-")) && labels.iter().any(|l| l.starts_with("reader-")));
+        assert!(["compose-", "reader-", "event-", "settings-", "search-", "scheduled-"].iter().all(|p| labels.iter().any(|l| l.starts_with(p))), "every kind");
         let themed = crate::wintheme::themed_labels(labels.clone());
         for l in &labels {
             assert!(themed.contains(l), "{l} does not get the frame theme");

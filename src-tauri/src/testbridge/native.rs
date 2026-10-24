@@ -18,6 +18,7 @@ fn kind_of(label: &str) -> &'static str {
     match crate::popout::kind_of_label(label) {
         Some(crate::popout::Kind::Compose) => "compose",
         Some(crate::popout::Kind::Reader) => "reader",
+        Some(k) => k.name(),
         None => "other",
     }
 }

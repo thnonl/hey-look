@@ -1,0 +1,39 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "search",
+  "description": "Capability for the search results windows (search-*, W4.6): the window basics and the reads of the list (list_threads, thread_meta, locate_thread). Mail actions are asked of the main window (popout_request); a result opens a reader or compose window (popout_open). Nothing of accounts, secrets, settings, quit or update (REQ-S2, W4.9).",
+  "windows": [
+    "search-*"
+  ],
+  "permissions": [
+    "core:event:default",
+    "core:window:default",
+    "core:app:default",
+    "core:window:allow-close",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-title",
+    "core:window:allow-set-focus",
+    "opener:default",
+    "allow-popout-init",
+    "allow-popout-ready",
+    "allow-popout-focus",
+    "allow-popout-close",
+    "allow-popout-destroy",
+    "allow-popout-note",
+    "allow-window-theme-refresh",
+    "allow-popout-request",
+    "allow-popout-flush-alive",
+    "allow-popout-flush-dialog",
+    "allow-popout-flush-done",
+    "allow-get-setting",
+    "allow-shell-info",
+    "allow-popout-open",
+    "allow-list-accounts",
+    "allow-list-folders",
+    "allow-list-threads",
+    "allow-thread-meta",
+    "allow-locate-thread"
+  ]
+}

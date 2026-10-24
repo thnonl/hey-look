@@ -4,6 +4,7 @@
 
 ### Added
 
+- A calendar event, Settings, the results of a search and the Scheduled list can each open in a window of their own (the "Open in new window" button; Shift+double-click an event), with the theme, the language and the keys of the other windows
 - Reader windows have Previous and Next conversation buttons (and the keys k and j) that move through the list in the main window's order, the folder's list when the main window shows another, skipping drafts; the ends are greyed with a note
 - A message being written in its own window can be moved back to the main window (the arrow button where "Pop out" is, or Ctrl+Shift+O, Cmd+Shift+O on a Mac): everything comes along, nothing is saved or asked unless the main window already holds a message with changes
 - Drag a conversation from the list, or the subject of a reader window, onto a folder of the same mailbox in the side menu to move it (with Undo, like the Move to menu); drag an attachment from one message being written into another, in any window, to attach a copy

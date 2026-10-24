@@ -9,36 +9,16 @@ import { api, MessageFull } from "../api";
 import { t, type Key } from "../i18n";
 import { calTz, today } from "../calendar";
 import { friendlyError, useStore, type Dialog } from "../store";
-import { neighborOf, rowWindowTarget, type Neighbor } from "./readerLogic";
 import { CW_PREFIX } from "./composeRequests";
-import { parseRequest, type Envelope, type NeighborsReq } from "./requestKinds";
-
-/**
- * The conversations before and after the one a reader window shows (W4.4, REQ-4.4.3): in the main window's list as it is now when that holds it (its order, sort,
- * search and filter), else in the list of the view the window was opened from, read like the main list (the mailbox selection of that time, the sort and the
- * conversation setting, no search, no Unread / Flagged filter). Rows a reader cannot show (drafts, Scheduled) are skipped; no wrap.
- */
-export async function neighborsFor(r: NeighborsReq): Promise<{ prev: Neighbor | null; next: Neighbor | null }> {
-  const st = useStore.getState();
-  let rows = st.threads;
-  let view = st.folder;
-  if (!rows.some((x) => x.threadId === r.threadId)) {
-    view = r.view || r.folder;
-    rows = await api.listThreads({ accountId: r.listAccount, folder: view, search: "", focus: null, flat: !st.prefs.conversations, unreadOnly: false, flaggedOnly: false, sortAsc: st.prefs.sortAsc, scope: "current" });
-  }
-  const can = (x: { folder: string }) => rowWindowTarget(view, x.folder) === "reader";
-  const pick = (dir: 1 | -1): Neighbor | null => {
-    const n = neighborOf(rows, r.threadId, dir, can);
-    return n ? { threadId: n.threadId, accountId: n.accountId, folder: n.folder, subject: n.subject, view } : null;
-  };
-  return { prev: pick(-1), next: pick(1) };
-}
+import { DEFAULT_PREFS } from "../prefs";
+import { useUpdates } from "../updates";
+import { parseRequest, type Envelope } from "./requestKinds";
 
 /** Show the main window (it may be hidden in the tray) for something that needs it: a dialog, a message being written. */
 export const showMain = () => void api.showWindow().catch(() => undefined);
 
 async function run(env: Envelope): Promise<unknown> {
-  const p = parseRequest(env.kind, env.payload);
+  const p = parseRequest(env.kind, env.payload, { from: env.from, prefKeys: Object.keys(DEFAULT_PREFS) });
   if ("error" in p) throw new Error(p.error);
   const st = useStore.getState();
   switch (p.kind) {
@@ -52,7 +32,20 @@ async function run(env: Envelope): Promise<unknown> {
       return null;
     }
     case "prefs":
-      st.setPrefs(p.patch);
+      st.setPrefs(p.patch as Partial<typeof st.prefs>);
+      return null;
+    case "toast":
+      st.showToast(p.text, undefined, p.level); // i18n-ok: made by the event window, in the language in use
+      return null;
+    case "refresh":
+      void st.refresh();
+      return null;
+    case "sync":
+      void st.sync();
+      return null;
+    case "update-restart":
+      showMain();
+      await useUpdates.getState().restartFromWindow();
       return null;
     case "compose": {
       const m = p.req.message as unknown as MessageFull;
@@ -82,7 +75,7 @@ async function run(env: Envelope): Promise<unknown> {
       showMain();
       return null;
     case "neighbors":
-      return neighborsFor(p.req);
+      return (await import("./mainLazy")).neighborsFor(p.req);
   }
 }
 

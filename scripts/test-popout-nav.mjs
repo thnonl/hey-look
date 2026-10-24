@@ -243,6 +243,30 @@ try {
     assert.equal(await lastPopIn(), null, 'no request');
   });
 
+  // ================= W4.2: a window whose page process died is loaded again with its message
+  await check('a reloaded compose window shows the message of its crash snapshot, not the hand-off data (REQ-4.2.3)', async () => {
+    await H.openApp('lang=en', 1100, 720);
+    const snap = { v: 1, to: ['restored@acme.example'], cc: [], bcc: [], subject: 'From the snapshot', html: '<p>typed before the crash</p>', inReplyTo: null, references: [], replaces: null, isReply: false, encrypt: 'off', sign: false, attachKey: false, confidential: false, win: true };
+    await evaluate(`localStorage.setItem('hl-mock-recovery', ${JSON.stringify(JSON.stringify({ 'snap-1': { id: 'snap-1', accountId: 'a1', savedAt: 1, subject: 'From the snapshot', preview: '', payload: JSON.stringify(snap), files: [] } }))}); 1`);
+    await H.cdp('Page.navigate', { url: 'about:blank' });
+    await H.cdp('Page.navigate', { url: `${H.base}?w=compose&mock=reloaded#lang=en` });
+    assert.ok(await waitFor(`!!document.querySelector('.cp-editor .tiptap')?.editor`, 20000), 'the window did not start');
+    await sleep(900);
+    assert.match(await evaluate(`document.querySelector('.cp-editor .tiptap').editor.getText()`), /typed before the crash/);
+    assert.doesNotMatch(await evaluate(`document.querySelector('.cp-editor .tiptap').editor.getText()`), /Handed over/);
+    assert.ok((await json(`[...document.querySelectorAll('.rchip .ellipsis')].map((e) => e.textContent.trim())`)).includes('restored@acme.example'));
+    assert.ok((await json(`[...document.querySelectorAll('.compose-pane input')].map((i) => i.value)`)).includes('From the snapshot'));
+  });
+  await check('a reloaded window without a snapshot shows the hand-off data again', async () => {
+    await H.openApp('lang=en', 1100, 720);
+    await evaluate(`localStorage.setItem('hl-mock-recovery', '{}'); 1`);
+    await H.cdp('Page.navigate', { url: 'about:blank' });
+    await H.cdp('Page.navigate', { url: `${H.base}?w=compose&mock=reloaded#lang=en` });
+    assert.ok(await waitFor(`!!document.querySelector('.cp-editor .tiptap')?.editor`, 20000));
+    await sleep(900);
+    assert.match(await evaluate(`document.querySelector('.cp-editor .tiptap').editor.getText()`), /Handed over/);
+  });
+
   // 8 languages: the name and the tooltip of the button
   const popNames = { en: ['Move to main window', 'Move to the main window ('], de: ['Ins Hauptfenster verschieben', 'Zurück ins Hauptfenster verschieben ('], vi: ['Chuyển về cửa sổ chính', 'Chuyển về cửa sổ chính ('], ja: ['メインウィンドウに戻す', 'メインウィンドウに戻す ('], ru: ['В главное окно', 'Вернуть в главное окно ('], fr: ['Déplacer vers la fenêtre principale', 'Déplacer vers la fenêtre principale ('], es: ['Mover a la ventana principal', 'Mover a la ventana principal ('], 'zh-Hans': ['移回主窗口', '移回主窗口 ('] };
   for (const [lang, [name, tip]] of Object.entries(popNames)) {

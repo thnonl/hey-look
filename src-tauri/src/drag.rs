@@ -84,6 +84,7 @@ impl Registry {
         self.entries.remove(token);
     }
 
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.entries.len()
     }

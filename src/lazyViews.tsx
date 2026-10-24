@@ -34,6 +34,10 @@ const folderModule = () => import("./components/FolderDialog");
 
 export const loadComposeWindowView = () => import("./popout/ComposeView").then(async (m) => (await m.ready(), m));
 export const loadReaderWindowView = () => import("./popout/ReaderView");
+export const loadEventWindowView = () => import("./popout/EventView");
+export const loadSettingsWindowView = () => import("./popout/SettingsView");
+export const loadSearchWindowView = () => import("./popout/SearchView");
+export const loadScheduledWindowView = () => import("./popout/ScheduledView");
 
 // ---- prefetch ---------------------------------------------------------------------------------------------------------------
 
@@ -48,6 +52,11 @@ export function prefetchComposeWindow(): void {
 }
 export function prefetchReaderWindow(): void {
   prefetchLazy("popout-reader", loadReaderWindowView, "popout");
+}
+/** The view of an event / Settings / search / Scheduled window (main.tsx, before React renders). */
+export function prefetchWindowView(kind: "event" | "settings" | "search" | "scheduled"): void {
+  const load = { event: loadEventWindowView, settings: loadSettingsWindowView, search: loadSearchWindowView, scheduled: loadScheduledWindowView }[kind];
+  prefetchLazy(`popout-${kind}`, load, "popout");
 }
 
 let idleDone = false;

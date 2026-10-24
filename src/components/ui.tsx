@@ -460,7 +460,11 @@ export function Switch({ checked, onChange, label, disabled, ariaLabel }: { chec
 
 export const FOCUSABLE = 'a[href],button:not(:disabled),input:not(:disabled):not([type=hidden]),select:not(:disabled),textarea:not(:disabled),[contenteditable=true],[tabindex]:not([tabindex="-1"])';
 
-export function Modal({ title, onClose, children, wide, width }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean; width?: number }) {
+/**
+ * `headExtra`: a button left of the close button (Open in new window, W4.6). `windowed`: the dialog is the page of a window of its own (the event and Settings windows): no
+ * backdrop, no header (the title is the window's), it fills the window, and Esc / the backdrop do not close it (the window's own close does).
+ */
+export function Modal({ title, onClose, children, wide, width, headExtra, windowed }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean; width?: number; headExtra?: ReactNode; windowed?: boolean }) {
   const t = useT();
   const titleId = useId();
   const box = useRef<HTMLDivElement>(null);
@@ -479,6 +483,7 @@ export function Modal({ title, onClose, children, wide, width }: { title: string
     const k = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !e.defaultPrevented && !useStore.getState().ask) onCloseRef.current();
     };
+    if (windowed) return; // (the window closes itself: Esc, Ctrl+W and the close button of the frame, see the view)
     window.addEventListener("keydown", k);
     return () => window.removeEventListener("keydown", k);
   }, []);
@@ -493,11 +498,11 @@ export function Modal({ title, onClose, children, wide, width }: { title: string
     else if (!e.shiftKey && active === last) (e.preventDefault(), first.focus());
   };
   return (
-    <div className="modal-back" onMouseDown={onClose}>
+    <div className={windowed ? "modal-page" : "modal-back"} onMouseDown={windowed ? undefined : onClose}>
       <div
         ref={box}
-        className={`modal ${wide ? "wide" : ""}`}
-        style={width ? { width } : undefined}
+        className={`modal ${wide ? "wide" : ""} ${windowed ? "windowed" : ""}`}
+        style={width && !windowed ? { width } : undefined}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
@@ -505,12 +510,19 @@ export function Modal({ title, onClose, children, wide, width }: { title: string
         onKeyDown={trap}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="modal-head">
-          <b id={titleId}>{title}</b>
-          <button className="icon-btn" onClick={onClose} aria-label={t("common.close")}>
-            ✕
-          </button>
-        </div>
+        {windowed ? (
+          <span id={titleId} className="sr-only">{title}</span>
+        ) : (
+          <div className="modal-head">
+            <b id={titleId}>{title}</b>
+            <span className="modal-head-acts">
+              {headExtra}
+              <button className="icon-btn" onClick={onClose} aria-label={t("common.close")}>
+                ✕
+              </button>
+            </span>
+          </div>
+        )}
         <div className="modal-body">{children}</div>
       </div>
     </div>

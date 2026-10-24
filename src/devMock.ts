@@ -1684,6 +1684,11 @@ export function installMock() {
       case "popout_init": {
         const q = new URLSearchParams(window.location.search);
         const kind = q.get("w") ?? "compose";
+        // the windows of W4.6 in a plain browser tab: ?w=event[&mock=new|&id=e3], ?w=settings[&tab=appearance&section=reading], ?w=search[&q=invoice&scope=all], ?w=scheduled
+        if (kind === "event") return { kind, label: "event-1", key: null, init: q.get("mock") === "new" ? { init: { summary: "" } } : { eventId: q.get("id") ?? "e3" } };
+        if (kind === "settings") return { kind, label: "settings-1", key: "settings", init: { tab: q.get("tab") ?? undefined, section: q.get("section") ?? undefined } };
+        if (kind === "search") return { kind, label: "search-1", key: "search", init: { search: q.get("q") ?? "invoice", scope: q.get("scope") ?? "all", folder: q.get("folder") ?? "inbox", accountId: q.get("acct"), filter: q.get("filter") ?? "all" } };
+        if (kind === "scheduled") return { kind, label: "scheduled-1", key: "scheduled", init: {} };
         // the compose window in a plain browser tab: ?w=compose[&mock=reply|draft|new|opened|openedcarried|openedsaved]
         // (opened*: a draft that was opened from Drafts and moved to this window; `carried` = the pane had changes; `openedsaved` = the pane had saved it, so it is a mid: reference)
         if (kind !== "reader") {
@@ -1697,8 +1702,10 @@ export function installMock() {
             : m === "prepare" ? { accountId: "a1", subject: "Re: Q4 roadmap review", isReply: true, preparing: { kind: "reply", id: "mock-shell", key: "re:m3", at: Date.now() } }
             : m === "preparefwd" ? { accountId: "a1", subject: "Fwd: Photos", preparing: { kind: "forward", id: "mock-shell", key: "fw:m4", at: Date.now(), fetching: true } }
             : m === "scheduled" ? { accountId: "a1", to: ["alice@fabrikam.com"], subject: "Scheduled one", bodyHtml: "<p>Scheduled text</p>", outboxId: "s1", sendAt: Math.floor(Date.now() / 1000) + 3 * 3600 }
+            : m === "reloaded" ? { accountId: "a1", to: ["linh.tran@acme.example"], subject: "As it was opened", bodyHtml: "<p>Handed over</p>" }
             : m === "new" ? {} : null;
-          return { kind, label: "compose-1", key: null, init };
+          // `mock=reloaded`: the page process of this window died and the window was loaded again (W4.2): the backend names the snapshot of the message (planted in localStorage by the test)
+          return { kind, label: "compose-1", key: null, init, reloaded: m === "reloaded", recoveryId: m === "reloaded" ? "snap-1" : null };
         }
         // the reader window in a plain browser tab: ?w=reader&thread=t1[&folder=inbox][&view=inbox]
         const id = q.get("thread") ?? "t1";

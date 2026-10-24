@@ -6790,6 +6790,73 @@ mod capability_tests {
         }
         assert!(!perms.contains(&"core:default"), "core:default also grants what a pop-out does not need");
     }
+
+    /// REQ-4.6.12 / 4.6.19 / 4.9.3: the windows of the four kinds that W4.6 adds each get a capability of their own with only what their view needs; the
+    /// windows of the first two kinds are not in them and they are not in popout.json; nothing grants one of them a command of the main window.
+    #[test]
+    fn the_event_search_scheduled_and_settings_windows_get_their_own_short_allowlists() {
+        let handler = handler_commands();
+        // what no secondary window ever gets (REQ-S2 and the quit, update and frame commands)
+        let never = [
+            "quit_now", "quit_cancelled", "sends_flushed", "quit_page_alive", "quit_dialog", "frontend_ready", "page_state", "page_pong", "popout_reply", "popout_save_all", "update_install",
+            "thread_action", "queue_action", "cancel_action", "sender_action", "prepare_action", "load_older", "frame_info", "frame_caption_rect", "frame_system_menu", "show_window", "set_mail_available",
+            "take_tray_compose", "idle_states", "window_caption_colors", "update_startup_state", "update_startup_ack", "refresh_badge", "sync_account", "popout_show", "popout_park", "popout_set_key",
+            "drag_begin", "drag_take", "send_message", "save_draft", "discard_draft", "recovery_save", "recovery_clear", "outbox_hold", "outbox_hold_send", "outbox_update", "outbox_reschedule", "create_mail_folder",
+        ];
+        // (kind, capability file, window pattern, what the view needs on top of the basics, what it must not get on top of `never`)
+        let kinds: [(&str, &str, &[&str], &[&str]); 4] = [
+            ("event", "event-*", &["calendar_get_event", "calendar_save_event", "calendar_delete_event", "calendar_list_calendars", "suggest_contacts", "list_accounts"], &[
+                "add_account", "update_account", "remove_account", "set_secret", "set_setting", "pgp_export_secret", "pgp_generate_key", "check_update", "update_download", "list_threads", "get_thread", "outbox_send_now", "popout_open", "calendar_connect", "calendar_respond",
+            ]),
+            ("search", "search-*", &["list_threads", "thread_meta", "locate_thread", "popout_open", "list_accounts", "list_folders"], &[
+                "add_account", "update_account", "remove_account", "set_secret", "set_setting", "pgp_export_secret", "pgp_generate_key", "check_update", "update_download", "get_thread", "get_raw", "calendar_save_event", "outbox_send_now", "cancel_outbox",
+            ]),
+            ("scheduled", "scheduled-*", &["list_outbox", "outbox_open_for_edit", "outbox_release", "outbox_retry", "outbox_send_now", "cancel_outbox", "outbox_to_draft", "pgp_unlock", "popout_open", "list_accounts"], &[
+                "add_account", "update_account", "remove_account", "set_secret", "set_setting", "pgp_export_secret", "pgp_generate_key", "check_update", "update_download", "list_threads", "get_thread", "calendar_save_event", "send_message",
+            ]),
+            ("settings", "settings-*", &["add_account", "update_account", "remove_account", "set_secret", "set_setting", "save_signature", "save_template", "save_rule", "pgp_generate_key", "pgp_export_secret", "check_update", "update_download", "update_defer", "calendar_connect", "get_autostart", "set_autostart"], &[
+                "list_threads", "get_thread", "get_raw", "calendar_save_event", "calendar_delete_event", "outbox_send_now", "cancel_outbox", "popout_open", "attachment_data",
+            ]),
+        ];
+        let pop = capability("popout.json");
+        let main = capability("default.json");
+        for (name, pattern, needs, must_not) in kinds {
+            let cap = capability(&format!("{name}.json"));
+            assert_eq!(windows(&cap), [pattern], "{name}: exactly its own windows");
+            assert!(!windows(&pop).iter().any(|w| w == pattern) && !windows(&main).iter().any(|w| w == pattern), "{name}: not in popout.json or default.json");
+            let ok = granted(&cap);
+            assert!(ok.is_subset(&handler), "{name}: granted but not a command: {:?}", ok.difference(&handler).collect::<Vec<_>>());
+            assert!(ok.len() < handler.len() / 2, "{name}: an allowlist, not everything");
+            for c in never {
+                assert!(handler.contains(c), "{c} is not a command any more: update this list");
+                assert!(!ok.contains(c), "{name}: a window of this kind may call {c}");
+            }
+            for &c in must_not {
+                assert!(handler.contains(c), "{c} is not a command any more: update this list");
+                assert!(!ok.contains(c), "{name}: a window of this kind may call {c}");
+            }
+            for c in needs.iter().chain(["popout_init", "popout_ready", "popout_note", "popout_request", "popout_flush_alive", "popout_flush_dialog", "popout_flush_done", "get_setting", "window_theme_refresh"].iter()) {
+                assert!(ok.contains(*c), "{name}: needs {c}");
+            }
+            let perms: Vec<&str> = cap["permissions"].as_array().unwrap().iter().filter_map(|p| p.as_str()).collect();
+            for p in &perms {
+                assert!(!p.contains("create-webview") && !p.contains("webview:allow") && !p.contains("allow-destroy") && !p.contains("set-fullscreen"), "{name}: {p}");
+            }
+            assert!(!perms.contains(&"core:default"), "{name}: core:default also grants what a window does not need");
+            for p in ["core:window:allow-close", "core:window:allow-set-title", "core:event:default"] {
+                assert!(perms.contains(&p), "{name}: {p}");
+            }
+        }
+        // the Settings window writes every setting but prefs (the backend refuses that, W4.9) and cannot restart the app by itself
+        let settings = granted(&capability("settings.json"));
+        assert!(settings.contains("set_setting") && !settings.contains("update_install") && !settings.contains("quit_now"));
+        // no other window is allowed to write settings
+        for name in ["event", "search", "scheduled"] {
+            assert!(!granted(&capability(&format!("{name}.json"))).contains("set_setting"), "{name}");
+        }
+        // the main window has the new commands too (the test above compares the whole list)
+        assert!(granted(&main).contains("window_caption_colors") && granted(&main).contains("popout_show"));
+    }
 }
 
 #[cfg(test)]

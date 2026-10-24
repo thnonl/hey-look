@@ -1,4 +1,4 @@
-import { Archive, BadgeCheck, Calendar, CalendarCheck, CalendarX, Check, CheckCheck, ChevronDown, Clock, Flag, FolderOpen, ListFilter, Lock, Mail, MailOpen, Paperclip, Pin, SearchX, ShieldAlert, Trash2 } from "lucide-react";
+import { Archive, BadgeCheck, Calendar, CalendarCheck, CalendarX, Check, CheckCheck, ChevronDown, Clock, ExternalLink, Flag, FolderOpen, ListFilter, Lock, Mail, MailOpen, Paperclip, Pin, SearchX, ShieldAlert, Trash2 } from "lucide-react";
 import { copyToClipboard, openExternal } from "../open";
 import { ReactNode, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { fmtNumber } from "../i18n/format";
@@ -21,6 +21,9 @@ import { endDrag, startMailDrag } from "../dragWire";
 import { ImportanceMark } from "./Importance";
 import { AcctName } from "./AcctName";
 import { useRowContextMenu } from "./ListContextMenu";
+import { openPopout } from "../popout/open";
+import { searchKey, SCHEDULED_KEY, type SearchInit } from "../popout/windowKinds";
+
 import { ScheduledList } from "./ScheduledList";
 import { EmptyState, SkeletonRows } from "./overlays";
 import { Avatar, Dropdown } from "./ui";
@@ -148,7 +151,7 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
   );
 }
 
-function HoverActions({ t }: { t: ThreadSummary }) {
+export function HoverActions({ t }: { t: ThreadSummary }) {
   const tr = useT();
   const { act, prefs, folder } = useStore();
   const ids = [t.threadId];
@@ -245,6 +248,11 @@ export function MessageList({ hidden = false }: { hidden?: boolean } = {}) {
   const title = searching ? tr("mail.list.searchResults") : folderLabel(folder);
   const scopeNote = searching ? (searchScope === "all" ? tr("mail.list.scopeAll") : searchScope === "account" ? tr("mail.list.scopeAccount") : tr("mail.list.scopeFolder", { folder: folderLabel(folder) })) : "";
   const showTabs = folder === "inbox" && prefs.focused && !searching;
+  /** The search as it is now, in a window of its own; the main window keeps its own (W4.6, REQ-4.6.13). */
+  const openSearchWindow = () => {
+    const init: SearchInit = { search: search.trim(), scope: searchScope, folder, accountId, filter };
+    void openPopout("search", searchKey(init), init);
+  };
   const multi = checked.size > 0;
   // W13.12: unread conversations of each tab, from the same folder numbers as the side menu (so they change together)
   const tabs = useMemo(() => tabCounts(folders, accountId), [folders, accountId]);
@@ -407,6 +415,12 @@ export function MessageList({ hidden = false }: { hidden?: boolean } = {}) {
             <h2 className="ellipsis">{title}</h2>
           )}
           <div className={`ml-tools ${iconFilter ? "icon-only" : ""}`}>
+            {/* (W4.6) the results of this search, or the Scheduled list, in a window of their own */}
+            {(searching || folder === "scheduled") && (
+              <button className="icon-btn ml-newwin" title={tr("app.cmd.openInWindow")} aria-label={tr("app.cmd.openInWindow")} onClick={searching ? openSearchWindow : () => void openPopout("scheduled", SCHEDULED_KEY, {})}>
+                <ExternalLink size={14} />
+              </button>
+            )}
             {showTabs && (
               <>
                 <span className="link-btn ml-filter-probe full" aria-hidden="true">

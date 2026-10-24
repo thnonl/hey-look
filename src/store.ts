@@ -32,6 +32,8 @@ import { fmtNumber } from "./i18n/format";
 import { calTz, CalView, Day, rangeFor, systemTz, today } from "./calendar";
 import { accentText, accountColor, buttonAccent, clampMaxDownload, DEFAULT_PREFS, lightened, mergePrefs, Prefs, readableOn, staleAccountPrefs, topBar, validHex } from "./prefs";
 import { captionColors, gradientT } from "./captionColors";
+import { settingsWindowOpen } from "./popout/popoutCount";
+import { SETTINGS_KEY, settingsTarget } from "./popout/windowKinds";
 import { darkTopBar } from "./topBarDark";
 
 /** `quiet`: the caller tells a failure itself. `onSaved`: the caller says "Draft saved" itself (the pane makes no toast). */
@@ -1454,7 +1456,14 @@ export const useStore = create<State>((set, get) => ({
   setComposeSaver: (composeSaver) => set({ composeSaver }),
   setComposeEnd: (composeEnd) => set({ composeEnd }),
   setComposeProbe: (composeProbe) => set({ composeProbe }),
-  setDialog: (dialog) => set({ dialog }),
+  setDialog: (dialog) => {
+    // while the Settings window exists every way of opening Settings (the gear, the command bar, a toast, the links of other windows) brings that window to the front on the asked tab
+    if (dialog?.type === "settings" && settingsTarget(settingsWindowOpen()) === "window") {
+      void import("./popout/open").then((m) => m.openPopout("settings", SETTINGS_KEY, { tab: dialog.tab, focus: dialog.focus, nonce: dialog.nonce ?? Date.now() }));
+      return;
+    }
+    set({ dialog });
+  },
   setCommandOpen: (commandOpen) => set({ commandOpen }),
   setRibbonTab: (ribbonTab) => set({ ribbonTab }),
 

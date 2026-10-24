@@ -12,7 +12,6 @@ import { parseComposeRequest } from "./composeRequests";
 import { fills } from "./composeFills";
 import { recoverOne } from "../composeRecovery";
 import { setPopoutCounts } from "./popoutCount";
-import { showMain } from "./mainRequests";
 
 interface Envelope {
   id: string;
@@ -100,35 +99,13 @@ export function handleComposeRequest(env: Envelope): boolean {
       fills.listening(env.from);
       break;
     case "pop-in":
-      void popIn(env, p.init as ComposeInit);
+      void import("./mainLazy").then((m) => m.popIn(env, p.init as ComposeInit));
       break;
-    case "pop-in-result": {
-      const pending = popIns.get(env.from);
-      void (pending ?? Promise.resolve(false)).then((opened) => reply(env, { opened }));
+    case "pop-in-result":
+      void import("./mainLazy").then((m) => m.popInResult(env));
       break;
-    }
   }
   return true;
-}
-
-/** The "Move to main window" asks of the compose windows that wait for the main window's question, by window label. */
-const popIns = new Map<string, Promise<boolean>>();
-const reply = (env: Envelope, data: unknown) => void api.popoutReply(env.from, env.id, true, data, null).catch(() => undefined);
-
-/**
- * A compose window moves its message back to the main window (W4.5): the main window comes forward (from the tray, restored when minimized) and opens the message in its inline
- * Compose. When the pane holds a message with changes the existing "unsent" question comes first; Keep writing leaves everything as it was. The window is told at once
- * when the question is open ("asking"), and asks for the result after it (it waits as long as the question is open).
- */
-async function popIn(env: Envelope, init: ComposeInit): Promise<void> {
-  const st = useStore.getState();
-  showMain();
-  const opening = st.openCompose(init).then(() => useStore.getState().compose === init);
-  popIns.set(env.from, opening);
-  const quick = await Promise.race([opening, new Promise<null>((r) => setTimeout(() => r(null), 150))]);
-  if (quick === null) return reply(env, { state: "asking" });
-  popIns.delete(env.from);
-  reply(env, { opened: quick });
 }
 
 /** A window was ended because its page process died twice (W4.2): say so, and save what a compose window held. */
@@ -142,6 +119,7 @@ export function startComposeHub(): () => void {
   const subs = [
     listen<Envelope>("popout-request", (e) => void handleComposeRequest(e.payload)),
     listen<{ compose?: number; reader?: number }>("popout-count", (e) => setPopoutCounts(e.payload)),
+    listen<{ what?: unknown; from?: unknown }>("data-changed", (e) => void import("./mainLazy").then((m) => m.handleDataChanged(e.payload ?? {}))),
     listen<{ label?: unknown; kind?: unknown; recoveryId?: unknown }>("popout-crashed", (e) => handlePopoutCrashed(e.payload ?? {})),
   ];
   return () => subs.forEach((s) => void s.then((off) => off()).catch(() => undefined));

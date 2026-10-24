@@ -1,5 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
-import { KeyRound, Lock, Plus, Trash2, Upload, Volume2 } from "lucide-react";
+import { ExternalLink, KeyRound, Lock, Plus, Trash2, Upload, Volume2 } from "lucide-react";
+import { openPopout } from "../popout/open";
+import { SETTINGS_KEY } from "../popout/windowKinds";
 import { openUpdateLink } from "../updates";
 import { Grip, useAccountReorder } from "./AccountReorder";
 import { ABOUT_LINKS } from "../aboutLinks";
@@ -1587,7 +1589,7 @@ function SecurityPanel({ scope }: { scope: string | null }) {
   );
 }
 
-type MbTab = "profile" | "composing" | "signatures" | "templates" | "filters" | "notifications" | "reading" | "calendar" | "security" | "folders" | "server";
+export type MbTab = "profile" | "composing" | "signatures" | "templates" | "filters" | "notifications" | "reading" | "calendar" | "security" | "folders" | "server";
 
 /** The sections of a mailbox (scope = account id) or of "All accounts" (null). They are listed under the mailbox in the Settings navigation. */
 function mailboxSections(scope: string | null, accounts: Account[]): [MbTab, Key][] {
@@ -2059,13 +2061,21 @@ const MORE: [string, Key][] = [
   ["ai", "settings.ai.title"], ["shortcuts", "settings.nav.shortcuts"], ["about", "settings.about.title"],
 ];
 
-export function Settings({ initial, focus, nonce }: { initial?: string; focus?: string; nonce?: number }) {
+/**
+ * Settings, as a dialog of the main window or (`windowed`, W4.6) as the page of the Settings window. `section`: the section of a mailbox page it opens on (a dialog that moved into
+ * the window keeps it).
+ */
+export function Settings({ initial, focus, nonce, section, windowed }: { initial?: string; focus?: string; nonce?: number; section?: MbTab; windowed?: boolean }) {
   const t = useT();
   const { setDialog, accounts, prefs } = useStore();
   const start = initial === "accounts" ? "mb:all" : initial === "notifications" ? "tray" : initial;
   const [tab, setTab] = useState<string>(start || (accounts.length === 0 ? "add-account" : "general"));
-  const [mbTab, setMbTab] = useState<MbTab>(focus === "loadRemote" || focus === "maxDownload" ? "reading" : focus === "security" ? "security" : focus === "calendar" ? "calendar" : "composing");
+  const [mbTab, setMbTab] = useState<MbTab>(section ?? (focus === "loadRemote" || focus === "maxDownload" ? "reading" : focus === "security" ? "security" : focus === "calendar" ? "calendar" : "composing"));
   const close = () => setDialog(null);
+  /** "Open in new window": the Settings window opens on this tab and section, the dialog closes (REQ-4.6.8) */
+  const popOut = async () => {
+    if (await openPopout("settings", SETTINGS_KEY, { tab, section: mbTab })) setDialog(null);
+  };
   const navRef = useRef<HTMLElement>(null);
   const reorder = useAccountReorder(navRef);
   // Settings is already open and something asks for a tab (toast "What’s new", Command bar, the gear with a dot): switch to it
@@ -2129,7 +2139,19 @@ export function Settings({ initial, focus, nonce }: { initial?: string; focus?: 
   );
 
   return (
-    <Modal title={t("settings.title")} onClose={close} wide>
+    <Modal
+      title={t("settings.title")}
+      onClose={close}
+      wide
+      windowed={windowed}
+      headExtra={
+        windowed ? undefined : (
+          <button className="icon-btn" title={t("app.cmd.openInWindow")} aria-label={t("app.cmd.openInWindow")} onClick={() => void popOut()}>
+            <ExternalLink size={14} />
+          </button>
+        )
+      }
+    >
       <div className="settings">
         <nav className="settings-nav" aria-label={t("settings.nav.sections")} ref={navRef}>
           <div className="nav-label">{t("settings.nav.app")}</div>

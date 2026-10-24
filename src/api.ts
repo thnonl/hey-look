@@ -1,7 +1,10 @@
-import { Channel, invoke } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
+import { Channel, invoke as tauriInvoke, type InvokeArgs, type InvokeOptions } from "@tauri-apps/api/core";
+import { DATA_CHANGING } from "./popout/windowKinds";
 import { slimDraft } from "./draftUpload";
 import { t } from "./i18n";
 import type { RecoveredDraft, RecoveryInfo, RecoveryLoaded, SnapshotOut } from "./recovery";
+import type { PopoutKind } from "./popout/route";
 import type { Importance } from "./importance";
 import type { ThreadHome } from "./notifyOpen";
 
@@ -554,7 +557,7 @@ export interface PopoutOpened {
 }
 /** What a secondary window learns about itself (`popout_init`). */
 export interface PopoutInfo {
-  kind: "compose" | "reader";
+  kind: PopoutKind;
   label: string;
   key: string | null;
   /** the hand-off data the opener left in the backend (never in the address) */
@@ -563,6 +566,17 @@ export interface PopoutInfo {
   reloaded?: boolean;
   /** a compose window: the id of the crash snapshot of its message (the window reported it with `popoutNote("recovery", id)`) */
   recoveryId?: string | null;
+}
+
+/**
+ * Every command goes through here. One that changes a list that other windows show (accounts, signatures, templates, rules, PGP keys, the calendar connections) tells every window
+ * when it succeeded (`data-changed { what }`, REQ-4.6.4): the main window and the Settings window then read the lists again.
+ */
+async function invoke<T>(cmd: string, args?: InvokeArgs, options?: InvokeOptions): Promise<T> {
+  const result = await tauriInvoke<T>(cmd, args, options);
+  const what = DATA_CHANGING[cmd];
+  if (what) void emit("data-changed", { what, from: (window as unknown as { __TAURI_INTERNALS__?: { metadata?: { currentWindow?: { label?: string } } } }).__TAURI_INTERNALS__?.metadata?.currentWindow?.label ?? "main" }).catch(() => undefined);
+  return result;
 }
 
 export const api = {
@@ -709,7 +723,7 @@ export const api = {
   /** The quit waits (`true`, for 60 s at most, and the window is brought to the front) or no longer waits (`false`) for an answer of the person. */
   quitDialog: (open: boolean) => invoke<void>("quit_dialog", { open }),
   /** Open a secondary window ("compose" | "reader"), or focus the one that already shows `key`; `init` waits in the backend for the new page. */
-  popoutOpen: (kind: "compose" | "reader", key?: string | null, init?: unknown, focusOnly?: boolean) => invoke<PopoutOpened>("popout_open", { kind, key: key ?? null, init: init ?? null, focusOnly: focusOnly ?? null }),
+  popoutOpen: (kind: PopoutKind, key?: string | null, init?: unknown, focusOnly?: boolean) => invoke<PopoutOpened>("popout_open", { kind, key: key ?? null, init: init ?? null, focusOnly: focusOnly ?? null }),
   /** A secondary window asks who it is; `token` is the one in its address. */
   popoutInit: (token: string) => invoke<PopoutInfo>("popout_init", { token }),
   /** A secondary window's page is up (it listens for the quit request): the backend shows the window. */
