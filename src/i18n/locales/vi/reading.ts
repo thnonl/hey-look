@@ -66,6 +66,7 @@ export default defineLocale<typeof ns.en>({
   "reading.head.setupAi": "Thiết lập AI",
   "reading.head.summaryTitle": "Tóm tắt cuộc trò chuyện",
   "reading.head.summaryCut": "Chỉ phần đầu của cuộc trò chuyện dài này được tóm tắt.",
+  "reading.head.summaryNoConf": "Các thư mật trong cuộc trò chuyện này đã được bỏ qua.",
   "reading.head.blockTitle": "Chặn {email}?",
   "reading.head.blockBody": "Thư từ người gửi này sẽ được chuyển vào Thư rác và người gửi được thêm vào Người gửi bị chặn (Cài đặt → Người gửi bị chặn), nơi bạn có thể hoàn tác.",
   "reading.head.blockConfirm": "Chặn người gửi",

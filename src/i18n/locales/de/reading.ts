@@ -67,6 +67,7 @@ export default defineLocale<typeof ns.en>({
   "reading.head.setupAi": "KI einrichten",
   "reading.head.summaryTitle": "Zusammenfassung der Unterhaltung",
   "reading.head.summaryCut": "Nur der erste Teil dieser langen Unterhaltung wurde zusammengefasst.",
+  "reading.head.summaryNoConf": "Vertrauliche Nachrichten in dieser Unterhaltung wurden ausgelassen.",
   "reading.head.blockTitle": "{email} blockieren?",
   "reading.head.blockBody": "E-Mails dieses Absenders werden in den Ordner „Spam“ verschoben und der Absender wird zu den blockierten Absendern hinzugefügt (Einstellungen → Blockierte Absender). Dort können Sie das rückgängig machen.",
   "reading.head.blockConfirm": "Absender blockieren",

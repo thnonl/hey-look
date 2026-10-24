@@ -67,6 +67,7 @@ export default defineLocale<typeof ns.en>({
   "reading.head.setupAi": "Настроить ИИ",
   "reading.head.summaryTitle": "Краткий пересказ беседы",
   "reading.head.summaryCut": "Пересказана только первая часть этой длинной беседы.",
+  "reading.head.summaryNoConf": "Конфиденциальные письма этой беседы не включены в пересказ.",
   "reading.head.blockTitle": "Заблокировать {email}?",
   "reading.head.blockBody": "Письма от этого отправителя будут перемещаться в спам, а сам он будет добавлен в список заблокированных отправителей (Настройки → Заблокированные отправители), где блокировку можно отменить.",
   "reading.head.blockConfirm": "Заблокировать отправителя",

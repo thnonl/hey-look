@@ -145,7 +145,13 @@ if (new URLSearchParams(window.location.hash.slice(1)).has("wp8")) {
   threads.unshift(
     t("tw8-sel", "Budget notes", ["Linh Tran"], "Quarterly budget review moved to Friday", 0.1 * H, { unread: 1 }),
     t("tw8-mailto", "WP8 mailto links", ["Linh Tran"], "Email links for the new message", 0.2 * H, { unread: 1 }),
+    t("tw8-mix", "WP8 mixed conversation", ["Linh Tran"], "Plain and Confidential messages", 0.3 * H, { unread: 1, confidential: true }),
   );
+  // W8.3: one plain and one Confidential message (the second is 6,000 characters long, so a request that carried it is easy to tell from the request counts: chars)
+  mockThreadMsgs["tw8-mix"] = [
+    secMsg("m-wp8-mix1", "WP8 mixed conversation", "Linh Tran", "linh@example.com", { seen: false }, "<p>Plain first message.</p>"),
+    secMsg("m-wp8-mix2", "WP8 mixed conversation", "Linh Tran", "linh@example.com", { seen: false, confidential: true }, "<p>ZEBRA-CONF " + "x".repeat(6000) + "</p>"),
+  ];
   mockThreadMsgs["tw8-sel"] = [secMsg("m-wp8-sel", "Budget notes", "Linh Tran", "linh@example.com", { seen: false }, "<p id=\"q\">Quarterly budget review moved to Friday</p><p id=\"long\">one two three four five six seven eight nine ten eleven twelve</p><p id=\"ops\">from:boss subject:\"pay\" Re: invoice</p><p>Write to <a id=\"mail\" href=\"mailto:boss@example.test\">boss@example.test</a></p>")];
   mockThreadMsgs["tw8-mailto"] = [secMsg("m-wp8-mailto", "WP8 mailto links", "Linh Tran", "linh@example.com", { seen: false }, [
     "<p><a id=\"l1\" href=\"mailto:qa1@example.test\">one address</a></p>",

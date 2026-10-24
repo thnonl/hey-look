@@ -68,6 +68,7 @@ export default define({
     "reading.head.setupAi": "Set up AI",
     "reading.head.summaryTitle": "Conversation summary",
     "reading.head.summaryCut": "Only the first part of this long conversation was summarized.",
+    "reading.head.summaryNoConf": "Confidential messages in this conversation were left out.",
     "reading.head.blockTitle": "Block {email}?",
     "reading.head.blockBody": "Mail from this sender moves to Junk and they are added to Blocked senders (Settings → Blocked senders), where you can undo it.",
     "reading.head.blockConfirm": "Block sender",

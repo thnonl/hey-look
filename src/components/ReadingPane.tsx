@@ -6,6 +6,7 @@ import { guardFrame } from "../contextGuard";
 import { Archive, Clock, ExternalLink, Flag, Forward, MailX, MoreHorizontal, Moon, Pin, Reply, ReplyAll, Sparkles, Sun, Trash2, ChevronsDownUp, ChevronsUpDown, Mail, ShieldAlert, AlertTriangle } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { mailFrameStats, writeMailDocument } from "../mailFrame";
+import { aiAvailability } from "../aiAvailability";
 import { forward, mailtoCompose, replyTo } from "../actions";
 import { useAnswerBusy } from "../answerBusy";
 import { answerKey } from "../popout/entry";
@@ -893,7 +894,7 @@ export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boole
                 },
                 { label: t("reading.msg.copySender"), onClick: () => void copyToClipboard(m.fromEmail).then((ok) => (ok ? showToast(t("reading.msg.copied")) : showToast(() => t("mail.ctx.copyFailed"), undefined, "error"))) },
                 { divider: true },
-                ...TRANSLATE_TO.map((l) => ({ label: t("reading.msg.translateTo", { lang: t(l.key) }), onClick: () => translate(l), disabled: needsCard(m) || conf })),
+                ...TRANSLATE_TO.map((l) => ({ label: t("reading.msg.translateTo", { lang: t(l.key) }), onClick: () => translate(l), disabled: needsCard(m) || conf, title: needsCard(m) ? t("reading.ai.unlockThis") : conf ? t("reading.ai.noConfidential") : undefined })),
                 ...(m.canUnsubscribe ? [{ divider: true }, { label: t("reading.msg.unsubscribe"), disabled: unsubBusy, onClick: () => void unsub() }] : []),
                 ...(m.attachments.length ? [{ divider: true }, { label: t("reading.msg.saveAllAtt"), disabled: conf, onClick: () => void saveAll(false) }] : []),
               ]}
@@ -1012,6 +1013,8 @@ export function ReadingPane() {
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const [summary, setSummary] = useState<string | null>(null);
   const [summaryCut, setSummaryCut] = useState(false); // the conversation was longer than what was sent: the card says so
+  const [summaryNoConf, setSummaryNoConf] = useState(false); // confidential messages of the conversation were left out of the summary: the card says so (W8.3)
+  const avail = aiAvailability(messages);
   const ai = useAiSlot("summarize");
   const summ = threads.find((th) => th.threadId === selected);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -1041,6 +1044,7 @@ export function ReadingPane() {
   useEffect(() => {
     setSummary(null);
     setSummaryCut(false);
+    setSummaryNoConf(false);
     setOpenIds(new Set(messages.length ? [messages[messages.length - 1].id] : []));
   }, [selected, messages.length]);
 
@@ -1074,13 +1078,18 @@ export function ReadingPane() {
   const allOpen = messages.length > 0 && openIds.size === messages.length;
 
   const summarize = async () => {
+    // a conversation that is all confidential: the button is greyed with the reason; a stale click still gets the same sentence, never a request, and never "Set up AI" (W8.3)
+    if (aiAvailability(messages) === "off-confidential") {
+      showToast(t("reading.ai.noConfidential"), undefined, "info");
+      return;
+    }
     if (!(await aiReady())) {
       showAiNotSetUp("summarize");
       return;
     }
     const readable = messages.filter((m) => !needsCard(m) && !m.confidential);
     if (readable.length === 0) {
-      showToast(messages.some((m) => m.confidential) ? t("reading.ai.noConfidential") : t("reading.ai.unlockEncrypted"), undefined, "info");
+      showToast(t("reading.ai.unlockEncrypted"), undefined, "info"); // (only locked messages are left: unlocking one makes it readable)
       return;
     }
     const { body, cut } = summaryBody(readable.map((m) => ({ head: `From: ${m.fromName} <${m.fromEmail}>\nDate: ${fmtFull(m.date)}`, text: m.text ?? "" })));
@@ -1093,7 +1102,7 @@ export function ReadingPane() {
     );
     if (!out) return; // a click while one is under way, or Cancel: nothing to show
     if ("error" in out) showAiProblem(out.error, { feature: "summarize", retry: () => void summarize(), tied: true });
-    else (setSummary(out.text), setSummaryCut(cut));
+    else (setSummary(out.text), setSummaryCut(cut), setSummaryNoConf(messages.some((m) => m.confidential)));
   };
 
   const block = async () => {
@@ -1157,10 +1166,10 @@ export function ReadingPane() {
           <button
             className="btn small ai-btn"
             onClick={summarize}
-            disabled={ai.running}
-            title={aiConfigured ? t("reading.head.summarizeTip") : t("reading.head.setupAiTip")}
+            disabled={ai.running || avail === "off-confidential"}
+            title={avail === "off-confidential" ? t("reading.ai.noConfidential") : aiConfigured ? t("reading.head.summarizeTip") : t("reading.head.setupAiTip")}
           >
-            <Sparkles size={13} /> {ai.running ? t("reading.head.summarizing") : aiConfigured ? t("reading.head.summarize") : t("reading.head.setupAi")}
+            <Sparkles size={13} /> {ai.running ? t("reading.head.summarizing") : aiConfigured || avail === "off-confidential" ? t("reading.head.summarize") : t("reading.head.setupAi")}
           </button>
         </div>
       </div>
@@ -1177,6 +1186,7 @@ export function ReadingPane() {
           <b><Sparkles size={13} /> {t("reading.head.summaryTitle")}</b>
           <div className="pre">{summary}</div>
           {summaryCut && <div className="muted small tr-hint">{t("reading.head.summaryCut")}</div>}
+          {summaryNoConf && <div className="muted small tr-hint">{t("reading.head.summaryNoConf")}</div>}
         </div>
       )}
       <RpBody key={selected} pending={opening} heavy={isHeavy(last)} printing={printing} bodyRef={bodyRef}>

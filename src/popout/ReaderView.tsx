@@ -13,6 +13,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, u
 import { forward, replyTo } from "../actions";
 import { api, type MessageFull } from "../api";
 import { copyToClipboard } from "../open";
+import { aiAvailability } from "../aiAvailability";
 import { AiRunning, hasFrame, MessageCard, TRANSLATE_TO, translateMessage, useKeepReadingPosition } from "../components/ReadingPane";
 import { isHeavy, RpBody, useOpeningPending } from "../openStatus";
 import { usePrinting } from "../printStatus";
@@ -95,6 +96,7 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const [summary, setSummary] = useState<string | null>(null);
   const [summaryCut, setSummaryCut] = useState(false); // the conversation was longer than what was sent: the card says so
+  const [summaryNoConf, setSummaryNoConf] = useState(false); // confidential messages of the conversation were left out of the summary: the card says so (W8.3)
   const [, redraw] = useReducer((n: number) => n + 1, 0);
   const ai = useAiSlot("summarize");
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -258,6 +260,7 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
   useEffect(() => {
     setSummary(null);
     setSummaryCut(false);
+    setSummaryNoConf(false);
     setOpenIds(new Set(messages.length ? [messages[messages.length - 1].id] : []));
   }, [messages.length]);
   useEffect(() => ai.cancel, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -371,15 +374,21 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
     const frames = document.querySelectorAll<HTMLIFrameElement>(".rp-msg.open iframe.msg-frame");
     frames[frames.length - 1]?.contentWindow?.print();
   };
+  const avail = aiAvailability(messages);
   const summarize = async () => {
+    const st = useStore.getState();
+    // all confidential: greyed with the reason, a stale click gets the same sentence and no request, never "Set up AI" (W8.3)
+    if (aiAvailability(messages) === "off-confidential") {
+      st.showToast(t("reading.ai.noConfidential"), undefined, "info");
+      return;
+    }
     if (!(await aiReady())) {
       showAiNotSetUp("summarize"); // its button opens Settings in the main window
       return;
     }
     const readable = messages.filter((m) => !needsCard(m) && !m.confidential);
-    const st = useStore.getState();
     if (readable.length === 0) {
-      st.showToast(messages.some((m) => m.confidential) ? t("reading.ai.noConfidential") : t("reading.ai.unlockEncrypted"), undefined, "info");
+      st.showToast(t("reading.ai.unlockEncrypted"), undefined, "info"); // (only locked messages are left)
       return;
     }
     const { body, cut } = summaryBody(readable.map((m) => ({ head: `From: ${m.fromName} <${m.fromEmail}>\nDate: ${fmtFull(m.date)}`, text: m.text ?? "" })));
@@ -391,7 +400,7 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
     );
     if (!out) return;
     if ("error" in out) showAiProblem(out.error, { feature: "summarize", retry: () => void summarize() });
-    else (setSummary(out.text), setSummaryCut(cut));
+    else (setSummary(out.text), setSummaryCut(cut), setSummaryNoConf(messages.some((m) => m.confidential)));
   };
 
   // keys (REQ-R13): the table is readerKey; nothing while typing, nothing behind a dialog
@@ -505,14 +514,14 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
             { label: t("reading.msg.createEvent"), disabled: !last, onClick: () => last && useStore.getState().setDialog({ type: "event", init: { summary: last.subject.replace(/^((re|fwd?):\s*)+/i, ""), description: conf ? "" : (last.text ?? "").trim().slice(0, 1500) } }) },
             { label: t("reading.msg.copySender"), disabled: !sender, onClick: () => sender && void copyToClipboard(sender).then((ok) => (ok ? useStore.getState().showToast(t("reading.msg.copied")) : useStore.getState().showToast(() => t("mail.ctx.copyFailed"), undefined, "error"))) },
             { divider: true },
-            ...TRANSLATE_TO.map((l) => ({ label: t("reading.msg.translateTo", { lang: t(l.key) }), disabled: conf || !last || needsCard(last), onClick: () => last && translateMessage(last, l) })),
+            ...TRANSLATE_TO.map((l) => ({ label: t("reading.msg.translateTo", { lang: t(l.key) }), disabled: conf || !last || needsCard(last), title: last && needsCard(last) ? t("reading.ai.unlockThis") : conf ? t("reading.ai.noConfidential") : undefined, onClick: () => last && translateMessage(last, l) })),
           ]}
         >
           <MoreHorizontal size={16} />
         </Dropdown>
-        <button className="rb ai-btn grow" onClick={summarize} disabled={ai.running || messages.length === 0} title={aiConfigured ? t("reading.head.summarizeTip") : t("reading.head.setupAiTip")}>
+        <button className="rb ai-btn grow" onClick={summarize} disabled={ai.running || messages.length === 0 || avail === "off-confidential"} title={avail === "off-confidential" ? t("reading.ai.noConfidential") : aiConfigured ? t("reading.head.summarizeTip") : t("reading.head.setupAiTip")}>
           <Sparkles size={16} />
-          <span>{ai.running ? t("reading.head.summarizing") : aiConfigured ? t("reading.head.summarize") : t("reading.head.setupAi")}</span>
+          <span>{ai.running ? t("reading.head.summarizing") : aiConfigured || avail === "off-confidential" ? t("reading.head.summarize") : t("reading.head.setupAi")}</span>
         </button>
       </div>
       {gone && (
@@ -551,6 +560,7 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
             <b><Sparkles size={13} /> {t("reading.head.summaryTitle")}</b>
             <div className="pre">{summary}</div>
             {summaryCut && <div className="muted small tr-hint">{t("reading.head.summaryCut")}</div>}
+            {summaryNoConf && <div className="muted small tr-hint">{t("reading.head.summaryNoConf")}</div>}
           </div>
         )}
         <RpBody pending={opening} heavy={isHeavy(last)} after={0} min={0} printing={printing} bodyRef={bodyRef}>

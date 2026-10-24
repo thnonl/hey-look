@@ -66,6 +66,7 @@ export default defineLocale<typeof ns.en>({
   "reading.head.setupAi": "Configurer l’IA",
   "reading.head.summaryTitle": "Résumé de la conversation",
   "reading.head.summaryCut": "Seule la première partie de cette longue conversation a été résumée.",
+  "reading.head.summaryNoConf": "Les messages confidentiels de cette conversation ont été exclus.",
   "reading.head.blockTitle": "Bloquer {email} ?",
   "reading.head.blockBody": "Les messages de cet expéditeur iront dans Courrier indésirable et l’expéditeur sera ajouté aux Expéditeurs bloqués (Paramètres → Expéditeurs bloqués), où vous pourrez annuler.",
   "reading.head.blockConfirm": "Bloquer l’expéditeur",

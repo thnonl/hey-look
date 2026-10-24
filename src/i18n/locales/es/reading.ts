@@ -67,6 +67,7 @@ export default defineLocale<typeof ns.en>({
   "reading.head.setupAi": "Configurar IA",
   "reading.head.summaryTitle": "Resumen de la conversación",
   "reading.head.summaryCut": "Solo se resumió la primera parte de esta conversación tan larga.",
+  "reading.head.summaryNoConf": "Se omitieron los mensajes confidenciales de esta conversación.",
   "reading.head.blockTitle": "¿Bloquear a {email}?",
   "reading.head.blockBody": "El correo de este remitente se mueve a Correo no deseado y se añade a Remitentes bloqueados (Configuración → Remitentes bloqueados), donde puedes deshacerlo.",
   "reading.head.blockConfirm": "Bloquear remitente",
