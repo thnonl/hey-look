@@ -2534,7 +2534,7 @@ Probe (any page of docs/ in Safari/Epiphany/WebKitGTK; run on index.html of ru, 
 | WK-49.02 | Mac, Linux | the same at 700 and 1280 px | probe | every item <= 74; item 3 at most 2 lines (<= 44) in ru, de, fr, es | OPEN |
 | WK-49.03 | Mac, Linux | vi and ja (not changed) at 375 | probe | every item <= 74 (they are at 95 % of the 3rd line in Windows Chrome: report the heights; if a 4th line appears, fix49b shortens them) | OPEN |
 
-## 49. fix47 (coder, `feature/v107-fix47`, REQ-13.13.12 / D-067 on CI): the shell of a Reply draws the expected recipients invisibly
+## 50. fix47 (coder, `feature/v107-fix47`, REQ-13.13.12 / D-067 on CI): the shell of a Reply draws the expected recipients invisibly
 
 What changed that is visible: the To and Cc rows of the Reply / Reply all shell now have the height of the finished message even when the recipients wrap onto a second line (many or long addresses, a wide font). The recipients the answer is expected to have (from the message as stored, the same data as the existing fallback) are drawn in the shell as chips with `visibility:hidden` (same markup, `GhostChips.tsx`; `aria-hidden`, not focusable). Nothing new is readable in the shell. One difference: the empty To box of a Reply shell no longer shows its "name@example.com" placeholder (a ghost chip is in the row). Cause of the CI failure (run 40088064175, Linux): with the wider Linux fonts two recipients plus the 140 px input wrap in a 628 px column, the row grows by 26 px at the fill and the Subject row moves; at 960 x 560 the header box is height-capped and the PGP strip that appears at the fill grows it by the part that fits (18 px), which the old test counted as a move although only the body moves (the test now accepts exactly that).
 
@@ -2546,7 +2546,47 @@ PASS (numbers), Mac (WKWebView) and Linux (WebKitGTK), light and dark, 960 x 560
 
 | ID | Platform | Look at | Probe | PASS (numbers) | Status |
 |---|---|---|---|---|---|
-| WK-49.01 | Mac, Linux | Reply all on a message with 4 long To and 3 long Cc addresses, pane 1280 x 800 and 960 x 560 | P-rows twice (shell, filled) or `reply-open-probe` | rows equal within 1 px; `rowsAdded` 0 | OPEN |
-| WK-49.02 | Mac, Linux | Reply all with 2 Cc (the stub fixture) with the system font of the machine, pane 1280 x 800 | P-rows | rows equal within 1 px (this is the CI case that failed: +26 px at 1280) | OPEN |
-| WK-49.03 | Mac, Linux | The same with the OpenPGP strip: an account with a key, a recipient without key, Encrypt "when possible" | P-rows + `document.querySelector('.cp-fmt').getBoundingClientRect().top` before / after | rows equal; `.cp-fmt` top grows by the height of `.sec-strip` or less | OPEN |
-| WK-49.04 | Mac, Linux | A plain Reply: the shell shows no readable recipient and no placeholder | screenshot of the shell | To row blank | OPEN |
+| WK-50.01 | Mac, Linux | Reply all on a message with 4 long To and 3 long Cc addresses, pane 1280 x 800 and 960 x 560 | P-rows twice (shell, filled) or `reply-open-probe` | rows equal within 1 px; `rowsAdded` 0 | OPEN |
+| WK-50.02 | Mac, Linux | Reply all with 2 Cc (the stub fixture) with the system font of the machine, pane 1280 x 800 | P-rows | rows equal within 1 px (this is the CI case that failed: +26 px at 1280) | OPEN |
+| WK-50.03 | Mac, Linux | The same with the OpenPGP strip: an account with a key, a recipient without key, Encrypt "when possible" | P-rows + `document.querySelector('.cp-fmt').getBoundingClientRect().top` before / after | rows equal; `.cp-fmt` top grows by the height of `.sec-strip` or less | OPEN |
+| WK-50.04 | Mac, Linux | A plain Reply: the shell shows no readable recipient and no placeholder | screenshot of the shell | To row blank | OPEN |
+
+### 44.3 WP8b (same section): the AI Assistant Advanced disclosure and the greyed Summarize (W8.2, W8.11, W8.3)
+
+What changes that is visible: Settings > AI Assistant ends with a closed `<details class="advanced">` (marker, "Advanced", then the Model list URL field, its hint, and for another server a warning plus a switch); Summarize is `disabled` with a title when the conversation is all Confidential, and a summary of a mixed conversation shows one more `tr-hint` line.
+
+Engine features relied on: `<details>`/`<summary>` with `::marker` or a custom marker (the native marker is kept; WebKit draws it left of the summary text, Chromium the same), `:disabled` styling, `title` on a disabled button (WKWebView shows the tooltip for disabled buttons only when the element is not `pointer-events:none`; the button keeps pointer events). No new CSS function.
+
+Probe (bridge `/eval`, Settings > AI Assistant open, details closed then open): `(()=>{const d=document.querySelector('details.advanced');const s=d.querySelector('summary');const f=document.getElementById('set-aiModelsUrl');const r=e=>e&&e.getBoundingClientRect();return JSON.stringify({open:d.open,sumH:r(s).height,sumTop:r(s).top,disp:getComputedStyle(s).display,field:f&&{w:r(f).width,h:r(f).height,phOver:f.scrollWidth-f.clientWidth},overflowX:document.documentElement.scrollWidth-innerWidth})})()`
+Summarize probe (reading pane on a Confidential-only conversation): `(()=>{const b=document.querySelector('.ai-btn');return JSON.stringify({dis:b.disabled,title:b.title,label:b.textContent.trim()})})()`
+
+| ID | Platform | Look at | Probe | PASS (numbers) | Status |
+|---|---|---|---|---|---|
+| WK-44.19 | Mac, Linux | AI Assistant tab at 960 x 560 and 1280 x 800, Advanced closed, then open | first probe | `open` false then true; `sumH` between 24 and 40; the Save button and status do not move when the disclosure toggles (top of `.ai-actions` equal within 1 px); `overflowX` 0 | OPEN |
+| WK-44.20 | Mac, Linux | The Model list URL field in fr, de, ru (longest hint and placeholder) | first probe | `field.phOver` 0 or the placeholder clipped with no scrollbar; field height 28 to 36; no wrapped label cut off (`overflowX` 0) | OPEN |
+| WK-44.21 | Mac, Linux | Another-server warning and the switch (set the list URL to `http://127.0.0.1:31842/v1/models` with the Base URL on 31841) | `document.getElementById('set-aiModelsUrl').closest('.form').scrollHeight` before and after typing | the warning and switch appear with no layout jump above the field; tab key order: field, switch; the icon sits on the text line (within 3 px) | OPEN |
+| WK-44.22 | Mac, Linux | Summarize on a Confidential-only conversation (main pane and reader window) | second probe | `dis` true, `title` equals the reading.ai.noConfidential text, `label` equals "Summarize" (never "Set up AI"); hover shows the tooltip | OPEN |
+| WK-44.23 | Mac, Linux | Summarize on a mixed conversation, summary card | `document.querySelectorAll('.summary .tr-hint').length` | 1 hint line with the "left out" text (2 if the conversation was also cut); no overflow, card width unchanged | OPEN |
+
+### 44.4 WP8c (same section): Confidential mail leftovers (W8.8a to W8.8e)
+
+What changes that is visible: (a) the Confidential look (shield in the list, banner, no copy) for mail whose label is in French, German, Spanish, Vietnamese, Russian, Japanese or Chinese; (b) the attachment preview has "n of m" and Previous / Next across the strip; (c) the popover and the dialog of a Confidential calendar event: Duplicate and Save .ics greyed with a tooltip, the window out of capture; (d) the Confidential banner text per system (Linux text) and Print Screen on Linux.
+
+Engine features relied on: `disabled` buttons with `title` (the tooltip of a disabled button is not shown by every WebKit: WK-44.26 looks), `ClipboardEvent` copy/cut cancelled with `preventDefault` on a div and a textarea (WKWebView and WebKitGTK honour it), `user-select:none` on a div (with `-webkit-` prefix; NOT on the textarea: Safari stops editing a textarea with `-webkit-user-select:none`, so the notes field uses event handlers only), `setContentProtected` (NSWindowSharingNone on macOS; Linux has none). No new CSS.
+
+Probes (bridge `/eval`):
+- P-pv (preview open): `(()=>{const n=document.querySelector('.pv-name');const x=document.querySelector('.pv-head .muted');return JSON.stringify({name:n&&n.textContent,of:x&&x.textContent,btns:[...document.querySelectorAll('.pv-head .btn')].map(b=>b.textContent.trim()),prevDis:document.querySelector('.pv-nav.prev')&&document.querySelector('.pv-nav.prev').disabled,nextDis:document.querySelector('.pv-nav.next')&&document.querySelector('.pv-nav.next').disabled})})()`
+- P-ev (event popover open): `(()=>{const p=document.querySelector('.ev-pop');const b=n=>{const e=[...p.querySelectorAll('.ev-foot button')].find(x=>(x.getAttribute('aria-label')||x.textContent).trim()===n);return e&&{dis:e.disabled,title:e.title,op:getComputedStyle(e).opacity}};const d=[...p.querySelectorAll('.ev-details .muted.small')].find(x=>x.textContent.length>3);const c=new ClipboardEvent('copy',{bubbles:true,cancelable:true});d&&d.dispatchEvent(c);return JSON.stringify({dup:b('Duplicate'),ics:b('Save .ics'),sel:d&&(getComputedStyle(d).userSelect||getComputedStyle(d).webkitUserSelect),copyPrevented:c.defaultPrevented,footH:p.querySelector('.ev-foot').getBoundingClientRect().height,popBottom:p.getBoundingClientRect().bottom,vh:innerHeight})})()`
+- P-banner: `(()=>{const b=document.querySelector('.conf-banner');const q=b.getBoundingClientRect();return JSON.stringify({text:b.textContent.trim(),over:b.scrollWidth-b.clientWidth,h:q.height,right:q.right,vw:innerWidth})})()`
+
+| ID | Platform | Look at | Probe | PASS (numbers) | Status |
+|---|---|---|---|---|---|
+| WK-44.24 | Mac, Linux | Mail with a.png, b.txt, c.pdf, d.zip: double-click a.png | P-pv, then ArrowRight x3, ArrowLeft | `of` "1 of 3"; after two ArrowRight the name is c.pdf (on Mac/Linux the PDF is PDF.js or the card per W5.1); the third keeps c.pdf with `nextDis` true; d.zip never shown | OPEN |
+| WK-44.25 | Mac, Linux | The same mail marked Confidential | P-pv | `of` "1 of 2"; `btns` empty (no Open, no Save as) | OPEN |
+| WK-44.26 | Mac, Linux | Popover of an event from Confidential mail (Add to calendar from a Confidential invitation) | P-ev, then hover Duplicate for 1.5 s | `dup.dis` and `ics.dis` true, both `title` equal to calendar.pop.confidentialOff of the language; `op` between 0.35 and 0.65; `copyPrevented` true; `popBottom` <= `vh`; the tooltip shows on hover (if WebKit shows none on a disabled button: report it, the text is still the `title`) | OPEN |
+| WK-44.27 | Mac | Screenshot (Cmd+Shift+3 / 4, screenshot tool) while that popover and then the event dialog (Edit) is open | screen shot file | the Hey Look! window is black or absent in the capture; normal again after the popover and dialog close | OPEN |
+| WK-44.28 | Mac, Linux | Select the notes of the event dialog (Confidential event) and press Cmd/Ctrl+C, Cmd/Ctrl+X, right-click | paste elsewhere | nothing arrives in the clipboard from the field; typing in the field still works (the textarea is editable) | OPEN |
+| WK-44.29 | Mac | Banner of a Confidential message in en, de, ja at 960 x 560 | P-banner | `text` is the new reading.protect.note (names the AI Assistant); `over` <= 1; `h` < 5 lines (90 px); `right` <= `vw` | OPEN |
+| WK-44.30 | Linux | Banner of a Confidential message in en, de, ja, ru at 960 x 560 | P-banner | `text` is reading.protect.noteLinux (ends with the Linux limit sentence); `over` <= 1; `h` < 5 lines | OPEN |
+| WK-44.31 | Linux | Press Print Screen with a Confidential message open | `document.querySelector('.toasts').textContent` after 0.5 s | no "Screen capture is turned off" text | OPEN |
+| WK-44.32 | Mac, Linux | Mails with the labels of the 8 fixtures of AC-8.8a.1 arrive (kit) | list row shield + P-banner | each shows the shield and the banner; the 10 negated/never fixtures show neither | OPEN |
