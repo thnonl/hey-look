@@ -13,7 +13,7 @@ use pgp::crypto::sym::SymmetricKeyAlgorithm;
 use pgp::packet::{PacketTrait, Subpacket, SubpacketData};
 use pgp::packet::{SignatureConfig, SignatureType};
 use pgp::ser::Serialize as PgpSerialize;
-use pgp::types::{KeyDetails as _, Password, PublicParams, SecretParams, SigningKey};
+use pgp::types::{KeyDetails as _, KeyVersion, Password, PublicParams, S2kParams, SecretParams, SigningKey, StringToKey};
 use rand08::thread_rng;
 use serde::Serialize;
 use std::io::Cursor;
@@ -246,9 +246,9 @@ pub fn generate(algo: Algo, user_id: &str, expires_days: Option<u32>, passphrase
         Algo::Cv25519 => (KeyType::Ed25519Legacy, KeyType::ECDH(ECCCurve::Curve25519Legacy)),
         Algo::Rsa3072 => (KeyType::Rsa(3072), KeyType::Rsa(3072)),
     };
-    let pw = (!passphrase.is_empty()).then(|| passphrase.to_string());
+    // generated unlocked and locked at the end with `lock_with`, so the S2K is ours (S2K_COUNT) and not rPGP's weaker default (W6.10)
     let mut sub = SubkeyParamsBuilder::default();
-    sub.key_type(enc).can_encrypt(EncryptionCaps::All).can_sign(false).can_authenticate(false).passphrase(pw.clone());
+    sub.key_type(enc).can_encrypt(EncryptionCaps::All).can_sign(false).can_authenticate(false);
     let mut params = SecretKeyParamsBuilder::default();
     params
         .key_type(primary)
@@ -256,14 +256,14 @@ pub fn generate(algo: Algo, user_id: &str, expires_days: Option<u32>, passphrase
         .can_sign(true)
         .can_encrypt(EncryptionCaps::None)
         .primary_user_id(user_id.to_string())
-        .passphrase(pw)
         .preferred_symmetric_algorithms(smallvec::smallvec![SymmetricKeyAlgorithm::AES256, SymmetricKeyAlgorithm::AES128])
         .preferred_hash_algorithms(smallvec::smallvec![HashAlgorithm::Sha256, HashAlgorithm::Sha512])
         .subkeys(vec![sub.build().map_err(err)?]);
     let mut key = params.build().map_err(err)?.generate(thread_rng()).map_err(err)?;
     if expires_days.is_some() {
-        set_expiry(&mut key, passphrase, expires_days)?;
+        set_expiry(&mut key, "", expires_days)?;
     }
+    lock_with(&mut key, passphrase)?;
     Ok(key)
 }
 
@@ -321,18 +321,62 @@ pub fn unlock_clone(sk: &SignedSecretKey, passphrase: &str) -> R<SignedSecretKey
     Ok(c)
 }
 
+/// The coded iteration count of the S2K every key locked here uses: the highest one an Iterated+Salted S2K can say (RFC 4880 3.7.1.3), 65,011,712 bytes hashed per
+/// try, GnuPG's default. rPGP's own default is 224 (16,777,216 bytes), four times less work for someone who guesses passphrases against a stolen database (W6.10).
+pub const S2K_COUNT: u8 = 255;
+
+/// The number of bytes hashed for a coded S2K count: `(16 + (c & 15)) << ((c >> 4) + 6)`.
+pub fn s2k_count_bytes(coded: u8) -> u64 {
+    (16 + u64::from(coded & 15)) << (u32::from(coded >> 4) + 6)
+}
+
+/// How a secret key packet of this version is locked: v4 AES-256 CFB with an Iterated+Salted SHA-256 S2K at `S2K_COUNT`; v6 as rPGP does (AES-256 OCB, Argon2id, 64 MiB).
+fn lock_params(version: KeyVersion) -> S2kParams {
+    use rand08::Rng as _;
+    let mut rng = thread_rng();
+    match version {
+        KeyVersion::V6 => S2kParams::new_default(rng, version),
+        _ => {
+            let sym_alg = SymmetricKeyAlgorithm::AES256;
+            let mut iv = vec![0u8; sym_alg.block_size()];
+            rng.fill(&mut iv[..]);
+            S2kParams::Cfb { sym_alg, s2k: StringToKey::new_iterated(rng, HashAlgorithm::Sha256, S2K_COUNT), iv: iv.into() }
+        }
+    }
+}
+
 /// Protect an unlocked key with a (new) passphrase.
 pub fn lock_with(sk: &mut SignedSecretKey, passphrase: &str) -> R<()> {
     let pw = Password::from(passphrase);
-    let mut rng = thread_rng();
     if passphrase.is_empty() {
         return Ok(());
     }
-    sk.primary_key.set_password(&mut rng, &pw).map_err(err)?;
+    let params = lock_params(sk.primary_key.version());
+    sk.primary_key.set_password_with_s2k(&pw, params).map_err(err)?;
     for s in sk.secret_subkeys.iter_mut() {
-        s.key.set_password(&mut rng, &pw).map_err(err)?;
+        let params = lock_params(s.key.version());
+        s.key.set_password_with_s2k(&pw, params).map_err(err)?;
     }
     Ok(())
+}
+
+/// The S2K of every secret packet of a key, as one line each (`primary: Cfb AES256 IteratedAndSalted Sha256 count 65011712`), for the tests and the report.
+#[cfg(test)]
+pub fn s2k_lines(sk: &SignedSecretKey) -> Vec<String> {
+    let describe = |label: &str, p: &SecretParams| -> String {
+        match p {
+            SecretParams::Plain(_) => format!("{label}: NOT PROTECTED"),
+            SecretParams::Encrypted(e) => match e.string_to_key_params() {
+                S2kParams::Cfb { sym_alg, s2k: StringToKey::IteratedAndSalted { hash_alg, count, .. }, .. } => {
+                    format!("{label}: Cfb {sym_alg:?} IteratedAndSalted {hash_alg:?} coded {count} = {} bytes", s2k_count_bytes(*count))
+                }
+                other => format!("{label}: {other:?}"),
+            },
+        }
+    };
+    let mut out = vec![describe("primary", sk.primary_key.secret_params())];
+    out.extend(sk.secret_subkeys.iter().enumerate().map(|(i, s)| describe(&format!("subkey {i}"), s.key.secret_params())));
+    out
 }
 
 pub fn change_passphrase(sk: &SignedSecretKey, old: &str, new: &str) -> R<SignedSecretKey> {

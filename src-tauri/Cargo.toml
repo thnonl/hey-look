@@ -122,3 +122,7 @@ tauri = { version = "2", features = ["test"] }
 # rustls is the version reqwest already uses, rcgen is MIT OR Apache-2.0
 rustls = "0.23"
 rcgen = "0.14"
+
+# The OpenPGP key locking hashes 62 MB per passphrase try (openpgp::S2K_COUNT, W6.10): at opt-level 0 that takes tens of seconds per unlock in a debug build and the pgp tests time out.
+[profile.dev.package.sha2]
+opt-level = 3
