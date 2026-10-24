@@ -227,6 +227,8 @@ static | node --experimental-strip-types scripts/test-draft-encryption.mjs
 static | node --experimental-strip-types scripts/test-answers-flag.mjs
 # a message that comes back into an editor keeps its signature picker (Automatic / a named one / No signature) after Send + Undo, in the pane and in the window; the first signature outside a quote is the person's own (CF-14); the reference of a reply survives Save draft (CF-18)
 ui-f | node scripts/test-compose-restore.mjs --require-browser
+# the signature region keeps its place among the typed text when a message comes back (failed send, Send + Undo, Save draft + open the draft): no signature and a signature, text above / below / both, a reply (V107-R10A-1)
+ui-f | node scripts/test-compose-region-order.mjs --require-browser
 # bundle budget gate: the production build's initial JavaScript (gzip and raw), CSS, lazy chunks, modules that must stay lazy and dev-only modules that must never ship, against scripts/bundle-budget.json (about 5 s; raising a budget needs a `history` entry there)
 static | node scripts/check-bundle-budget.mjs
 # the gate's own checks on small fixtures (scripts/fixtures/bundle): the initial set from index.html, the gzip sums, every kind of violation, a budget file without reasons is refused

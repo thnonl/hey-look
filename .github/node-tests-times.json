@@ -158,6 +158,7 @@
   "node --experimental-strip-types scripts/test-draft-encryption.mjs": 0,
   "node --experimental-strip-types scripts/test-answers-flag.mjs": 0,
   "node scripts/test-compose-restore.mjs --require-browser": 96,
+  "node scripts/test-compose-region-order.mjs --require-browser": 100,
   "node scripts/check-bundle-budget.mjs": 1,
   "node scripts/check-bundle-budget.mjs --selftest": 0,
   "node scripts/test-source-chars.mjs": 0,
