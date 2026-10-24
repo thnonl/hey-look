@@ -113,7 +113,7 @@ export interface ComposeInit {
    * `key` the answer (`answerKey`: a second press on the same answer only focuses it), `at` the press (ms: the status shows 100 ms after it, not after the pane was built), `fetching`: the attachments of a forward are being fetched ("Getting the attachments…"),
    * `cc`: a Reply all that is known (from the message as stored) to have Cc recipients: the Cc and Bcc rows are in the shell, so nothing moves when the message is filled in (REQ-13.13.12).
    */
-  preparing?: { kind: "reply" | "forward"; id: string; key: string; at: number; fetching?: boolean; cc?: boolean };
+  preparing?: { kind: "reply" | "forward"; id: string; key: string; at: number; fetching?: boolean; rcpt?: { to: string[]; cc: string[] } };
   /** this message replaces a shell that was on screen (W13.13): Compose does not fade in again */
   afterShell?: boolean;
   /** a message restored after the app ended unexpectedly: it keeps the id of its snapshot, so the next snapshot replaces it (recovery.ts) */
