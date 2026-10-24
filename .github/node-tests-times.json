@@ -243,6 +243,8 @@
   "node scripts/test-answer-geometry.mjs --require-browser": 60,
   "node scripts/test-mac-strip-ui.mjs --require-browser": 40,
   "node scripts/test-mac-window-top.mjs --require-browser": 25,
-  "node scripts/test-main-reader-memory.mjs --require-browser": 60
+  "node scripts/test-main-reader-memory.mjs --require-browser": 60,
+  "node --experimental-strip-types scripts/test-calendar-series.mjs": 1,
+  "node --experimental-strip-types scripts/test-calendar-series-ui.mjs --quick --require-browser": 75
  }
 }

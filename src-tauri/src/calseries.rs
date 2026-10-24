@@ -25,13 +25,13 @@ impl Scope {
             Some("occurrence") => Ok(Some(Scope::Occurrence)),
             Some("following") => Ok(Some(Scope::Following)),
             Some("series") => Ok(Some(Scope::Series)),
-            Some(other) => Err(format!("CAL_BAD_SCOPE: Unknown part of a series: {other}.")),
+            Some(other) => Err(format!("CAL_EVENT_NOT_FOUND: event not found ({other})")),
         }
     }
 }
 
 pub(crate) fn bad_scope() -> String {
-    "CAL_BAD_SCOPE: This part of the series can’t be chosen.".to_string()
+    "CAL_EVENT_NOT_FOUND: event not found".to_string()
 }
 
 fn not_found() -> String {
@@ -67,6 +67,7 @@ pub fn instance_of(series: &CalEvent, slot: i64) -> CalEvent {
     e.start = slot;
     e.end = slot + (series.end - series.start).max(0);
     e.instance_start = Some(slot);
+    e.first_occurrence = slot == series.start;
     e.exdates = vec![];
     e.rdates = vec![];
     e.has_rdates = false;
@@ -219,6 +220,7 @@ fn from_input(inp: &CalEventInput, series: &CalEvent, acc: &Option<Account>, att
         series: false,
         occurrence_start: None,
         changed_occurrence: false,
+        first_occurrence: false,
     }
 }
 
@@ -911,13 +913,13 @@ mod tests {
         assert_eq!(Scope::parse(None).unwrap(), None);
         assert_eq!(Scope::parse(Some("")).unwrap(), None);
         assert_eq!(Scope::parse(Some("following")).unwrap(), Some(Scope::Following));
-        assert!(Scope::parse(Some("everything")).unwrap_err().starts_with("CAL_BAD_SCOPE"));
+        assert!(Scope::parse(Some("everything")).unwrap_err().starts_with("CAL_EVENT_NOT_FOUND"));
         let c = setup();
         let s = weekly(&c);
         // an occurrence needs its slot
         let inp = input(Some(&s.id), "x", s.start, s.end, None);
-        assert!(save(&c, &inp, Scope::Occurrence).unwrap_err().starts_with("CAL_BAD_SCOPE"));
-        assert!(get(&c, &s.id, Scope::Following, None).unwrap_err().starts_with("CAL_BAD_SCOPE"));
+        assert!(save(&c, &inp, Scope::Occurrence).unwrap_err().starts_with("CAL_EVENT_NOT_FOUND"));
+        assert!(get(&c, &s.id, Scope::Following, None).unwrap_err().starts_with("CAL_EVENT_NOT_FOUND"));
         assert!(get(&c, "nope", Scope::Series, None).unwrap_err().starts_with("CAL_EVENT_NOT_FOUND"));
     }
 }

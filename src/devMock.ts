@@ -1,4 +1,5 @@
 // Dev-only: lets the UI run in a plain browser (npm run dev) with fake data, no Tauri backend.
+import { deleteScoped, expandRow, getScoped, saveScoped, type Row as SeriesRow, type Scope as SeriesScope } from "./devMockSeries";
 import { emit } from "@tauri-apps/api/event";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { gmailSearchUrl, toGmailQuery, toWebmailQuery, webmailOf, webmailTargets, WebmailId } from "./webmail";
@@ -339,27 +340,14 @@ const mockOriginals: Record<string, { thread: typeof messages; row: ReturnType<t
 /** To / Cc / Bcc as the saved draft's headers have them, by message id (`draft_recipients`). */
 const mockDraftHeaders: Record<string, { to: string[]; cc: string[]; bcc: string[]; inReplyTo?: string | null; references?: string[]; meeting?: string | null; answers?: unknown }> = {};
 const dayOf = (sec: number) => Math.floor(sec / 86400);
-/** Repeats for the mock: daily / weekly with BYDAY, from the event's own start. */
-function expandMock(e: MockEvent, from: number, to: number): MockEvent[] {
-  if (!e.rrule) return e.end > from && e.start < to ? [e] : [];
-  const days = (/BYDAY=([A-Z,]+)/.exec(e.rrule)?.[1] ?? "").split(",").filter(Boolean);
-  const map = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
-  const out: MockEvent[] = [];
-  const startDay = new Date(e.start * 1000);
-  for (let d = Math.floor(from / 86400) - 1; d <= Math.floor(to / 86400) + 1; d++) {
-    const base = new Date(d * 86400 * 1000);
-    const dow = base.getDay();
-    const hit = e.rrule.includes("FREQ=DAILY") || (days.length ? days.includes(map[dow]) : dow === startDay.getDay());
-    if (!hit) continue;
-    const s = new Date(base);
-    s.setHours(startDay.getHours(), startDay.getMinutes(), 0, 0);
-    const st = Math.floor(s.getTime() / 1000);
-    if (st < e.start || st >= to || st + (e.end - e.start) <= from) continue;
-    out.push({ ...e, start: st, end: st + (e.end - e.start), instanceStart: st });
-  }
-  return out;
-}
 void dayOf;
+/** The repeating events of the preview: expansion and the scopes of a change (src/devMockSeries.ts). */
+const asRow = (e: MockEvent) => e as unknown as SeriesRow;
+/** `window.__mockSeriesDelay` = ms: the writes of a series answer that late (the tests of the pending states). */
+const seriesDelay = <T,>(v: T): T | Promise<T> => {
+  const ms = Number((window as unknown as { __mockSeriesDelay?: number }).__mockSeriesDelay) || 0;
+  return ms ? new Promise<T>((r) => setTimeout(() => r(v), ms)) : v;
+};
 
 const mkInvite = (over: Record<string, unknown>) => ({
   method: "REQUEST", uid: "inv@mock", sequence: 0, summary: "Product sync", start: at(2, 10), end: at(2, 11), allDay: false, tzid: "Europe/Berlin",
@@ -2005,13 +1993,22 @@ export function installMock() {
         const from = a.from as number, to = a.to as number;
         return calEvents
           .filter((e) => !hiddenCals.has(foldedInto(e.calendarId) ?? e.calendarId) && !hiddenByTwin(e))
-          .flatMap((e) => (e.allDay ? (e.end > from - 86400 && e.start < to + 86400 ? [e] : []) : expandMock(e, from, to)))
+          .flatMap((e) => expandRow(asRow(e), from, to) as unknown as MockEvent[])
           .sort((x, y) => x.start - y.start);
       }
       case "calendar_get_event": {
         const e = calEvents.find((x) => x.id === a.id);
         if (!e) throw "event not found";
-        return e;
+        if (a.scope) {
+          const slot = typeof a.occurrenceStart === "number" ? a.occurrenceStart : null;
+          // an Outlook series is asked for from the service: [offline] in its title is "no connection"
+          const owner = mockCalOfId(String(e.calendarId));
+          if (owner?.kind === "microsoft" && a.scope !== "occurrence" && String(e.summary).includes("[offline]")) {
+            throw `CAL_OFFLINE: You’re offline. Changes to ${String(calSrcs[owner.account]?.calendars.find((c) => c.id === e.calendarId)?.name ?? "the calendar")} need a connection.`;
+          }
+          return getScoped(calEvents as unknown as SeriesRow[], e.id, a.scope as SeriesScope, slot);
+        }
+        return { ...e, series: !!(e.rrule || e.recurrenceId) };
       }
       case "calendar_save_event": {
         const inp = a.event as Record<string, unknown> & { id?: string | null; attendees: { email: string; name?: string }[]; accountId?: string };
@@ -2028,14 +2025,27 @@ export function installMock() {
           if (title.includes("[conflict]")) throw `CAL_CONFLICT: This event was changed in ${remote.service}, so its latest version is shown.`;
           if (title.includes("[gone]")) { calEvents = calEvents.filter((x) => x.id !== inp.id); throw `CAL_GONE: This event was deleted in ${remote.service}.`; }
           if (prev?.readOnly) throw "CAL_READ_ONLY: Only the organizer can change this event.";
-          if (inp.rrule) throw `CAL_READ_ONLY: Repeating events can be added to ${calName} in ${remote.service} for now.`;
+          if (inp.scope) {
+            const lockedRule = String(prev?.summary ?? "").includes("[pattern]");
+            if (lockedRule && inp.scope !== "occurrence" && (inp.rrule ?? null) !== null) throw `CAL_READ_ONLY: Hey Look! can’t change this repeat rule. You can change it in ${remote.service}.`;
+            const out = saveScoped(calEvents as unknown as SeriesRow[], inp as never, inp.scope as SeriesScope, () => `e${++eventSeq}`);
+            calEvents = out.rows as unknown as MockEvent[];
+            (((window as unknown as { __mockSeriesWrites?: unknown[] }).__mockSeriesWrites) ??= []).push({ scope: inp.scope, id: inp.id, occurrenceStart: inp.occurrenceStart ?? null });
+            return seriesDelay(out.event);
+          }
           const done = ev(prev?.id ?? `e${++eventSeq}`, title, inp.start as number, inp.end as number, {
-            allDay: inp.allDay, tzid: inp.tzid ?? null, location: inp.location ?? null, description: inp.description ?? null, reminderMin: inp.reminderMin ?? null,
+            allDay: inp.allDay, tzid: inp.tzid ?? null, location: inp.location ?? null, description: inp.description ?? null, reminderMin: inp.reminderMin ?? null, rrule: inp.rrule ?? null, recurrenceText: inp.rrule ? "Repeats" : null,
             calendarId: toCal, accountId: remote.account, remoteMock: true, readOnly: null,
             attendees: guests.map((g) => ({ ...g, role: "required", status: "needs-action", isYou: false })),
           });
           calEvents = [...calEvents.filter((x) => x.id !== done.id), done];
           return done;
+        }
+        if (inp.scope) {
+          const out = saveScoped(calEvents as unknown as SeriesRow[], inp as never, inp.scope as SeriesScope, () => `e${++eventSeq}`);
+          calEvents = out.rows as unknown as MockEvent[];
+          (((window as unknown as { __mockSeriesWrites?: unknown[] }).__mockSeriesWrites) ??= []).push({ scope: inp.scope, id: inp.id, occurrenceStart: inp.occurrenceStart ?? null, notify: !!a.notify });
+          return seriesDelay(out.event);
         }
         const saved = ev(prev?.id ?? `e${++eventSeq}`, String(inp.summary), inp.start as number, inp.end as number, {
           allDay: inp.allDay, tzid: inp.tzid ?? null, location: inp.location ?? null, description: inp.description ?? null, rrule: inp.rrule ?? null, reminderMin: inp.reminderMin ?? null,
@@ -2053,7 +2063,12 @@ export function installMock() {
       }
       case "calendar_delete_event": {
         const gone = calEvents.find((x) => x.id === a.id);
-        if (gone?.readOnly) throw `CAL_READ_ONLY: Repeating events of ${String(calSrcs[mockCalOfId(String(gone.calendarId))?.account ?? ""]?.calendars.find((c) => c.id === gone.calendarId)?.name ?? "this calendar")} can be changed in ${mockCalOfId(String(gone.calendarId))?.service ?? "its own app"} for now.`;
+        if (gone?.readOnly) throw "CAL_READ_ONLY: Only the organizer can change this event.";
+        (((window as unknown as { __mockDeletes?: unknown[] }).__mockDeletes) ??= []).push({ id: a.id, notify: !!a.notify, scope: a.scope ?? null, occurrenceStart: a.occurrenceStart ?? null });
+        if (a.scope) {
+          calEvents = deleteScoped(calEvents as unknown as SeriesRow[], String(a.id), a.scope as SeriesScope, typeof a.occurrenceStart === "number" ? a.occurrenceStart : null) as unknown as MockEvent[];
+          return seriesDelay(null);
+        }
         calEvents = calEvents.filter((x) => x.id !== a.id);
         return null;
       }

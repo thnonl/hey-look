@@ -426,6 +426,7 @@ pub fn event_from_remote(cal: &CalRow, account_id: &str, re: &RemoteEvent, id: S
         series: false,
         occurrence_start: None,
         changed_occurrence: false,
+        first_occurrence: false,
     }
     .derive()
 }

@@ -819,6 +819,6 @@ mod tests {
         e.fake.add_event("primary", RemoteEvent::single("one", "Lunch", T0, T0 + 3600));
         pull(&e, T0 + 60);
         let one = row_id(&e, "one");
-        assert!(get(&e.db, &e.factory, &one, Scope::Series, None).unwrap_err().starts_with("CAL_BAD_SCOPE"));
+        assert!(get(&e.db, &e.factory, &one, Scope::Series, None).unwrap_err().starts_with("CAL_EVENT_NOT_FOUND"));
     }
 }

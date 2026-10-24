@@ -97,12 +97,9 @@ export function pausedSources(sources: CalSource[]): CalSource[] {
 }
 
 /** Why an event of a synced calendar has no Edit / Delete. `label` is the calendar's sidebar label. */
-export function readOnlyNote(e: Pick<CalEvent, "readOnly">, label: string, service: string | null | undefined): string | null {
+export function readOnlyNote(e: Pick<CalEvent, "readOnly">, label: string, _service: string | null | undefined): string | null {
   const cal = calendarName(label);
-  const svc = service || t("calendar.sync.ownApp");
   switch (e.readOnly) {
-    case "repeating":
-      return t("calendar.sync.readOnlyRepeating", { calendar: cal, service: svc });
     case "calendar":
       return t("calendar.sync.readOnlyCalendar", { calendar: cal });
     case "organizer":
@@ -150,8 +147,7 @@ export const BACKEND_ERRORS: { re: RegExp; key: Key; names: string[] }[] = [
   { re: /^Couldn’t save to ([^:]+): (.*)\.$/s, key: "calendar.err.saveFailed", names: ["service", "reason"] },
   { re: /^Couldn’t turn on calendar sync: (.*)$/s, key: "calendar.err.turnOnFailed", names: ["reason"] },
   { re: /^Couldn’t save the calendar sign-in: (.*)$/s, key: "calendar.err.signInSaveFailed", names: ["reason"] },
-  { re: /^Repeating events of (.+) can be changed in (.+) for now\.$/s, key: "calendar.sync.readOnlyRepeating", names: ["calendar", "service"] },
-  { re: /^Repeating events can be added to (.+) in (.+) for now\.$/s, key: "calendar.sync.repeatAddOnly", names: ["calendar", "service"] },
+  { re: /^Hey Look! can’t change this repeat rule\. You can change it in (.+)\.$/s, key: "calendar.sync.patternUnsupported", names: ["service"] },
   { re: /^Only the organizer can change this event\.$/s, key: "calendar.sync.readOnlyOrganizer", names: [] },
   { re: /^(.+) is read only\.$/s, key: "calendar.sync.readOnlyCalendar", names: ["calendar"] },
   { re: /^(.+?)’s organization may need to approve Hey Look! for calendar access\. Ask your IT admin\.$/s, key: "calendar.sync.blocked", names: ["email"] },

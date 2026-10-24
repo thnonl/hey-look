@@ -198,10 +198,27 @@ export interface CalEvent {
   /** set on expanded occurrences of a repeating event */
   instanceStart?: number | null;
   /** an event of a synced calendar that can't be changed here, and why */
-  readOnly?: "calendar" | "repeating" | "organizer" | null;
+  readOnly?: "calendar" | "organizer" | null;
   /** the series has extra dates (RDATE); without a repeat rule the popover calls it "Custom" */
   hasRdates?: boolean;
+  /** the event belongs to a series (a rule, extra dates, a changed occurrence, or an occurrence a service lists on its own) */
+  series?: boolean;
+  /** the slot of an occurrence: the original start of the occurrence (epoch seconds), whatever time it was moved to */
+  occurrenceStart?: number | null;
+  /** this row replaces one occurrence of its series */
+  changedOccurrence?: boolean;
+  /** this occurrence is the first one of its series (the question leaves out "This and following") */
+  firstOccurrence?: boolean;
 }
+/** What the event form gets for an event or a part of its series. */
+export interface CalEventDetail extends CalEvent {
+  /** changed occurrences the save would reset (the whole series; from the chosen occurrence on for "this and following") */
+  changedCount?: number;
+  /** the repeat rule of the series cannot be changed in Hey Look! (an Outlook pattern it does not map) */
+  patternUnsupported?: boolean;
+}
+/** Which part of a series a change is for. */
+export type SeriesScope = "occurrence" | "following" | "series";
 export interface CalEventInput {
   id?: string | null;
   accountId?: string | null;
@@ -217,6 +234,10 @@ export interface CalEventInput {
   reminderMin?: number | null;
   /** the calendar a new event goes to ("local" or null = My events); fixed when editing */
   calendarId?: string | null;
+  /** the part of a series that is saved; absent for a single event */
+  scope?: SeriesScope;
+  /** the occurrence the scope starts at (`CalEvent.occurrenceStart`) */
+  occurrenceStart?: number | null;
 }
 export interface CalendarInfo {
   id: string;
@@ -791,9 +812,9 @@ export const api = {
   calendarSetVisible: (calendarId: string, visible: boolean) => invoke<void>("calendar_set_visible", { calendarId, visible }),
   /** Events touching [from, to) (epoch seconds), repeats expanded. All-day events come with a day of slack. */
   calendarListEvents: (from: number, to: number) => invoke<CalEvent[]>("calendar_list_events", { from, to }),
-  calendarGetEvent: (id: string) => invoke<CalEvent>("calendar_get_event", { id }),
+  calendarGetEvent: (id: string, scope?: SeriesScope, occurrenceStart?: number | null) => invoke<CalEventDetail>("calendar_get_event", { id, scope: scope ?? null, occurrenceStart: occurrenceStart ?? null }),
   calendarSaveEvent: (event: CalEventInput, notify: boolean) => invoke<CalEvent>("calendar_save_event", { event, notify }),
-  calendarDeleteEvent: (id: string, notify: boolean) => invoke<void>("calendar_delete_event", { id, notify }),
+  calendarDeleteEvent: (id: string, notify: boolean, scope?: SeriesScope, occurrenceStart?: number | null) => invoke<void>("calendar_delete_event", { id, notify, scope: scope ?? null, occurrenceStart: occurrenceStart ?? null }),
   calendarRespond: (messageId: string, response: Rsvp, comment: string | null, send: boolean) =>
     invoke<CalInvite>("calendar_respond", { messageId, response, comment, send }),
   calendarAddFromMessage: (messageId: string, overrideAuth = false) => invoke<CalEvent>("calendar_add_from_message", { messageId, overrideAuth }),

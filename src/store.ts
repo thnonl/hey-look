@@ -143,7 +143,7 @@ export type Dialog =
   | { type: "pgp-generate"; accountId?: string; back?: string }
   | { type: "pgp-import"; armored?: string; paste?: boolean; back?: string }
   | { type: "pgp-key"; fingerprint: string; back?: string }
-  | { type: "event"; eventId?: string; init?: EventInit }
+  | { type: "event"; eventId?: string; init?: EventInit; scope?: "occurrence" | "following" | "series"; occurrenceStart?: number | null }
   /** (W13.10) New folder (`parentKey` null) / New subfolder (the key of the folder it goes under) in a mailbox */
   | { type: "folder-new"; accountId: string; parentKey: string | null };
 

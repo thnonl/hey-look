@@ -527,7 +527,7 @@ function App() {
       {dialog?.type === "original" && <LazyShowOriginal messageId={dialog.messageId} />}
       {dialog?.type === "pgp-generate" && <LazyGenerateKeyDialog accountId={dialog.accountId} back={dialog.back} />}
       {dialog?.type === "pgp-import" && <LazyImportKeyDialog armored={dialog.armored} paste={dialog.paste} back={dialog.back} />}
-      {dialog?.type === "event" && <LazyEventDialog key={dialog.eventId ?? `new-${dialog.init?.start ?? 0}`} eventId={dialog.eventId} init={dialog.init} />}
+      {dialog?.type === "event" && <LazyEventDialog key={dialog.eventId ? `${dialog.eventId}:${dialog.scope ?? ""}:${dialog.occurrenceStart ?? ""}` : `new-${dialog.init?.start ?? 0}`} eventId={dialog.eventId} init={dialog.init} scope={dialog.scope} occurrenceStart={dialog.occurrenceStart} />}
       {dialog?.type === "pgp-key" && <LazyKeyDetailsDialog fingerprint={dialog.fingerprint} back={dialog.back} />}
       {commandOpen && <CommandBar />}
       <AskHost />

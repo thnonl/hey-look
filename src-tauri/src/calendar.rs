@@ -120,6 +120,8 @@ pub struct CalEvent {
     pub occurrence_start: Option<i64>,
     /// A row that replaces one occurrence of its series (not Outlook's plain occurrences).
     pub changed_occurrence: bool,
+    /// The expanded occurrence is the first one of its series (set by `list_range`): the question leaves out "This and following" there.
+    pub first_occurrence: bool,
 }
 
 impl CalEvent {
@@ -337,6 +339,7 @@ pub(crate) fn row_event(r: &Row) -> rusqlite::Result<CalEvent> {
         series: false,
         occurrence_start: None,
         changed_occurrence: false,
+        first_occurrence: false,
     }
     .derive())
 }
@@ -549,6 +552,7 @@ pub fn list_range(c: &Connection, from: i64, to: i64) -> R<Vec<CalEvent>> {
                 i.start = s;
                 i.end = en;
                 i.instance_start = Some(s);
+                i.first_occurrence = s == e.start;
                 if touches(&i) && !synced.hides_instance(&i) {
                     out.push(i);
                 }
@@ -641,6 +645,7 @@ fn event_from_ics(ev: &IcsEvent, calendar: &str, account: Option<&Account>, mess
         series: false,
         occurrence_start: None,
         changed_occurrence: false,
+        first_occurrence: false,
     }
     .derive()
 }
@@ -1211,6 +1216,7 @@ pub fn save_local(c: &Connection, inp: &CalEventInput) -> R<(CalEvent, Option<Ac
         series: false,
         occurrence_start: None,
         changed_occurrence: false,
+        first_occurrence: false,
     };
     e.join_url = ical::join_url(&to_ics_event(&e));
     e.recurrence_text = e.rrule.as_deref().and_then(|r| ical::describe_rrule(r, e.start));
