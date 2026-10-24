@@ -1193,11 +1193,14 @@ mod tests {
         };
         put("conf", "Content-Type: text/plain; charset=utf-8\r\nSensitivity: Company-Confidential\r\n\r\nthe zebra plan\r\n");
         put("label", "Content-Type: text/plain; charset=utf-8\r\nMSIP_Label_1f2e_Name: Tuyệt mật\r\n\r\nthe zebra plan\r\n");
+        // fix52 (D-110): a label name inside the encrypted message as an RFC 2047 encoded-word ("Tuyệt mật"); a negated name is ordinary (D-111)
+        put("enc", "Content-Type: text/plain; charset=utf-8\r\nmsip_labels: MSIP_Label_1f2e_Enabled=true; MSIP_Label_1f2e_Name==?utf-8?b?VHV54buHdCBt4bqtdA==?=; MSIP_Label_1f2e_Method=Standard\r\n\r\nthe zebra plan\r\n");
+        put("never", "Content-Type: text/plain; charset=utf-8\r\nMSIP_Label_1f2e_Name: Never confidential\r\n\r\nlunch at noon\r\n");
         put("plain", "Content-Type: text/plain; charset=utf-8\r\nSensitivity: Normal\r\n\r\nlunch at noon\r\n");
         let bits = |id: &str| -> i64 { c.query_row("SELECT pgp FROM messages WHERE id=?1", [id], |r| r.get(0)).unwrap() };
         let conf = pgpmail::FLAG_CONFIDENTIAL as i64;
         // locked: nothing is known, nothing changes (REQ-8.8b.3)
-        for id in ["conf", "label", "plain"] {
+        for id in ["conf", "label", "enc", "never", "plain"] {
             let m = crate::message_full(&c, id).unwrap();
             assert!(!m.confidential, "{id}: locked");
             assert_ne!(m.security.as_ref().unwrap().decryption, "ok", "{id}");
@@ -1205,13 +1208,16 @@ mod tests {
             assert!(crate::ensure_not_confidential(&c, id).is_ok());
         }
         unlock_key(&load_store(&c).unwrap(), &fpr, "my-pass-1234", false).unwrap();
-        for id in ["conf", "label"] {
+        for id in ["conf", "label", "enc"] {
             let m = crate::message_full(&c, id).unwrap();
             assert_eq!(m.security.as_ref().unwrap().decryption, "ok", "{id}");
             assert!(m.confidential, "{id}: shown as confidential at once");
             assert_eq!(bits(id), pgpmail::FLAG_ENCRYPTED as i64 | conf, "{id}: the bit is stored");
             assert!(crate::ensure_not_confidential(&c, id).is_err(), "{id}: save, open, raw source and .ics refuse");
         }
+        let m = crate::message_full(&c, "never").unwrap();
+        assert!(!m.confidential && m.text.as_deref().unwrap_or("").contains("lunch"), "a negated label name is ordinary");
+        assert_eq!(bits("never"), pgpmail::FLAG_ENCRYPTED as i64);
         let m = crate::message_full(&c, "plain").unwrap();
         assert!(!m.confidential && m.text.as_deref().unwrap_or("").contains("lunch"));
         assert_eq!(bits("plain"), pgpmail::FLAG_ENCRYPTED as i64, "an ordinary encrypted message stays ordinary");
