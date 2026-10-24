@@ -312,7 +312,12 @@ export async function forward(m: MessageFull, thread: MessageFull[] = useStore.g
   });
 }
 
-/** Reply / reply-all using the user's default (or the explicit choice) on the last message of the open thread. */
+/**
+ * Reply / reply-all using the user's default (or the explicit choice) on the last message of the open thread.
+ * W8.7 (BA decision, 1.0.7: keep): the NEWEST message of the conversation is answered, as Gmail and Outlook do. When that is the person's own message, `replyTargets` sends the answer to the
+ * people it was sent to (not to the person), and Reply all adds the Cc of that message only; a forward to Carol that ends the conversation is answered to Carol. The list's context menu
+ * (`answer` in ListContextMenu.tsx) takes the same message. scripts/test-reply-last.mjs pins both.
+ */
 export function replyLast(all?: boolean, o?: StartOpts) {
   const st = useStore.getState();
   const last = st.messages[st.messages.length - 1];

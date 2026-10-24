@@ -38,6 +38,8 @@ export interface ReplyTargets {
 export function replyTargets(i: ReplyInput): ReplyTargets {
   const own = (r: string) => i.mine.has(addressOf(r).toLowerCase());
   const fromMe = i.mine.has(i.fromEmail.toLowerCase());
+  // W8.6 (owner decision 2026-10-18, 1.0.7 W8.6: keep): a Reply-To address that is one of the person's own accounts is dropped (a list that reflects my mail, or the second mailbox of a profile);
+  // when nothing else is left, the answer goes to the sender, with no Reply-To note. scripts/test-reply-targets.mjs pins this: change it only on purpose.
   const asked = fromMe ? [] : i.replyTo.filter((r) => addressOf(r) !== "" && !own(r));
   const sender = senderMailbox(i);
   const origTo = i.headerTo?.length ? i.headerTo : splitRecipients(i.to);

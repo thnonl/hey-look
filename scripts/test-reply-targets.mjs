@@ -67,10 +67,15 @@ assert.deepEqual(go({ fromEmail: "me@example.com", to: "me@gmail.com" }).to, [])
   assert.deepEqual(q({ replyTo: ["RC ReplyTo <qa9@test.local>"], all: true }).to, ["RC ReplyTo <qa9@test.local>", "sender@test.local"]);
   // Reply-To is my own second account (qa2): it is dropped, the answer goes to the sender, no note
   const own = q({ replyTo: ["RC ReplyTo <qa2@test.local>"] });
-  assert.deepEqual(own.to, ["sender@test.local"]);
-  assert.equal(own.viaReplyTo, null);
+  // (W8.6, owner decision 2026-10-18: keep - a Reply-To that is one of my own accounts is dropped; change these on purpose only)
+  assert.deepEqual(own.to, ["sender@test.local"], "W8.6: a Reply-To that is my own account is dropped and the answer goes to the sender");
+  assert.equal(own.viaReplyTo, null, "W8.6: and there is no Reply-To note");
   const ownAll = q({ replyTo: ["RC ReplyTo <qa2@test.local>"], all: true });
-  assert.deepEqual([ownAll.to, ownAll.cc], [["sender@test.local"], ["cc2@test.local"]]);
+  assert.deepEqual([ownAll.to, ownAll.cc], [["sender@test.local"], ["cc2@test.local"]], "W8.6: the same for Reply all");
+  // AC-8.6.1: own + another address: the other one only, and the note names it
+  const mixed = q({ replyTo: ["qa2@test.local", "y@example.test"] });
+  assert.deepEqual(mixed.to, ["y@example.test"], "W8.6: own + y@example.test: To y@example.test");
+  assert.deepEqual(mixed.viaReplyTo, { replyTo: ["y@example.test"], from: "sender@test.local" }, "W8.6: the note names y@example.test");
   // two Reply-To addresses, one of them mine: only the other one (what Mac QA saw: "Replies go to qa3")
   const two = q({ replyTo: ["qa2@test.local", "qa3@test.local"] });
   assert.deepEqual(two.to, ["qa3@test.local"]);
