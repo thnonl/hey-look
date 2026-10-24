@@ -362,6 +362,17 @@ async function keys(c) {
     check(st.opts.length > 0 && /Sprache/.test(st.opts[0].label), `after the switch to German the list is German: ${st.opts[0]?.label}`);
     await evaluate(languageJs('en'));
   }
+  // fix51: German and Russian write KI-Assistent / ИИ-помощник; AI, the full-width ＡＩ and the local term all find the AI Assistant page
+  if (c.lang === 'de' || c.lang === 'ru') {
+    const aiLabel = await evaluate(`window.__settingsIndex.find((e) => e.id === 'pg-ai')?.label`);
+    for (const q of ['AI', 'ＡＩ', c.lang === 'de' ? 'KI' : 'ИИ']) {
+      await ctrlF(c);
+      await paste(q);
+      await sleep(60);
+      st = await boxState();
+      check(!!aiLabel && st.opts[0]?.label === aiLabel, `${c.lang}: "${q}" finds ${aiLabel} first (${st.opts[0]?.label})`);
+    }
+  }
   // Escape never closes Settings while the box holds text, and the clear button empties it
   await settingsOpen('general');
   await ctrlF(c);

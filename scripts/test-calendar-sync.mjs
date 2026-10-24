@@ -9,6 +9,7 @@ import {
   calendarDavEligible, calendarErrorCode, calendarErrorText, calendarName, calendarOffer, calendarStepFailure, calendarSyncKind, defaultCalendar, deleteConfirm, foldTarget, isSyncedCalendarId, lastSyncedText,
   davPreset, pausedSources, readOnlyNote, sidebarCalendars, statusLine, syncedColor, truncatedNote, writableCalendars, CALENDAR_SYNC_KINDS,
 } from "../src/calendarSync.ts";
+import { LANGUAGES, loadLanguage, setLangPref, t } from "../src/i18n/index.ts";
 
 // ---- who gets the switch (AC-1)
 assert.equal(calendarSyncKind({ auth: "oauth_google", imapHost: "imap.gmail.com" }), "google");
@@ -211,5 +212,25 @@ assert.equal(statusLine(src({ kind: "caldav", status: "ok", dav }), ctx).enterPa
 assert.equal(calendarErrorCode("CAL_DAV_AUTH: Couldn’t sign in to the calendar server. Check the username and the password."), "DAV_AUTH");
 assert.equal(calendarErrorText("CAL_DAV_NOT_FOUND: No server answered at this address. Check the server address."), "No server answered at this address. Check the server address.");
 assert.equal(calendarErrorText("CAL_DAV_REDIRECT: The server sent Hey Look! to another address (login.example.net). Hey Look! stopped there to keep your password safe."), "The server sent Hey Look! to another address (login.example.net). Hey Look! stopped there to keep your password safe.");
+
+// ---- a calendar that could not be CREATED (fix51): the sentences Rust sends (write.rs create_error_text) are not the "save" / "read only" ones, in the English wording and in every language
+assert.equal(calendarErrorText("CAL_ERROR: Couldn’t create the calendar in Outlook: HTTP 500."), "Couldn’t create the calendar in Outlook: HTTP 500.");
+assert.equal(calendarErrorText("CAL_ERROR: Couldn’t create the calendar. Nextcloud doesn’t allow it."), "Couldn’t create the calendar. Nextcloud doesn’t allow it.");
+assert.equal(calendarErrorCode("CAL_ERROR: Couldn’t create the calendar. Nextcloud doesn’t allow it."), "ERROR");
+for (const { code } of LANGUAGES) {
+  await loadLanguage(code);
+  setLangPref(code);
+  const failed = calendarErrorText("CAL_ERROR: Couldn’t create the calendar in Outlook: HTTP 500.");
+  const denied = calendarErrorText("CAL_ERROR: Couldn’t create the calendar. Nextcloud doesn’t allow it.");
+  assert.equal(failed, t("calendar.err.createFailed", { service: "Outlook", reason: "HTTP 500" }), `${code}: the failure sentence is translated with its reason`);
+  assert.equal(denied, t("calendar.err.createDenied", { service: "Nextcloud" }), `${code}: the refusal sentence is translated`);
+  assert.ok(failed.includes("Outlook") && failed.includes("HTTP 500") && denied.includes("Nextcloud"), `${code}: service and reason are in the sentences`);
+  if (code !== "en") {
+    assert.ok(!/Couldn’t|doesn’t allow/.test(failed + denied), `${code}: no English left`);
+    assert.notEqual(failed, t("calendar.err.saveFailed", { service: "Outlook", reason: "HTTP 500" }), `${code}: not the save sentence`);
+  }
+}
+await loadLanguage("en");
+setLangPref("en");
 
 console.log("calendar sync: all checks passed");

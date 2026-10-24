@@ -26,6 +26,20 @@ pub fn error_text(e: &SyncErr, service: &str, calendar: &str, email: &str) -> St
     }
 }
 
+/// The same for a calendar that could not be CREATED (the new calendar's name is not a calendar yet, so "X is read only" and "Couldn’t save" would be wrong): a refusal and a failure say so with their reason.
+pub fn create_error_text(e: &SyncErr, service: &str, calendar: &str, email: &str) -> String {
+    match e {
+        SyncErr::ReadOnly => format!("CAL_ERROR: Couldn’t create the calendar. {service} doesn’t allow it."),
+        SyncErr::Gone | SyncErr::Other(_) => {
+            let text = e.to_string();
+            // (Outlook's own errors already start with "Outlook: ")
+            let reason = text.strip_prefix(&format!("{service}: ")).unwrap_or(&text);
+            format!("CAL_ERROR: Couldn’t create the calendar in {service}: {}.", reason.trim_end_matches('.'))
+        }
+        _ => error_text(e, service, calendar, email),
+    }
+}
+
 /// Why a synced event cannot be changed, as a sentence.
 pub(super) fn read_only_text(reason: &str, calendar: &str, _kind: Kind) -> String {
     match reason {
@@ -841,5 +855,17 @@ mod tests {
         assert_eq!(t(SyncErr::Conflict), "CAL_CONFLICT: This event was changed in Outlook, so its latest version is shown.");
         assert_eq!(t(SyncErr::NotFound), "CAL_GONE: This event was deleted in Outlook.");
         assert!(t(SyncErr::Other("HTTP 500".into())).starts_with("CAL_ERROR: Couldn’t save to Outlook: HTTP 500"));
+    }
+
+    #[test]
+    fn a_calendar_that_could_not_be_created_says_so() {
+        let t = |e: SyncErr| create_error_text(&e, "Outlook", "Hobbies", "me@x.y");
+        // a refused MKCALENDAR (CalDAV 403) is not "Hobbies is read only"
+        assert_eq!(t(SyncErr::ReadOnly), "CAL_ERROR: Couldn’t create the calendar. Outlook doesn’t allow it.");
+        assert_eq!(t(SyncErr::Other("HTTP 500".into())), "CAL_ERROR: Couldn’t create the calendar in Outlook: HTTP 500.");
+        assert_eq!(t(SyncErr::Other("Outlook: A folder with the specified name already exists.".into())), "CAL_ERROR: Couldn’t create the calendar in Outlook: A folder with the specified name already exists.");
+        // the others keep their sentences
+        assert!(t(SyncErr::NeedsScope).starts_with("CAL_NEEDS_ACCESS: To create calendars in Outlook"));
+        assert!(t(SyncErr::Offline).starts_with("CAL_OFFLINE:"));
     }
 }

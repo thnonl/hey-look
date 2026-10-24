@@ -323,4 +323,6 @@ export default defineLocale<typeof ns.en>({
   "calendar.move.guests": "Sự kiện có khách mời không thể chuyển sang lịch khác tại đây. Bạn có thể chuyển trong {service}.",
   "calendar.toast.moved": "Đã chuyển đến {calendar}",
   "calendar.err.needsAccess": "Để tạo lịch trong {service}, hãy cho phép truy cập lại.",
+  "calendar.err.createFailed": "Không tạo được lịch trong {service}: {reason}.",
+  "calendar.err.createDenied": "Không tạo được lịch. {service} không cho phép.",
 });

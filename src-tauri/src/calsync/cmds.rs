@@ -373,7 +373,7 @@ pub async fn calendar_create_calendar(app: tauri::AppHandle, state: tauri::State
         };
         let factory = AppFactory { db: db.clone() };
         let provider = factory.provider(&src).map_err(|e| super::write::error_text(&e, &src.service_name(), &name, &email))?;
-        let rc = provider.create_calendar(&name).map_err(|e| super::write::error_text(&e, &src.service_name(), &name, &email))?;
+        let rc = provider.create_calendar(&name).map_err(|e| super::write::create_error_text(&e, &src.service_name(), &name, &email))?;
         let cal_id = super::calendar_id(&src.account_id, src.kind, &rc.id);
         {
             let c = lock(&db);

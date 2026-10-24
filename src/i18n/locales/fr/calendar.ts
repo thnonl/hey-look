@@ -323,4 +323,6 @@ export default defineLocale<typeof ns.en>({
   "calendar.move.guests": "Un événement avec des invités ne peut pas être déplacé ici vers un autre calendrier. Vous pouvez le déplacer dans {service}.",
   "calendar.toast.moved": "Déplacé vers {calendar}",
   "calendar.err.needsAccess": "Pour créer des calendriers dans {service}, autorisez de nouveau l’accès.",
+  "calendar.err.createFailed": "Impossible de créer le calendrier dans {service} : {reason}.",
+  "calendar.err.createDenied": "Impossible de créer le calendrier. {service} ne l’autorise pas.",
 });

@@ -189,6 +189,8 @@ export const BACKEND_ERRORS: { re: RegExp; key: Key; names: string[] }[] = [
   // moving an event and making a calendar (W7.5)
   { re: /^An event with guests can’t be moved to another calendar here\. You can move it in (.+)\.$/s, key: "calendar.move.guests", names: ["service"] },
   { re: /^To create calendars in (.+), allow access again\.$/s, key: "calendar.err.needsAccess", names: ["service"] },
+  { re: /^Couldn’t create the calendar in ([^:]+): (.*)\.$/s, key: "calendar.err.createFailed", names: ["service", "reason"] },
+  { re: /^Couldn’t create the calendar\. (.+) doesn’t allow it\.$/s, key: "calendar.err.createDenied", names: ["service"] },
   // CalDAV (W7.4): the connect dialog's sentences
   { re: /^Couldn’t sign in to the calendar server\. Check the username and the password\.$/s, key: "calendar.err.davAuth", names: [] },
   { re: /^No server answered at this address\. Check the server address\.$/s, key: "calendar.err.davNotFound", names: [] },

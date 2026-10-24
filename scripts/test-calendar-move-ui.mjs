@@ -257,6 +257,15 @@ try {
   d = await moveDialog();
   ok(d.err === tr('en', 'calendar.err.needsAccess', { service: 'Outlook' }), `the refusal says what to do (${d.err})`);
   ok(await evaluate(`document.querySelector('#newcal-name').value === 'Hobbies [needsaccess]'`), 'the dialog stays open with the typed name');
+  // fix51: a refused or failed create says the calendar could not be CREATED (not "save", not "<new name> is read only"), with the reason
+  for (const [name, key, params] of [['Hobbies [fail]', 'calendar.err.createFailed', { service: 'Outlook', reason: 'the server refused it' }], ['Hobbies [denied]', 'calendar.err.createDenied', { service: 'Outlook' }]]) {
+    await evaluate(`(() => { const i = document.querySelector('#newcal-name'); i.focus(); i.select(); return 1; })()`);
+    await typeText(name);
+    await pressIn('.modal .row-inline .btn', D['settings.calendar.create']);
+    await waitFor(`document.querySelector('.modal .field-err')`, `the refusal of ${name}`);
+    d = await moveDialog();
+    ok(d.err === tr('en', key, params) && !/save|read only/i.test(d.err), `${name}: the refusal says the calendar could not be created (${d.err})`);
+  }
   await evaluate(`(() => { const i = document.querySelector('#newcal-name'); i.focus(); i.select(); return 1; })()`);
   await typeText('Hobbies');
   await click('.cal-colors button.swatch:nth-of-type(2)');
@@ -324,6 +333,16 @@ try {
     ok(d.title === tr(lang, 'settings.calendar.newCalendarTitle', { service: 'Outlook' }), `${where}: title (${d.title})`);
     ok(d.box.l >= 0 && d.box.r <= d.vw && d.box.t >= 0 && d.box.b <= d.vh && d.overflowX <= 1, `${where}: the New calendar dialog is inside the window (${JSON.stringify(d.box)})`);
     ok(d.buttons.join('|') === `${tr(lang, 'common.cancel')}|${tr(lang, 'settings.calendar.create')}`, `${where}: buttons (${d.buttons})`);
+    for (const [name, key, params] of [['Hobbies [fail]', 'calendar.err.createFailed', { service: 'Outlook', reason: 'the server refused it' }], ['Hobbies [denied]', 'calendar.err.createDenied', { service: 'Outlook' }]]) {
+      await evaluate(`(() => { const i = document.querySelector('#newcal-name'); i.focus(); i.select(); return 1; })()`);
+      await typeText(name);
+      await pressIn('.modal .row-inline .btn', tr(lang, 'settings.calendar.create'));
+      await waitFor(`document.querySelector('.modal .field-err')`, `${where}: the refusal of ${name}`);
+      await sleep(100);
+      d = await moveDialog();
+      ok(d.err === tr(lang, key, params), `${where}: ${name}: the create failure is the translated sentence (${d.err})`);
+      ok(d.box.l >= 0 && d.box.r <= d.vw && d.box.t >= 0 && d.box.b <= d.vh && d.overflowX <= 1, `${where}: ${name}: the dialog with the failure sentence is inside the window (${JSON.stringify(d.box)})`);
+    }
     if (lang === LANGS[0]) await shot(`newcal-${theme}`);
     await esc();
     await sleep(200);

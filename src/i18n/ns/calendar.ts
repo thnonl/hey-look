@@ -331,5 +331,7 @@ export default define({
     "calendar.move.guests": "An event with guests can’t be moved to another calendar here. You can move it in {service}.",
     "calendar.toast.moved": "Moved to {calendar}",
     "calendar.err.needsAccess": "To create calendars in {service}, allow access again.",
+    "calendar.err.createFailed": "Couldn’t create the calendar in {service}: {reason}.",
+    "calendar.err.createDenied": "Couldn’t create the calendar. {service} doesn’t allow it.",
   },
 });

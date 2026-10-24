@@ -566,7 +566,7 @@ export default defineLocale<typeof ns.en>({
   "settings.kw.keepRunning": "Hintergrund, minimieren, Tray, Menüleiste",
   "settings.kw.autostart": "Autostart, Systemstart, Hochfahren, Boot",
   "settings.kw.pgp": "GPG, OpenPGP, privater Schlüssel, öffentlicher Schlüssel",
-  "settings.kw.ai": "ChatGPT, LLM, Ollama, Sprachmodell, künstliche Intelligenz",
+  "settings.kw.ai": "ChatGPT, LLM, Ollama, AI, Sprachmodell, künstliche Intelligenz",
   "settings.kw.blocked": "Spam, Sperrliste, Blacklist, entsperren, sperren",
   "settings.kw.addAccount": "IMAP, Gmail, Outlook, neues Postfach, Account",
   "settings.kw.autoCheck": "Aktualisierung, Upgrade, neue Version, Versionsprüfung",

@@ -297,14 +297,27 @@ for (const lang of LANGUAGES.map((l) => l.code)) {
     first(idx, "撤销", "undoSend", 3);
     ok(fold(searchSettings(idx, "撤销")[0].entry.label).includes("撤销"), "zh: 撤销");
   });
-  // full-width letters are the same as plain ones in every language. AC-8.12.14 also says that ＡＩ finds the AI Assistant "in every language": where the agreed texts have the letters AI
-  // (en, vi, zh-Hans, ja, es: label or keyword; fr: its intro) it is found; German writes KI-Assistent and Russian ИИ-помощник and neither has an AI keyword (listed in the report)
+  // full-width letters are the same as plain ones in every language, and AC-8.12.14: ＡＩ finds the AI Assistant "in every language". German writes KI-Assistent and Russian ИИ-помощник,
+  // so those two carry "AI" in their keywords (fix51); the local term (KI, ИИ) is in the label and must find it too
   for (const code of LANGUAGES.map((l) => l.code)) {
     await lang(code, (idx) => {
       eq(searchSettings(idx, "ＡＩ").map((h) => h.entry.id), searchSettings(idx, "AI").map((h) => h.entry.id), `${code}: ＡＩ is AI`);
-      eq(searchSettings(idx, "ＡＩ").some((h) => h.entry.id === "pg-ai"), !["de", "ru"].includes(code), `${code}: ＡＩ finds the AI Assistant page where its texts have the letters`);
+      eq(searchSettings(idx, "ＡＩ").some((h) => h.entry.id === "pg-ai"), true, `${code}: ＡＩ finds the AI Assistant page`);
+      eq(searchSettings(idx, "AI").some((h) => h.entry.id === "pg-ai"), true, `${code}: AI finds the AI Assistant page`);
     });
   }
+  await lang("de", (idx) => {
+    first(idx, "KI", "pg-ai", 1);
+    first(idx, "ＫＩ", "pg-ai", 1);
+    first(idx, "AI", "pg-ai", 1);
+    first(idx, "ＡＩ", "pg-ai", 1);
+  });
+  await lang("ru", (idx) => {
+    first(idx, "ИИ", "pg-ai", 1);
+    first(idx, "ии", "pg-ai", 1);
+    first(idx, "AI", "pg-ai", 1);
+    first(idx, "ＡＩ", "pg-ai", 1);
+  });
   // listSep: the list of place names for a screen reader
   await lang("ja", () => eq(listSep(), "、", "ja list separator"));
   await lang("zh-Hans", () => eq(listSep(), "、", "zh-Hans list separator"));

@@ -199,6 +199,8 @@
 - Linux: the file pickers for PGP keys and calendar files list upper-case extensions too (`KEY.ASC`, `INVITE.ICS`)
 - Security: updated the HTML sanitiser (DOMPurify) to 3.4.17, which fixes three advisories of 3.4.16 and older (a template-expression bypass in shadow-root output, event handlers left armed by an in-place hook, and an SVG animation guard skipped in XHTML mode); Hey Look! sanitises received and pasted mail with it
 - A right-click on a link in a message no longer opens the link in the browser: it shows the link menu (Open link, Copy link address)
+- A calendar that the service refuses to create (New calendar in Settings) now says that it could not be created, with the reason, in the language in use (it used to say "could not save" or "<name> is read only")
+- Search in Settings: "AI" (also typed full-width) finds the AI Assistant in German and Russian too
 
 ### Known limitations
 

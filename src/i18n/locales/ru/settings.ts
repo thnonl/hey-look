@@ -566,7 +566,7 @@ export default defineLocale<typeof ns.en>({
   "settings.kw.keepRunning": "фон, свернуть, строка меню, не закрывать",
   "settings.kw.autostart": "автозапуск, автозагрузка, старт системы",
   "settings.kw.pgp": "gpg, openpgp, закрытый ключ, секретный ключ, открытый ключ",
-  "settings.kw.ai": "ChatGPT, нейросет, LLM, Ollama, языковая модель",
+  "settings.kw.ai": "ChatGPT, нейросет, LLM, Ollama, AI, языковая модель",
   "settings.kw.blocked": "спам, чёрный список, бан, игнор",
   "settings.kw.addAccount": "IMAP, Gmail, Outlook, аккаунт, новый ящик, подключить",
   "settings.kw.autoCheck": "апдейт, upgrade, новая версия",

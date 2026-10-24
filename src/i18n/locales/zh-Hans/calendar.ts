@@ -324,4 +324,6 @@ export default defineLocale<typeof ns.en>({
   "calendar.move.guests": "有与会者的事件无法在此移到其他日历。您可以在{service}中移动。",
   "calendar.toast.moved": "已移动到{calendar}",
   "calendar.err.needsAccess": "要在{service}中创建日历，请重新允许访问。",
+  "calendar.err.createFailed": "无法在{service}中创建日历：{reason}。",
+  "calendar.err.createDenied": "无法创建日历。{service}不允许这样做。",
 });

@@ -869,7 +869,7 @@ const MOCK_CAL_ACCOUNTS: MockCalAccount[] = [
 // an address containing "nowhere" has no server, "plain" is no CalDAV server, "empty" has no calendars, "redirect" sends the client elsewhere, "selfsigned" has an untrusted certificate (unless it is trusted),
 // "slow" waits 3 s. `window.__mockDavConnects` lists the connect calls (their values, the password too, for the test), `window.__mockDavPasswords` the "enter password again" calls.
 // `#davsched` makes the CalDAV server send invitations itself (else the app sends them: the dialog line says which). `__mockCalSync.colors` lists the colours chosen in Settings (`calendar_set_color`), `window.__mockMoves` the
-// `calendar_move_event` calls, `window.__mockCreates` the `calendar_create_calendar` calls (a name containing "[needsaccess]" or "[fail]" ends in the error of that name); `__mockCalSync.moveDelay` / `createDelay` (ms) keep them pending.
+// `calendar_move_event` calls, `window.__mockCreates` the `calendar_create_calendar` calls (a name containing "[needsaccess]", "[fail]" or "[denied]" ends in the error of that name); `__mockCalSync.moveDelay` / `createDelay` (ms) keep them pending.
 // a mailbox added in the preview (Add account > Google / Microsoft) joins the list when its calendar is connected, so the step after the sign-in has a mailbox to sync
 const extraCalAccounts: MockCalAccount[] = [];
 const calAccounts = () => [...MOCK_CAL_ACCOUNTS, ...extraCalAccounts];
@@ -2170,7 +2170,8 @@ export function installMock() {
         return new Promise((resolve, reject) => {
           setTimeout(() => {
             if (name.includes("[needsaccess]")) return reject(`CAL_NEEDS_ACCESS: To create calendars in ${m.service}, allow access again.`);
-            if (name.includes("[fail]")) return reject(`CAL_ERROR: Couldn’t save to ${m.service}: the server refused it.`);
+            if (name.includes("[fail]")) return reject(`CAL_ERROR: Couldn’t create the calendar in ${m.service}: the server refused it.`);
+            if (name.includes("[denied]")) return reject(`CAL_ERROR: Couldn’t create the calendar. ${m.service} doesn’t allow it.`);
             const id = `${m.prefix}:${m.account}:new-${src.calendars.length + 1}`;
             src.calendars.push({ id, name, color: m.kind === "microsoft" ? "#0078d4" : "#0082c9", readOnly: false, primary: false, syncOn: true, eventCount: 0, truncated: false });
             if (a.color) calColors[id] = String(a.color).toLowerCase();
