@@ -4,6 +4,7 @@
 // (src/popout/mainRequests.ts): the mail background switch, the dialogs of the main window, a new message. Answering a message does the
 // same through `answerVia` (src/actions.ts).
 import { listen } from "@tauri-apps/api/event";
+import { CANVAS_SESSION_EVENT } from "../mailCanvasSync";
 import { answerVia } from "../actions";
 import { api, type MessageFull } from "../api";
 import { t } from "../i18n";
@@ -54,6 +55,11 @@ export async function installReaderBridge(b: ReaderBridge): Promise<() => void> 
       useStore.setState((s) => ({ prefs: { ...s.prefs, ...patch } }));
       if ("mailCanvas" in patch) void askMain("prefs", { mailCanvas: patch.mailCanvas });
     },
+    // the light theme's session mail background (WP13g): shown here at once, owned by the main page, which tells every reader (`mail-canvas-session`)
+    setMailCanvasSession: (v) => {
+      useStore.setState({ mailCanvasSession: v });
+      void askMain("canvas-session", { dark: v === "dark" });
+    },
     // Show original and the picture viewer open in this window; Settings, the event dialog and the PGP key dialogs in the main window (REQ-R11)
     setDialog: (d: Dialog) => {
       if (d === null || d.type === "original") useStore.setState({ dialog: d });
@@ -74,7 +80,21 @@ export async function installReaderBridge(b: ReaderBridge): Promise<() => void> 
     bumpCal: () => undefined,
   });
   const off = await listen<Reply>("popout-reply", (e) => requester.answer(e.payload));
+  // the session choice of the main page: now (a window opened while it is dark starts dark), and at every change
+  const offCanvas = await listen<{ dark?: unknown; theme?: unknown }>(CANVAS_SESSION_EVENT, (e) => {
+    if (e.payload?.theme === true) return; // cleared by a switch of the app theme: this window clears its own when its theme changes (mailCanvasSync.ts)
+    useStore.setState({ mailCanvasSession: e.payload?.dark === true ? "dark" : null });
+  });
+  void requester
+    .ask("canvas-session", {})
+    .then((r) => {
+      const dark = (r as { dark?: unknown } | null)?.dark === true;
+      // (a theme switch since the window opened has cleared it here; the main page clears its own the same way)
+      useStore.setState({ mailCanvasSession: dark ? "dark" : null });
+    })
+    .catch(() => undefined);
   return () => {
+    offCanvas();
     answerVia.reply = undefined;
     answerVia.forward = undefined;
     answerVia.importKey = undefined;

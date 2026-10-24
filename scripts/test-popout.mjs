@@ -285,6 +285,12 @@ assert.equal(popoutTitle(readerTitleText("", "(no subject)")), "(no subject) –
   bad("prefs", { theme: "dark" });
   bad("prefs", { downloadDir: "C:\\" });
   bad("prefs", {});
+  // the light theme's session mail background (WP13g): set, take off, or just ask; never a preference
+  assert.deepEqual(ok("canvas-session", { dark: true }), { kind: "canvas-session", dark: true });
+  assert.deepEqual(ok("canvas-session", { dark: false }), { kind: "canvas-session", dark: false });
+  assert.deepEqual(ok("canvas-session", {}), { kind: "canvas-session", dark: null });
+  assert.deepEqual(ok("canvas-session", { dark: "yes" }), { kind: "canvas-session", dark: null }, "anything but a boolean is only a question");
+  assert.deepEqual(ok("canvas-session", null), { kind: "canvas-session", dark: null });
   // answers
   const msg = { id: "m1", subject: "Hi" };
   assert.equal(ok("compose", { mode: "replyAll", message: msg, threadMessageIds: ["<a@b>", null, 5] }).req.threadMessageIds.length, 2, "only Message-IDs travel");

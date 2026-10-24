@@ -3,7 +3,7 @@ import {
   BadgeCheck, CalendarClock, CalendarPlus, ChevronDown, ExternalLink, FileText, SquareArrowDownLeft, ImagePlus, Info, Lock, LockOpen, MoreHorizontal, Paperclip, Save, Send, ShieldAlert, ShieldCheck, Sparkles, Trash2,
   TriangleAlert, X,
 } from "lucide-react";
-import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { api, Att, Draft, DraftSecurity, errorCode, InlineImage, OwnKeyStatus, RecipientStatus, Signature, Template } from "../api";
 import { eff } from "../prefs";
@@ -13,7 +13,11 @@ import { pendingToast } from "../pendingToast";
 import { useAiSlot } from "../useAiSlot";
 import { aiReady, clearAiProblem, leaveAiContext, showAiNotSetUp, showAiProblem } from "../aiGuide";
 import type { ComposeProbe, SavedDraft } from "../leaveCompose";
-import { PreviewBg, previewVars, rememberPreview, startPreview } from "../composePreview";
+import { forgetPreview, PreviewBg, previewVars, rememberPreview, startPreview } from "../composePreview";
+import { useAppDark } from "../useAppDark";
+import { onThemeSwitch, themeSwitches } from "../mailCanvasSync";
+import { themeIsDark } from "../mailCanvas";
+import { osDark } from "../osTheme";
 import { setDarkRegion } from "../composePreviewDom";
 import { extractSignature, normalizeHtml, SIG_MARK } from "../signature";
 import { baseExtensions, refreshPlaceholder, setEditorLabel } from "../editor/extensions";
@@ -313,7 +317,19 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   const [hotZone, setHotZone] = useState<"top" | "bottom" | null>(null);
   const [pics, setPics] = useState({ count: 0, bytes: 0 });
   // "Preview as recipient": which background the body is shown on. A view-layer choice only (buildDraft never reads it)
-  const [pv, setPv] = useState<PreviewBg>(() => startPreview(prefs.mailCanvas));
+  const themeDark = useAppDark();
+  const [pv, setPv] = useState<PreviewBg>(() => startPreview(themeDark, prefs.mailCanvas));
+  // a switch of the app theme (the setting, or the OS under System) puts the preview back to the start value of the new theme: light in Light, the stored message background in Dark (WP13g, REQ-13.15.3)
+  // (counted by mailCanvasSync.ts, so two switches inside one render - Dark, Light, Dark - still reset it; the theme is read fresh, not from this render)
+  const switches = useSyncExternalStore(onThemeSwitch, themeSwitches);
+  const switchesSeen = useRef(switches);
+  useEffect(() => {
+    if (switchesSeen.current === switches) return;
+    switchesSeen.current = switches;
+    const st = useStore.getState();
+    forgetPreview();
+    setPv(startPreview(themeIsDark(st.prefs.theme, osDark()), st.prefs.mailCanvas));
+  }, [switches]);
   const choosePreview = (p: PreviewBg) => {
     rememberPreview(p);
     setPv(p);

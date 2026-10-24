@@ -207,12 +207,61 @@ async function lightConfig(tag) {
   check(tag, blocked[0] === 0 && blocked[1] >= 1, `light: remote picture not blocked (img with src ${blocked[0]}, placeholders ${blocked[1]})`);
   await sleep(500);
   check(tag, logoRequests === 0, `light: the blocked picture was asked for ${logoRequests} time(s)`);
-  // the dark background in the light theme
-  await evaluate(`window.__store.getState().setPrefs({ mailCanvas: 'dark' }); 1`);
+  // the dark background in the light theme is the session choice of the button (WP13g): nothing is stored
+  const { click } = inputs(H, null, tag);
+  await click(BUTTON);
   const d = await waitFrame(DARK, (s) => s.cls.includes('hm-dark') && !s.cls.includes('hm-pend') && s.bodyVis === 'visible', 3000);
   check(tag, d.ms !== null, 'light theme, dark background: the mail was not shown');
   if (d.state) await readable(tag, 'light theme, dark background', DARK, d.state);
   check(tag, logoRequests === 0, `light theme, dark background: the blocked picture was asked for ${logoRequests} time(s)`);
+  check(tag, await evaluate(`window.__store.getState().prefs.mailCanvas === 'original' && window.__store.getState().mailCanvasSession === 'dark'`), 'light theme, dark background: the choice was stored (it is for this session only)');
+}
+
+/** WP13g (DEC-025): a stored dark message background does not show in the light theme: the mail is the original (white, nothing recoloured, nothing hidden); the stored value stays. */
+async function lightStoredDark(tag) {
+  logoRequests = 0;
+  await cdp('Emulation.setEmulatedMedia', { media: '', features: [{ name: 'prefers-color-scheme', value: 'light' }] });
+  await H.openApp('lang=en', 1280, 900);
+  await evaluate(`window.__store.getState().setPrefs({ theme: 'light', mailCanvas: 'dark', loadRemote: true }); window.__store.getState().select('dk11'); 1`);
+  const o = await waitFrame(WHITE, (s) => s.text > 300, 5000);
+  check(tag, o.ms !== null, 'light theme, stored dark: the mail was not shown');
+  const st = o.state;
+  if (st) {
+    check(tag, st.cls === '' && st.bodyVis === 'visible', `light theme, stored dark: classes "${st.cls}", body ${st.bodyVis}`);
+    check(tag, st.hmAttr === 0, 'light theme, stored dark: elements were recoloured');
+    check(tag, st.min >= 4.3, `light theme, stored dark: lowest text contrast ${st.min}:1`);
+    await readable(tag, 'light theme, stored dark', WHITE, st);
+  }
+  check(tag, await evaluate(`window.__store.getState().prefs.mailCanvas === 'dark'`), 'the stored value was changed');
+  const pressed = await evaluate(`document.querySelector('${BUTTON}').getAttribute('aria-pressed')`);
+  check(tag, pressed === 'false', `light theme, stored dark: the button says pressed=${pressed}`);
+}
+
+/** WP13g: the button in the light theme gives the dark background for this session: it reads, stays for another mail, is the same after switching back, and the next press gives the original. */
+async function lightSessionDark(tag) {
+  logoRequests = 0;
+  await cdp('Emulation.setEmulatedMedia', { media: '', features: [{ name: 'prefers-color-scheme', value: 'light' }] });
+  await H.openApp('lang=en', 1280, 900);
+  await evaluate(`window.__store.getState().setPrefs({ theme: 'light', mailCanvas: 'original', loadRemote: true }); window.__store.getState().select('dk12'); 1`);
+  const o = await waitFrame(WHITE, (s) => s.text > 300, 5000);
+  check(tag, o.ms !== null && o.state.cls === '', 'light theme: the mail did not show on the original background');
+  const { click } = inputs(H, null, tag);
+  await click(BUTTON);
+  const first = await waitFrame(DARK, (s) => s.cls.includes('hm-dark') && !s.cls.includes('hm-pend') && s.bodyVis === 'visible' && s.text > 300, 4000);
+  check(tag, first.ms !== null, 'session dark: the mail did not turn dark');
+  if (first.state) await readable(tag, 'session dark', DARK, first.state);
+  check(tag, await evaluate(`window.__store.getState().prefs.mailCanvas === 'original'`), 'session dark: the choice was stored');
+  // another mail, and back: still dark (the session lasts), the same colours
+  await open('dk1');
+  const other = await waitFrame(DARK, (s) => s.text > 20 && !s.cls.includes('hm-pend'), 3000);
+  check(tag, other.ms !== null && other.state.cls.includes('hm-dark'), 'session dark: another mail did not open dark');
+  await open('dk12');
+  const back = await waitFrame(DARK, (s) => s.cls.includes('hm-dark') && !s.cls.includes('hm-pend') && s.bodyVis === 'visible' && s.text > 300, 3000);
+  check(tag, back.ms !== null, 'session dark: the mail did not come back dark');
+  if (back.state && first.state) check(tag, sig(back.state) === sig(first.state), 'session dark: the colours differ after switching away and back');
+  await click(BUTTON);
+  const orig = await waitFrame(WHITE, (s) => !s.cls.includes('hm-dark'), 3000);
+  check(tag, orig.ms !== null && orig.state.bodyVis === 'visible' && near(orig.state.bodyBg.match(/\d+/g).map(Number), WHITE, 2), 'session dark: the second press did not give the original');
 }
 
 /** Other dark fixtures: shown at once, readable (the rest of the dark rendering is checked by __darkCheck, devDarkCheck.ts). */
@@ -235,7 +284,8 @@ const CONFIGS = [
   ['reader-dark', () => darkConfig('reader-dark', { reader: true, theme: 'dark' }), true],
   ['main-dark-styled', () => darkConfig('main-dark-styled', { reader: false, theme: 'dark', id: 'dk12', origMin: 4.3 }), true], // (the sender's own grey text on white is 4.4:1)
   ['main-light', () => lightConfig('main-light'), false],
-  ['main-light-theme-dark-canvas', () => darkConfig('main-light-theme-dark-canvas', { reader: false, theme: 'light' }), false],
+  ['main-light-theme-dark-canvas', () => lightStoredDark('main-light-theme-dark-canvas'), false], // (WP13g: the stored dark does not show in the light theme)
+  ['main-light-theme-session-dark', () => lightSessionDark('main-light-theme-session-dark'), false],
   ['fixtures', () => otherFixtures('fixtures'), false],
 ];
 try {

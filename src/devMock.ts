@@ -1823,6 +1823,12 @@ export function installMock() {
         // Next / Previous of a reader (W4.4): the rows of the list the window was opened from, in the order of the mock list; drafts and Scheduled are skipped by the caller's rule
         let data: unknown = null;
         // Move to main window (W4.5): `#popinkeep` = the person chose Keep writing; `#popinasking` = the main window asks its question first (the result comes 800 ms later)
+        // the light theme's session mail background (WP13g): the "main window" of this tab remembers it (`#canvasdark` starts dark), a test reads it with window.__mockCanvasSession
+        if (a.kind === "canvas-session") {
+          const cw = window as unknown as { __mockCanvasSession?: boolean };
+          if (typeof p.dark === "boolean") cw.__mockCanvasSession = p.dark;
+          data = { dark: cw.__mockCanvasSession ?? hashHas("canvasdark") };
+        }
         if (a.kind === "cw-pop-in") data = hashHas("popinasking") ? { state: "asking" } : { opened: !hashHas("popinkeep") };
         if (a.kind === "cw-pop-in-result") {
           later(800, () => void emit("popout-reply", { id: a.id, ok: true, data: { opened: !hashHas("popinkeep") }, error: null }));

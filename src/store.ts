@@ -32,6 +32,7 @@ import { fmtNumber } from "./i18n/format";
 import { calTz, CalView, Day, rangeFor, systemTz, today } from "./calendar";
 import { accentText, accountColor, buttonAccent, clampMaxDownload, DEFAULT_PREFS, lightened, mergePrefs, Prefs, readableOn, staleAccountPrefs, topBar, validHex } from "./prefs";
 import { systemThemeAttribute } from "./osTheme";
+import type { MailCanvasSession } from "./mailCanvas";
 import { captionColors, gradientT } from "./captionColors";
 import { settingsWindowOpen } from "./popout/popoutCount";
 import { SETTINGS_KEY, settingsTarget } from "./popout/windowKinds";
@@ -356,6 +357,8 @@ interface State {
   sidebarToggle: number;
   ribbonTab: RibbonTab;
   prefs: Prefs;
+  /** The light theme's session-only mail background (WP13g): "dark" after the button was pressed in the light theme, never stored; any switch of the app theme clears it (mailCanvasSync.ts). */
+  mailCanvasSession: MailCanvasSession;
   /** The language the person just picked while its chunk is being fetched (src/i18n/lang-<code>.ts); `prefs.language` and the texts stay as they were until it is there. null when no switch is under way. */
   langLoading: Lang | null;
   aiConfigured: boolean;
@@ -472,6 +475,7 @@ interface State {
   /** Swap one message of the open conversation (after it was decrypted). */
   replaceMessage: (m: MessageFull) => void;
   setPrefs: (p: Partial<Prefs>) => void;
+  setMailCanvasSession: (v: MailCanvasSession) => void;
   refreshAi: () => Promise<void>;
   setModule: (m: "mail" | "calendar") => void;
   setCalView: (v: CalView) => void;
@@ -791,6 +795,7 @@ export const useStore = create<State>((set, get) => ({
   sidebarToggle: 0,
   ribbonTab: "home",
   prefs: { ...DEFAULT_PREFS },
+  mailCanvasSession: null,
   langLoading: null,
   aiConfigured: false,
   loaded: false,
@@ -1596,6 +1601,9 @@ export const useStore = create<State>((set, get) => ({
 
   replaceMessage: (m) => set((s) => ({ messages: s.messages.map((x) => (x.id === m.id ? m : x)) })),
 
+  setMailCanvasSession: (v) => {
+    if (get().mailCanvasSession !== v) set({ mailCanvasSession: v });
+  },
   setPrefs: (patch) => {
     if ("language" in patch) {
       const seq = ++langSeq;
