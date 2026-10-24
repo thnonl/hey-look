@@ -105,6 +105,7 @@
   <section class="hq-group" id="g-install" aria-labelledby="g-install-h"><h2 id="g-install-h">安装和首次启动</h2>
 <details class="hq" id="windows"><summary>Windows：首次启动前会出现警告</summary><div class="hq-a"><p>安装程序尚未经过代码签名。如果出现SmartScreen提示，请依次选择<strong>更多信息</strong>和<strong>仍要运行</strong>。请使用.exe；.msi适用于集中管理的部署。</p></div></details>
 <details class="hq" id="macos"><summary>macOS：首次不能打开应用</summary><div class="hq-a"><p>应用没有经过Apple公证，所以macOS会在首次启动时拦截一次。请按<a href="download.html#install-notes">下载页上的三个步骤</a>操作；之后的更新可以正常启动。</p></div></details>
+<details class="hq" id="macos-print"><summary>macOS：打印时询问本地网络</summary><div class="hq-a"><p>首次打印时，macOS可能会询问是否允许Hey Look!查找并连接到您本地网络上的设备。这样打印窗口才能找到您的打印机；Hey Look!不会将本地网络用于其他任何用途。</p></div></details>
 <details class="hq" id="linux"><summary>Linux：该用哪个文件，需要什么</summary><div class="hq-a"><p>AppImage可在任何发行版上运行；.deb适用于Debian和Ubuntu，.rpm适用于Fedora和openSUSE。密码保存需要GNOME Keyring或KWallet正在运行并已解锁，链接通过<code>xdg-open</code>打开。</p></div></details>
   </section>
   <section class="hq-group" id="g-accounts" aria-labelledby="g-accounts-h"><h2 id="g-accounts-h">账户和邮箱</h2>
@@ -112,7 +113,7 @@
 <details class="hq" id="google-review"><summary>Google提示“Google未验证此应用”，或“使用Google登录”无法使用</summary><div class="hq-a"><p>Hey Look!尚未完成Google的审核。凡是仍在审核中的应用，Google都会显示这个警告；这并不表示您的账户有问题。</p>
 <p>要继续，请选择<strong>高级</strong>，然后选择<strong>转至 Hey Look!（不安全）</strong>，确认可以接受后再允许权限（请参阅<a href="google-data.html">Google API数据使用</a>）。</p>
 <p>在审核完成之前，Google只允许前100人用Google登录，邮件和日历同步都是如此。如果登录无法使用，请改用<a href="https://myaccount.google.com/apppasswords" rel="noopener noreferrer">应用专用密码</a>添加个人Gmail账户，作为IMAP账户，服务商选Gmail。</p></div></details>
-<details class="hq" id="push"><summary>新邮件会立即送达吗？</summary><div class="hq-a"><p>会。在支持推送（IMAP IDLE）的服务器上，只要Hey Look!正在运行，收件箱的新邮件就会立即送达。其他文件夹以及不支持推送的服务器，默认每2分钟检查一次。</p></div></details>
+<details class="hq" id="push"><summary>新邮件会立即送达吗？</summary><div class="hq-a"><p>会。在支持推送（IMAP IDLE）的服务器上，只要Hey Look!正在运行，收件箱和最多三个收藏夹文件夹的新邮件就会立即送达。其他文件夹以及不支持推送的服务器，默认每2分钟检查一次。</p></div></details>
   </section>
   <section class="hq-group" id="g-daily" aria-labelledby="g-daily-h"><h2 id="g-daily-h">日常使用</h2>
 <details class="hq" id="keys"><summary>键盘快捷键</summary><div class="hq-a"><p><kbd>Ctrl</kbd> <kbd>K</kbd>（macOS上为 <kbd>Cmd</kbd> <kbd>K</kbd>）打开命令栏。在邮件列表中：<kbd>c</kbd> 新建邮件，<kbd>/</kbd> 搜索，<kbd>j</kbd> 和 <kbd>k</kbd> 移动，<kbd>e</kbd> 归档，<kbd>#</kbd> 删除，<kbd>s</kbd> 稍后提醒，<kbd>r</kbd> 回复。</p></div></details>
@@ -122,7 +123,7 @@
   </section>
   <section class="hq-group" id="g-privacy" aria-labelledby="g-privacy-h"><h2 id="g-privacy-h">隐私与数据存放位置</h2>
 <details class="hq" id="where"><summary>我的数据存放在哪里？</summary><div class="hq-a"><p>邮件和设置保存在一个本地文件夹中：Windows上为<code>%APPDATA%\thnonl.heylook</code>，macOS上为<code>~/Library/Application Support/thnonl.heylook</code>，Linux上为<code>~/.local/share/thnonl.heylook</code>。密码和令牌保存在系统的凭据存储中；OpenPGP私钥保存在应用的数据库中，由您的密码短语加锁。</p></div></details>
-<details class="hq" id="leaves"><summary>哪些内容会离开我的电脑？</summary><div class="hq-a"><p>只有您用到的部分：您的邮件服务器、Google或Microsoft的登录和日历、添加账户时的服务器查询、用于更新的GitHub、您的AI端点、您允许加载的图片，以及取消订阅请求。没有分析代码。<a href="privacy.html">隐私政策</a>列出了每一个连接。</p></div></details>
+<details class="hq" id="leaves"><summary>哪些内容会离开我的电脑？</summary><div class="hq-a"><p>只有您用到的部分：您的邮件服务器、Google或Microsoft的登录和日历、您设置的CalDAV服务器、添加账户时的服务器查询、用于更新的GitHub、您的AI端点、您允许加载的图片，以及取消订阅请求。没有分析代码。<a href="privacy.html">隐私政策</a>列出了每一个连接。</p></div></details>
 <details class="hq" id="remove"><summary>卸载，并清除所有内容</summary><div class="hq-a"><p>在设置中移除您的账户（邮件仍留在服务器上），卸载应用，然后删除它的数据文件夹，以及系统凭据存储中名称以<code>heylook</code>开头的条目。</p></div></details>
   </section>
   <section class="hq-group" id="g-pgp" aria-labelledby="g-pgp-h"><h2 id="g-pgp-h">OpenPGP基础</h2>
@@ -134,7 +135,7 @@
 <details class="hq" id="ai-report"><summary>AI助手生成的内容</summary><div class="hq-a"><p>AI助手会把您的请求发送到您在“设置 &gt; AI助手”中设置的AI服务，由该服务生成回答。Hey Look!不提供也不控制AI模型，AI撰写的文字可能有误。</p><p>如果AI助手显示了有害、冒犯性或违法的内容，请告诉我们：在GitHub上提交issue，或发邮件到namth.onl@gmail.com。请注明AI服务和模型，切勿附上私人邮件或您的API密钥。也请向您的AI服务提供方举报。</p></div></details>
   </section>
   <section class="hq-group" id="g-limits" aria-labelledby="g-limits-h"><h2 id="g-limits-h">已知限制</h2>
-<details class="hq" id="lim"><summary>Hey Look!目前还做不到什么</summary><div class="hq-a"><p>安装程序没有经过代码签名，Google登录目前限100人，搜索只涵盖已下载的邮件，日历同步只支持Google和Microsoft。完整列表见<a href="features.html#limits">功能页</a>。</p></div></details>
+<details class="hq" id="lim"><summary>Hey Look!目前还做不到什么</summary><div class="hq-a"><p>安装程序没有经过代码签名，Google登录目前限100人，写邮件时没有纯文本模式。完整列表见<a href="features.html#limits">功能页</a>。</p></div></details>
   </section>
   </div>
   <p class="hq-none" id="hq-none" hidden>没有匹配的问题。试试换一个词，或者<a href="https://github.com/thnonl/hey-look/issues" rel="noopener">到GitHub上提问</a>。</p>

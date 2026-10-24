@@ -105,6 +105,7 @@
   <section class="hq-group" id="g-install" aria-labelledby="g-install-h"><h2 id="g-install-h">インストールと初回起動</h2>
 <details class="hq" id="windows"><summary>初回起動の前にWindowsが警告を表示する</summary><div class="hq-a"><p>インストーラーはまだコード署名されていません。SmartScreenが表示されたら、<strong>詳細情報</strong>を選んでから<strong>実行</strong>を選んでください。.exeをお使いください。.msiは管理された環境へのインストール向けです。</p></div></details>
 <details class="hq" id="macos"><summary>macOSで初回にアプリが開かない</summary><div class="hq-a"><p>アプリはAppleの公証を受けていないため、初回起動時に一度だけmacOSにブロックされます。<a href="download.html#install-notes">ダウンロードページの3つの手順</a>に従ってください。以降のアップデートは通常どおり起動します。</p></div></details>
+<details class="hq" id="macos-print"><summary>印刷するとmacOSからローカルネットワークについて尋ねられる</summary><div class="hq-a"><p>初めて印刷するとき、Hey Look!がローカルネットワーク上のデバイスを検索することを許可するか、macOSから尋ねられる場合があります。これは印刷ウィンドウがプリンターを見つけるためのもので、Hey Look!がローカルネットワークを使うのはこの目的だけです。</p></div></details>
 <details class="hq" id="linux"><summary>Linux：選ぶファイルと必要なもの</summary><div class="hq-a"><p>AppImageはどのディストリビューションでも動作します。.debはDebianとUbuntu用、.rpmはFedoraとopenSUSE用です。パスワードの保存にはGNOMEキーリングまたはKWalletが実行中でロック解除されている必要があり、リンクは<code>xdg-open</code>で開きます。</p></div></details>
   </section>
   <section class="hq-group" id="g-accounts" aria-labelledby="g-accounts-h"><h2 id="g-accounts-h">アカウントとメールボックス</h2>
@@ -112,7 +113,7 @@
 <details class="hq" id="google-review"><summary>「このアプリはGoogleで確認されていません」と表示される、または「Googleでサインイン」が使えなくなった</summary><div class="hq-a"><p>Hey Look!はGoogleの審査をまだ完了していません。Googleは、審査中のすべてのアプリにこの警告を表示します。アカウントに問題があるわけではありません。</p>
 <p>続行するには、<strong>詳細</strong>を選び、次に<strong>Hey Look!（安全ではないページ）に移動</strong>を選んで、内容に問題がなければ権限を許可してください（<a href="google-data.html">Google APIのデータ利用</a>をご覧ください）。</p>
 <p>審査が完了するまで、メールでもカレンダー同期でも、Googleでサインインできるのは最初の100人までです。サインインできなくなった場合は、代わりに個人のGmailアカウントを<a href="https://myaccount.google.com/apppasswords" rel="noopener noreferrer">アプリパスワード</a>で追加してください。IMAPアカウントとして追加し、プロバイダーにGmailを選びます。</p></div></details>
-<details class="hq" id="push"><summary>新着メールはすぐに届きますか？</summary><div class="hq-a"><p>はい。プッシュ（IMAP IDLE）に対応するサーバーでは、Hey Look!が起動している間、受信トレイの新着メールがすぐに届きます。ほかのフォルダーと、プッシュに対応しないサーバーは、既定では2分ごとに確認されます。</p></div></details>
+<details class="hq" id="push"><summary>新着メールはすぐに届きますか？</summary><div class="hq-a"><p>はい。プッシュ（IMAP IDLE）に対応するサーバーでは、Hey Look!が起動している間、受信トレイと「お気に入り」の最大3つのフォルダーの新着メールがすぐに届きます。ほかのフォルダーと、プッシュに対応しないサーバーは、既定では2分ごとに確認されます。</p></div></details>
   </section>
   <section class="hq-group" id="g-daily" aria-labelledby="g-daily-h"><h2 id="g-daily-h">日常の使い方</h2>
 <details class="hq" id="keys"><summary>キーボードショートカット</summary><div class="hq-a"><p><kbd>Ctrl</kbd> <kbd>K</kbd>（macOSでは<kbd>Cmd</kbd> <kbd>K</kbd>）でコマンドバーが開きます。メール一覧では、<kbd>c</kbd>で新規メール、<kbd>/</kbd>で検索、<kbd>j</kbd>と<kbd>k</kbd>で移動、<kbd>e</kbd>でアーカイブ、<kbd>#</kbd>で削除、<kbd>s</kbd>でスヌーズ、<kbd>r</kbd>で返信します。</p></div></details>
@@ -122,7 +123,7 @@
   </section>
   <section class="hq-group" id="g-privacy" aria-labelledby="g-privacy-h"><h2 id="g-privacy-h">プライバシーとデータの保存場所</h2>
 <details class="hq" id="where"><summary>データはどこにありますか？</summary><div class="hq-a"><p>メールと設定は、1つのローカルフォルダーに保存されます。Windowsでは<code>%APPDATA%\thnonl.heylook</code>、macOSでは<code>~/Library/Application Support/thnonl.heylook</code>、Linuxでは<code>~/.local/share/thnonl.heylook</code>です。パスワードとトークンはシステムの資格情報ストアに保存されます。OpenPGPの秘密鍵はアプリのデータベースに、パスフレーズで保護して保存されます。</p></div></details>
-<details class="hq" id="leaves"><summary>このコンピューターから外に出るものは？</summary><div class="hq-a"><p>実際に使うものだけです：お使いのメールサーバー、GoogleまたはMicrosoftのサインインとカレンダー、アカウント追加時のサーバー検索、アップデート用のGitHub、AIエンドポイント、許可した画像、登録解除のリクエスト。アナリティクスのコードはありません。<a href="privacy.html">プライバシーポリシー</a>に、すべての通信を記載しています。</p></div></details>
+<details class="hq" id="leaves"><summary>このコンピューターから外に出るものは？</summary><div class="hq-a"><p>実際に使うものだけです：お使いのメールサーバー、GoogleまたはMicrosoftのサインインとカレンダー、設定した場合はCalDAVサーバー、アカウント追加時のサーバー検索、アップデート用のGitHub、AIエンドポイント、許可した画像、登録解除のリクエスト。アナリティクスのコードはありません。<a href="privacy.html">プライバシーポリシー</a>に、すべての通信を記載しています。</p></div></details>
 <details class="hq" id="remove"><summary>アンインストールとすべてのデータの削除</summary><div class="hq-a"><p>設定でアカウントを削除し（メールはサーバーに残ります）、アプリをアンインストールしてから、データフォルダーと、システムの資格情報ストアにある、名前が<code>heylook</code>で始まるエントリを削除してください。</p></div></details>
   </section>
   <section class="hq-group" id="g-pgp" aria-labelledby="g-pgp-h"><h2 id="g-pgp-h">OpenPGPの基本</h2>
@@ -134,7 +135,7 @@
 <details class="hq" id="ai-report"><summary>AIアシスタントが生成する内容について</summary><div class="hq-a"><p>AIアシスタントは、「設定 &gt; AIアシスタント」で設定したAIサービスにリクエストを送信し、回答はそのサービスが作成します。Hey Look!はAIモデルを提供しておらず、管理もしていません。また、AIが作成した文章には誤りが含まれることがあります。</p><p>AIアシスタントが有害、不快、または違法な内容を表示した場合は、お知らせください。GitHubでIssueを作成するか、namth.onl@gmail.comまでご連絡ください。その際は、AIサービス名とモデル名を記載し、プライベートなメールやAPIキーは絶対に含めないでください。お使いのAIサービスにも、あわせて報告してください。</p></div></details>
   </section>
   <section class="hq-group" id="g-limits" aria-labelledby="g-limits-h"><h2 id="g-limits-h">既知の制限</h2>
-<details class="hq" id="lim"><summary>Hey Look!がまだ対応していないこと</summary><div class="hq-a"><p>インストーラーはコード署名されておらず、Googleでのサインインは当面100人に限定され、検索の対象はダウンロード済みのメールのみで、カレンダー同期の対象はGoogleとMicrosoftのみです。全文は<a href="features.html#limits">機能のページ</a>をご覧ください。</p></div></details>
+<details class="hq" id="lim"><summary>Hey Look!がまだ対応していないこと</summary><div class="hq-a"><p>インストーラーはコード署名されておらず、Googleでのサインインは当面100人に限定され、作成時にはテキストのみのモードがありません。全文は<a href="features.html#limits">機能のページ</a>をご覧ください。</p></div></details>
   </section>
   </div>
   <p class="hq-none" id="hq-none" hidden>一致する質問がありません。単語を1つだけ入力して試すか、<a href="https://github.com/thnonl/hey-look/issues" rel="noopener">GitHubで質問</a>してください。</p>

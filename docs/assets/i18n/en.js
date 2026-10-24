@@ -107,7 +107,7 @@
   "story.cal_declined": "Declined. A reply goes out from the right mailbox.",
   "story.cal_accepted": "Accepted. It is in your calendar and a reply goes out from the right mailbox.",
   "story.cal_tentative": "Tentative. It is in your calendar and a reply goes out from the right mailbox.",
-  "story.cal_note": "Syncing with a Google or Microsoft calendar is optional, per mailbox.",
+  "story.cal_note": "Syncing with a Google, Microsoft or CalDAV calendar is optional, per mailbox.",
 
   "story.img_loaded": "Content loaded. The app downloaded the images itself where it could, so the sender now sees a request.",
   "story.img_blocked": "Remote content is blocked. Nothing was requested from the sender.",
