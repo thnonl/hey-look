@@ -75,6 +75,7 @@
 
 ### Fixed
 
+- Security: the TLS libraries (rustls 0.23.46, rustls-webpki 0.103.16, webpki-root-certs 1.0.11) are updated to the versions that fix the advisories of October 2026 (secrets in debug output, a certificate check that accepted distrusted intermediates, distrusted emSign roots). The Windows build no longer contains the zip library at all (no update package of ours is a zip file), which removes the exposure to the zip unpacking advisories; the few advisories that have no fix yet (OpenPGP key crypto: rsa and crypto-bigint timing, which needs timing measurements on your own computer) are listed with their reasons in `src-tauri/.cargo/audit.toml`
 - A big mail in the dark message background no longer makes the app use more and more memory on a Mac: the colours of a mail are worked out once and kept, and the work is done in one hidden frame instead of in the frame that shows the message (the same mail opens again without the work; the look is the same)
 - macOS 11 and 12 with an older Safari engine (before 16.2): the accent colour and the tints of the buttons, links and focus ring are worked out by the app when the engine has no color-mix(), instead of being lost in the dark theme
 - "Opening message…" while a mail loads now covers the whole message area as one surface in the colour the mail will have there (white, or the dark background), with readable text; before, a small box of the app colour sat in the middle of the area with the mail or the pane showing on both sides.
