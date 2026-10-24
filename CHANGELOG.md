@@ -211,6 +211,7 @@
 - Linux: Ctrl+Q quits Hey Look!, the same way as Quit in the tray menu (the question about scheduled messages, the message you are writing and the messages still in their Undo time are handled first)
 - Linux: Ctrl+Q also works while the focus is inside a Confidential message (it did nothing there, in the reading pane and in a message window)
 - Search in Settings: typing "tray" (or "system tray") lists the Notifications tab and its keep-running, starts-minimized and tray-badge rows on every system, also on a Mac where they say "menu bar", in all eight languages
+- A message written with no signature keeps the place of its signature region when it comes back: after a failed send, Send and Undo, Pop out, Save draft and opening the draft again, the text you typed below the region stays below it (it was moved above it, with an extra empty line, because a message with no signature left no trace of where the region was); the sent mail is unchanged
 
 ### Known limitations
 
