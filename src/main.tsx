@@ -11,6 +11,7 @@ import { installMailCanvasSync } from "./mailCanvasSync";
 import { applyPrefs, useStore } from "./store";
 import { installMacMenu } from "./macMenu";
 import { installMacPasteMatch, installPlainPasteKey } from "./plainPasteKey";
+import { installQuitKey } from "./quitKey";
 import { prefetchComposeWindow, prefetchReaderWindow, prefetchWindowView } from "./lazyViews";
 import PopoutRoot from "./popout/PopoutRoot";
 import { installModifierTracking } from "./popout/modifier";
@@ -51,6 +52,7 @@ async function boot(): Promise<boolean> {
   if (route.kind !== "main") await loadPlatform();
   installContextGuard(); // no native webview menu in a release build (see contextPolicy.ts)
   installPlainPasteKey(); // macOS: Cmd+Shift+V in a text box (WKWebView sends no paste event for it)
+  installQuitKey(); // Linux: Ctrl+Q quits like the tray's Quit item (D-021)
   installMacPasteMatch(); // macOS: Edit > Paste and Match Style (the menu item tells the focused window)
   installMacMenu(route.kind === "main"); // macOS: Settings…, File > Print… and Help of the menu bar (W5.11)
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

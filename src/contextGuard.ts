@@ -4,6 +4,7 @@
 // at the selection or at the focused element.
 import { create } from "zustand";
 import { isContextMenuKey, isKeyEcho } from "./contextMenu";
+import { guardFrameQuitKey } from "./quitKey";
 import { decideContextMenu, emailAtOffset, fieldKind, INTERACTIVE, nativeMenuWanted, PLUGIN_HOST, SELECT_SCOPE, safeLinkHref } from "./contextPolicy";
 import { usePlatform } from "./platform";
 import { selectionQuery } from "./selectionSearch";
@@ -233,7 +234,9 @@ export function guardFrame(frame: HTMLIFrameElement, doc: Document, opts?: { sea
   doc.addEventListener("mousedown", press, true);
   doc.addEventListener("keydown", close, true);
   doc.addEventListener("scroll", closeAny, true);
+  const dropQuitKey = guardFrameQuitKey(doc); // Linux Ctrl+Q while the focus is in the message (D-021)
   return () => {
+    dropQuitKey();
     doc.removeEventListener("contextmenu", onContext, true);
     doc.removeEventListener("keydown", onKey, true);
     doc.removeEventListener("mousedown", press, true);
