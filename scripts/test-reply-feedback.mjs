@@ -14,7 +14,7 @@
 import assert from 'node:assert/strict';
 import { arg, inputs, sleep, startHarness } from './cdp-harness.mjs';
 import { FIXTURES, IDS } from './lib/reply-fixtures.mjs';
-import { CALIBRATE, PROBE_INSTALL, PROBE_PRESS, PROBE_READ, fill } from './lib/reply-open-probe.mjs';
+import { CALIBRATE, PROBE_INSTALL, PROBE_PRESS, PROBE_READ, PROBE_STATE, fill } from './lib/reply-open-probe.mjs';
 
 const H = await startHarness('test-reply-feedback', { vitePort0: 5995 });
 const { evaluate, cdp } = H;
@@ -343,6 +343,21 @@ try {
     assert.deepEqual(s, ALL_SAME, JSON.stringify(s));
     assert.equal(await evaluate(`window.__shell.editor.getJSON().content.some((n) => n.type === 'quoteBlock')`), true, 'the quote is in the same editor');
     assert.equal(await evaluate(`document.querySelectorAll('.cp-editor .sig-block').length`), 1, 'the signature region is there once');
+    // the probe that the Mac / Linux session runs through the bridge says the same (scripts/lib/reply-open-probe.mjs)
+    await sleep(300);
+    const r = await read();
+    assert.deepEqual(r.same, { instance: true, pane: true, editor: true, view: true }, 'the probe: same objects');
+    assert.equal(r.rowsAdded, 0, 'the probe: a header row appeared or went at the fill');
+    assert.ok(r.rowsMovedPx !== null && r.rowsMovedPx <= 1, `the probe: a header row moved ${r.rowsMovedPx} px`);
+    assert.equal(r.canUndoAtFill, false, 'the probe: Ctrl/Cmd+Z could undo something right after the fill');
+    assert.equal(r.fillKind, 'in-place');
+    assert.ok(r.statusNullOk, `the probe: the status rule: ${JSON.stringify({ s: r.statusMs, f: r.filledMs, starved: r.statusStarved, blocks: r.blocks })}`);
+    const st = await evaluate(`(() => { ${PROBE_STATE} })()`);
+    assert.equal(st.fillKind, 'in-place');
+    assert.equal(st.signatureRegions, 1);
+    assert.equal(st.quote, true);
+    assert.equal(st.canUndo, false);
+    assert.equal(st.editable, true);
   });
   await check('in place (pane): Reply all and Forward keep the instance as well', async () => {
     for (const [button, id] of [['Reply all', IDS.cc], ['Forward', IDS.att]]) {
@@ -354,6 +369,10 @@ try {
       assert.ok(await waitFor(filledJs, 8000), `${button}: never filled`);
       const s = await evaluate(SAME);
       assert.deepEqual(s, ALL_SAME, `${button}: ${JSON.stringify(s)}`);
+      // the caret goes where a fresh mount puts it: the body when the message has recipients, the To field for a forward
+      await sleep(250);
+      const where = await evaluate(`(() => { const a = document.activeElement; return a?.closest?.('.cp-editor') ? 'editor' : a?.closest?.('.cf-field.rcpt') ? 'to' : (a?.tagName ?? 'none'); })()`);
+      assert.equal(where, button === 'Forward' ? 'to' : 'editor', `${button}: the focus is in ${where}`);
     }
   });
 
@@ -523,6 +542,8 @@ try {
     assert.ok(await waitFor(filledJs, 8000), 'the window did not fill');
     const s = await evaluate(SAME);
     assert.deepEqual(s, ALL_SAME, JSON.stringify(s));
+    const st = await evaluate(`(() => { ${PROBE_STATE} })()`); // (what the Mac / Linux session reads in a compose window it could not install the recorder in)
+    assert.deepEqual({ kind: st.fillKind, regions: st.signatureRegions, quote: st.quote, undo: st.canUndo, editable: st.editable }, { kind: 'in-place', regions: 1, quote: true, undo: false, editable: true }, JSON.stringify(st));
     await sleep(300);
     const before = await editorDoc();
     assert.equal(await canUndo(), false, 'the fill is in the undo history');

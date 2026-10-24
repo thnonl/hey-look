@@ -697,6 +697,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
         .command(({ tr }) => (tr.setSelection(Selection.atStart(tr.doc)), true))
         .run();
       baseline.current = { text: editor.getText().trim(), pics: bodyPictures(editor) };
+      paneRef.current?.setAttribute("data-fill", "in-place"); // (what the probes read: the message got in without a new Compose)
       if ((full.to?.length ?? 0) > 0) editor.commands.focus("start"); // (a forward has no recipient: the To field takes the focus, see `autoFocus` there)
     } catch (e) {
       const note = `[reply] fill: fallback ${e instanceof Error ? e.message : String(e)}`;
