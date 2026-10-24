@@ -1,4 +1,9 @@
-//! IMAP IDLE push (RFC 2177) for the Inbox, with the poller of `sync_worker` kept as the safety net.
+//! IMAP IDLE push (RFC 2177) for the Inbox and up to three followed folders, with the poller of `sync_worker` kept as the safety net.
+//!
+//! (1.0.7 W6.6) The followed folders are the person's Favorites for the mailbox (`followed_folders`): at most 3, never the Inbox (it has its own worker), Drafts, Deleted Items or
+//! Junk Email. Each gets a worker of its own (one more connection, EXAMINE of that folder, the same timing, watchdog and backoff); a change in any of them runs the account's sync,
+//! so every folder is refreshed. The account's state (`push` / `polling`) is the Inbox worker's. The extra workers start only once the Inbox worker is in `push`, and a server that
+//! refuses them (a connection limit, a refused login) stops them for the rest of the run: the Inbox worker keeps its connection and polling stays the safety net.
 //!
 //! One supervisor thread (`start`) looks every few seconds at which accounts should have a push session: the account has had its first
 //! sync, and the `pushMail` pref (per account, default on) is not off. For each one a worker thread keeps one extra connection to the
@@ -166,6 +171,7 @@ impl Tracker {
 #[derive(Default, Debug)]
 pub struct Pacer {
     last_sync: Option<Instant>,
+    last_start: Option<Instant>,
 }
 
 impl Pacer {
@@ -179,6 +185,17 @@ impl Pacer {
 
     pub fn synced(&mut self, at: Instant) {
         self.last_sync = Some(at);
+    }
+
+    /// A sync of the account is about to start (any of its workers).
+    pub fn started(&mut self, at: Instant) {
+        self.last_start = Some(at);
+    }
+
+    /// A sync of the account started after the change at `changed_at`: it read the folders after the change, so another worker's sync for the same burst is not needed (one sync
+    /// for a burst over several folders, W6.6).
+    pub fn covers(&self, changed_at: Instant) -> bool {
+        self.last_start.is_some_and(|s| s >= changed_at)
     }
 }
 
@@ -287,6 +304,53 @@ pub trait Host: Send + Sync {
     fn plain_addr(&self) -> Option<std::net::SocketAddr> {
         None
     }
+    /// The folder this worker watches (the server's name).
+    fn folder(&self) -> String {
+        "INBOX".to_string()
+    }
+    /// The Inbox worker of the account: it owns the account's state. An extra worker (a followed folder) never changes it.
+    fn primary(&self) -> bool {
+        true
+    }
+    /// The pacer of the ACCOUNT: the workers of one account share it, so a burst over several folders is one sync.
+    fn pacer(&self) -> Arc<Mutex<Pacer>> {
+        Arc::new(Mutex::new(Pacer::default()))
+    }
+    /// An extra worker was refused by the server (connection limit, login): the account's other extra workers stop for the rest of the run too.
+    fn gave_up(&self) {}
+}
+
+/// Does this error say that the server has no room for another connection, or refused this one? Only an extra worker looks at it (`run_account`): such a worker is not retried in a
+/// loop, the Inbox worker keeps priority and the poller is the safety net.
+pub fn refused_connection(error: &str) -> bool {
+    let e = error.to_lowercase();
+    ["[limit]", "too many", "maximum number of connections", "max connections", "connection limit", "login failed", "authentication failed", "[authenticationfailed]", "[unavailable]", "not allowed"]
+        .iter()
+        .any(|k| e.contains(k))
+}
+
+/// The most followed folders per mailbox besides the Inbox.
+pub const MAX_FOLLOWED: usize = 3;
+
+/// The folders that get a worker besides the Inbox: the Favorites of the mailbox (entries \`<mailbox id or *>|<folder key>\`, in their order) that the mailbox has in its saved folder list
+/// (\`map\`: folder key -> server name), without the Inbox, Drafts, Deleted Items (trash) and Junk Email, the first \`MAX_FOLLOWED\`. Each is (folder key, server name).
+pub fn followed_folders(favorites: &[String], account_id: &str, map: &HashMap<String, String>) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = vec![];
+    for f in favorites {
+        let Some((scope, key)) = f.split_once('|') else { continue };
+        if scope != "*" && scope != account_id {
+            continue;
+        }
+        if matches!(key, "inbox" | "drafts" | "trash" | "junk") || out.iter().any(|(k, _)| k == key) {
+            continue;
+        }
+        let Some(name) = map.get(key) else { continue };
+        out.push((key.to_string(), name.clone()));
+        if out.len() == MAX_FOLLOWED {
+            break;
+        }
+    }
+    out
 }
 
 // ---------- the worker ----------
@@ -298,7 +362,7 @@ enum End {
 
 struct Run {
     tracker: Tracker,
-    pacer: Pacer,
+    pacer: Arc<Mutex<Pacer>>,
     /// A session was lost after it had been up: one sync runs as soon as the next IDLE is up.
     catch_up: bool,
 }
@@ -306,14 +370,16 @@ struct Run {
 /// Runs until the stop flag is set: connect, IDLE, sync on change, renew, reconnect after errors with backoff. `catch_up`: one sync
 /// runs as soon as the first IDLE is up (the worker replaces one that was lost, for instance in a sleep).
 pub fn run_account(sh: &Shared, host: &dyn Host, t: &Timing, catch_up: bool) {
-    let mut run = Run { tracker: Tracker::new(), pacer: Pacer::default(), catch_up };
+    let mut run = Run { tracker: Tracker::new(), pacer: host.pacer(), catch_up };
     while !sh.stop.is_stopped() {
         match session(sh, host, t, &mut run) {
             Ok(End::Stopped) => break,
             Ok(End::Unsupported) => {
                 sh.detach();
                 if let Some(s) = run.tracker.unsupported() {
-                    host.state(s);
+                    if host.primary() {
+                        host.state(s);
+                    }
                     host.log("server has no IDLE, polling");
                 }
                 if sh.stop.sleep(t.unsupported_retry) {
@@ -325,10 +391,18 @@ pub fn run_account(sh: &Shared, host: &dyn Host, t: &Timing, catch_up: bool) {
                 if sh.stop.is_stopped() {
                     break;
                 }
+                // (W6.6) an extra worker that the server refuses is not asked again for the rest of the run: one line, no loop
+                if !host.primary() && refused_connection(&e) {
+                    host.log(&format!("not watched for the rest of this run: the server allows no more connections ({e})"));
+                    host.gave_up();
+                    break;
+                }
                 let f = run.tracker.failed(Instant::now(), t);
                 run.catch_up |= f.was_up;
                 if let Some(s) = f.change {
-                    host.state(s);
+                    if host.primary() {
+                        host.state(s);
+                    }
                     host.log("polling");
                 }
                 host.log(&format!("reconnect in {} s: {e}", f.retry_in.as_secs()));
@@ -355,12 +429,17 @@ fn drain<T: std::io::Read + std::io::Write>(s: &imap::Session<T>) -> bool {
 /// Debounce, then the sync. `false` = stopped meanwhile.
 fn sync_after_change(sh: &Shared, host: &dyn Host, t: &Timing, run: &mut Run) -> bool {
     let now = Instant::now();
-    let due = run.pacer.due(now, t);
+    let due = run.pacer.lock().unwrap_or_else(|p| p.into_inner()).due(now, t);
     if sh.stop.sleep(due.saturating_duration_since(now)) {
         return false;
     }
+    // another worker of the account started a sync after this change: it covers it
+    if run.pacer.lock().unwrap_or_else(|p| p.into_inner()).covers(now) {
+        return !sh.stop.is_stopped();
+    }
+    run.pacer.lock().unwrap_or_else(|p| p.into_inner()).started(Instant::now());
     host.changed();
-    run.pacer.synced(Instant::now());
+    run.pacer.lock().unwrap_or_else(|p| p.into_inner()).synced(Instant::now());
     !sh.stop.is_stopped()
 }
 
@@ -404,7 +483,7 @@ fn serve<T: std::io::Read + std::io::Write + imap::extensions::idle::SetReadTime
         return Ok(End::Unsupported);
     }
     // read-only: the push connection never changes a flag
-    s.examine("INBOX").map_err(err)?;
+    s.examine(host.folder()).map_err(err)?;
     loop {
         // what the server said since the last command (also what arrived while a sync ran)
         s.noop().map_err(err)?;
@@ -425,7 +504,9 @@ fn serve<T: std::io::Read + std::io::Write + imap::extensions::idle::SetReadTime
         sh.set_deadline(Some(t.watchdog_deadline(started)));
         let h = s.idle().map_err(err)?;
         if let Some(st) = run.tracker.idle_ok(started) {
-            host.state(st);
+            if host.primary() {
+                host.state(st);
+            }
             host.log("push on");
         }
         // returns with IDLE ended (DONE sent and answered)
@@ -481,13 +562,57 @@ pub fn idle_states() -> HashMap<String, String> {
         .unwrap_or_default()
 }
 
+/// A worker's key: the Inbox worker of a mailbox is the mailbox id, a followed folder `<id>#<folder key>` (W6.6).
+fn key_of(id: &str, role: Option<&str>) -> String {
+    match role {
+        Some(r) => format!("{id}#{r}"),
+        None => id.to_string(),
+    }
+}
+
+fn is_extra(key: &str) -> bool {
+    key.contains('#')
+}
+
+/// Mailboxes whose extra workers the server refused: no more of them for the rest of this run (the Inbox worker and the poller go on).
+static GAVE_UP: Mutex<Option<std::collections::HashSet<String>>> = Mutex::new(None);
+
+fn gave_up_on(id: &str) -> bool {
+    GAVE_UP.lock().unwrap_or_else(|p| p.into_inner()).as_ref().is_some_and(|s| s.contains(id))
+}
+
+/// The pacer of a mailbox, shared by its workers (a burst over several folders is one sync).
+static PACERS: Mutex<Option<HashMap<String, Arc<Mutex<Pacer>>>>> = Mutex::new(None);
+
+fn pacer_of(id: &str) -> Arc<Mutex<Pacer>> {
+    PACERS.lock().unwrap_or_else(|p| p.into_inner()).get_or_insert_with(HashMap::new).entry(id.to_string()).or_default().clone()
+}
+
 struct AppHost {
     app: tauri::AppHandle,
     db: Db,
     id: String,
+    /// (folder key, the server's name of it) for a followed folder; None for the Inbox worker
+    folder: Option<(String, String)>,
 }
 
 impl Host for AppHost {
+    fn folder(&self) -> String {
+        self.folder.as_ref().map_or_else(|| "INBOX".to_string(), |f| f.1.clone())
+    }
+
+    fn primary(&self) -> bool {
+        self.folder.is_none()
+    }
+
+    fn pacer(&self) -> Arc<Mutex<Pacer>> {
+        pacer_of(&self.id)
+    }
+
+    fn gave_up(&self) {
+        GAVE_UP.lock().unwrap_or_else(|p| p.into_inner()).get_or_insert_with(Default::default).insert(self.id.clone());
+    }
+
     fn account(&self) -> R<(Account, String)> {
         let acc = db::get_account(&crate::lock(&self.db), &self.id)?;
         let secret = crate::secret(&self.db, &acc)?;
@@ -509,7 +634,10 @@ impl Host for AppHost {
     }
 
     fn log(&self, what: &str) {
-        startup::line("idle", &format!("{}: {what}", self.id));
+        match &self.folder {
+            Some((role, _)) => startup::line("idle", &format!("{}: {role}: {what}", self.id)),
+            None => startup::line("idle", &format!("{}: {what}", self.id)),
+        }
     }
 }
 
@@ -524,17 +652,46 @@ fn fingerprint(a: &Account) -> String {
     format!("{}|{}|{}|{}|{}|{}", a.imap_host, a.imap_port, a.imap_ssl, a.username, a.auth, a.tls_insecure)
 }
 
-/// The accounts that should have a push session now.
-fn wanted(db: &Db) -> HashMap<String, Account> {
+/// One worker that should run: the account and, for a followed folder, (folder key, server name).
+struct Want {
+    account: Account,
+    folder: Option<(String, String)>,
+}
+
+impl Want {
+    fn fingerprint(&self) -> String {
+        match &self.folder {
+            Some((role, name)) => format!("{}|{role}|{name}", fingerprint(&self.account)),
+            None => fingerprint(&self.account),
+        }
+    }
+}
+
+/// The workers that should run now: the Inbox worker of every account with push on (after its first sync) and, once that one is in `push`, the followed folders of the account
+/// (`followed_folders`), unless the server refused the extra connections in this run. Keys: `key_of`.
+fn wanted(db: &Db) -> HashMap<String, Want> {
     let accounts = db::list_accounts(&crate::lock(db)).unwrap_or_default();
     let p = crate::shell::prefs(db);
-    accounts
-        .into_iter()
-        .filter(|a| crate::shell::eff(&p, &a.id, "pushMail").and_then(|v| v.as_bool()).unwrap_or(true))
+    let mut out: HashMap<String, Want> = HashMap::new();
+    for a in accounts {
+        if !crate::shell::eff(&p, &a.id, "pushMail").and_then(|v| v.as_bool()).unwrap_or(true) {
+            continue;
+        }
         // after the account's first sync (it stores its folder map): the first sync is not made slower by a second connection
-        .filter(|a| db::get_setting(&crate::lock(db), &format!("fmap:{}", a.id)).is_some())
-        .map(|a| (a.id.clone(), a))
-        .collect()
+        if db::get_setting(&crate::lock(db), &format!("fmap:{}", a.id)).is_none() {
+            continue;
+        }
+        if state_of(&a.id) == Push::On && !gave_up_on(&a.id) {
+            let favorites: Vec<String> = crate::shell::eff(&p, &a.id, "favorites")
+                .and_then(|v| v.as_array().map(|l| l.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()))
+                .unwrap_or_else(|| vec!["*|inbox".into(), "*|sent".into(), "*|drafts".into()]);
+            for (role, name) in followed_folders(&favorites, &a.id, &crate::fmap(db, &a.id)) {
+                out.insert(key_of(&a.id, Some(&role)), Want { account: a.clone(), folder: Some((role, name)) });
+            }
+        }
+        out.insert(a.id.clone(), Want { account: a, folder: None });
+    }
+    out
 }
 
 const TICK: Duration = Duration::from_secs(10);
@@ -569,16 +726,22 @@ pub fn shutdown() {
     let _ = cv.wait_timeout_while(g, SHUTDOWN_WAIT + Duration::from_millis(500), |done| !*done);
 }
 
-fn start_worker(app: &tauri::AppHandle, db: &Db, acc: &Account, catch_up: bool) -> Option<Running> {
+fn start_worker(app: &tauri::AppHandle, db: &Db, w: &Want, catch_up: bool) -> Option<Running> {
     let shared = Shared::new();
-    let host = AppHost { app: app.clone(), db: db.clone(), id: acc.id.clone() };
-    set_state(&acc.id, Some(Push::Starting));
+    let acc = &w.account;
+    let host = AppHost { app: app.clone(), db: db.clone(), id: acc.id.clone(), folder: w.folder.clone() };
+    if w.folder.is_none() {
+        set_state(&acc.id, Some(Push::Starting));
+    }
     let sh = shared.clone();
     let thread = std::thread::Builder::new()
-        .name(format!("idle-{}", acc.id))
+        .name(match &w.folder {
+            Some((role, _)) => format!("idle-{}-{role}", acc.id),
+            None => format!("idle-{}", acc.id),
+        })
         .spawn(move || run_account(&sh, &host, &Timing::default(), catch_up))
         .ok()?;
-    Some(Running { shared, thread, fingerprint: fingerprint(acc) })
+    Some(Running { shared, thread, fingerprint: w.fingerprint() })
 }
 
 /// What one look at the accounts leads to.
@@ -633,7 +796,9 @@ fn supervisor(app: tauri::AppHandle, quit: Arc<Stop>) {
             for (id, r) in running.drain() {
                 r.shared.stop_now();
                 stopping.push(r.thread);
-                announce(&app, &id, "polling");
+                if !is_extra(&id) {
+                    announce(&app, &id, "polling");
+                }
             }
         }
         for (id, r) in &running {
@@ -643,7 +808,7 @@ fn supervisor(app: tauri::AppHandle, quit: Arc<Stop>) {
         }
         cooldown.retain(|_, until| now < *until);
         let accounts = wanted(&db);
-        let want: HashMap<String, String> = accounts.iter().map(|(id, a)| (id.clone(), fingerprint(a))).collect();
+        let want: HashMap<String, String> = accounts.iter().map(|(id, w)| (id.clone(), w.fingerprint())).collect();
         let view: HashMap<String, (String, bool)> = running.iter().map(|(id, r)| (id.clone(), (r.fingerprint.clone(), r.thread.is_finished()))).collect();
         let cooling = cooldown.keys().cloned().collect();
         let p = plan(&view, &want, &cooling);
@@ -652,13 +817,15 @@ fn supervisor(app: tauri::AppHandle, quit: Arc<Stop>) {
                 r.shared.stop_now();
                 stopping.push(r.thread);
             }
-            set_state(id, None);
-            announce(&app, id, "polling");
+            if !is_extra(id) {
+                set_state(id, None);
+                announce(&app, id, "polling");
+            }
         }
         stopping.retain(|t| !t.is_finished());
         for id in &p.start {
-            if let Some(acc) = accounts.get(id) {
-                if let Some(r) = start_worker(&app, &db, acc, woke) {
+            if let Some(w) = accounts.get(id) {
+                if let Some(r) = start_worker(&app, &db, w, woke) {
                     running.insert(id.clone(), r);
                 }
             }
@@ -672,7 +839,9 @@ fn supervisor(app: tauri::AppHandle, quit: Arc<Stop>) {
     // exit: stop all, wait for the threads for a moment
     for (id, r) in running.drain() {
         r.shared.stop_now();
-        set_state(&id, None);
+        if !is_extra(&id) {
+            set_state(&id, None);
+        }
         stopping.push(r.thread);
     }
     let end = Instant::now() + SHUTDOWN_WAIT;
@@ -1011,4 +1180,250 @@ mod tests {
         assert_eq!(states, vec![Push::On], "{log:?}");
         assert!(log.contains(&"push on".to_string()));
     }
+    // ---- 1.0.7 W6.6: followed folders
+
+    fn folder_map() -> HashMap<String, String> {
+        [("inbox", "INBOX"), ("sent", "Sent Items"), ("drafts", "Drafts"), ("trash", "Deleted Items"), ("junk", "Junk Email"), ("archive", "Archive"), ("f:Lists", "Lists"), ("f:Work", "Work"), ("f:Misc", "Misc")]
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    fn favs(l: &[&str]) -> Vec<String> {
+        l.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn the_followed_folders_are_the_favourites_without_drafts_trash_and_junk_at_most_three() {
+        let m = folder_map();
+        // the default Favorites: the Inbox has its own worker, Drafts is never followed, so only Sent is
+        assert_eq!(followed_folders(&favs(&["*|inbox", "*|sent", "*|drafts"]), "a1", &m), vec![("sent".to_string(), "Sent Items".to_string())]);
+        // a custom folder joins, in the order of the Favorites
+        assert_eq!(followed_folders(&favs(&["*|inbox", "*|sent", "*|drafts", "*|f:Lists"]), "a1", &m).iter().map(|f| f.0.as_str()).collect::<Vec<_>>(), vec!["sent", "f:Lists"]);
+        // Deleted Items and Junk Email are never followed; neither is a duplicate
+        assert!(followed_folders(&favs(&["*|trash", "*|junk", "*|inbox", "*|drafts"]), "a1", &m).is_empty());
+        assert_eq!(followed_folders(&favs(&["*|sent", "a1|sent", "*|sent"]), "a1", &m).len(), 1);
+        // at most 3, the first three in the order of the Favorites
+        let many = favs(&["*|sent", "*|archive", "*|f:Lists", "*|f:Work", "*|f:Misc"]);
+        assert_eq!(followed_folders(&many, "a1", &m).iter().map(|f| f.0.as_str()).collect::<Vec<_>>(), vec!["sent", "archive", "f:Lists"]);
+        // entries of another mailbox are not this one's; "*" applies to every mailbox; a favourite the mailbox does not have is ignored; odd entries are skipped
+        assert_eq!(followed_folders(&favs(&["b2|f:Work", "a1|f:Misc", "*|f:Nowhere", "garbage", "|", "*|"]), "a1", &m), vec![("f:Misc".to_string(), "Misc".to_string())]);
+        // a favourite that the mailbox lacks does not take one of the three places
+        let m2: HashMap<String, String> = [("sent".to_string(), "Sent".to_string())].into_iter().collect();
+        assert_eq!(followed_folders(&favs(&["*|f:Lists", "*|sent"]), "a1", &m2).len(), 1);
+    }
+
+    #[test]
+    fn the_plan_starts_and_stops_folder_workers() {
+        let none = std::collections::HashSet::new();
+        let run = |l: &[(&str, &str, bool)]| -> HashMap<String, (String, bool)> { l.iter().map(|(k, f, d)| (k.to_string(), (f.to_string(), *d))).collect() };
+        let want = |l: &[(&str, &str)]| -> HashMap<String, String> { l.iter().map(|(k, f)| (k.to_string(), f.to_string())).collect() };
+        // the Inbox worker is up: the followed folders start
+        assert_eq!(
+            plan(&run(&[("a", "f", false)]), &want(&[("a", "f"), ("a#sent", "f|sent|Sent"), ("a#f:Lists", "f|f:Lists|Lists")]), &none),
+            Plan { stop: vec![], start: vec!["a#f:Lists".into(), "a#sent".into()] }
+        );
+        // removed from the Favorites (or the push switch turned off): that worker stops, the others stay
+        assert_eq!(
+            plan(&run(&[("a", "f", false), ("a#sent", "f|sent|Sent", false), ("a#f:Lists", "f|f:Lists|Lists", false)]), &want(&[("a", "f"), ("a#sent", "f|sent|Sent")]), &none),
+            Plan { stop: vec!["a#f:Lists".into()], start: vec![] }
+        );
+        assert_eq!(plan(&run(&[("a", "f", false), ("a#sent", "f|sent|Sent", false)]), &want(&[]), &none), Plan { stop: vec!["a".into(), "a#sent".into()], start: vec![] });
+        // the folder was renamed on the server: that worker is made again
+        assert_eq!(
+            plan(&run(&[("a#sent", "f|sent|Sent", false)]), &want(&[("a#sent", "f|sent|Gesendet")]), &none),
+            Plan { stop: vec!["a#sent".into()], start: vec!["a#sent".into()] }
+        );
+        // keys
+        assert_eq!((key_of("a", None), key_of("a", Some("sent"))), ("a".to_string(), "a#sent".to_string()));
+        assert!(is_extra("a#sent") && !is_extra("a"));
+    }
+
+    #[test]
+    fn a_pacer_shared_by_the_workers_of_a_mailbox_makes_a_burst_one_sync() {
+        let t = Timing::default();
+        let t0 = Instant::now();
+        let mut p = Pacer::default();
+        // a change in two folders at the same moment: the first worker's sync starts after both changes, so it covers them
+        let change = t0;
+        assert!(!p.covers(change), "nothing started yet");
+        p.started(t0 + t.debounce);
+        assert!(p.covers(change) && p.covers(t0 + Duration::from_millis(500)), "a sync that started after the change covers it");
+        assert!(!p.covers(t0 + t.debounce + Duration::from_secs(1)), "a change after the sync started needs another one");
+    }
+
+    #[test]
+    fn the_server_s_refusals_are_told_from_other_failures() {
+        for refused in ["NO [LIMIT] Too many simultaneous connections", "Maximum number of connections from user+IP exceeded", "IMAP login failed: authentication failed", "too many connections for this user"] {
+            assert!(refused_connection(refused), "{refused}");
+        }
+        for fine in ["connection reset by peer", "timed out", "tls handshake failed"] {
+            assert!(!refused_connection(fine), "{fine}");
+        }
+    }
+
+    /// A plain-TCP IMAP server for the folder workers: EXAMINE of a folder answers `NO [LIMIT]` when `limit` is set, else the name is recorded; the first IDLE reports a change.
+    fn folder_server(limit: bool) -> (std::net::SocketAddr, Arc<Mutex<Vec<String>>>) {
+        use std::io::{BufRead, BufReader, Write};
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        let seen: Arc<Mutex<Vec<String>>> = Arc::default();
+        let (seen2, changed_once) = (seen.clone(), Arc::new(std::sync::atomic::AtomicBool::new(false)));
+        std::thread::spawn(move || {
+            for c in l.incoming().flatten() {
+                let (seen, changed_once) = (seen2.clone(), changed_once.clone());
+                std::thread::spawn(move || {
+                    let mut w = c.try_clone().unwrap();
+                    let mut r = BufReader::new(c);
+                    let _ = w.write_all(b"* OK fake ready\r\n");
+                    let mut idle_tag = String::new();
+                    let mut line = String::new();
+                    loop {
+                        line.clear();
+                        if r.read_line(&mut line).unwrap_or(0) == 0 {
+                            return;
+                        }
+                        let text = line.trim_end().to_string();
+                        let mut it = text.splitn(2, ' ');
+                        let (tag, cmd) = (it.next().unwrap_or("").to_string(), it.next().unwrap_or("").to_string());
+                        let up = cmd.to_uppercase();
+                        let reply = if up.starts_with("LOGIN") {
+                            format!("{tag} OK LOGIN completed\r\n")
+                        } else if up.starts_with("CAPABILITY") {
+                            format!("* CAPABILITY IMAP4rev1 IDLE\r\n{tag} OK done\r\n")
+                        } else if up.starts_with("EXAMINE") {
+                            if limit {
+                                format!("{tag} NO [LIMIT] Too many simultaneous connections\r\n")
+                            } else {
+                                seen.lock().unwrap().push(cmd["EXAMINE".len()..].trim().trim_matches('"').to_string());
+                                format!("* 0 EXISTS\r\n* 0 RECENT\r\n* OK [UIDVALIDITY 1] ok\r\n{tag} OK [READ-ONLY] done\r\n")
+                            }
+                        } else if up.starts_with("NOOP") {
+                            format!("{tag} OK done\r\n")
+                        } else if up.starts_with("IDLE") {
+                            idle_tag = tag.clone();
+                            let _ = w.write_all(b"+ idling\r\n");
+                            if !changed_once.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                                std::thread::sleep(Duration::from_millis(300));
+                                let _ = w.write_all(b"* 1 EXISTS\r\n");
+                            }
+                            continue;
+                        } else if up.starts_with("DONE") {
+                            format!("{idle_tag} OK IDLE terminated\r\n")
+                        } else {
+                            format!("{tag} BAD unexpected\r\n")
+                        };
+                        if w.write_all(reply.as_bytes()).is_err() {
+                            return;
+                        }
+                    }
+                });
+            }
+        });
+        (addr, seen)
+    }
+
+    struct FolderHost {
+        addr: std::net::SocketAddr,
+        folder: Option<&'static str>,
+        changes: std::sync::atomic::AtomicU32,
+        states: Mutex<Vec<Push>>,
+        log: Mutex<Vec<String>>,
+        gave_up: std::sync::atomic::AtomicBool,
+        pacer: Arc<Mutex<Pacer>>,
+    }
+
+    impl Host for FolderHost {
+        fn account(&self) -> R<(Account, String)> {
+            let a = Account {
+                id: "fold".into(), email: "x@example.test".into(), display_name: "X".into(), imap_host: "127.0.0.1".into(), imap_port: 1, imap_ssl: false,
+                smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
+                smtp_username: String::new(), tls_insecure: false, reply_to: String::new(),
+            };
+            Ok((a, "pw".into()))
+        }
+        fn changed(&self) {
+            self.changes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        fn state(&self, s: Push) {
+            self.states.lock().unwrap().push(s);
+        }
+        fn log(&self, what: &str) {
+            self.log.lock().unwrap().push(what.to_string());
+        }
+        fn plain_addr(&self) -> Option<std::net::SocketAddr> {
+            Some(self.addr)
+        }
+        fn folder(&self) -> String {
+            self.folder.unwrap_or("INBOX").to_string()
+        }
+        fn primary(&self) -> bool {
+            self.folder.is_none()
+        }
+        fn pacer(&self) -> Arc<Mutex<Pacer>> {
+            self.pacer.clone()
+        }
+        fn gave_up(&self) {
+            self.gave_up.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    fn folder_host(addr: std::net::SocketAddr, folder: Option<&'static str>, pacer: Arc<Mutex<Pacer>>) -> Arc<FolderHost> {
+        Arc::new(FolderHost { addr, folder, changes: Default::default(), states: Default::default(), log: Default::default(), gave_up: Default::default(), pacer })
+    }
+
+    fn quick() -> Timing {
+        Timing { backoff: vec![Duration::from_millis(200)], poll: Duration::from_millis(100), debounce: Duration::from_millis(100), min_gap: Duration::from_millis(100), ..Timing::default() }
+    }
+
+    #[test]
+    fn a_change_in_a_watched_folder_runs_one_sync_and_the_account_state_stays_the_inboxs() {
+        crate::test_guard::within(60, || {
+            let (addr, seen) = folder_server(false);
+            let pacer: Arc<Mutex<Pacer>> = Arc::default();
+            let extra = folder_host(addr, Some("Lists"), pacer.clone());
+            let sh = Shared::new();
+            let (h2, s2) = (extra.clone(), sh.clone());
+            let worker = std::thread::spawn(move || run_account(&s2, h2.as_ref(), &quick(), false));
+            let t0 = Instant::now();
+            while extra.changes.load(std::sync::atomic::Ordering::SeqCst) == 0 && t0.elapsed() < Duration::from_secs(10) {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            std::thread::sleep(Duration::from_millis(600));
+            sh.stop_now();
+            worker.join().unwrap();
+            assert_eq!(seen.lock().unwrap().first().map(String::as_str), Some("Lists"), "the worker watches its own folder, not the Inbox: {:?}", seen.lock().unwrap());
+            assert_eq!(extra.changes.load(std::sync::atomic::Ordering::SeqCst), 1, "one change, one sync");
+            assert!(extra.states.lock().unwrap().is_empty(), "an extra worker never changes the account's state: {:?}", extra.states.lock().unwrap());
+            assert!(extra.log.lock().unwrap().contains(&"push on".to_string()));
+        });
+    }
+
+    #[test]
+    fn a_connection_limit_stops_only_the_extra_workers() {
+        crate::test_guard::within(60, || {
+            let (addr, _) = folder_server(true);
+            // the extra worker: refused once, logged once, not asked again, the account is told (the other extra workers stop)
+            let extra = folder_host(addr, Some("Lists"), Arc::default());
+            let sh = Shared::new();
+            let (h2, s2) = (extra.clone(), sh.clone());
+            let worker = std::thread::spawn(move || run_account(&s2, h2.as_ref(), &quick(), false));
+            worker.join().unwrap();
+            assert!(extra.gave_up.load(std::sync::atomic::Ordering::SeqCst));
+            let log = extra.log.lock().unwrap().clone();
+            assert!(log.iter().any(|l| l.starts_with("not watched for the rest of this run: the server allows no more connections")), "{log:?}");
+            assert_eq!(log.iter().filter(|l| l.starts_with("reconnect in")).count(), 0, "not retried: {log:?}");
+            // the Inbox worker meets the same refusal: it backs off and tries again, as always, and never gives up
+            let inbox = folder_host(addr, None, Arc::default());
+            let sh = Shared::new();
+            let (h2, s2) = (inbox.clone(), sh.clone());
+            let worker = std::thread::spawn(move || run_account(&s2, h2.as_ref(), &quick(), false));
+            std::thread::sleep(Duration::from_millis(1500));
+            sh.stop_now();
+            worker.join().unwrap();
+            assert!(!inbox.gave_up.load(std::sync::atomic::Ordering::SeqCst));
+            assert!(inbox.log.lock().unwrap().iter().filter(|l| l.starts_with("reconnect in")).count() >= 2, "{:?}", inbox.log.lock().unwrap());
+        });
+    }
+
 }
