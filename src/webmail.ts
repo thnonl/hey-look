@@ -14,7 +14,7 @@ export interface Webmail {
 }
 
 /** The providers with a webmail we can name. A custom domain on an unknown server is not in the table: no button, we do not know its URL. */
-export const WEBMAIL: Record<WebmailId, Webmail> = {
+const WEBMAIL: Record<WebmailId, Webmail> = {
   gmail: { id: "gmail", name: "Gmail", home: "https://mail.google.com/mail/" },
   outlook: { id: "outlook", name: "Outlook", home: "https://outlook.live.com/mail/" },
   m365: { id: "m365", name: "Microsoft 365", home: "https://outlook.office.com/mail/" },

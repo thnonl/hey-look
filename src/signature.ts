@@ -41,7 +41,7 @@ export function extractSignature(html: string): { html: string; sig: string | nu
 }
 
 /** Replaces the marker node(s) of `doc` by the signature (or removes them) and drops empty paragraphs left at the very end. */
-export function fillSignature(doc: Document, sigHtml: string | null): void {
+function fillSignature(doc: Document, sigHtml: string | null): void {
   doc.querySelectorAll("[data-sig-block]").forEach((m) => {
     if (sigHtml && sigHtml.trim()) {
       const t = doc.createElement("template");

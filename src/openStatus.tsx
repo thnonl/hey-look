@@ -18,7 +18,7 @@ export const OPEN_SAFETY_MS = 20_000;
 export const isHeavy = (m: Pick<MessageFull, "html"> | undefined): boolean => (m?.html?.length ?? 0) >= HEAVY_HTML;
 
 /** MessageBody tells that the frame of message `id` is visible (its first measurement is done). */
-export const FRAME_SHOWN = "rp-shown";
+const FRAME_SHOWN = "rp-shown";
 export const announceFrame = (frame: HTMLElement, id: string) => frame.dispatchEvent(new CustomEvent<string>(FRAME_SHOWN, { bubbles: true, detail: id }));
 
 /**

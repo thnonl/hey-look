@@ -2,7 +2,7 @@
 export const tokens = (q: string): string[] => q.match(/(?:[^\s"]+|"[^"]*")+/g) ?? [];
 export const hasTok = (q: string, t: string) => tokens(q).includes(t);
 export const toggleTok = (q: string, t: string) => (hasTok(q, t) ? tokens(q).filter((x) => x !== t) : [...tokens(q), t]).join(" ");
-export const dropKey = (q: string, key: string) => tokens(q).filter((x) => !x.toLowerCase().startsWith(`${key}:`));
+const dropKey = (q: string, key: string) => tokens(q).filter((x) => !x.toLowerCase().startsWith(`${key}:`));
 export const setKey = (q: string, key: string, value: string) => {
   const rest = dropKey(q, key);
   const v = value.trim();

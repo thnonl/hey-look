@@ -11,7 +11,7 @@ export interface Reply {
   error?: string | null;
 }
 
-export const REQUEST_TIMEOUT_MS = 5000;
+const REQUEST_TIMEOUT_MS = 5000;
 /** The error a request ends with when the main page did not answer in time. */
 export const UNREACHABLE = "POPOUT_UNREACHABLE";
 

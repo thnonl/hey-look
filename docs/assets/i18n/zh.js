@@ -105,7 +105,7 @@
   "story.cal_declined": "已拒绝。回复会从对应的邮箱发出。",
   "story.cal_accepted": "已接受。事件已加入您的日历，回复会从对应的邮箱发出。",
   "story.cal_tentative": "已暂定。事件已加入您的日历，回复会从对应的邮箱发出。",
-  "story.cal_note": "与Google或Microsoft日历同步是可选的，按邮箱分别设置。",
+  "story.cal_note": "与Google、Microsoft或CalDAV日历同步是可选的，按邮箱分别设置。",
 
   "story.img_loaded": "内容已加载。应用在可能的情况下自己下载了图片，所以发件人现在能看到一次请求。",
   "story.img_blocked": "远程内容已被阻止。没有向发件人发出任何请求。",

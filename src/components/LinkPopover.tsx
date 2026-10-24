@@ -57,7 +57,7 @@ export function readLinkTarget(editor: Editor): LinkTarget {
 }
 
 /** Makes (or changes) the link in `target`; the text of a bare caret / a replaced text is inserted with the link on it. */
-export function applyLinkTarget(editor: Editor, target: LinkTarget, href: string, typedText: string): void {
+function applyLinkTarget(editor: Editor, target: LinkTarget, href: string, typedText: string): void {
   if (target.picture) {
     editor.chain().focus().setNodeSelection(target.from).updateAttributes("image", { href }).run();
     return;

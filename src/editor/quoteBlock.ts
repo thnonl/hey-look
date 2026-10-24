@@ -17,7 +17,7 @@ export interface QuoteAttrs {
   html: string;
 }
 
-export const QUOTE_CLASS = "hl-quote";
+const QUOTE_CLASS = "hl-quote";
 /** The look of a quote in a mail: the same for the editor's Quote style and for the quoted original. */
 export const QUOTE_STYLE = "margin:0 0 0 .8ex;border-left:2px solid #ccc;padding-left:1ex";
 
@@ -30,7 +30,7 @@ export function quoteSentHtml(q: QuoteAttrs): string {
 const escAttr = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /** The form the editor's reader gets (`div[data-quote-block]`: quoteNode.ts parses it): the block in place of the stored one. */
-export function quoteMarker(q: QuoteAttrs): string {
+function quoteMarker(q: QuoteAttrs): string {
   return `<div data-quote-block="${q.kind}" data-quote-head="${escAttr(q.head)}" data-quote-html="${escAttr(q.html)}"></div>`;
 }
 

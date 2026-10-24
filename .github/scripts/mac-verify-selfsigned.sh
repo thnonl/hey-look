@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # macOS runner only. Checks that an app is signed with the release's self-signed certificate, so that the signature (and with it the
 # identity that the macOS Keychain remembers for the app's saved passwords) is the same in every release:
-#   bash mac-verify-selfsigned.sh <Name.app> "<signing identity = certificate common name>" [<Name.app.tar.gz>]
+#   bash mac-verify-selfsigned.sh <Name.app> "<signing identity = certificate common name>" [<Name.app.tar.gz>] [<expected SHA-1 of the certificate>]
 # Fails when: the bundle does not verify (--deep --strict), the signature is ad-hoc, the authority is not the identity, or the
 # designated requirement is not "identifier ... and certificate root = H"<hash of the certificate>"" (for a self-signed certificate the
 # leaf is also the root, so codesign writes "root"; "leaf" is accepted too). A requirement that names the cdhash instead changes with every build. With a tar.gz (the updater package) the app inside must have the same requirement.
+# With the 4th argument (WP11 W11.11, tag runs: MAC_CERT_SHA1 of release.yml) it also fails when the SHA-1 of the signing certificate is another one: a different
+# certificate would pass every other check and make the Keychain of every Mac ask again. The SHA-1 is a public fingerprint, not a secret.
 # Prints the SHA-256 of the signing certificate (the identity) for the log.
 set -uo pipefail
 
-app="${1:?app bundle}"; id="${2:?identity}"; tgz="${3:-}"
+app="${1:?app bundle}"; id="${2:?identity}"; tgz="${3:-}"; expected_sha1="$(printf '%s' "${4:-}" | tr -d ' :' | tr 'A-F' 'a-f')"
 fail() { echo "::error::$1"; exit 1; }
 
 echo "App bundle: $app"
@@ -35,6 +37,10 @@ echo "Signing certificate SHA-256: $(openssl x509 -inform DER -in "$d/cert0" -no
 leaf_sha1="$(openssl x509 -inform DER -in "$d/cert0" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d ':' | tr 'A-F' 'a-f')"
 grep -qF "H\"$leaf_sha1\"" <<<"$dr" || fail "the certificate hash in the requirement is not the hash of the signing certificate"
 rm -rf "$d"
+echo "Signing certificate SHA-1: $leaf_sha1"
+if [ -n "$expected_sha1" ] && [ "$leaf_sha1" != "$expected_sha1" ]; then
+  fail "the signing certificate changed (SHA-1 $leaf_sha1, expected $expected_sha1): every user's Keychain would ask again. If this is intended, change MAC_CERT_SHA1 (CONTRIBUTING > Signing and notarisation)."
+fi
 
 if [ -n "$tgz" ]; then
   echo "Updater package: $tgz"

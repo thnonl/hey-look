@@ -397,6 +397,53 @@ mod platform {
     }
 }
 
+/// W9.6: cairo's ARGB32 (one native-endian u32 per pixel: alpha in the top byte, colours premultiplied by alpha, rows `stride` bytes apart) as straight RGBA, 4 bytes per pixel.
+/// A pixel with alpha 0 becomes (0, 0, 0, 0); the others are un-premultiplied with rounding. Pure, so the unit test runs on every system.
+#[cfg(any(test, target_os = "linux"))]
+fn rgba_from_argb32(data: &[u8], width: usize, height: usize, stride: usize) -> Vec<u8> {
+    let mut out = Vec::with_capacity(width * height * 4);
+    for y in 0..height {
+        let row = &data[y * stride..y * stride + width * 4];
+        for px in row.chunks_exact(4) {
+            let v = u32::from_ne_bytes([px[0], px[1], px[2], px[3]]);
+            let (a, r, g, b) = ((v >> 24) & 255, (v >> 16) & 255, (v >> 8) & 255, v & 255);
+            if a == 0 {
+                out.extend_from_slice(&[0, 0, 0, 0]);
+            } else if a == 255 {
+                out.extend_from_slice(&[r as u8, g as u8, b as u8, 255]);
+            } else {
+                let un = |c: u32| (((c * 255 + a / 2) / a).min(255)) as u8;
+                out.extend_from_slice(&[un(r), un(g), un(b), a as u8]);
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod snapshot_tests {
+    use super::rgba_from_argb32;
+
+    fn px(a: u32, r: u32, g: u32, b: u32) -> [u8; 4] {
+        ((a << 24) | (r << 16) | (g << 8) | b).to_ne_bytes()
+    }
+
+    /// W9.6 (AC for REQ-9.6.2): known 2x2 premultiplied pixels give the expected straight RGBA; alpha 0 and 255 included; the padding at the end of a row is skipped.
+    #[test]
+    fn premultiplied_argb32_becomes_straight_rgba() {
+        let mut data = Vec::new();
+        data.extend_from_slice(&px(255, 10, 20, 30)); // opaque: unchanged
+        data.extend_from_slice(&px(0, 0, 0, 0)); // clear
+        data.extend_from_slice(&[0xAA; 4]); // stride padding (row = 3 pixels = 12 bytes)
+        data.extend_from_slice(&px(128, 64, 32, 0)); // half transparent: 64 * 255 / 128 = 127.5 -> 128, 32 -> 64, 0
+        data.extend_from_slice(&px(51, 51, 0, 25)); // 20 %: 51 -> 255, 0, 25 * 255 / 51 = 125
+        data.extend_from_slice(&[0xBB; 4]);
+        let rgba = rgba_from_argb32(&data, 2, 2, 12);
+        assert_eq!(rgba, vec![10, 20, 30, 255, 0, 0, 0, 0, 128, 64, 0, 128, 255, 0, 125, 51]);
+        assert_eq!(rgba.len(), 2 * 2 * 4);
+    }
+}
+
 // ---- Linux: WebKitGTK -----------------------------------------------------------------------------------------------------------------
 #[cfg(target_os = "linux")]
 mod platform {
@@ -427,8 +474,49 @@ mod platform {
         }
     }
 
-    pub fn snapshot(_w: &WebviewWindow, _timeout: Duration) -> Result<Vec<u8>, SnapshotError> {
-        Err(SnapshotError::Unsupported("snapshots are not available on Linux (WebKitGTK gives a cairo surface and the app has no PNG encoder for it); use the screen".into()))
+    /// W9.6: the web view's own snapshot of its visible region (`webkit_web_view_get_snapshot`), a cairo image surface, as a PNG. Runs on the GTK main thread
+    /// (`with_webview`); the answer comes back through a channel like the script call above.
+    pub fn snapshot(w: &WebviewWindow, timeout: Duration) -> Result<Vec<u8>, SnapshotError> {
+        let (tx, rx) = mpsc::channel::<Result<Vec<u8>, String>>();
+        w.with_webview(move |pw| {
+            use webkit2gtk::{SnapshotOptions, SnapshotRegion, WebViewExt};
+            let view = pw.inner();
+            view.snapshot(SnapshotRegion::Visible, SnapshotOptions::NONE, None::<&webkit2gtk::gio::Cancellable>, move |result| {
+                let out = result.map_err(|e| e.message().to_string()).and_then(png_of_surface);
+                let _ = tx.send(out);
+            });
+        })
+        .map_err(|e| SnapshotError::Failed(e.to_string()))?;
+        match rx.recv_timeout(timeout) {
+            Ok(Ok(png)) => Ok(png),
+            Ok(Err(e)) => Err(SnapshotError::Failed(e)),
+            Err(_) => Err(SnapshotError::Failed("WebKitGTK did not finish the snapshot in time (is the window hidden?)".into())),
+        }
+    }
+
+    /// The cairo surface WebKit gives (ARGB32, premultiplied, native-endian) as a PNG.
+    fn png_of_surface(surface: gtk::cairo::Surface) -> Result<Vec<u8>, String> {
+        use gtk::cairo::{Format, ImageSurface};
+        surface.flush();
+        let img = ImageSurface::try_from(surface).map_err(|_| "WebKit gave a surface that is not an image surface".to_string())?;
+        if img.format() != Format::ARgb32 {
+            return Err(format!("WebKit gave a {:?} surface, only ARgb32 is converted", img.format()));
+        }
+        let (width, height, stride) = (img.width(), img.height(), img.stride());
+        if width <= 0 || height <= 0 || stride < width * 4 {
+            return Err(format!("WebKit gave an empty or odd surface ({width} x {height}, stride {stride})"));
+        }
+        let mut rgba = Vec::new();
+        img.with_data(|data| rgba = super::rgba_from_argb32(data, width as usize, height as usize, stride as usize)).map_err(|e| format!("the surface is in use: {e}"))?;
+        let mut out = Vec::new();
+        {
+            let mut enc = png::Encoder::new(&mut out, width as u32, height as u32);
+            enc.set_color(png::ColorType::Rgba);
+            enc.set_depth(png::BitDepth::Eight);
+            let mut writer = enc.write_header().map_err(|e| e.to_string())?;
+            writer.write_image_data(&rgba).map_err(|e| e.to_string())?;
+        }
+        Ok(out)
     }
 }
 

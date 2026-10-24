@@ -43,7 +43,7 @@ let purify: ReturnType<typeof DOMPurify> | null = null;
 let blockedNow = 0;
 
 /** The original as it is shown: allow-list again, no picture from the web, no link scheme but http / https / mailto / tel, no `url()` in a style. */
-export function displayHtml(html: string): { html: string; blocked: number } {
+function displayHtml(html: string): { html: string; blocked: number } {
   if (!purify) {
     purify = DOMPurify(window);
     purify.addHook("afterSanitizeAttributes", (node) => {
@@ -98,7 +98,7 @@ const findQuote = (state: EditorState): { pos: number; node: PMNode } | null => 
 };
 
 /** The original becomes ordinary editable text (the way a paste in "Keep source formatting" would bring it): the attribution line, then the quoted blocks. */
-export async function quoteToText(editor: Editor, base: BaseFont): Promise<void> {
+async function quoteToText(editor: Editor, base: BaseFont): Promise<void> {
   const { cleanPaste } = await import("./pasteClean");
   const q = findQuote(editor.state);
   if (!q) return;
@@ -110,7 +110,7 @@ export async function quoteToText(editor: Editor, base: BaseFont): Promise<void>
 }
 
 /** Removes the block (one Undo brings it back). */
-export function removeQuote(editor: Editor): void {
+function removeQuote(editor: Editor): void {
   const q = findQuote(editor.state);
   if (q) editor.chain().focus().deleteRange({ from: q.pos, to: q.pos + q.node.nodeSize }).run();
 }

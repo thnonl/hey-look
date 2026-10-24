@@ -181,6 +181,7 @@ pub fn propfind_collections() -> String {
 }
 
 /// The version of a collection: its ctag and sync token (Depth 0).
+#[cfg(test)]
 pub fn propfind_state() -> String {
     propfind(&["CS:getctag", "D:sync-token"])
 }
@@ -203,6 +204,7 @@ pub fn multiget(hrefs: &[String]) -> String {
 }
 
 /// A calendar-query for every VEVENT of a collection, answered with etag and data (the fallback of a server that does not answer a multiget).
+#[cfg(test)]
 pub fn query_events() -> String {
     format!(
         r#"{HEAD}<C:calendar-query {NS}><D:prop><D:getetag/><C:calendar-data/></D:prop><C:filter><C:comp-filter name="VCALENDAR"><C:comp-filter name="VEVENT"/></C:comp-filter></C:filter></C:calendar-query>"#

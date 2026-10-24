@@ -7,7 +7,7 @@ export interface Clock {
   now(): number;
 }
 
-export const realClock: Clock = {
+const realClock: Clock = {
   setTimeout: (f, ms) => setTimeout(f, ms),
   clearTimeout: (id) => clearTimeout(id as ReturnType<typeof setTimeout>),
   now: () => Date.now(),

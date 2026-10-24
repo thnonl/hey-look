@@ -636,7 +636,7 @@ function CaseMenu({ c, anchor, trigger, onClose }: MenuProps) {
 }
 
 /** The zoom steps of the editor (REQ-49): display only, nothing of it is sent. */
-export const ZOOMS: readonly number[] = [75, 100, 125, 150, 200];
+const ZOOMS: readonly number[] = [75, 100, 125, 150, 200];
 
 function ZoomMenu({ c, anchor, trigger, onClose }: MenuProps) {
   const z = c.host.zoom;

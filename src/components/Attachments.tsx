@@ -47,7 +47,7 @@ const ext = (name: string) => {
   return n.includes(".") ? n.slice(n.lastIndexOf(".") + 1).toLowerCase() : "";
 };
 
-export function fileKind(name: string, mime: string): FileKind {
+function fileKind(name: string, mime: string): FileKind {
   const e = ext(name);
   if (RISKY_EXT.includes(e)) return "exe";
   if (mime.startsWith("image/")) return "img";
@@ -61,7 +61,7 @@ export function fileKind(name: string, mime: string): FileKind {
 const KIND_LABEL: Partial<Record<FileKind, string>> = { pdf: "PDF", doc: "DOC", xls: "XLS", ppt: "PPT", zip: "ZIP" };
 
 /** "PDF", "JPEG image", "Word document"… for the card's second line. */
-export function typeName(name: string, mime: string): string {
+function typeName(name: string, mime: string): string {
   const k = fileKind(name, mime);
   if (KIND_LABEL[k]) return KIND_LABEL[k] as string;
   if (mime.startsWith("image/")) return t("reading.att.typeImage", { type: mime.slice(6).toUpperCase().replace("JPG", "JPEG") });
@@ -222,7 +222,7 @@ function afterSave(path: string, name: string, m: Pick<MessageFull, "id" | "from
 
 // ---------------------------------------------------------------- card
 
-export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
+function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
   const t = useT();
   const { prefs, showToast } = useStore();
   const [st, setSt] = useState<CardState>({ status: "idle" });

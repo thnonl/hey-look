@@ -56,7 +56,7 @@ async function undoScheduled(id: string): Promise<void> {
 }
 
 /** Handle `env` when it is a compose window's request. Returns false for any other kind (the reader's handler takes those). */
-export function handleComposeRequest(env: Envelope): boolean {
+function handleComposeRequest(env: Envelope): boolean {
   const p = parseComposeRequest(env.kind, env.payload);
   if (p === null) return false;
   if ("error" in p || !env.from.startsWith("compose-")) return true; // refused: nothing is done
@@ -109,7 +109,7 @@ export function handleComposeRequest(env: Envelope): boolean {
 }
 
 /** A window was ended because its page process died twice (W4.2): say so, and save what a compose window held. */
-export function handlePopoutCrashed(p: { label?: unknown; kind?: unknown; recoveryId?: unknown }): void {
+function handlePopoutCrashed(p: { label?: unknown; kind?: unknown; recoveryId?: unknown }): void {
   // (it stays until it is closed: the person may be in another window, or the main window hidden in the tray, when it comes; D-095: an 8 s toast was gone before it was seen)
   useStore.getState().setStickyToast("popout-crashed", { text: () => t("app.popout.crashed"), kind: "error" });
   if (p.kind === "compose" && typeof p.recoveryId === "string" && p.recoveryId) void recoverOne(p.recoveryId).catch(() => undefined);

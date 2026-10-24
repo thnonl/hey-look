@@ -76,6 +76,7 @@
 ### Fixed
 
 - A big mail in the dark message background no longer makes the app use more and more memory on a Mac: the colours of a mail are worked out once and kept, and the work is done in one hidden frame instead of in the frame that shows the message (the same mail opens again without the work; the look is the same)
+- macOS 11 and 12 with an older Safari engine (before 16.2): the accent colour and the tints of the buttons, links and focus ring are worked out by the app when the engine has no color-mix(), instead of being lost in the dark theme
 - "Opening message…" while a mail loads now covers the whole message area as one surface in the colour the mail will have there (white, or the dark background), with readable text; before, a small box of the app colour sat in the middle of the area with the mail or the pane showing on both sides.
 - macOS: opening many large mails no longer makes the app use more and more memory: a conversation now reaches the window as raw bytes instead of one big text that the web view kept after it was shown (the mail looks and behaves the same).
 - macOS and Linux: a window logged an "is_permission_granted not allowed" error on every start because the notification permission check the system adds to every window was not allowed (no effect on notifications).
@@ -83,7 +84,7 @@
 - Linux: a log out, a shut down or a `kill` (SIGTERM, SIGHUP, SIGINT) closes the push connections and saves the queued actions before Hey Look! ends, like a macOS log out.
 - A newsletter that has a dark design (`prefers-color-scheme: dark`) now follows the message background (Original = its light design, Dark = its dark design, as the button in the reading pane says), not the colour setting of the system or of the app; switching the background changes it at once without reloading the message, and printing is always light.
 - macOS: the app now asks macOS for permission to show notifications (banners, sound and the Dock badge), once, when you have an account and notifications or the Dock badge are on, when you press Send test, or when you turn them on in Settings. Without that permission macOS never registered Hey Look! in System Settings > Notifications and the Dock showed no unread number. If notifications are turned off for the app, Settings > Notifications & tray says so and has an "Open System Settings" button; Send test works in every state (the old "not available on macOS" message is gone).
-- macOS: a window that is closed no longer leaves an invisible native window and about 1.4 MB behind (the window toolkit's release bug, fixed upstream, is built in), and the title bar of every window is the colour of the app in the dark theme instead of a lighter grey strip
+- macOS: a window that is closed no longer leaves about 1.4 MB behind (the window toolkit's release fix is built in; only a small empty system window of about 0.2 MB stays until Hey Look! quits, see Known limitations), and the title bar of every window is the colour of the app in the dark theme instead of a lighter grey strip
 - macOS: when a pop-out window is closed, its web content and views are taken apart after the window has ended (observers, drag targets, delegate, first responder, web view, content view), so a closed window keeps no page in memory; nothing is released by hand any more.
 - Windows 11: the title bar of the message, reader and other windows has the colour of the main window's top bar in Light and in Dark, and its text stays readable on any top bar colour
 - A window whose page stops working is reloaded once with what it showed (a message as of its last automatic copy); if it stops again it is closed with a message and what you wrote is saved to Drafts
@@ -159,6 +160,7 @@
 - Discard changes on a draft you opened and changed right away (before the first autosave) puts the draft back when another mail program had removed it from the server meanwhile (it used to be gone); when the draft is still on the server nothing is written
 - On a Mac, the Edit menu item "Paste and Match Style" reads like the system's own item in Spanish ("Pegar con el mismo estilo") and Russian (no line break after "и")
 - The website is shorter: the home, features, help and download pages keep what you need to decide and to get started, in all 8 languages
+- The website describes this version: the features and home pages name CalDAV calendars, the limits are brought up to date (Print on macOS, the PDF preview on every system, Linux notification buttons, search on the server and folders that are created when missing are no longer listed as limits), and the help page explains the question macOS may ask about the local network when you print, in all 8 languages
 - The README is short and points to the website for features, help and policies
 - Undo after Send in the message pane next to the list brings the message back scrolled to where you were (it used to jump to the top; a message in its own window already kept its place).
 - With "Reduce motion" on, the Focused / Other tab text could change size on every frame in a narrow list with a long language (the number then was not in proportion to the name); the size now settles.
@@ -179,6 +181,17 @@
 - A failed secure connection (SSL/TLS or STARTTLS on a plain port) is explained in the language of the app, with the host and port, for IMAP and SMTP; the library's own words (such as "The token supplied to the function is invalid") are written to the log only
 - Notification and list previews no longer start with "Xem thư này trên trình duyệt" typed with combining marks (NFD Vietnamese), Korean jamo or similar, and the "view in browser", "click here" and "unsubscribe" lines of Portuguese, Italian, Dutch, Polish, Turkish, Korean, Indonesian and Traditional Chinese newsletters are left out too
 - Linux: the file pickers for PGP keys and calendar files list upper-case extensions too (`KEY.ASC`, `INVITE.ICS`)
+
+### Known limitations
+
+- macOS: each pop-out window you close keeps a small empty system window (about 0.2 MB) until Hey Look! quits
+- macOS: the first time you print, macOS may ask whether Hey Look! may find devices on your local network; the system print window asks it, to find your printers, and Hey Look! uses the local network for nothing else
+- Confidential mail: Linux has no screenshot blocking (the window is hidden from screen capture and recording on Windows and macOS only)
+- Linux: notification buttons need a desktop whose notification service draws them, and the tray icon has no click action (use Open Hey Look! in its menu)
+- Linux: the x86_64 release packages (AppImage, .deb, .rpm) were not installed or tested; the tests ran on an ARM virtual machine
+- Calendar: some work or school organisations only let an administrator approve the Microsoft calendar permission; CalDAV sync was tested against simulated servers, and a check with real iCloud and Fastmail accounts is still to be done
+- There is no plain-text-only mode when writing a message
+- Folders can be created but not renamed or deleted in Hey Look!
 
 ## 1.0.6 — 2026-10-18
 

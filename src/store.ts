@@ -37,6 +37,7 @@ import { captionColors, gradientT } from "./captionColors";
 import { settingsWindowOpen } from "./popout/popoutCount";
 import { SETTINGS_KEY, settingsTarget } from "./popout/windowKinds";
 import { darkTopBar } from "./topBarDark";
+import { applyColorFallback } from "./colorFallback";
 
 /** `quiet`: the caller tells a failure itself. `onSaved`: the caller says "Draft saved" itself (the pane makes no toast). */
 export interface ComposeSaveOpts {
@@ -563,7 +564,7 @@ const roleOf = (folder: string) => (folder === "unread" ? "inbox" : folder);
 export const exhaustedKey = (accountId: string, folder: string) => `${accountId}|${roleOf(folder)}`;
 
 /** Shown where the "Max emails to download" cap stopped the list (toast of "Load older messages"; the list footer words it the same). */
-export const limitMessage = (n: number) => t("errors.limit", { n: fmtNumber(n) });
+const limitMessage = (n: number) => t("errors.limit", { n: fmtNumber(n) });
 
 const MORE_CHUNKS = 4; // one scroll to the end = up to 4 x 50 = 200 older messages in total, however many mailboxes are open
 const MORE_PAUSE_MS = 700; // between two requests, so the server and the list can breathe
@@ -647,6 +648,7 @@ export function applyPrefs(p: Prefs) {
   const topDk = darkTopBar(validHex(p.accent) ? p.accent : DEFAULT_PREFS.accent);
   root.style.setProperty("--top-dk-start", topDk.start);
   root.style.setProperty("--top-dk-end", topDk.end);
+  applyColorFallback(); // (an engine without color-mix(): the theme tokens that App.css builds with it, W9.7)
 }
 
 let captionSent = "";
@@ -729,7 +731,7 @@ export async function flushSends(maxMs = 25_000): Promise<boolean> {
   }
 }
 
-export function storeMissingColors(accounts: Account[], accent: string): Account[] {
+function storeMissingColors(accounts: Account[], accent: string): Account[] {
   return accounts.map((a) => {
     if (a.color) return a;
     const color = accountColor(a, accent);
