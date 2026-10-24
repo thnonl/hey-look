@@ -225,6 +225,8 @@
   "node --experimental-strip-types scripts/test-pdf-viewer.mjs": 2,
   "node scripts/test-pdf-viewer-ui.mjs --require-browser": 40,
   "node scripts/test-pdf-csp.mjs --require-browser": 4,
-  "node scripts/test-nsis-languages.mjs": 1
+  "node scripts/test-nsis-languages.mjs": 1,
+  "node --experimental-strip-types scripts/test-color-scheme-media.mjs": 2,
+  "node scripts/test-color-scheme-frame.mjs --require-browser": 25
  }
 }

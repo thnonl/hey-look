@@ -56,6 +56,7 @@
 
 ### Fixed
 
+- A newsletter that has a dark design (`prefers-color-scheme: dark`) now follows the message background (Original = its light design, Dark = its dark design, as the button in the reading pane says), not the colour setting of the system or of the app; switching the background changes it at once without reloading the message, and printing is always light.
 - macOS: the app now asks macOS for permission to show notifications (banners, sound and the Dock badge), once, when you have an account and notifications or the Dock badge are on, when you press Send test, or when you turn them on in Settings. Without that permission macOS never registered Hey Look! in System Settings > Notifications and the Dock showed no unread number. If notifications are turned off for the app, Settings > Notifications & tray says so and has an "Open System Settings" button; Send test works in every state (the old "not available on macOS" message is gone).
 - macOS: a window that is closed no longer leaves an invisible native window and about 1.4 MB behind (the window toolkit's release bug, fixed upstream, is built in), and the title bar of every window is the colour of the app in the dark theme instead of a lighter grey strip
 - Windows 11: the title bar of the message, reader and other windows has the colour of the main window's top bar in Light and in Dark, and its text stays readable on any top bar colour

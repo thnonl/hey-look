@@ -364,3 +364,7 @@ ui-b | node scripts/test-pdf-viewer-ui.mjs --require-browser
 ui-e | node scripts/test-pdf-csp.mjs --require-browser
 # 1.0.7 W5.8 (REQ-5.8.1, REQ-5.8.2): the Windows setup follows the Windows display language: the 8 languages with English first, no selector in the release config, a custom file for each of the 7 others (BOM, the 27 ids of Tauri's English file, own language constant, balanced quotes, placeholders intact, text in its own script), the corrections agreed with the specialists in and the typos of Tauri's files out, the .msi stays English
 static | node scripts/test-nsis-languages.mjs
+# 1.0.7 W5.5 (REQ-5.5.1, REQ-5.5.2): the pure rewrite of prefers-color-scheme in a mail's <style> and media attributes to constants for the message background (plain, compound, not, only, comma lists, upper case, no space, @supports, media attributes, comments; the text of the mail untouched), the originals kept for the in-place switch, the wiring in ReadingPane
+static | node --experimental-strip-types scripts/test-color-scheme-media.mjs
+# 1.0.7 W5.5 (AC-5.5.1 to AC-5.5.4) in the dev preview with kit mail N1 and the OS emulated dark / light: Original = light (body, logo, picture, not-dark blocks) whatever the OS and the app theme, the Dark background = dark, compound screen and max-width queries keep working, the switch rewrites in place (same document, no reload), print is light, a mail without rules is not touched
+ui-a | node scripts/test-color-scheme-frame.mjs --require-browser
