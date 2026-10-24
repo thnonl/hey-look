@@ -92,7 +92,7 @@ assert.equal((att.match(/<iframe\b/g) ?? []).length, 1, "one frame in the attach
 assert.doesNotMatch(att, /sandbox="/, "no literal sandbox in Attachments.tsx: the PDF frame takes it from pdfFrame.ts, images and text are not frames");
 assert.match(att, /sandbox=\{data\.sandbox\}/);
 // the frame is only built from the checked preview, and a refused one shows a message, not a frame
-assert.match(att, /const pdf = pdfPreview\(b64ToBytes\(d\.dataBase64\), navigator\.userAgent\);/);
+assert.match(att, /const pdf = pdfPreview\(raw, navigator\.userAgent\);/);
 assert.match(att, /if \(!pdf\.ok\) \{\s*setData\(\{ url: "", notPdf: true \}\);\s*return;\s*\}/);
 assert.match(att, /URL\.createObjectURL\(pdf\.blob\)/);
 assert.doesNotMatch(att, /new Blob\(/, "no other blob is made in Attachments.tsx");
@@ -116,7 +116,7 @@ assert.match(lib, /#\[cfg\(any\(windows, target_os = "macos"\)\)\]\s*\/\/[^\n]*\
 assert.doesNotMatch(conf.app.security.csp, /object-src [^;]*blob/, "the shipped policy keeps object-src 'none'; the macOS experiment changes it per run in pdfmode.rs");
 assert.doesNotMatch(conf.app.security.csp, /frame-src [^;]*(https?:|\*|data:)/);
 
-// ---- 1.0.6 macfix3: macOS / Linux show a card by default; the experiment switch is read by the backend and reaches the page as pdfView
+// ---- 1.0.7 W5.1: macOS and Linux draw the PDF with PDF.js (scripts/test-pdf-viewer.mjs pins that side); the frame stays the way of Windows, the card the way of a system that is not known
 const platform = read("src/platform.ts");
 assert.match(platform, /pdfView: "frame"/, "default before the backend answers: Windows' frame");
 assert.match(platform, /os === "windows" \? "frame" : "card"/, "an old backend that does not say: the frame only on Windows");
@@ -125,16 +125,13 @@ assert.match(att, /setData\(\{ url: "", card: true \}\)/, "the card fetches noth
 assert.match(att, /<PdfCard att=\{cur\} onOpen=\{openCur\} onSave=\{saveCur\} \/>/);
 assert.match(att, /t\("reading\.pv\.pdfOutside"\)/);
 assert.match(att, /const openCur = \(\) => void openAttachment\(m, cur\);/, "the card's Open is the card list's Open: a temporary copy in the default app");
-assert.doesNotMatch(att, /osNow\(\) !== "linux"/, "Linux shows the card too (it used to have no PDF preview at all)");
-// the object element exists once, only in the PDF component, and only the experiment reaches it
-assert.equal((att.match(/<object\b/g) ?? []).length, 1);
-assert.match(att, /view=\{pdfView === "object" \? "object" : "frame"\}/);
-assert.match(att, /onDiag=\{experiment \? setDiag : undefined\}/);
+assert.doesNotMatch(att, /osNow\(\) !== "linux"/, "Linux shows a PDF too");
+assert.equal((att.match(/<object\b/g) ?? []).length, 0, "the object element of the 1.0.6 experiment is gone");
+// the frame is only for the way of the frame: PDF.js gets the bytes, not a blob
+assert.match(att, /if \(usePlatform\.getState\(\)\.pdfView !== "frame"\) \{/);
 const lib2 = read("src-tauri/src/lib.rs");
 assert.match(lib2, /pdf_view: pdfmode::view\(\)\.name\(\)/);
-assert.match(lib2, /pdfmode::apply_csp\(context\.config_mut\(\)\);/);
+assert.doesNotMatch(lib2, /pdfmode::apply_csp/, "the policy of the run is never changed");
 const pm = read("src-tauri/src/pdfmode.rs");
-assert.match(pm, /HEYLOOK_PDF_INLINE/);
-assert.equal((pm.match(/replace\("object-src 'none'", "object-src blob:"\)/g) ?? []).length, 1, "the one change of the policy");
-assert.doesNotMatch(pm.replace(/\/\/[^\n]*/g, ""), /replace\("(frame|script|default|connect|style|img)-src/, "no other directive is touched");
+assert.doesNotMatch(pm.split("#[cfg(test)]")[0].replace(/\/\/[^\n]*/g, ""), /HEYLOOK_PDF_INLINE|replace\("object-src/, "the experiment switch and the per-run policy change are gone");
 console.log("pdf-frame: all checks passed");

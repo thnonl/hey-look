@@ -13,6 +13,8 @@ export default defineLocale<typeof ns.en>({
   "app.welcome.point.passwords": "Passwörter bleiben in {store}",
   "app.welcome.point.privacy": "Externe Bilder und Tracker werden standardmäßig blockiert",
   "app.welcome.point.tray": "Ruft auch im Infobereich weiter E-Mails ab, mit „Rückgängig“ für jede Verschiebung",
+  "app.welcome.point.menuBar": "Ruft auch in der Menüleiste weiter E-Mails ab, mit „Rückgängig“ für jede Verschiebung",
+  "app.welcome.point.noTray": "Ruft weiter E-Mails ab, solange Hey Look! geöffnet ist, mit „Rückgängig“ für jede Verschiebung",
   // ---- dates, sizes and times (src/util.ts)
   "app.date.today": "Heute",
   "app.date.yesterday": "Gestern",
@@ -98,6 +100,7 @@ export default defineLocale<typeof ns.en>({
   "app.quit.scheduledBodyNext.many": "Wenn Sie jetzt beenden, werden sie beim nächsten Öffnen von Hey Look! gesendet. Die nächste ist fällig: {when}.",
   "app.quit.keepRunning": "Im Infobereich weiterlaufen",
   "app.quit.keepRunningMac": "In der Menüleiste weiterlaufen",
+  "app.quit.keepOpen": "Hey Look! geöffnet lassen",
   "app.quit.quitAnyway": "Trotzdem beenden",
   // ---- top bar and window controls
   "app.top.sync": "Jetzt synchronisieren (F5)",

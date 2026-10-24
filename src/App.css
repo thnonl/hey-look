@@ -868,6 +868,9 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 /* a long option text must never push the control (or its override tag) out of the settings body */
 .set-ctl, .ov { min-width: 0; }
 .ov { max-width: 100%; }
+/* Settings > Notifications & tray on macOS, notifications turned off in System Settings (W5.10): the muted note and the button under the Send test row; the button wraps under the note on a narrow window */
+.mac-notify-denied { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 10px 0 14px; border-bottom: 1px solid var(--border); min-width: 0; }
+.mac-notify-denied .muted { overflow-wrap: anywhere; }
 /* Settings > Notifications > Sound: the switch and "Play sound" (W13.8) */
 .sound-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
 .sound-play { display: inline-flex; align-items: center; gap: 6px; }

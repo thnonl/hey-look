@@ -315,6 +315,23 @@ fn mac_menu_slot(label: &str) -> Option<crate::i18n::K> {
     }
 }
 
+/// One entry of the macOS app menu, in the order the person sees it (W5.7).
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum AppMenuEntry {
+    Item(crate::i18n::K),
+    Separator,
+}
+
+/// The app menu of macOS as the app builds it: tauri's default menu (About, separator, Services, separator, Hide, Hide Others, separator, Quit) with the Show All item that
+/// Apple's standard menu has under Hide Others added (`localize_app_menu`) and the Quit item replaced by ours (`replace_quit_item`): six items and three separators, in the app's
+/// language. Pure: the list the test compares with what the two functions do (W5.7: Show All stays).
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn app_menu_plan() -> Vec<AppMenuEntry> {
+    use crate::i18n::K;
+    use AppMenuEntry::{Item, Separator};
+    vec![Item(K::MacAbout), Separator, Item(K::MacServices), Separator, Item(K::MacHide), Item(K::MacHideOthers), Item(K::MacShowAll), Separator, Item(K::MacQuit)]
+}
+
 /// Puts the language of the app on the predefined items of the app menu. macOS' standard menu has a Show All item right under Hide Others;
 /// tauri's default menu leaves it out, so it is added here.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -648,16 +665,17 @@ fn toast(app: &AppHandle, thread: String, title: &str, line1: &str, line2: &str,
     shown
 }
 
-/// macOS and Linux: a plain native notification (no buttons; clicking it has the system's default effect only). `sound` is "pop" (the Hey Look! sound, W13.8), "reminder"
-/// (an event reminder: the system's notification sound) or "none".
+/// macOS: a plain native notification (no buttons; clicking it has the system's default effect only). Linux: the notification carries the mailbox's buttons and a click on its body opens the
+/// conversation when the service draws buttons (W5.4, linuxnotify.rs). `sound` is "pop" (the Hey Look! sound, W13.8), "reminder" (an event reminder: the system's notification sound) or "none".
 #[cfg(not(windows))]
-fn toast(app: &AppHandle, _thread: String, title: &str, line1: &str, line2: &str, sound: &str, _actions: &[String]) -> Result<(), String> {
+fn toast(app: &AppHandle, thread: String, title: &str, line1: &str, line2: &str, sound: &str, actions: &[String]) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
-        return toast_linux(app, title, &notification_body(line1, line2), sound);
+        return toast_linux(app, &thread, title, &notification_body(line1, line2), sound, actions);
     }
     #[cfg(not(target_os = "linux"))]
     {
+        let _ = (&thread, actions); // (macOS notifications have no buttons)
         // macOS: the hidden diagnostic (HEYLOOK_MAC_NOTIFY in a debug build, see macnotify.rs); off = the unchanged path below. The notification is silent, the app plays the sound
         // (a new-mail sound is the only signal on a Mac where the notification itself is not shown, W13.8)
         #[cfg(target_os = "macos")]
@@ -686,10 +704,27 @@ fn toast(app: &AppHandle, _thread: String, title: &str, line1: &str, line2: &str
 /// service ("ServiceUnknown" on the bus) was never reported and "Send test" stayed silent (QA BUG-L2). The notification is sent
 /// here and the answer of the bus is returned; a bus that does not answer in time is an error too.
 #[cfg(target_os = "linux")]
-fn toast_linux(app: &AppHandle, title: &str, body: &str, sound: &str) -> Result<(), String> {
+fn toast_linux(app: &AppHandle, thread: &str, title: &str, body: &str, sound: &str, actions: &[String]) -> Result<(), String> {
     let mut n = notify_rust::Notification::new();
     n.summary(title).body(body).auto_icon();
+    // (W5.4) an e-mail notification: its category, and the desktop file that names the app (services group and mute by it); urgency stays normal
+    n.hint(notify_rust::Hint::Category("email.arrived".into()));
+    n.hint(notify_rust::Hint::DesktopEntry(LINUX_DESKTOP_ID.into()));
+    // (W5.4) buttons and the click on the body, when the service draws buttons; the one listener of the run answers them
+    let pairs = if crate::linuxnotify::actions_supported() {
+        let open = crate::i18n::tr(crate::i18n::K::TrayOpen);
+        let pairs = crate::linuxnotify::action_pairs(actions, open, action_label);
+        for (key, label) in &pairs {
+            n.action(key, label);
+        }
+        let handle = app.clone();
+        crate::linuxnotify::ensure_listener(move |answer| linux_answer(&handle, answer));
+        pairs
+    } else {
+        Vec::new()
+    };
     let app = app.clone();
+    let thread = thread.to_string();
     let sound = sound.to_string();
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -707,11 +742,16 @@ fn toast_linux(app: &AppHandle, title: &str, body: &str, sound: &str) -> Result<
                 _ => by_app = true,
             }
         }
-        let shown = n.show().map(|_| ()).map_err(|e| notify_failure_text(&e.to_string()));
+        let shown = n.show().map(|h| h.id()).map_err(|e| notify_failure_text(&e.to_string()));
+        if let Ok(id) = &shown {
+            if !pairs.is_empty() {
+                crate::linuxnotify::tracked().lock().unwrap_or_else(|p| p.into_inner()).insert(*id, &thread, &pairs, std::time::Instant::now());
+            }
+        }
         if shown.is_ok() && by_app {
             crate::notifysound::play_with_player(&app);
         }
-        let _ = tx.send(shown);
+        let _ = tx.send(shown.map(|_| ()));
     });
     rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap_or_else(|_| {
         // no answer in 5 s: the bus holds the call while it tries to start a notification service that never comes up (an
@@ -719,6 +759,22 @@ fn toast_linux(app: &AppHandle, title: &str, body: &str, sound: &str) -> Result<
         crate::startup::line("notify", "the notification call got no answer from the bus within 5 s");
         Err(NO_NOTIFICATION_SERVICE.into())
     })
+}
+
+/// The desktop file id of the app on Linux (hey-look.desktop: the .deb, the AppImage's and the snap's).
+#[cfg(target_os = "linux")]
+const LINUX_DESKTOP_ID: &str = "hey-look";
+
+/// Linux (W5.4): an answer of the notification service. The body of a notification opens its conversation (the main window only comes forward when it has none, as the summary and the
+/// test notification); a button does what it does on Windows (`handle_activation`), also while the window is hidden.
+#[cfg(target_os = "linux")]
+fn linux_answer(app: &AppHandle, answer: crate::linuxnotify::Answer) {
+    use crate::linuxnotify::Answer;
+    match answer {
+        Answer::Open { thread } if thread.is_empty() => show_main(app),
+        Answer::Open { thread } => handle_activation(app, &thread, None),
+        Answer::Button { thread, key } => handle_activation(app, &thread, Some(key)),
+    }
 }
 
 /// What "Send test" says when no notification service can show the notification (TC-165 (1)).
@@ -911,14 +967,95 @@ fn tray_hint_text(os: &str) -> &'static str {
     crate::i18n::tray_hint(os)
 }
 
+/// macOS: the facts the permission rules need: the number of accounts, whether desktop notifications are on for at least one mailbox, and whether the Dock badge is not "None"
+/// (REQ-5.10.2). The "all mailboxes" switch and the per-mailbox override are read the way `notify_new` reads them.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn mac_notify_flags(db: &Db) -> (usize, bool, bool) {
+    let ids: Vec<String> = db::list_accounts(&lock(db)).map(|a| a.into_iter().map(|x| x.id).collect()).unwrap_or_default();
+    let (notify, dock) = mac_notify_reasons(&prefs(db), &ids);
+    (ids.len(), notify, dock)
+}
+
+/// (notifications on for some mailbox, Dock badge on) for these preferences. Pure.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn mac_notify_reasons(p: &Value, account_ids: &[String]) -> (bool, bool) {
+    let notify = pbool(p, "notifications", true) && account_ids.iter().any(|id| eff(p, id, "notifications").and_then(|v| v.as_bool()).unwrap_or(true));
+    (notify, badge_styles(p).1 == "number")
+}
+
+/// Whether a change of the preferences turned notifications or the Dock badge on (REQ-5.10.2 c). Pure.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn turned_on(before: (bool, bool), after: (bool, bool)) -> bool {
+    (after.0 && !before.0) || (after.1 && !before.1)
+}
+
+/// macOS: the answer of "ask for permission" for a start / first account (REQ-5.10.2 a). Runs on a thread of its own (the system dialog blocks until the person answers) and
+/// stops asking once macOS has an answer; called at start and every sync round, so an account added later is covered.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn mac_notify_start(db: &Db) {
+    use crate::macnotify::{ensure, State, Trigger};
+    static SETTLED: AtomicBool = AtomicBool::new(false);
+    static BUSY: AtomicBool = AtomicBool::new(false);
+    if SETTLED.load(Ordering::Relaxed) || BUSY.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let db = db.clone();
+    std::thread::spawn(move || {
+        let (accounts, notify, dock) = mac_notify_flags(&db);
+        if ensure(Trigger::Start, accounts, notify, dock) != State::Undetermined {
+            SETTLED.store(true, Ordering::Relaxed);
+        }
+        BUSY.store(false, Ordering::SeqCst);
+    });
+}
+
+/// macOS: notifications or the Dock badge were turned on in Settings: ask now if macOS was never asked (REQ-5.10.2 c).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn mac_notify_setting_on(db: &Db) {
+    let db = db.clone();
+    std::thread::spawn(move || {
+        let (accounts, notify, dock) = mac_notify_flags(&db);
+        crate::macnotify::ensure(crate::macnotify::Trigger::SettingOn, accounts, notify, dock);
+    });
+}
+
+/// macOS: the main window gained focus: read the state again (a change made in System Settings shows without a restart; the log gets a line when it changed).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn mac_notify_focus() {
+    static BUSY: AtomicBool = AtomicBool::new(false);
+    if BUSY.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    std::thread::spawn(|| {
+        crate::macnotify::read();
+        BUSY.store(false, Ordering::SeqCst);
+    });
+}
+
+/// The command `notify_permission`: the state macOS reports for this app (`unsupported` anywhere else). `ask` (the "Send test" button) asks first while macOS was never asked.
+pub fn notify_permission(db: &Db, ask: bool) -> crate::macnotify::State {
+    if ask {
+        let (accounts, notify, dock) = mac_notify_flags(db);
+        crate::macnotify::ensure(crate::macnotify::Trigger::SendTest, accounts, notify, dock)
+    } else {
+        crate::macnotify::read()
+    }
+}
+
 pub fn test_notification(app: &AppHandle, db: &Db) -> Result<(), String> {
-    // macOS: the notification backend of the plugin (the old NSUserNotification API) shows nothing on current macOS for an ad-hoc
-    // signed app and cannot ask for permission; Send test says so instead of pretending (QA BUG-M5, owner decision: documented limit)
-    // (a debug build started with HEYLOOK_MAC_NOTIFY=1 makes the attempt instead, for the Mac QA session: macnotify.rs)
+    // macOS: macOS is asked for permission first when it never was (REQ-5.10.5); with the permission turned off nothing is sent (the page shows the note)
     #[cfg(target_os = "macos")]
-    if crate::macnotify::mode().is_none() {
-        let _ = (app, db);
-        return Err(crate::i18n::coded("NOTIFY_MAC_UNAVAILABLE", &[], "not available on macOS in this version"));
+    {
+        let (accounts, notify, dock) = mac_notify_flags(db);
+        if crate::macnotify::ensure(crate::macnotify::Trigger::SendTest, accounts, notify, dock) == crate::macnotify::State::Denied {
+            crate::startup::line("notify", "macos: send test skipped (notifications are turned off in macOS)");
+            return Ok(());
+        }
+    }
+    // Linux (W5.6): ask the bus first; no notification service and none that can be started is the answer at once, not after the 5 s wait
+    #[cfg(target_os = "linux")]
+    if crate::linuxnotify::send_test_plan() == crate::linuxnotify::ServicePlan::FailNow {
+        return Err(NO_NOTIFICATION_SERVICE.into());
     }
     let p = prefs(db);
     toast(
@@ -975,6 +1112,32 @@ mod platform_tests {
 
     /// The localised items are rebuilt with the language: the app menu code and the language refresh use the same list, and the menu code is only
     /// ever compiled in for macOS (this reads the source, like the quit tests do).
+    /// W5.7: the app menu has exactly the agreed items, Show All stays (Apple's standard menu has it; it only un-hides other apps).
+    #[test]
+    fn the_mac_app_menu_has_exactly_the_agreed_items() {
+        use crate::i18n::K;
+        let plan = app_menu_plan();
+        let items: Vec<K> = plan.iter().filter_map(|e| if let AppMenuEntry::Item(k) = e { Some(*k) } else { None }).collect();
+        assert_eq!(items, [K::MacAbout, K::MacServices, K::MacHide, K::MacHideOthers, K::MacShowAll, K::MacQuit], "six items, in this order");
+        assert_eq!(plan.iter().filter(|e| **e == AppMenuEntry::Separator).count(), 3, "three separators");
+        assert_eq!(plan[1], AppMenuEntry::Separator);
+        assert_eq!(plan[3], AppMenuEntry::Separator);
+        assert_eq!(plan[7], AppMenuEntry::Separator);
+        assert_eq!(plan.len(), 9);
+        // what builds it: the localisation inserts Show All right under Hide Others when tauri's menu has none, and the Quit item is ours; the six texts are in every language
+        let src = crate::test_guard::non_test_code(include_str!("shell.rs"));
+        let localize = &src[src.find("fn localize_app_menu(").unwrap()..];
+        let localize = &localize[..localize.find("
+}
+").unwrap()];
+        assert!(localize.contains("PredefinedMenuItem::show_all(app, Some(tr(K::MacShowAll)))") && localize.contains("app_menu.insert(&show, at + 1)") && localize.contains("K::MacHideOthers"), "Show All under Hide Others: {localize}");
+        assert!(src.contains("MAC_QUIT_ID, crate::i18n::tr(crate::i18n::K::MacQuit)"), "our Quit item");
+        // (the texts of the six keys exist in every language: the i18n tests check every key; here, that the menu uses these six)
+        for k in items {
+            assert!(!crate::i18n::tr(k).is_empty());
+        }
+    }
+
     #[test]
     fn the_app_menu_follows_the_language_change() {
         let src = crate::test_guard::non_test_code(include_str!("shell.rs"));
@@ -1000,6 +1163,42 @@ mod platform_tests {
         for id in ["\"compose\" if MAIL_AVAILABLE", "\"sync\" if MAIL_AVAILABLE"] {
             assert!(src.contains(id), "{id}");
         }
+    }
+
+    #[test]
+    fn the_macos_permission_reasons_are_notifications_on_for_some_mailbox_and_the_dock_badge() {
+        let ids = vec!["a".to_string(), "b".to_string()];
+        let p = |j: &str| serde_json::from_str::<Value>(j).unwrap();
+        assert_eq!(mac_notify_reasons(&Value::Null, &ids), (true, true), "defaults: notifications on, the Dock badge shows the number");
+        assert_eq!(mac_notify_reasons(&Value::Null, &[]), (false, true), "no mailbox, nothing to notify about");
+        assert_eq!(mac_notify_reasons(&p(r#"{"notifications":false}"#), &ids), (false, true), "the all-mailboxes switch is off");
+        assert_eq!(mac_notify_reasons(&p(r#"{"accountPrefs":{"a":{"notifications":false}}}"#), &ids), (true, true), "one mailbox is enough");
+        assert_eq!(mac_notify_reasons(&p(r#"{"accountPrefs":{"a":{"notifications":false},"b":{"notifications":false}}}"#), &ids), (false, true));
+        assert_eq!(mac_notify_reasons(&p(r#"{"taskbarBadge":"off"}"#), &ids), (true, false));
+        assert_eq!(mac_notify_reasons(&p(r#"{"showUnreadCount":false}"#), &ids), (true, false), "the older switch counts too");
+        // turning one on asks; turning one off or changing something else does not
+        assert!(turned_on((false, true), (true, true)));
+        assert!(turned_on((true, false), (true, true)));
+        assert!(turned_on((false, false), (false, true)));
+        assert!(!turned_on((true, true), (false, true)));
+        assert!(!turned_on((true, true), (true, true)));
+        assert!(!turned_on((true, false), (true, false)));
+    }
+
+    /// W5.10: the callers of the permission flow. The sources are read like the quit tests do (the Objective-C code is macOS-only).
+    #[test]
+    fn the_macos_permission_is_asked_at_the_agreed_moments_and_the_old_unavailable_answer_is_gone() {
+        let shell = crate::test_guard::non_test_code(include_str!("shell.rs"));
+        let send = &shell[shell.find("pub fn test_notification(").unwrap()..];
+        let send = &send[..send.find("
+}
+").unwrap()];
+        assert!(send.contains("Trigger::SendTest") && send.contains("State::Denied"), "Send test asks, and sends nothing when macOS refuses: {send}");
+        assert!(!shell.contains(concat!("NOTIFY_MAC", "_UNAVAILABLE")));
+        let lib = crate::test_guard::non_test_code(include_str!("lib.rs"));
+        assert!(lib.contains("shell::mac_notify_start(&db)"), "start and every sync round");
+        assert!(lib.contains("shell::mac_notify_focus()"), "the main window gaining focus reads the state again");
+        assert!(lib.contains("shell::turned_on(before"), "turning notifications or the Dock badge on asks");
     }
 
     #[test]
@@ -1108,7 +1307,7 @@ mod platform_tests {
         // BUG-L2: the plugin's show() drops the bus error, so "Send test" could never report it. The Linux branch of `toast` must
         // call `toast_linux` (which waits for the answer) before it reaches the plugin.
         let src = include_str!("shell.rs");
-        let toast = &src[src.find("fn toast(app: &AppHandle, _thread").unwrap()..];
+        let toast = &src[src.find("fn toast(app: &AppHandle, thread: String").unwrap()..];
         let linux = toast.find("toast_linux(").unwrap();
         let plugin = toast.find(concat!("builder", "()")).unwrap();
         assert!(linux < plugin, "the Linux branch comes first and returns");

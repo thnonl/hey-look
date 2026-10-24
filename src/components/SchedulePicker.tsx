@@ -3,7 +3,7 @@ import { useId, useMemo, useRef, useState } from "react";
 import { t } from "../i18n";
 import { useT } from "../i18n/react";
 import { tx } from "../i18n/rich";
-import { osNow } from "../platform";
+import { osNow, usePlatform } from "../platform";
 import { useStore } from "../store";
 import { scheduleKeepKey } from "../trayWords";
 import { formatTime } from "../dateTimeFields";
@@ -55,6 +55,7 @@ export function SchedulePicker({
   const t = useT();
   const uid = useId();
   const prefs = useStore((s) => s.prefs);
+  const keepKey = scheduleKeepKey(osNow(), usePlatform((s) => s.tray));
   const start = initial ? new Date(initial * 1000) : new Date(Date.now() + 60 * 60 * 1000);
   const [date, setDate] = useState(toDateInput(start));
   const [time, setTime] = useState(toTimeInput(start));
@@ -149,8 +150,13 @@ export function SchedulePicker({
         {t("compose.schedule.foot")}
         {!prefs.closeToTray && (
           <div className="warn">
-            {t("compose.schedule.quitWarning")}{" "}
-            <button className="link" onClick={() => useStore.getState().setPrefs({ closeToTray: true })}>{t(scheduleKeepKey(osNow()))}</button>
+            {t("compose.schedule.quitWarning")}
+            {keepKey && (
+              <>
+                {" "}
+                <button className="link" onClick={() => useStore.getState().setPrefs({ closeToTray: true })}>{t(keepKey)}</button>
+              </>
+            )}
           </div>
         )}
       </div>

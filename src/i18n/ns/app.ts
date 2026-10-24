@@ -13,6 +13,8 @@ export default define({
     "app.welcome.point.passwords": "Passwords stay in {store}",
     "app.welcome.point.privacy": "Remote images and trackers are blocked by default",
     "app.welcome.point.tray": "Keeps checking mail from the tray, with Undo for every move",
+    "app.welcome.point.menuBar": "Keeps checking mail from the menu bar, with Undo for every move",
+    "app.welcome.point.noTray": "Keeps checking mail while Hey Look! is open, with Undo for every move",
 
     // ---- dates, sizes and times (src/util.ts)
     "app.date.today": "Today",
@@ -100,6 +102,7 @@ export default define({
     "app.quit.scheduledBodyNext.many": "If you quit now, they will be sent the next time you open Hey Look! The next one is due {when}.",
     "app.quit.keepRunning": "Keep running in tray",
     "app.quit.keepRunningMac": "Keep running in the menu bar",
+    "app.quit.keepOpen": "Keep Hey Look! open",
     "app.quit.quitAnyway": "Quit anyway",
 
     // ---- top bar and window controls

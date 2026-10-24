@@ -60,6 +60,10 @@ fn os_theme(app: &AppHandle) -> Option<Theme> {
     }
     #[cfg(not(target_os = "macos"))]
     {
+        // Linux: the desktop's scheme as the app resolved it (linuxtheme.rs, W5.2), not the window's own reading of the GTK setting
+        if let Some(dark) = crate::linuxtheme::os_dark_now() {
+            return Some(if dark { Theme::Dark } else { Theme::Light });
+        }
         app.webview_windows().values().find_map(|w| w.theme().ok())
     }
 }

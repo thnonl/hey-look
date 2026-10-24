@@ -1,0 +1,24 @@
+/* The PDF viewer of the attachment preview (W5.1, src/pdfView.tsx): loaded with the viewer, never in the first stylesheet.
+   Only what WebKit before 16.5 also understands (no CSS nesting, no :is(), no inset). */
+.pv-stage.pdfjs { display: block; overflow: hidden; }
+.pv-pdfjs { position: absolute; top: 0; right: 0; bottom: 0; left: 0; overflow: auto; outline: none; border-radius: 0 0 var(--r-lg) var(--r-lg); }
+.pv-pdfjs:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.pv-pdfjs[data-state="loading"], .pv-pdfjs[data-state="locked"], .pv-pdfjs[data-state="damaged"], .pv-pdfjs[data-state="unavailable"] { visibility: hidden; }
+.pv-pdfjs-msg { position: absolute; top: 0; right: 0; bottom: 0; left: 0; }
+/* the pages: one under the other, centred, 16 px apart, with the room of the arrows left and right; a page wider than the stage scrolls sideways */
+.pv-pages { display: flex; flex-direction: column; align-items: center; box-sizing: border-box; padding: 16px 48px 0; width: max-content; min-width: 100%; }
+.pv-page { position: relative; flex: none; margin: 0 0 16px; background: #fff; box-shadow: var(--shadow); color-scheme: only light; overflow: hidden; }
+.pv-page > canvas { display: block; width: 100%; height: 100%; }
+/* the text of the page over its picture: invisible, selectable, readable by a screen reader (the rules of PDF.js's own viewer, written out flat) */
+.pv-text-layer { position: absolute; top: 0; right: 0; bottom: 0; left: 0; overflow: hidden; line-height: 1; text-align: initial; opacity: 1; z-index: 0; transform-origin: 0 0; -webkit-text-size-adjust: none; text-size-adjust: none; forced-color-adjust: none;
+  --min-font-size: 1; --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size)); --min-font-size-inv: calc(1 / var(--min-font-size)); }
+.pv-text-layer span, .pv-text-layer br { color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0 0; -webkit-user-select: text; user-select: text; }
+.pv-text-layer > span, .pv-text-layer .markedContent span:not(.markedContent) { z-index: 1; --font-height: 0; font-size: calc(var(--text-scale-factor) * var(--font-height)); --scale-x: 1; --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv)); }
+.pv-text-layer .markedContent { display: contents; }
+.pv-text-layer span[role="img"] { -webkit-user-select: none; user-select: none; cursor: default; }
+.pv-text-layer ::selection { background: rgba(0, 0, 255, .25); color: transparent; }
+.pv-text-layer .endOfContent { display: block; position: absolute; top: 100%; right: 0; bottom: 0; left: 0; z-index: 0; cursor: default; -webkit-user-select: none; user-select: none; }
+/* the page number and the zoom buttons that the viewer puts into the header of the dialog: they are items of the header's own row */
+.pv-pdf-tools { display: contents; }
+.pv-page-no { white-space: nowrap; font-variant-numeric: tabular-nums; }

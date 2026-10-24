@@ -13,6 +13,8 @@ export default defineLocale<typeof ns.en>({
   "app.welcome.point.passwords": "パスワードは{store}に保管されます",
   "app.welcome.point.privacy": "リモート画像とトラッカーは、既定でブロックされます",
   "app.welcome.point.tray": "トレイに常駐してメールを確認し続け、どの移動も元に戻せます",
+  "app.welcome.point.menuBar": "メニューバーでメールを確認し続け、どの移動も元に戻せます",
+  "app.welcome.point.noTray": "Hey Look!を開いている間はメールを確認し続け、どの移動も元に戻せます",
   // ---- dates, sizes and times (src/util.ts)
   "app.date.today": "今日",
   "app.date.yesterday": "昨日",
@@ -89,6 +91,7 @@ export default defineLocale<typeof ns.en>({
   "app.quit.scheduledBodyNext.many": "今終了すると、次にHey Look!を開いたときに送信されます。次の送信予定は{when}です。",
   "app.quit.keepRunning": "トレイで実行を続ける",
   "app.quit.keepRunningMac": "メニューバーで実行を続ける",
+  "app.quit.keepOpen": "Hey Look!を開いたままにする",
   "app.quit.quitAnyway": "このまま終了",
   // ---- top bar and window controls
   "app.top.sync": "今すぐ同期 (F5)",

@@ -68,10 +68,12 @@ pub enum Step {
 }
 
 /// `was_pinned`: a window was pinned to a theme earlier in this run. `always_release`: tell `None` even when nothing was pinned (macOS: the
-/// application appearance is reset every time, see the module text).
-pub fn step(choice: Option<Theme>, was_pinned: bool, always_release: bool) -> Step {
+/// application appearance is reset every time, see the module text). `linux_os`: on Linux, the desktop's scheme as the app resolved it (linuxtheme.rs): with System the
+/// resolved theme is pinned (GTK then shows what the desktop shows, whatever tao's own reading of the portal gave, W5.2); `None` everywhere else and before the first answer.
+pub fn step(choice: Option<Theme>, was_pinned: bool, always_release: bool, linux_os: Option<bool>) -> Step {
     match choice {
         Some(t) => Step::Pin(t),
+        None if linux_os.is_some() => Step::Pin(if linux_os == Some(true) { Theme::Dark } else { Theme::Light }),
         None if was_pinned || always_release => Step::Release,
         None => Step::Nothing,
     }
@@ -358,7 +360,7 @@ pub fn apply_all(app: &AppHandle, why: &str) {
         Some(_) => pinned().swap(true, Ordering::SeqCst),
         None => pinned().swap(false, Ordering::SeqCst),
     };
-    let step = step(choice, was_pinned, cfg!(target_os = "macos"));
+    let step = step(choice, was_pinned, cfg!(target_os = "macos"), crate::linuxtheme::os_dark_now());
     let windows = app.webview_windows();
     for w in windows.values() {
         tell(w, step);
@@ -415,7 +417,7 @@ pub fn refresh_window(app: &AppHandle, label: &str, page_theme: &str, prefers_da
         return;
     }
     let choice = choice(app);
-    let step = step(choice, pinned().load(Ordering::SeqCst), cfg!(target_os = "macos"));
+    let step = step(choice, pinned().load(Ordering::SeqCst), cfg!(target_os = "macos"), crate::linuxtheme::os_dark_now());
     let found = app.get_webview_window(label);
     if let Some(w) = &found {
         tell(w, step);
@@ -692,15 +694,32 @@ mod tests {
 
     #[test]
     fn system_never_pins_and_gives_a_pinned_window_back_to_the_os() {
-        assert_eq!(step(Some(Theme::Dark), false, false), Step::Pin(Theme::Dark));
-        assert_eq!(step(Some(Theme::Light), true, true), Step::Pin(Theme::Light));
+        assert_eq!(step(Some(Theme::Dark), false, false, None), Step::Pin(Theme::Dark));
+        assert_eq!(step(Some(Theme::Light), true, true, None), Step::Pin(Theme::Light));
         // Dark -> System: the windows that were pinned are released (None = follow the system)
-        assert_eq!(step(None, true, false), Step::Release);
+        assert_eq!(step(None, true, false, None), Step::Release);
         // System from the start: nothing to take back where the library already follows the OS ...
-        assert_eq!(step(None, false, false), Step::Nothing);
+        assert_eq!(step(None, false, false, None), Step::Nothing);
         // ... but on macOS the application appearance is reset each time
-        assert_eq!(step(None, false, true), Step::Release);
-        assert!(!matches!(step(None, true, true), Step::Pin(_)));
+        assert_eq!(step(None, false, true, None), Step::Release);
+        assert!(!matches!(step(None, true, true, None), Step::Pin(_)));
+    }
+
+    /// W5.2 (REQ-5.2.5): on Linux a System setting pins the theme the desktop has (the library's own reading of it, and the release step, hid a dark desktop); Light / Dark chosen in
+    /// Settings are pinned as before; the rows of Windows and macOS (`linux_os` None) are the ones above.
+    #[test]
+    fn on_linux_a_system_theme_pins_the_resolved_os_theme() {
+        assert_eq!(step(None, false, false, Some(true)), Step::Pin(Theme::Dark), "System + a dark desktop");
+        assert_eq!(step(None, false, false, Some(false)), Step::Pin(Theme::Light), "System + a light desktop: pinned light, not released (the release made GTK light whatever the desktop said)");
+        assert_eq!(step(None, true, false, Some(true)), Step::Pin(Theme::Dark), "Light -> System under a dark desktop: dark at once, no restart");
+        assert_eq!(step(None, true, false, Some(false)), Step::Pin(Theme::Light));
+        assert_eq!(step(Some(Theme::Light), false, false, Some(true)), Step::Pin(Theme::Light), "Light chosen under a dark desktop stays light");
+        assert_eq!(step(Some(Theme::Dark), true, false, Some(false)), Step::Pin(Theme::Dark), "Dark chosen under a light desktop stays dark");
+        assert_eq!(step(None, true, false, None), Step::Release, "before the first answer, as before");
+        // only Linux ever passes a value
+        let src = crate::test_guard::non_test_code(include_str!("linuxtheme.rs"));
+        assert!(src.contains("if !cfg!(target_os = \"linux\") {
+        return None;"), "os_dark_now is None everywhere else");
     }
 
     /// Every window gets the frame theme, whatever its label: `main`, every `compose-<n>` and `reader-<n>`, and a label no code knows yet.

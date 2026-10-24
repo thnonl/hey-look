@@ -19,7 +19,7 @@ import { useT } from "./i18n/react";
 import { runQuitFlush } from "./quitFlush";
 import { nothingToKeep } from "./leaveCompose";
 import { flushSends, friendlyError, moveDropped, moveRefused, useStore } from "./store";
-import { osNow } from "./platform";
+import { osNow, usePlatform } from "./platform";
 import { quitKeepKey } from "./trayWords";
 import { openUpdateLink, useUpdates } from "./updates";
 import { handlePopoutRequest } from "./popout/mainRequests";
@@ -304,7 +304,7 @@ function App() {
             : t(n === 1 ? "app.quit.scheduledBody.one" : "app.quit.scheduledBody.many"),
           choices: [
             { id: "cancel", label: t("common.cancel") },
-            { id: "keep", label: t(quitKeepKey(osNow())), kind: "primary" },
+            { id: "keep", label: t(quitKeepKey(osNow(), usePlatform.getState().tray)), kind: "primary" },
             { id: "quit", label: t("app.quit.quitAnyway"), kind: "danger" },
           ],
         });

@@ -31,6 +31,7 @@ import type { Lang } from "./i18n";
 import { fmtNumber } from "./i18n/format";
 import { calTz, CalView, Day, rangeFor, systemTz, today } from "./calendar";
 import { accentText, accountColor, buttonAccent, clampMaxDownload, DEFAULT_PREFS, lightened, mergePrefs, Prefs, readableOn, staleAccountPrefs, topBar, validHex } from "./prefs";
+import { systemThemeAttribute } from "./osTheme";
 import { captionColors, gradientT } from "./captionColors";
 import { settingsWindowOpen } from "./popout/popoutCount";
 import { SETTINGS_KEY, settingsTarget } from "./popout/windowKinds";
@@ -602,13 +603,15 @@ let langSeq = 0;
 export function applyPrefs(p: Prefs) {
   if (isReady(p.language)) setLangPref(p.language); // (a language that is not loaded yet is switched to by setPrefs / PopoutRoot once its chunk is there)
   const root = document.documentElement;
-  if (p.theme === "system") root.removeAttribute("data-theme");
-  else root.setAttribute("data-theme", p.theme);
+  // System: the CSS follows the OS by itself (no attribute) - except where the backend decides what the OS is (Linux, W5.2): then the resolved theme is written like a chosen one
+  const os = systemThemeAttribute();
+  if (p.theme === "system" && os === null) root.removeAttribute("data-theme");
+  else root.setAttribute("data-theme", p.theme === "system" ? (os as string) : p.theme);
   root.setAttribute("data-density", p.density);
   root.style.setProperty("--fs", `${p.fontSize}px`);
   const accent = buttonAccent(validHex(p.accent) ? p.accent : DEFAULT_PREFS.accent);
   // the start screen of the next start (index.html, public/theme-boot.js) reads the theme and the accent before anything else can be asked of the backend
-  try { localStorage.setItem("heylook.boot", JSON.stringify({ theme: p.theme, accent })); } catch { /* storage unavailable: the OS theme and the default accent */ }
+  try { localStorage.setItem("heylook.boot", JSON.stringify({ theme: p.theme, accent, os })); } catch { /* storage unavailable: the OS theme and the default accent */ }
   root.style.setProperty("--accent-base", accent);
   root.style.setProperty("--accent-fg-lt", readableOn(accent));
   root.style.setProperty("--accent-fg-dk", readableOn(lightened(accent)));

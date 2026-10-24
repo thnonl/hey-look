@@ -6,7 +6,7 @@ import { openUpdateLink } from "../updates";
 import { Grip, useAccountReorder } from "./AccountReorder";
 import { ABOUT_LINKS, siteUrl } from "../aboutLinks";
 import { Fragment, ReactNode, useEffect, useRef, useState } from "react";
-import { Account, api, AutostartInfo, CalSource, Discovered, PgpKey, PROVIDERS, Rule, Signature, Template } from "../api";
+import { Account, api, AutostartInfo, CalSource, Discovered, NotifyPermission, PgpKey, PROVIDERS, Rule, Signature, Template } from "../api";
 import { singleLabelHostsOf } from "../addresses";
 import { backendText } from "../backendErrors";
 import { parseReplyTo } from "../replyTo";
@@ -17,6 +17,7 @@ import { normalizeSidebar } from "../sidebarState";
 import { folderVisible } from "../junk";
 import { cutAtWord, friendlyError, useStore } from "../store";
 import { credStore, kbd, riskyHint, usePlatform } from "../platform";
+import { filtersIntroKey, trayTabTitleKey } from "../trayWords";
 import { systemTz } from "../calendar";
 import { setEnabled as setNudgeEnabled } from "../supportNudge";
 import { fmtDay, fmtFpr, shortKey } from "../util";
@@ -1105,6 +1106,7 @@ const ACTION_WORD: Record<Rule["action"], Key> = {
 function FiltersPanel({ scope }: { scope: string | null }) {
   const t = useT();
   const { folders, showToast, confirm } = useStore();
+  const tray = usePlatform((s) => s.tray);
   const [list, setList] = useState<Rule[]>([]);
   const [cur, setCur] = useState<Rule | null>(null);
   const load = () => api.listRules().then(setList);
@@ -1112,7 +1114,7 @@ function FiltersPanel({ scope }: { scope: string | null }) {
   const roles = Array.from(new Set(folders.filter((f) => !scope || f.accountId === scope).map((f) => f.key))).filter((k) => !["inbox", "sent", "drafts"].includes(k));
   return (
     <>
-      <div className="muted small pad">{t("settings.filters.intro")}</div>
+      <div className="muted small pad">{t(filtersIntroKey(tray))}</div>
       <ScopedList
         scope={scope}
         items={list}
@@ -1179,12 +1181,22 @@ function NotifyPanel({ scope }: { scope: string | null }) {
   const t = useT();
   const os = usePlatform((s) => s.os);
   const windows = os === "windows";
+  // (W5.4) do the notifications of this system have buttons? Windows always; macOS never; Linux when its notification service lists the capability (asked once per run)
+  const [buttons, setButtons] = useState<boolean | null>(windows ? true : os === "macos" ? false : null);
+  useEffect(() => {
+    if (windows || os === "macos") return setButtons(windows);
+    let live = true;
+    api.notifyCaps().then((c) => live && setButtons(c.actions)).catch(() => live && setButtons(false));
+    return () => {
+      live = false;
+    };
+  }, [windows, os]);
   return (
     <>
       <OvRow scope={scope} k="notifications" label={t("settings.notify.desktop")}>
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
-      {!windows && <div className="muted small">{t("settings.notify.noButtons", { os: os === "macos" ? "macOS" : "Linux" })}</div>}
+      {buttons === false && <div className="muted small">{os === "macos" ? t("settings.notify.noButtons", { os: "macOS" }) : t("settings.notify.noButtonsDesktop")}</div>}
       <OvRow scope={scope} k="smartNotifications" label={t("settings.notify.smart")} hint={t("settings.notify.smartHint")}>
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
@@ -1194,7 +1206,7 @@ function NotifyPanel({ scope }: { scope: string | null }) {
       <OvRow scope={scope} k="notifySound" label={t("settings.notify.sound")} hint={t("settings.notify.soundOnHint")}>
         {(v, set) => <SoundControl value={v} onChange={set} />}
       </OvRow>
-      {windows && (
+      {buttons === true && (
       <OvRow scope={scope} k="notifyActions" label={t("settings.notify.buttons")} hint={t("settings.notify.buttonsHint")}>
         {(v, set) => (
           <div className="three">
@@ -1674,8 +1686,30 @@ function TrayTab() {
   // (in the Microsoft Store version the switch is the package's startup task: Windows or the organisation may have turned it off for good, `locked`)
   const [autostart, setAutostart] = useState<AutostartInfo>({ enabled: false, locked: null });
   useEffect(() => void api.getAutostart().then(setAutostart).catch(() => undefined), []);
+  // macOS: what the system lets the app do with notifications. Read when the tab opens and each time the window comes back to the front (the person may have changed it in System Settings)
+  const [perm, setPerm] = useState<NotifyPermission>("unsupported");
+  useEffect(() => {
+    if (os !== "macos") return;
+    let live = true;
+    const read = () => void api.notifyPermission().then((s) => live && setPerm(s)).catch(() => undefined);
+    read();
+    window.addEventListener("focus", read);
+    return () => {
+      live = false;
+      window.removeEventListener("focus", read);
+    };
+  }, [os]);
   const test = async () => {
     try {
+      if (os === "macos") {
+        // never asked: this asks (the system shows its dialog once); denied: nothing is sent, the note says why
+        const state = await api.notifyPermission("sendTest");
+        setPerm(state);
+        if (state === "denied") {
+          showToast(() => t("settings.tray.macDenied"), undefined, "info");
+          return;
+        }
+      }
       await api.testNotification();
     } catch (e) {
       showToast(() => os === "windows" ? friendlyError(e) : t("settings.tray.testFailed", { error: friendlyError(e) }), undefined, "error");
@@ -1692,10 +1726,15 @@ function TrayTab() {
   };
   return (
     <div>
-      <h3>{t("settings.tray.title")}</h3>
-      {os === "macos" && <div className="muted small" style={{ marginBottom: 6 }}>{t("settings.tray.macUnavailable")}</div>}
+      <h3>{t(trayTabTitleKey(tray))}</h3>
       <div className="muted small">{os === "windows" ? t("settings.tray.introWindows") : t("settings.tray.intro")}</div>
       <Row label={t("settings.tray.test")}><button className="btn" onClick={() => void test()}>{t("settings.tray.sendTest")}</button></Row>
+      {os === "macos" && perm === "denied" && (
+        <div className="mac-notify-denied">
+          <div className="muted small">{t("settings.tray.macDenied")}</div>
+          <button className="btn" onClick={() => void api.openNotificationSettings().catch((e) => showToast(() => friendlyError(e), undefined, "error"))}>{t("settings.tray.macOpenSettings")}</button>
+        </div>
+      )}
       <Row label={t("settings.tray.sentSound")}><Switch checked={prefs.sentSound} onChange={(v) => setPrefs({ sentSound: v })} /></Row>
       <Row
         label={t("settings.tray.keepRunning")}
@@ -2096,6 +2135,7 @@ const MORE: [string, Key][] = [
  */
 export function Settings({ initial, focus, nonce, section, windowed }: { initial?: string; focus?: string; nonce?: number; section?: MbTab; windowed?: boolean }) {
   const t = useT();
+  const trayHost = usePlatform((s) => s.tray);
   const { setDialog, accounts, prefs } = useStore();
   const start = initial === "accounts" ? "mb:all" : initial === "notifications" ? "tray" : initial;
   const [tab, setTab] = useState<string>(start || (accounts.length === 0 ? "add-account" : "general"));
@@ -2197,7 +2237,7 @@ export function Settings({ initial, focus, nonce, section, windowed }: { initial
           ))}
           {item("add-account", t("settings.nav.addAccount"), true)}
           <div className="nav-label">{t("settings.nav.more")}</div>
-          {MORE.map(([k, l]) => item(k, t(l)))}
+          {MORE.map(([k, l]) => item(k, t(k === "tray" ? trayTabTitleKey(trayHost) : l)))}
           {reorder.overlay}
         </nav>
         <div className="settings-body">

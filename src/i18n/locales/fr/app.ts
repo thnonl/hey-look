@@ -13,6 +13,8 @@ export default defineLocale<typeof ns.en>({
   "app.welcome.point.passwords": "Les mots de passe restent dans {store}",
   "app.welcome.point.privacy": "Les images distantes et les traqueurs sont bloqués par défaut",
   "app.welcome.point.tray": "Continue de vérifier les messages depuis la zone de notification, avec Annuler pour chaque déplacement",
+  "app.welcome.point.menuBar": "Continue de vérifier les messages depuis la barre des menus, avec Annuler pour chaque déplacement",
+  "app.welcome.point.noTray": "Continue de vérifier les messages tant que Hey Look! est ouvert, avec Annuler pour chaque déplacement",
 
   "app.date.today": "Aujourd’hui",
   "app.date.yesterday": "Hier",
@@ -96,6 +98,7 @@ export default defineLocale<typeof ns.en>({
   "app.quit.scheduledBodyNext.many": "Si vous quittez maintenant, ils seront envoyés à la prochaine ouverture de Hey Look! Le suivant est prévu {when}.",
   "app.quit.keepRunning": "Rester dans la zone de notification",
   "app.quit.keepRunningMac": "Rester dans la barre des menus",
+  "app.quit.keepOpen": "Garder Hey Look! ouvert",
   "app.quit.quitAnyway": "Quitter quand même",
 
   "app.top.sync": "Synchroniser maintenant (F5)",
