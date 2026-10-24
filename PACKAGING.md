@@ -6,8 +6,24 @@ what is done by hand; the last chapter, [Microsoft Store](#microsoft-store-windo
 
 | Where | Package | Built by | Published by |
 |---|---|---|---|
-| Snap Store (Ubuntu App Center, `snap install hey-look`) | `snap/snapcraft.yaml` | `linux-stores.yml` on every tag | the workflow, to the `candidate` channel; `stable` by hand |
+| Snap Store (Ubuntu App Center, `snap install hey-look`) | `snap/snapcraft.yaml` | `linux-stores.yml` on every tag | the workflow, to the `candidate` channel, only with the repository variable `SNAP_PUBLISH` = `true` (off); `stable` by hand |
 | AppImageHub (appimage.github.io) | the release AppImage | `release.yml` | one-time listing; it follows the GitHub releases |
+
+**What a tag run publishes (DEC-028).** Release 1.0.7 is published on GitHub only (installers for Windows, macOS and Linux, `latest.json` for the in-app updater). The APT
+repository, the Snap Store upload and the Microsoft Store are **off**, and a tag run is green without them: no job waits for a key, a store login or a Partner Center step.
+Each channel has a repository variable (Settings > Secrets and variables > Actions > Variables), exactly the value `true` switches it on, unset or anything else leaves it off:
+
+| Variable | Switches on | Needs (only then) | Read by |
+|---|---|---|---|
+| `APT_PUBLISH` | the job `apt-repo` (signed APT repository, branch `apt`, site rebuild) on a tag run, and the strict check of the APT signing key in `node-tests` | the real key in `docs/apt` and the secrets `APT_SIGNING_KEY`, `APT_SIGNING_PASSPHRASE` of the Environment `release` | the plan job of `release.yml` (output `apt_publish`) |
+| `SNAP_PUBLISH` | the upload of the snap to `candidate` on a tag run (the snap is built either way) | the secret `SNAPCRAFT_STORE_CREDENTIALS` of the Environment `release` (section Snap Store) | `linux-stores.yml` |
+| `STORE_SUBMIT` | the job `store-submit` (Partner Center), see Microsoft Store | the Environment `store` and its secrets | the plan job |
+| `STORE_EXE` | the offline installer for the Store (`store-exe`, `store-url`), see Microsoft Store | a signed installer | the plan job, `pages.yml` |
+
+Without `APT_PUBLISH` the website is dormant (no "Install with APT" block, no `apt/` folder: see "The website is dormant" below), the throw-away key of `docs/apt` is
+reported as a notice by `scripts/test-site-apt.mjs` instead of failing the run (`scripts/test-apt-placeholder-guard.mjs` proves that a run that does publish the repository
+is still strict), and the `apt-repo-dryrun`, `msix` and `msix-check` jobs stay as checks that cannot hold back `publish`. To publish the APT repository in a later release:
+do the owner steps below, then set `APT_PUBLISH` = `true` before the tag.
 
 Shared by both and by the `.deb` / `.rpm`: the AppStream file `linux/io.github.thnonl.HeyLook.metainfo.xml` (name, summary,
 description, screenshot, releases; the texts are translated per element with `xml:lang`, and every change to them goes through the
@@ -25,7 +41,7 @@ repository keep the in-app updater.
 
 ## APT repository (Debian and Ubuntu)
 
-The `.deb` is also published in a signed APT repository at `https://heylook.namthai.site/apt`, so people on Debian 12 or later and Ubuntu 22.04 or later
+**Off in release 1.0.7: this chapter describes what runs when the repository variable `APT_PUBLISH` is `true`.** The `.deb` is then also published in a signed APT repository at `https://heylook.namthai.site/apt`, so people on Debian 12 or later and Ubuntu 22.04 or later
 install and update Hey Look! with `apt` and the desktop's software updater. The repository holds the same `.deb` as the GitHub release (nothing is
 rebuilt), for `amd64` only, in one suite `stable`, component `main`. Not the Debian/Ubuntu archive and not a PPA (a PPA takes source packages and
 builds them without network access, which this app cannot do).
@@ -84,9 +100,9 @@ release workflow searches the built app for the name).
 3. Export the public key into `docs/apt/`: `gpg --armor --export <FPR> > docs/apt/heylook-archive-keyring.asc` and
    `gpg --export <FPR> > docs/apt/heylook-archive-keyring.gpg`, and write the fingerprint (10 groups of 4) on the 8 download pages
    (`docs/*/download.html`, between `<!-- hl:apt-begin -->` and `<!-- hl:apt-end -->`; `node scripts/test-site-apt.mjs` shows what is wrong).
-   Until the real key is there the directory holds a throw-away key ("Hey Look! APT test (throwaway)") and that test fails on purpose: in a tag
-   run always, in other runs of `release.yml` (dry runs, branch runs) it is only a warning (DEC-020; the variable is set in one place, the
-   `node-tests` job, and `scripts/test-apt-placeholder-guard.mjs` keeps it there). The website needs no key until the repository exists, see
+   Until the real key is there the directory holds a throw-away key ("Hey Look! APT test (throwaway)") and that test fails on purpose in a tag
+   run with `APT_PUBLISH` = `true`; in every other run of `release.yml` (dry runs, branch runs, the tag run of a release without APT) it is only a notice (DEC-020, DEC-028; the variable
+   `APT_ALLOW_PLACEHOLDER_KEY` is set in one place, the `node-tests` job, from the plan output `apt_publish`, and `scripts/test-apt-placeholder-guard.mjs` keeps it there). The website needs no key until the repository exists, see
    "The website is dormant" below.
 4. Export the secret key: `gpg --armor --export-secret-keys <FPR> > apt-signing-secret.asc`. In GitHub > Settings > Environments > `release`
    add the Environment secrets `APT_SIGNING_KEY` (the file's text) and `APT_SIGNING_PASSPHRASE`. Then `shred -u apt-signing-secret.asc`.
@@ -95,7 +111,8 @@ release workflow searches the built app for the name).
    steps 1 and 2 of the download page again with a new key.**
 6. GitHub: a ruleset for the branch `apt` (no force push, no deletion; GitHub Actions may push); check that the `github-pages` Environment allows
    `main`.
-7. After the release is public: merge the release branch to `main` (the site and `pages.yml` go live from `main`) and watch `pages.yml` >
+7. Set the repository variable `APT_PUBLISH` to `true` before the tag (without it the job `apt-repo` is skipped).
+8. After the release is public: merge the release branch to `main` (the site and `pages.yml` go live from `main`) and watch `pages.yml` >
    `apt-live-check`. Then on a Debian or Ubuntu machine: `sudo apt update && apt policy hey-look`.
 
 **The website is dormant until the repository exists (DEC-022).** The "Install with APT" block of the download pages sits between
@@ -143,7 +160,7 @@ One-time, by the account owner:
    auto-connection is granted the snap stays in `candidate`, and the help page should tell people to run
    `sudo snap connect hey-look:password-manager-service` (new website text, eight languages, through the text rule).
 
-Every release: the tag push uploads the snap to `candidate`, whether or not `release.yml` succeeded. Promote only after the
+Every release with the repository variable `SNAP_PUBLISH` = `true` (off by default, DEC-028; the upload step is skipped otherwise and the tag run does not need the store login): the tag push uploads the snap to `candidate`, whether or not `release.yml` succeeded. Promote only after the
 GitHub release is published and the auto-connection above is granted: install from `candidate`
 (`snap install hey-look --candidate`), try sign-in, the tray, a notification, then `snapcraft release hey-look <revision> stable`
 (the revision is in the workflow log, or `snapcraft status hey-look`). Nothing else uploads: a manual run of the workflow and a
@@ -175,7 +192,8 @@ offer `snap install hey-look` and the Snap Store badge beside the AppImage, `.de
 Hey Look! goes to the Microsoft Store as an **MSIX package** (option A of the plan; the Store signs it itself, hosts it and updates it, so it needs no
 certificate and no hosting of ours). An EXE installer for the Store (option B) is built too, but switched off (last section of this chapter).
 The release workflow makes and checks the package on every Windows build; **what is submitted and when is the owner's decision**: nothing here
-publishes, and nothing reads a store credential, unless a repository variable (below) says so.
+publishes, and nothing reads a store credential, unless a repository variable (below) says so. **Release 1.0.7 is not submitted to the Store** (DEC-028): the job `msix` and `msix-check` run as checks only,
+the website's Store block stays hidden (`STORE_PRODUCT_ID` in `docs/assets/site.js` is empty) and the help page says the app is not in the Store yet.
 
 **The app in the package (packaged mode, `src-tauri/src/pkg.rs`).** The same `hey-look.exe` notices that it has a package identity (`GetCurrentPackageFullName`) and then
 - keeps its data in the package's own folder `%LOCALAPPDATA%\Packages\<family>\LocalState` (a Tauri directories override, so the main window, the gated start and every pop-out take the same folders), the web view's data in
