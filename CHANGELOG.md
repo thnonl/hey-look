@@ -4,6 +4,7 @@
 
 ### Added
 
+- Linux: with the theme set to System the app follows the desktop's light or dark setting (read from the desktop portal, or from the GTK settings when there is no portal), also while it runs; the title bar, scroll bars and pop-up lists of the system follow too. Light and Dark chosen in Settings still win.
 - A PDF attachment is drawn in the preview on macOS and Linux too (until now a card with Open and Save as): the pages with their text (select and copy, read by a screen reader), "Page 3 of 30" and zoom (Fit, 100 %, 150 %, 200 %) in the header, Esc and the arrows as for a picture. Links inside a PDF do nothing and nothing in a PDF runs; a PDF with a password says so, and one that cannot be drawn shows Open. The viewer is PDF.js (Apache-2.0, with its fonts, character maps and decoders; the licences are in the app's `pdfjs` folder) and loads when the first PDF is previewed. Windows is unchanged (the system's own viewer).
 - A calendar event, Settings, the results of a search and the Scheduled list can each open in a window of their own (the "Open in new window" button; Shift+double-click an event), with the theme, the language and the keys of the other windows
 - Reader windows have Previous and Next conversation buttons (and the keys k and j) that move through the list in the main window's order, the folder's list when the main window shows another, skipping drafts; the ends are greyed with a note

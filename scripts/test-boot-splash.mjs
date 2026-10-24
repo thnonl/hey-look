@@ -48,7 +48,7 @@ const html = read('index.html'), boot = read('public/boot.css'), bootJs = read('
   assert.ok(!/\b(inset|gap|aspect-ratio)\s*:/.test(boot), 'boot.css uses no property that WebKit of macOS 11 lacks (inset, gap on flex, aspect-ratio)');
   assert.ok(/@supports \(color: color-mix/.test(boot) && /--boot-ring: #6fa7d7/.test(boot), 'color-mix only behind @supports, with a plain hex before it');
   // the store writes what the theme read reads
-  assert.ok(/localStorage\.setItem\("heylook\.boot", JSON\.stringify\(\{ theme: p\.theme, accent \}\)\)/.test(store) && bootJs.includes('"heylook.boot"'), 'applyPrefs and theme-boot.js use the same key and shape');
+  assert.ok(/localStorage\.setItem\("heylook\.boot", JSON\.stringify\(\{ theme: p\.theme, accent, os \}\)\)/.test(store) && bootJs.includes('"heylook.boot"'), 'applyPrefs and theme-boot.js use the same key and shape (theme, accent and, for System on Linux, os)');
 }
 console.log('ok   static: the files, the grounds, the order, the key');
 

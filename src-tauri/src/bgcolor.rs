@@ -46,6 +46,10 @@ pub fn color_of(theme: Theme) -> Color {
 
 /// The OS theme as far as it can be known: what the main window reports, which is the OS's own while the setting pins nothing.
 fn os_theme(app: &AppHandle) -> Option<Theme> {
+    // Linux: the desktop's scheme as the app resolved it (linuxtheme.rs), not the window's own reading of the GTK setting
+    if let Some(dark) = crate::linuxtheme::os_dark_now() {
+        return Some(if dark { Theme::Dark } else { Theme::Light });
+    }
     app.webview_windows().values().find_map(|w| w.theme().ok())
 }
 
@@ -61,8 +65,8 @@ pub fn apply(app: &AppHandle) -> (Theme, usize) {
     let mut n = 0;
     let mut used = theme_for(choice, None);
     for w in app.webview_windows().values() {
-        // a pinned window reports the pinned theme; with System it is the OS's (`apply_all` released the pin before it comes here)
-        let theme = theme_for(choice, w.theme().ok());
+        // a pinned window reports the pinned theme; with System it is the OS's (`apply_all` released the pin before it comes here; on Linux the app's own reading of the desktop, W5.2)
+        let theme = theme_for(choice, crate::linuxtheme::os_dark_now().map(|d| if d { Theme::Dark } else { Theme::Light }).or_else(|| w.theme().ok()));
         used = theme;
         if w.set_background_color(Some(color_of(theme))).is_ok() {
             n += 1;

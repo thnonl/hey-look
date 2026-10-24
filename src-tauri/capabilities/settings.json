@@ -18,6 +18,7 @@
     "opener:default",
     "allow-popout-init",
     "allow-popout-ready",
+    "allow-os-color-scheme",
     "allow-popout-focus",
     "allow-popout-close",
     "allow-popout-destroy",

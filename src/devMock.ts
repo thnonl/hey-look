@@ -1642,6 +1642,9 @@ export function installMock() {
         const os = hashTokens().get("os") || "windows";
         return { os, tray: !hashTokens().has("notray"), testData: null, pdfView: hashTokens().get("pdf") || (os === "windows" ? "frame" : "pdfjs"), copyFail: hashTokens().has("copyfail"), openFail: hashTokens().has("openfail"), accountsDelayMs: hashNum("accountsdelay", 0), managed: hashTokens().get("managed") || null }; // `#managed=apt|snap|msstore`: this copy is updated by apt / the Snap Store / the Microsoft Store (Settings > About). `#accountsdelay=<ms>`: the store takes the mailboxes that late (New mail before they are read)
       }
+      // Linux (W5.2): the desktop's scheme as the backend resolves it: `#osdark=1` / `#osdark=0` (default: nothing, the engine's media query decides, as on Windows and macOS); a check changes it with
+      // window.__mockEmit("os-color-scheme", { dark: true })
+      case "os_color_scheme": { const v = hashTokens().get("osdark"); return v === "1" ? { dark: true, source: "portal" } : v === "0" ? { dark: false, source: "portal" } : { dark: null, source: "engine" }; }
       case "test_notification":
         if (hashTokens().has("nonotify")) throw "no notification server is running";
         ((window as unknown as { __notifyLog?: string[] }).__notifyLog ??= []).push("test");

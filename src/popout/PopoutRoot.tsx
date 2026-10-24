@@ -14,6 +14,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api } from "../api";
 import { switchLanguage } from "../i18n";
 import { mergePrefs } from "../prefs";
+import { onOsDarkChange, osDark } from "../osTheme";
 import { applyPrefs, useStore } from "../store";
 import { currentFlushHandlers, runPopoutFlush } from "./flush";
 import type { Route } from "./route";
@@ -26,7 +27,7 @@ const quiet = () => undefined;
 /** Ask the backend to apply the frame (title bar) theme of this window again, and tell it what this page sees (for the log). */
 function askFrameTheme() {
   const theme = document.documentElement.getAttribute("data-theme") ?? "system";
-  const dark = window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+  const dark = osDark();
   void api.windowThemeRefresh(theme, dark).catch(quiet);
   // what the top of this page is painted with (macOS: the web view runs under the title bar), once the page has laid out its new theme
   requestAnimationFrame(() => {
@@ -144,10 +145,7 @@ export default function PopoutRoot({ route }: { route: Exclude<Route, { kind: "m
 
   // the colour scheme of this page changed (the OS went Dark <-> Light while the theme is System): the frame follows it, asked for here as well
   useEffect(() => {
-    const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
-    if (!mq) return;
-    mq.addEventListener("change", askFrameTheme);
-    return () => mq.removeEventListener("change", askFrameTheme);
+    return onOsDarkChange(askFrameTheme);
   }, []);
 
   // the backend asks for the top edge to be laid out again (macOS title bar repaint mode 7 / 8, src-tauri/src/titlebar.rs)

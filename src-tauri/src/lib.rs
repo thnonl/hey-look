@@ -28,6 +28,7 @@ mod linuxopen;
 mod linuxview;
 // macOS notification diagnostic (HEYLOOK_MAC_NOTIFY); compiled everywhere so that its rules are tested everywhere
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod linuxtheme;
 mod macnotify;
 // the macOS Dock badge: the call's rules and record (D-056); compiled everywhere so that they are tested everywhere
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -1965,6 +1966,13 @@ async fn test_notification(app: tauri::AppHandle, state: tauri::State<'_, AppSta
 async fn notify_permission(state: tauri::State<'_, AppState>, ask: Option<String>) -> R<String> {
     let db = state.db.clone();
     blocking(move || Ok(shell::notify_permission(&db, ask.as_deref() == Some("sendTest")).as_str().to_string())).await
+}
+
+/// Linux (W5.2): the desktop's light / dark scheme, resolved by the app itself (the portal, then the GTK settings): `{ dark: true | false | null, source }`; `null` = the page keeps using the
+/// engine's media query (Windows and macOS always, Linux until the first answer). Async: the first call may wait up to a second for the first answer.
+#[tauri::command]
+async fn os_color_scheme() -> R<linuxtheme::OsScheme> {
+    blocking(|| Ok(linuxtheme::command_value())).await
 }
 
 /// Settings > Notifications & tray > "Open System Settings" (macOS, notifications turned off for the app): the Notifications pane of System Settings.
@@ -5896,6 +5904,8 @@ pub fn run() {
             let sync_app = app.handle().clone();
             std::thread::spawn(move || calsync::cmds::calsync_worker(sync_app));
 
+            // Linux: the desktop's light / dark scheme is read here (waits 400 ms at most for the first answer) so that the first window is made in the right colour (W5.2)
+            linuxtheme::start(app.handle());
             winframe::setup(app.handle());
             // the native frame of the main window follows the theme setting from the start (a pop-out gets it when it is created)
             wintheme::apply_all(app.handle(), "start");
@@ -5994,6 +6004,7 @@ pub fn run() {
             refresh_badge,
             test_notification,
             notify_permission,
+            os_color_scheme,
             open_notification_settings,
             play_notify_sound,
             create_mail_folder,

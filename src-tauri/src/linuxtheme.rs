@@ -200,7 +200,7 @@ fn run(app: tauri::AppHandle) {
     let _ = app.emit("os-color-scheme", serde_json::json!({ "dark": scheme.dark, "source": scheme.source.as_str() }));
     crate::wintheme::apply_all(&app, "ostheme first reading");
     // the live changes: the portal's signal for the whole run (only where the portal answered)
-    let Some(conn) = conn.filter(|_| scheme.source == Source::Portal || value.is_none()) else { return };
+    let Some(conn) = conn else { return };
     portal::watch(&conn, |v| {
         let Some(dark) = from_portal(v) else { return };
         let next = Scheme { dark, source: Source::Portal, note: format!("portal color-scheme {}", v.unwrap_or(0)) };

@@ -751,6 +751,8 @@ export const api = {
   /** A line for startup.log from a secondary window: "content" (the view was drawn), "error" (a script error), "info". */
   popoutNote: (kind: "content" | "error" | "info" | "strip" | "recovery", text: string) => invoke<void>("popout_note", { kind, text }),
   /** The page changed its own theme (or its colour scheme changed): the backend applies the frame theme of this window again (macOS title bar; the second way next to the backend's own triggers). What the page sees goes to startup.log. */
+  /** the desktop's scheme as the backend resolved it (Linux, W5.2): `dark` null = use the engine's media query (src/osTheme.ts) */
+  osColorScheme: () => invoke<{ dark: boolean | null; source: string }>("os_color_scheme"),
   windowThemeRefresh: (pageTheme: string, prefersDark: boolean) => invoke<void>("window_theme_refresh", { pageTheme, prefersDark }),
   /** The main page hands over the colours of the caption of the secondary windows (Windows 11; src/captionColors.ts). */
   windowCaptionColors: (colors: { light: { bg: string; fg: string }; dark: { bg: string; fg: string } }) => invoke<void>("window_caption_colors", { colors }),
