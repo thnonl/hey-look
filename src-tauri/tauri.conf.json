@@ -18,7 +18,8 @@
         "minWidth": 960,
         "minHeight": 560,
         "visible": false,
-        "dragDropEnabled": false
+        "dragDropEnabled": false,
+        "titleBarStyle": "Transparent"
       }
     ],
     "security": {

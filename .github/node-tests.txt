@@ -366,3 +366,5 @@ ui-b | node scripts/test-painter-mini.mjs --require-browser
 static | node --experimental-strip-types scripts/test-mini-toolbar.mjs
 # 1.0.7 D-092 (Mac QA 9e / 10b): on macOS (the dev preview with #os=macos) the top 32 px of the reader, search, Scheduled, event and Settings windows are the ground colour --bg in Light and Dark at 960x560 and 1280x800 (the transparent title bar shows what is under it: the reader's toolbar and Settings' nav were --bg2); Windows keeps the toolbar colour
 ui-c | node scripts/test-mac-strip-ui.mjs --require-browser
+# 1.0.7 D-097: the three macOS window buttons no longer lie over the page headers - with the macOS class forced the page starts at y = 0 of the viewport in the main, reader and compose windows, nothing pads a header for the buttons, the reader bar is the ground colour (the native side is the Rust source guard no_window_has_the_full_size_content_view_on_macos)
+ui-d | node scripts/test-mac-window-top.mjs --require-browser

@@ -774,6 +774,13 @@ fn create(app: &AppHandle, kind: Kind, label: &str, token: &str, cascade: Option
         .visible(false)
         // the colour of the theme from the first frame, not the white of the web view (bgcolor.rs)
         .background_color(crate::bgcolor::for_new_window(app));
+    // macOS (D-097): the page starts BELOW the title bar, never under the three window buttons. tauri's default style (Visible) makes the content view run under the title bar
+    // (NSWindowStyleMaskFullSizeContentView) and D-063 makes the bar transparent, so the page headers lay under the buttons: Transparent keeps the bar transparent (the window's
+    // background colour shows, D-063) without the full-size content view. The main window has the same in tauri.conf.json; macwin.rs `set_one` takes the flag away from any window.
+    #[cfg(target_os = "macos")]
+    {
+        b = b.title_bar_style(tauri::TitleBarStyle::Transparent);
+    }
     // the page handles file drops itself (HTML5 drop in the compose window), like the main window
     b = b.disable_drag_drop_handler();
     // (a QA build has no inspector, see identity.rs devtools_off)
@@ -2070,7 +2077,7 @@ mod tests {
         // no #[cfg(target_os)] around the road itself: the macOS-only parts are the native hold / sweep / summary functions
         let road = &code[code.find("pub fn retire(").unwrap()..code.find("/// macOS: keep a reference to the native window").unwrap()];
         assert!(!road.contains("cfg(target_os") && !road.contains("cfg(windows"), "the end of a window is the same on every system");
-        assert_eq!(code.matches("#[cfg(target_os = \"macos\")]").count(), 4, "native_hold, native_sweep, native_check, native_summary");
+        assert_eq!(code.matches("#[cfg(target_os = \"macos\")]").count(), 5, "native_hold, native_sweep, native_check, native_summary, and the title bar style of `create` (D-097)");
         // a window that was ended is never put on screen again: by a second open, by its own page getting ready late, by the wait for the page
         assert!(code.contains("if !reg(app).may_show(label) {"));
         let ready = &code[code.find("pub fn mark_ready(").unwrap()..];

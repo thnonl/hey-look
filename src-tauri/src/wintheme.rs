@@ -780,7 +780,7 @@ mod tests {
         let create = &pop[pop.find("fn create(").unwrap()..];
         let create = &create[..create.find("\n}\n").unwrap()];
         let chain = &create[create.find("WebviewWindowBuilder::new").unwrap()..create.find("b.build()").unwrap()];
-        assert!(!chain.contains(".theme(") && !chain.contains("preferred_theme") && !chain.contains("title_bar_style"), "{chain}");
+        assert!(!chain.contains(".theme(") && !chain.contains("preferred_theme"), "{chain}");
         let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         for w in conf["app"]["windows"].as_array().cloned().unwrap_or_default() {
             assert!(w.get("theme").is_none(), "the window configuration fixes a theme: {w}");
@@ -789,6 +789,37 @@ mod tests {
         assert_eq!(pop.matches("WebviewWindowBuilder::new").count(), 1);
         let lib = crate::test_guard::non_test_code(include_str!("lib.rs"));
         assert!(!lib.contains("WebviewWindowBuilder") && !lib.contains("WindowBuilder::new"));
+    }
+
+    /// D-097: on macOS no window of the app has the full-size content view (the page would run under the three window buttons). The main window gets the style from the
+    /// configuration, the secondary windows from their builder, and the theme sweep takes the flag away from any window that still has it. The tao call that turns it on is never made.
+    #[test]
+    fn no_window_has_the_full_size_content_view_on_macos() {
+        let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let windows = conf["app"]["windows"].as_array().cloned().unwrap_or_default();
+        assert!(!windows.is_empty());
+        for w in &windows {
+            assert_eq!(w["titleBarStyle"], "Transparent", "the main window: a transparent title bar, content below it (not Visible, which tauri makes full-size, not Overlay): {w}");
+        }
+        for other in [include_str!("../tauri.no-updater.conf.json"), include_str!("../tauri.store-exe.conf.json")] {
+            assert!(!other.contains("titleBarStyle"), "a configuration file overrides the title bar style");
+        }
+        let pop = crate::test_guard::non_test_code(include_str!("popout.rs"));
+        let create = &pop[pop.find("fn create(").unwrap()..];
+        let create = &create[..create.find("\n}\n").unwrap()];
+        assert!(create.contains("#[cfg(target_os = \"macos\")]\n    {\n        b = b.title_bar_style(tauri::TitleBarStyle::Transparent);"), "{create}");
+        // nothing turns the flag on, anywhere
+        for (name, src) in [("lib.rs", include_str!("lib.rs")), ("popout.rs", include_str!("popout.rs")), ("shell.rs", include_str!("shell.rs")), ("macwin.rs", include_str!("macwin.rs")), ("wintheme.rs", include_str!("wintheme.rs"))] {
+            let code = crate::test_guard::non_test_code(src);
+            for bad in ["TitleBarStyle::Overlay", "TitleBarStyle::Visible", "with_fullsize_content_view(true)", "set_fullsize_content_view(true)", "setStyleMask: mask |"] {
+                assert!(!code.contains(bad), "{name} contains {bad}");
+            }
+        }
+        let mac = crate::test_guard::non_test_code(include_str!("macwin.rs"));
+        let one = &mac[mac.find("unsafe fn set_one").unwrap()..];
+        let one = &one[..one.find("\n}\n").unwrap()];
+        assert!(one.contains("if mask & FULL_SIZE_CONTENT_VIEW != 0") && one.contains("setStyleMask: mask & !FULL_SIZE_CONTENT_VIEW"), "{one}");
+        assert!(mac.contains("const FULL_SIZE_CONTENT_VIEW: usize = 1 << 15;"));
     }
 
     /// The System setting hands the choice to the OS (`None`), it never turns into a theme.

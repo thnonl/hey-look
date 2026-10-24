@@ -474,6 +474,9 @@ unsafe fn app_window_list() -> Vec<*mut AnyObject> {
     out
 }
 
+/// `NSWindowStyleMaskFullSizeContentView` (1 << 15): the content view runs under the title bar. No window of this app has it (D-097).
+const FULL_SIZE_CONTENT_VIEW: usize = 1 << 15;
+
 /// Set the appearance of one `NSWindow` and redraw its frame (the frame view, the parent of the content view, draws the title bar).
 unsafe fn set_one(w: *mut AnyObject, dark: Option<bool>) {
     // SAFETY: `w` is a live NSWindow on the main thread; objects that come back are checked for null before they are messaged.
@@ -482,6 +485,11 @@ unsafe fn set_one(w: *mut AnyObject, dark: Option<bool>) {
         // D-063: the title bar is not drawn by the system: it shows the window's background colour, which bgcolor.rs sets to the app's own ground (--bg)
         // in the same apply, so the strip above the page is not a grey of its own (35,36,39 against 27,28,32 in Dark)
         let _: () = msg_send![w, setTitlebarAppearsTransparent: Bool::YES];
+        // D-097: and the page does not run under the title bar: without the full-size content view the three window buttons have their own band above the page
+        let mask: usize = msg_send![w, styleMask];
+        if mask & FULL_SIZE_CONTENT_VIEW != 0 {
+            let _: () = msg_send![w, setStyleMask: mask & !FULL_SIZE_CONTENT_VIEW];
+        }
         let content: *mut AnyObject = msg_send![w, contentView];
         if !content.is_null() {
             let frame: *mut AnyObject = msg_send![content, superview];
