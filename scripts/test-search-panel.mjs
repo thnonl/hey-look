@@ -291,6 +291,19 @@ try {
     await evaluate(`${S('setPrefs')}({ theme: 'light' }); 1`);
   });
 
+  await check('D-068 the panel is as wide as the box, and at its left edge, on EVERY frame from the first (the opening animation does not scale it)', async () => {
+    for (const [w, h] of [[960, 560], [1280, 800]]) {
+      await openFresh('lang=en', w, h);
+      await view(true);
+      await evaluate(`window.__pw = { worst: 0, n: 0, stop: false }; const tick = () => { if (window.__pw.stop) return; const p = document.querySelector('.sb-panel'), b = document.querySelector('.search-wrap'); if (p && b) { const pr = p.getBoundingClientRect(), br = b.getBoundingClientRect(); window.__pw.n++; window.__pw.worst = Math.max(window.__pw.worst, Math.abs(pr.width - br.width), Math.abs(pr.left - br.left)); } requestAnimationFrame(tick); }; requestAnimationFrame(tick); 1`);
+      await focusBox();
+      await sleep(500);
+      const r = await evaluate(`window.__pw.stop = true; window.__pw`);
+      assert.ok(r.n >= 3, `${w}: only ${r.n} frames were looked at`);
+      assert.ok(r.worst <= 1, `${w}: the panel was ${r.worst} px off the box in some frame`);
+    }
+  });
+
   await check('AC-13.4.6 the 8 languages: the three texts show, nothing is clipped at 960x560 (panel expanded too)', async () => {
     await openFresh('lang=en', 960, 560);
     await view(true);

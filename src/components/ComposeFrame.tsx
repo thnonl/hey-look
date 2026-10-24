@@ -1,4 +1,4 @@
-import { ChevronDown, Trash2 } from "lucide-react";
+import { ChevronDown, Trash2, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { kbd } from "../platform";
 import { startPreview, previewVars } from "../composePreview";
@@ -51,7 +51,14 @@ export function ComposeFrame({ init, late }: { init: ComposeInit; late: boolean 
         </div>
         <div className="cp-fields" inert>
           <div className="cf-field"><label>{t("compose.from")}</label><span className="cf-static">{account?.email ?? ""}</span></div>
-          <div className="cf-field rcpt"><label>{t("compose.to")}</label><div className="chips" /></div>
+          <div className="cf-field rcpt">
+            <label>{t("compose.to")}</label>
+            {/* the boxes of the real field, so the row has its height before the message is filled in (D-067): a reply has a recipient (one invisible chip), a forward has none; the input is the one of RecipientField */}
+            <div className="chips">
+              {preparing?.kind === "reply" && <span className="rchip" aria-hidden style={{ visibility: "hidden" }}><span>.</span><button type="button" tabIndex={-1}><X size={11} /></button></span>}
+              <input readOnly tabIndex={-1} aria-label={t("compose.to")} />
+            </div>
+          </div>
           <div className="cf-field cf-subject"><label>{t("compose.subject")}</label><input readOnly tabIndex={-1} value={init.subject ?? ""} aria-label={t("compose.subject")} /></div>
         </div>
       </div>
