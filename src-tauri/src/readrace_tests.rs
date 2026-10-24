@@ -20,6 +20,7 @@ fn setup(tag: &str, uids: &[u32], seen: bool) -> (Db, Account) {
     let acc = account();
     db::insert_account(&lock(&db), &acc).unwrap();
     db::set_setting(&lock(&db), &format!("fmap:{ACC}"), r#"{"inbox":"INBOX"}"#).unwrap();
+    folderstate::set(&lock(&db), ACC, "inbox", "INBOX", 1).unwrap(); // (W6.1) the numbering a sync recorded; the fake answers UIDVALIDITY 1
     for uid in uids {
         lock(&db)
             .execute(

@@ -118,6 +118,10 @@ pub struct Draft {
     /// The message this one answers or forwards: it gets its server flag once this one is sent (see `Answers`). Old queued items have no field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub answers: Option<Answers>,
+    /// Only for a message that is SENT (1.0.7 W6.5): the Message-ID it goes out with, given when its outbox row is made, so that a send that has to be tried again after the
+    /// process ended (the answer of the mail server never came) carries the SAME id and the receiving side can tell it is one message. Absent: a new id at every build, as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<String>,
 }
 
 /// Outlook's Sensitivity header. Lettre has no typed header for it.
@@ -344,6 +348,18 @@ fn sent_message_id(me: &Address) -> String {
     format!("<{}@{}>", uuid::Uuid::new_v4().simple(), me.domain())
 }
 
+/// A new Message-ID for a message of `acc` that is about to be queued (`Draft::message_id`).
+pub fn fresh_message_id(acc: &Account) -> R<String> {
+    Ok(sent_message_id(&account_address(acc)?))
+}
+
+/// The Message-ID a queued message was given, when it is one this app could have made: one token in angle brackets, no white space or control character, a bounded length (a
+/// value from the page is data, not an instruction to write anything into a header).
+fn usable_message_id(id: &str) -> bool {
+    let Some(inner) = id.strip_prefix('<').and_then(|r| r.strip_suffix('>')) else { return false };
+    id.len() <= 200 && inner.len() >= 3 && inner.matches('@').count() == 1 && !inner.chars().any(|c| c.is_whitespace() || c.is_control() || matches!(c, '<' | '>' | '"' | '\\' | '(' | ')'))
+}
+
 fn headers(acc: &Account, d: &Draft, lenient: bool) -> R<lettre::message::MessageBuilder> {
     let me = account_address(acc)?;
     let from = Mailbox::new(Some(clean_header_text(&acc.display_name)).filter(|n| !n.is_empty()), me.clone());
@@ -393,7 +409,7 @@ fn headers(acc: &Account, d: &Draft, lenient: bool) -> R<lettre::message::Messag
             b = b.header(RawBcc(raw(&d.bcc)));
         }
     } else {
-        b = b.message_id(Some(sent_message_id(&me)));
+        b = b.message_id(Some(d.message_id.clone().filter(|m| usable_message_id(m)).unwrap_or_else(|| sent_message_id(&me))));
         // each address once, in the first field it is in (To, then Cc, then Bcc), whatever the case
         let (to, cc, bcc) = unique_recipients(d);
         for t in &to {
@@ -942,6 +958,7 @@ pub(crate) mod tests {
             recovery_id: None,
             meeting_form: None,
             answers: None,
+            message_id: None,
         }
     }
 
@@ -2034,7 +2051,7 @@ END:VCALENDAR
                 acc.tls_insecure = true; // the certificate is not the question here
                 let e = test(&acc, "secret").unwrap_err();
                 assert!(crate::mail::is_secure_connection_error(&e), "{security}: {e}");
-                assert!(e.contains(&format!("127.0.0.1:{port}")) && e.contains("SSL/TLS or STARTTLS") && e.contains("(Server: "), "{security}: {e}");
+                assert!(e.contains(&format!("127.0.0.1:{port}")) && e.contains("SSL/TLS or STARTTLS") && e.starts_with(&format!("SECURE_CONNECTION|host=127.0.0.1|port={port}: ")) && !e.contains("(Server: "), "{security}: {e}");
                 // sending uses the same words
                 let e = send_raw(&acc, "secret", &envelope_for_tests(), b"Subject: x\r\n\r\nhi").unwrap_err();
                 assert!(crate::mail::is_secure_connection_error(&e), "send, {security}: {e}");
@@ -2394,7 +2411,7 @@ END:VCALENDAR
             assert!(crate::mail::is_secure_connection_error(&e) && e.contains("STARTTLS"), "{e}");
             acc.imap_ssl = true;
             let e = crate::mail::probe_secure_connection(&acc, one_sec).unwrap_err();
-            assert!(crate::mail::is_secure_connection_error(&e) && e.contains("TLS handshake"), "{e}");
+            assert!(crate::mail::is_secure_connection_error(&e) && e.contains("SSL/TLS"), "{e}");
             acc.imap_port = plain_imap_server();
             assert!(crate::mail::probe_secure_connection(&acc, std::time::Duration::from_secs(5)).is_ok());
         });

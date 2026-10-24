@@ -25,6 +25,7 @@ import { openPopout } from "../popout/open";
 import { searchKey, SCHEDULED_KEY, type SearchInit } from "../popout/windowKinds";
 
 import { ScheduledList } from "./ScheduledList";
+import { ServerSearchSection } from "./ServerSearch";
 import { EmptyState, SkeletonRows } from "./overlays";
 import { Avatar, Dropdown } from "./ui";
 import { downloadLine } from "../backfill";
@@ -63,6 +64,8 @@ export interface ThreadRowProps {
   setSize?: number;
   /** a picture of a row (the Appearance preview): nothing to focus or press */
   inPreview?: boolean;
+  /** keep the room of the snippet line when there is no snippet (a server search row has none: it is as tall as the rows around it, W6.7) */
+  reservePreview?: boolean;
   /** the draft of this row is being opened (REQ-13.7.1): a small ring takes the place of its date and the row is `aria-busy` */
   opening?: boolean;
   /** the row can be dragged onto a folder (W4.7): the drag starts here */
@@ -71,7 +74,7 @@ export interface ThreadRowProps {
 }
 
 /** One conversation in the list. Pure: the real list and the Appearance preview both render it. */
-export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColor, accountLabel, hover, onOpen, onOpenWindow, onToggle, posInSet, setSize, inPreview, opening, onDragStart, onDragEnd }: ThreadRowProps) {
+export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColor, accountLabel, hover, onOpen, onOpenWindow, onToggle, posInSet, setSize, inPreview, opening, reservePreview, onDragStart, onDragEnd }: ThreadRowProps) {
   const tr = useT();
   const who = t.participants.join(", ");
   const dense = prefs.density === "compact";
@@ -145,7 +148,7 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
             {t.snoozedUntil && t.snoozedUntil > Date.now() / 1000 && <Clock size={12} aria-label={tr("mail.row.snoozed")} />}
           </span>
         </div>
-        {prefs.preview && !dense && <div className="preview ellipsis">{t.confidential ? tr("mail.row.confidentialPreview") : t.snippet}</div>}
+        {prefs.preview && !dense && <div className="preview ellipsis">{t.confidential ? tr("mail.row.confidentialPreview") : t.snippet || (reservePreview ? "\u00a0" : "")}</div>}
       </div>
     </div>
   );
@@ -522,11 +525,14 @@ export function MessageList({ hidden = false }: { hidden?: boolean } = {}) {
             holdTop={prefs.sortAsc}
             footer={
               searching ? (
-                webmails.some((t) => webmailQuery(t.webmail, search, webmailFolder)) ? (
-                  <div className="ml-foot">
-                    <WebmailSearch targets={webmails} query={search} openFolder={webmailFolder} />
-                  </div>
-                ) : null
+                <>
+                  <ServerSearchSection />
+                  {webmails.some((t) => webmailQuery(t.webmail, search, webmailFolder)) ? (
+                    <div className="ml-foot">
+                      <WebmailSearch targets={webmails} query={search} openFolder={webmailFolder} />
+                    </div>
+                  ) : null}
+                </>
               ) : pageable && !prefs.sortAsc ? (
                 <div className="ml-foot" role="status">{pagingStatus}</div>
               ) : null

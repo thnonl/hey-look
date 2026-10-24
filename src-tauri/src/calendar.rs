@@ -1721,7 +1721,7 @@ pub async fn calendar_save_ics(app: tauri::AppHandle, state: tauri::State<'_, cr
         } else {
             return Err("nothing to save".into());
         };
-        let Some(picked) = app.dialog().file().add_filter(crate::i18n::tr(crate::i18n::K::CalendarFile), &["ics"]).set_file_name(name).blocking_save_file() else {
+        let Some(picked) = crate::attach::with_filter(app.dialog().file(), crate::i18n::tr(crate::i18n::K::CalendarFile), &["ics"]).set_file_name(name).blocking_save_file() else {
             return Ok(None);
         };
         let path = picked.into_path().map_err(err)?;
@@ -1743,7 +1743,7 @@ pub async fn calendar_import_ics(app: tauri::AppHandle, state: tauri::State<'_, 
     let db = state.db.clone();
     let app2 = app.clone();
     let out = crate::blocking(move || {
-        let Some(picked) = app2.dialog().file().add_filter(crate::i18n::tr(crate::i18n::K::CalendarFile), &["ics"]).blocking_pick_file() else {
+        let Some(picked) = crate::attach::with_filter(app2.dialog().file(), crate::i18n::tr(crate::i18n::K::CalendarFile), &["ics"]).blocking_pick_file() else {
             return Ok(None);
         };
         let path = picked.into_path().map_err(err)?;
@@ -2245,7 +2245,7 @@ END:VCALENDAR
             confidential: false,
             importance: Default::default(),
             recovery_id: None,
-            meeting_form: None, answers: None,
+            meeting_form: None, answers: None, message_id: None,
         };
         prepare_meeting(&c, &mut d).unwrap();
         let cal = d.calendar.clone().unwrap();
@@ -2659,7 +2659,7 @@ END:VCALENDAR
                 confidential: false,
                 importance: Default::default(),
                 recovery_id: None,
-            meeting_form: None, answers: None,
+            meeting_form: None, answers: None, message_id: None,
             };
             prepare_meeting(&c, &mut d).unwrap();
             let back = ical::parse(&d.calendar.as_ref().unwrap().ics).unwrap();
@@ -2690,7 +2690,7 @@ END:VCALENDAR
             confidential: false,
             importance: Default::default(),
             recovery_id: None,
-            meeting_form: None, answers: None,
+            meeting_form: None, answers: None, message_id: None,
         };
         prepare_meeting(&c, &mut d).unwrap();
         let ev = d.calendar.as_ref().unwrap().ics.clone();

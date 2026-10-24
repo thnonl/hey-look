@@ -5,6 +5,7 @@ import { openUpdateLink } from "../updates";
 import { guardFrame } from "../contextGuard";
 import { Archive, Clock, ExternalLink, Flag, Forward, MailX, MoreHorizontal, Moon, Pin, Reply, ReplyAll, Sparkles, Sun, Trash2, ChevronsDownUp, ChevronsUpDown, Mail, ShieldAlert, AlertTriangle } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { mailFrameStats, writeMailDocument } from "../mailFrame";
 import { forward, replyTo } from "../actions";
 import { useAnswerBusy } from "../answerBusy";
 import { answerKey } from "../popout/entry";
@@ -18,13 +19,16 @@ import { LANGS, t, type Key, type Lang } from "../i18n";
 import { useLang, useT } from "../i18n/react";
 import { fmtNumber } from "../i18n/format";
 import { tx } from "../i18n/rich";
-import { DARK_CANVAS, frameBaseCss, frameRootClass, toggleMailCanvas } from "../mailCanvas";
+import { DARK_CANVAS, frameBaseCss, frameRootClass, pressCanvas } from "../mailCanvas";
+import { useAppDark } from "../useAppDark";
 import { MAIL_FRAME_CSS, MAIL_FRAME_SPIN_CSS } from "../mailFrameCss";
 import { reapply as reapplyColorScheme, rewriteMailHtml } from "../colorSchemeMedia";
 import { eff } from "../prefs";
 import { CONFIDENTIAL_FRAME_CSS, lockDocument, useContentProtection } from "../protect";
 import { accountsOf, canMoveToJunk } from "../junk";
 import { friendlyError, useStore } from "../store";
+import { folderNameOf } from "../attachName";
+import { linkWarning } from "../linkCheck";
 import { cancelTranslation, dismissTranslation, jobErrorText, startTranslation } from "../translate";
 import { MAX_CHARS } from "../translateChunks";
 import { summaryBody } from "../summaryText";
@@ -40,9 +44,10 @@ import { EmptyState } from "./overlays";
 import { useDelayedFlag } from "../delayedFlag";
 import { hlMark } from "../perfMarks";
 import { printFrame, usePrinting } from "../printStatus";
-import { printFrameNative, setPrintSource } from "../printNative";
+import { useMacPrint } from "../macMenu";
+import { printFrameNative, printOpenMessage, setPrintSource } from "../printNative";
 import { pendingToast } from "../pendingToast";
-import { announceFrame, isHeavy, RpBody, useOpeningPending } from "../openStatus";
+import { announceFrame, isHeavy, RpBody, useCanvasDark, useOpeningPending } from "../openStatus";
 import { ImportanceMark } from "./Importance";
 import { EncCard, importKeyFromMessage, isKeyAttachment, needsCard, SecBadges } from "./Pgp";
 import { Avatar, Dropdown } from "./ui";
@@ -199,20 +204,25 @@ function inlineImages(html: string): string {
   return doc.body.innerHTML;
 }
 
-const host = (u: string) => {
-  try {
-    return new URL(/^[a-z]+:/i.test(u) ? u : `https://${u}`).hostname.replace(/^www\./, "").toLowerCase();
-  } catch {
-    return "";
-  }
-};
-
-/** Background the mail is shown on: the mail's own colours (default, in every app theme) or the dark one (see darkMail.ts); remembered as a preference. */
+/**
+ * Background the mail is shown on: the mail's own colours or the dark one (see darkMail.ts). In the light app theme always the original unless this session chose dark with the button
+ * (a session choice, never stored); in the dark app theme the stored choice, which the button changes (WP13g, mailCanvas.ts effectiveCanvas / pressCanvas).
+ */
 function useCanvas() {
-  const canvas = useStore((s) => s.prefs.mailCanvas);
+  const themeDark = useAppDark();
+  const stored = useStore((s) => s.prefs.mailCanvas);
+  const session = useStore((s) => s.mailCanvasSession);
   const setPrefs = useStore((s) => s.setPrefs);
-  const dark = canvas === "dark";
-  return { dark, toggle: () => setPrefs({ mailCanvas: toggleMailCanvas(canvas) }) };
+  const setSession = useStore((s) => s.setMailCanvasSession);
+  const dark = useCanvasDark();
+  return {
+    dark,
+    toggle: () => {
+      const press = pressCanvas(themeDark, stored, session);
+      if (press.pref) setPrefs({ mailCanvas: press.pref });
+      else if (press.session !== undefined) setSession(press.session);
+    },
+  };
 }
 
 /** The cleaned HTML of the last messages that were opened (W13.6 S2): opening a mail again, or switching the picture choice back, does not clean it again. Capped by count and by size. */
@@ -348,13 +358,18 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   darkNow.current = dark;
   const lockedNow = useRef(!!m.confidential);
   lockedNow.current = !!m.confidential;
-  const srcDoc = useMemo(
-    () => `<!doctype html><html data-hm-doc${frameRootClass(darkNow.current ? "dark" : "original")}><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><base target="_blank">
+  // The document of the frame in three pieces (head, the mail, tail): it is written into the frame (mailFrame.ts, fix35), never made one string, never an attribute.
+  const docParts = useMemo(
+    () => [
+      `<!doctype html><html data-hm-doc${frameRootClass(darkNow.current ? "dark" : "original")}><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><base target="_blank">
     <style>${frameBaseCss()}
     ${MAIL_FRAME_CSS}
     ${lockedNow.current ? CONFIDENTIAL_FRAME_CSS : ""}
     ${MAIL_FRAME_SPIN_CSS}</style>
-    </head><body>${rewriteMailHtml(html, darkNow.current)}<style>html,body{overflow:hidden!important;height:auto!important;min-height:0!important}</style></body></html>`,
+    </head><body>`,
+      rewriteMailHtml(html, darkNow.current),
+      `<style>html,body{overflow:hidden!important;height:auto!important;min-height:0!important}</style></body></html>`,
+    ],
     [html, csp, m.confidential], // eslint-disable-line react-hooks/exhaustive-deps
   );
   // macOS Print (W5.3) builds its document from the same inputs as the frame: the HTML as shown now, its CSP and the subject
@@ -511,11 +526,11 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
       if (!a?.href) return;
       e.preventDefault();
       const text = (a.textContent ?? "").trim();
-      const looksLikeUrl = /^(https?:\/\/)?[\w-]+(\.[\w-]+)+(\/\S*)?$/i.test(text);
-      if (looksLikeUrl && host(text) && host(text) !== host(a.href)) {
+      const warn = linkWarning(text, a.href);
+      if (warn) {
         void confirm({
           title: t("reading.body.linkWarnTitle"),
-          body: t("reading.body.linkWarnBody", { text: text.slice(0, 80), target: host(a.href) || a.href }),
+          body: warn.kind === "mismatch" ? t("reading.body.linkWarnBody", { text: warn.text, target: warn.target }) : warn.kind === "lookalike" ? t("reading.body.linkWarnLookalike", { target: warn.target }) : t("reading.body.linkWarnHidden", { target: warn.target }),
           confirmLabel: t("reading.body.linkWarnConfirm"),
           danger: true,
         }).then((ok) => ok && void openUpdateLink(a.href));
@@ -552,7 +567,25 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   const onLoad = () => hookDoc();
   const hookRef = useRef(hookDoc);
   hookRef.current = hookDoc;
-  // watches for the document the new srcDoc makes (the frame shows the old one until the new one is committed) and hooks it once it is parsed
+  // The mail is written into the frame before the first paint (a layout effect runs before the passive ones below, which hook the document). A written document keeps the frame's
+  // Document object, so what the hooking remembers by identity is forgotten first (and the observers of the document that is replaced are stopped).
+  useLayoutEffect(() => {
+    const frame = frameRef.current;
+    if (!frame) return;
+    hooked.current = null;
+    stopObserve.current();
+    if (!writeMailDocument(frame, docParts)) {
+      frame.srcdoc = docParts.join(""); // (no document to write into: the old way)
+      mailFrameStats.fallbacks++;
+    }
+  }, [docParts, frameRef]);
+  useLayoutEffect(() => {
+    mailFrameStats.created++;
+    return () => {
+      mailFrameStats.removed++;
+    };
+  }, []);
+  // watches for the document the written mail makes and hooks it once it is parsed
   useEffect(() => {
     let timer = 0;
     const t0 = Date.now();
@@ -569,7 +602,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
       window.clearTimeout(timer);
       window.clearTimeout(failsafe);
     };
-  }, [srcDoc, frameRef]);
+  }, [docParts, frameRef]);
 
   return (
     <>
@@ -591,7 +624,6 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
         style={dark ? { background: `rgb(${DARK_CANVAS.join(",")})` } : undefined}
         sandbox={frameSandbox(navigator.userAgent)}
         scrolling="no"
-        srcDoc={srcDoc}
         onLoad={onLoad}
         title={m.subject ? t("reading.body.frameTitleSubject", { subject: m.subject }) : t("reading.body.frameTitle")}
       />
@@ -802,7 +834,7 @@ export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boole
       const r = await api.attachmentSaveAll(m.id, ask || prefs.askWhereToSave);
       working?.end();
       if (!r) return;
-      const folder = r.dir.split(/[\\/]/).filter(Boolean).pop() ?? r.dir;
+      const folder = folderNameOf(r.dir) || r.dir;
       if (r.failed.length === 0) showToast(() => t("reading.strip.savedMany", { n: r.saved.length, folder }), undefined, "success", r.saved[0] ? [{ label: () => t("reading.att.showInFolder"), run: () => void revealSaved(r.saved[0]) }] : undefined);
       else showToast(() => t("reading.strip.savedPartial", { n: r.saved.length, total: m.attachments.length, name: r.failed[0].name, error: friendlyError(r.failed[0].error) }), undefined, "error", [{ label: () => t("common.retry"), run: () => void saveAll(ask) }]);
     } catch (e) {
@@ -848,7 +880,7 @@ export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boole
               items={[
                 { label: t("reading.msg.showOriginal"), disabled: conf, onClick: () => setDialog({ type: "original", messageId: m.id }) },
                 // macOS: WKWebView cannot print the frame itself, the backend prints a document made from it (printNative.ts, W5.3)
-                { label: t("reading.msg.print"), disabled: conf || printing, onClick: () => void (osNow() === "macos" ? printFrameNative(frameRef.current, (text) => useStore.getState().showToast(text, undefined, "error")) : printFrame(frameRef.current)) },
+                { label: t("reading.msg.print"), disabled: conf || printing, onClick: () => void (osNow() === "macos" ? printFrameNative(frameRef.current, (text) => useStore.getState().showToast(() => text, undefined, "error")) : printFrame(frameRef.current)) },
                 {
                   label: t("reading.msg.createEvent"),
                   onClick: () => setDialog({ type: "event", init: { summary: m.subject.replace(/^((re|fwd?):\s*)+/i, ""), description: conf ? "" : (m.text ?? "").trim().slice(0, 1500) } }),
@@ -990,6 +1022,10 @@ export function ReadingPane() {
   const openError = useStore((s) => s.openError);
   const opening = useOpeningPending(selected && summ ? selected : null, messages, hasFrame) && openError !== selected;
   const printing = usePrinting((s) => s.on);
+  // macOS File > Print… (W5.11): on while the message it would print is open, shows its text (not an encrypted card) and is not Confidential, and no dialog is in front
+  const lastOpen = [...messages].reverse().find((m) => openIds.has(m.id));
+  const dialogOpen = useStore((s) => !!s.dialog);
+  useMacPrint(!!selected && !!summ && !!lastOpen && hasFrame(lastOpen) && !lastOpen.confidential && !dialogOpen, () => void printOpenMessage());
 
   // another conversation: a summary still being made is dropped (its request too), so it is never shown on the wrong mail
   useEffect(() => ai.cancel, [selected]); // eslint-disable-line react-hooks/exhaustive-deps

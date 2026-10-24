@@ -283,7 +283,8 @@ pub fn delete_by_message_id<T: std::io::Read + std::io::Write>(s: &mut imap::Ses
     if uids.is_empty() {
         return Ok(0);
     }
-    crate::mail::delete_forever(s, folder, &uids)?;
+    // (the UIDs were found in this session by their own Message-ID header just now)
+    crate::mail::delete_forever(s, folder, &crate::mail::Expect::Verified, &uids)?;
     Ok(uids.len())
 }
 
@@ -334,27 +335,37 @@ pub fn drop_on_session<T: std::io::Read + std::io::Write>(db: &crate::Db, acc: &
     let drafts = Some("drafts".to_string());
     let refs = match target {
         Target::Thread(_) => return Err("a conversation is not dropped on a session".into()),
-        Target::Local(id) => local_refs(db, "id=?1 AND account_id=?2 AND folder='drafts'", &[id, &acc.id])?,
+        Target::Local(id) => {
+            let refs = local_refs(db, "id=?1 AND account_id=?2 AND folder='drafts'", &[id, &acc.id])?;
+            // (W6.1) an id the server's renumbering dropped may name another draft now: a reference taken before it is acted on only when the message is the same one
+            if let Some(then) = crate::folderstate::retired(&crate::lock(db), &acc.id, id) {
+                if refs.first().is_some_and(|r| then.is_none() || then != r.mid) {
+                    crate::startup::line("draft", &format!("account {}: the draft {id} was opened before the Drafts folder was renumbered and is another message now: not removed", acc.id));
+                    return Ok(());
+                }
+            }
+            refs
+        }
         Target::Mid { mid, .. } => local_refs(db, "message_id=?1 AND account_id=?2 AND folder='drafts'", &[mid, &acc.id])?,
     };
     if !refs.is_empty() {
         return crate::act_on_session(db, acc, s, &refs, "delete_forever", None, &drafts, false);
     }
     if let Target::Mid { mid, .. } = target {
-        // not in the local store (yet): ask the server
-        let folder = crate::folder_for(db, acc, "drafts")?;
-        delete_by_message_id(s, &folder, mid)?;
+        // not in the local store (yet): ask the server (a server without a Drafts folder has no such draft; nothing is created for a look-up)
+        if let Some(folder) = crate::find_drafts(db, acc, s)? {
+            delete_by_message_id(s, &folder, mid)?;
+        }
     }
     Ok(())
 }
 
 fn local_refs(db: &crate::Db, filter: &str, args: &[&String; 2]) -> crate::db::R<Vec<crate::MsgRef>> {
     let c = crate::lock(db);
-    let mut st = c.prepare(&format!("SELECT account_id,folder,uid,id FROM messages WHERE {filter}")).map_err(crate::db::err)?;
-    let rows = st
-        .query_map(rusqlite::params![args[0], args[1]], |r| Ok(crate::MsgRef { account_id: r.get(0)?, role: r.get(1)?, uid: r.get(2)?, id: r.get(3)? }))
-        .map_err(crate::db::err)?;
-    rows.collect::<Result<Vec<_>, _>>().map_err(crate::db::err)
+    let mut st = c.prepare(&format!("SELECT {} FROM messages WHERE {filter}", crate::MSG_REF_COLS)).map_err(crate::db::err)?;
+    let rows = st.query_map(rusqlite::params![args[0], args[1]], crate::msg_ref_row).map_err(crate::db::err)?;
+    let rows = rows.collect::<Result<Vec<_>, _>>().map_err(crate::db::err)?;
+    Ok(crate::with_numbering(&c, rows))
 }
 
 /// Remove the draft a reference names (see above): a save replaced it, or the message written from it was sent.
@@ -480,6 +491,14 @@ pub fn forget_opened_memory(local_id: &str) {
     opened_memory().retain(|(id, _)| id != local_id);
 }
 
+/// The Message-ID the local store has for the draft `local_id` (None: no such draft, or it has none).
+pub fn local_message_id(db: &crate::Db, account_id: &str, local_id: &str) -> Option<String> {
+    crate::lock(db)
+        .query_row("SELECT message_id FROM messages WHERE id=?1 AND account_id=?2 AND folder='drafts'", rusqlite::params![local_id, account_id], |r| r.get::<_, Option<String>>(0))
+        .ok()
+        .flatten()
+}
+
 /// Does the local store still have the draft `local_id` in Drafts?
 pub fn local_draft_exists(db: &crate::Db, account_id: &str, local_id: &str) -> bool {
     crate::lock(db).query_row("SELECT 1 FROM messages WHERE id=?1 AND account_id=?2 AND folder='drafts'", rusqlite::params![local_id, account_id], |_| Ok(())).is_ok()
@@ -531,18 +550,22 @@ pub fn restore_on_session<T: std::io::Read + std::io::Write>(db: &crate::Db, acc
         crate::startup::line("draft", &format!("account {}: Discard changes found no opened version to put back, the saved copy stays as the draft", acc.id));
         return Ok(false);
     };
-    let folder = crate::folder_for(db, acc, "drafts")?;
+    let folder = crate::find_drafts(db, acc, s)?;
     // Idempotent: when a copy with the Message-ID of the opened version is in Drafts (the save that replaced it did not remove it, or an earlier Discard put it back), it IS the
     // opened version: nothing is appended, so Drafts never holds the original twice (Mac QA D-016/D-020: UID 5 and a restored UID 13). A SEARCH that fails appends as before.
-    let there = message_id_of(&raw).is_some_and(|mid| match message_id_present(s, &folder, &mid) {
-        Ok(b) => b,
-        Err(e) => {
-            crate::startup::line("draft", &format!("account {}: could not look for the opened version in Drafts, it is put back: {e}", acc.id));
-            false
-        }
-    });
+    let there = match (&folder, message_id_of(&raw)) {
+        (Some(folder), Some(mid)) => match message_id_present(s, folder, &mid) {
+            Ok(b) => b,
+            Err(e) => {
+                crate::startup::line("draft", &format!("account {}: could not look for the opened version in Drafts, it is put back: {e}", acc.id));
+                false
+            }
+        },
+        _ => false,
+    };
     if !there {
-        crate::mail::append(s, &folder, &raw, true)?;
+        // (W6.4 the Drafts folder is made when the server has none)
+        crate::append_draft(db, acc, s, &raw)?;
     }
     if let Err(e) = drop_on_session(db, acc, s, &Target::parse(draft_ref)) {
         crate::startup::line("draft", &format!("account {}: the draft was put back, but the saved copy of the changes could not be removed: {e}", acc.id));
@@ -578,12 +601,13 @@ pub fn restore_unsaved_on_session<T: std::io::Read + std::io::Write>(db: &crate:
         crate::startup::line("draft", &format!("account {}: the opened draft has no Message-ID, it cannot be looked for on the server", acc.id));
         return Ok(false);
     };
-    let folder = crate::folder_for(db, acc, "drafts")?;
-    // (an error is an error: a connection that broke while asking must not become a second copy of a draft that is probably still there)
-    if message_id_present(s, &folder, &mid)? {
-        return Ok(false);
+    // (an error is an error: a connection that broke while asking must not become a second copy of a draft that is probably still there; no Drafts folder at all: it is not there)
+    if let Some(folder) = crate::find_drafts(db, acc, s)? {
+        if message_id_present(s, &folder, &mid)? {
+            return Ok(false);
+        }
     }
-    crate::mail::append(s, &folder, &raw, true)?;
+    crate::append_draft(db, acc, s, &raw)?;
     crate::startup::line("draft", &format!("account {}: the opened draft was gone from the server, Discard changes put the opened version back", acc.id));
     Ok(true)
 }
@@ -735,7 +759,7 @@ mod tests {
             let _ = s.logout();
             assert_eq!(fake.uids("Drafts"), Some(vec![10]));
             assert_eq!(local_uids(&db), vec![10]);
-            assert!(!fake.commands().iter().any(|c| c.to_uppercase().contains("SEARCH")), "no server search when the local store knows it");
+            assert!(!fake.commands().iter().any(|c| c.to_uppercase().contains("SEARCH HEADER")), "no search for the Message-ID when the local store knows it");
 
             // not synced yet: the server is asked for the Message-ID, and only what it finds (and its header confirms) is removed
             let (db, acc) = setup("draft-mid-server", &[(10, "<a@x>", "T")]);
@@ -1006,8 +1030,8 @@ mod tests {
         crate::test_guard::within(60, || {
             let (fake, db, acc, _) = opened_draft();
             let r1 = save(&fake, &db, &acc, "Original text plus edits", Some("m:a1:drafts:10".into())).unwrap();
-            // the server refuses the APPEND (here: the Drafts folder is gone)
-            crate::db::set_setting(&crate::lock(&db), &format!("fmap:{ACC}"), r#"{"inbox":"INBOX","drafts":"Gone"}"#).unwrap();
+            // the server refuses the APPEND (here: the mailbox is full; a folder that is gone is found again or made since W6.4)
+            fake.state.lock().unwrap().fail_append = true;
             let mut s = fake.connect();
             assert!(restore_on_session(&db, &acc, &mut s, &r1).is_err());
             let _ = s.logout();
@@ -1279,6 +1303,11 @@ mod tests {
 
     #[test]
     fn what_was_remembered_at_open_time_is_bounded() {
+        // (the memory is process-wide and bounded: filling it evicts what the tests that run side by side have just put there, so this one runs alone)
+        crate::test_guard::alone(bounded_memory_checks);
+    }
+
+    fn bounded_memory_checks() {
         for i in 0..(OPENED_MAX_ENTRIES + 6) {
             remember_opened(&format!("bound-{i}"), b"x");
         }

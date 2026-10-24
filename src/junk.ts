@@ -43,5 +43,19 @@ export function accountsOf(threads: readonly { threadId: string; accountId: stri
   return [...out];
 }
 
+/** What is wrong with a filter rule's target on this computer's folder lists (W6.2); null: nothing. */
+export type RuleProblem = "no-junk";
+
+/**
+ * Whether a filter rule can work with the folders its mailbox has. A rule that moves mail to Junk needs a Junk folder in the saved list of its mailbox; a rule for all mailboxes
+ * works wherever there is one, so it has the problem only when NO mailbox has Junk. Unknown folders (not loaded yet) are fine: nothing is blocked on a guess. The filter editor
+ * (settings) and the list of rules use it; the backend skips such a rule the same way when it runs (`sync_impl`), so the mail stays where it is and no error is told.
+ */
+export function ruleTargetProblem(rule: { action: string; accountId?: string | null }, folders: readonly FolderLike[], accountIds: readonly string[]): RuleProblem | null {
+  if (rule.action !== "junk") return null;
+  if (rule.accountId) return accountHasJunk(folders, rule.accountId) ? null : "no-junk";
+  return accountIds.length > 0 && accountIds.every((a) => !accountHasJunk(folders, a)) ? "no-junk" : null;
+}
+
 /** Actions that move mail to Junk (`block` adds the sender to the blocked list and then moves the mail to Junk). */
 export const JUNK_ACTIONS: ReadonlySet<string> = new Set(["junk", "block"]);

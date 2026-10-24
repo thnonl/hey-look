@@ -127,7 +127,7 @@ export interface KeyContext {
 }
 
 /**
- * The key table of the reader (REQ-R13): r, a, f, e, # / Delete (Backspace on macOS), !, u, *, p, s, j / k (next / previous conversation, W4.4), Ctrl+P / Cmd+P (macOS prints through the backend since W5.3), Esc, Ctrl+W / Cmd+W.
+ * The key table of the reader (REQ-R13): r, a, f, e, # / Delete (Backspace on macOS), !, u, *, p, s, j / k (next / previous conversation, W4.4), Ctrl+P (not on macOS: there Cmd+P is the File > Print… item of the menu bar, W5.11, and the page must not take it too), Esc, Ctrl+W / Cmd+W.
  * `null`: not a reader key. Never while typing in a field; Esc never while something modal is open (it closes that first).
  */
 export function readerKey(e: KeyEvent, ctx: KeyContext): ReaderAction | null {
@@ -135,7 +135,7 @@ export function readerKey(e: KeyEvent, ctx: KeyContext): ReaderAction | null {
   const k = e.key;
   const cmd = e.ctrlKey || e.metaKey;
   if (cmd && !e.altKey && !e.shiftKey && k.toLowerCase() === "w") return "close";
-  if (cmd && !e.altKey && !e.shiftKey && k.toLowerCase() === "p") return "print";
+  if (!ctx.mac && cmd && !e.altKey && !e.shiftKey && k.toLowerCase() === "p") return "print";
   if (cmd || e.altKey) return null;
   if (k === "Escape") return ctx.modalOpen ? null : "close";
   if (ctx.modalOpen) return null;

@@ -16,7 +16,8 @@ import { copyToClipboard } from "../open";
 import { AiRunning, hasFrame, MessageCard, TRANSLATE_TO, translateMessage, useKeepReadingPosition } from "../components/ReadingPane";
 import { isHeavy, RpBody, useOpeningPending } from "../openStatus";
 import { usePrinting } from "../printStatus";
-import { printFrameNative } from "../printNative";
+import { useMacPrint } from "../macMenu";
+import { printOpenMessage } from "../printNative";
 import { LazyShowOriginal } from "../lazyViews";
 import { needsCard, PassphraseHost } from "../components/Pgp";
 import { Dropdown } from "../components/ui";
@@ -365,11 +366,10 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
     if (ok) void move("block", "reading.head.blocked", { email: last.fromEmail });
   };
   const printLast = () => {
-    const frames = document.querySelectorAll<HTMLIFrameElement>(".rp-msg.open iframe.msg-frame");
-    const frame = frames[frames.length - 1];
     // macOS: the backend prints a document made from the message (W5.3); elsewhere the frame prints itself
-    if (osNow() === "macos") void printFrameNative(frame ?? null, (text) => useStore.getState().showToast(text, undefined, "error"));
-    else frame?.contentWindow?.print();
+    if (osNow() === "macos") return void printOpenMessage();
+    const frames = document.querySelectorAll<HTMLIFrameElement>(".rp-msg.open iframe.msg-frame");
+    frames[frames.length - 1]?.contentWindow?.print();
   };
   const summarize = async () => {
     if (!(await aiReady())) {
@@ -416,6 +416,9 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
   };
   const actRef = useRef(act);
   actRef.current = act;
+  // macOS File > Print… (W5.11, Cmd+P is the menu item's key there): on while the last open message shows its text and is not Confidential
+  const lastOpen = [...messages].reverse().find((m) => openIds.has(m.id));
+  useMacPrint(phase === "ready" && !!lastOpen && !needsCard(lastOpen) && !lastOpen.confidential && !off("print") && !locked, () => actRef.current("print"));
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;

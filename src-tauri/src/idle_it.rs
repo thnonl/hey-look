@@ -204,7 +204,7 @@ fn deliver(e: &Env, port: u16, subject: &str) {
 /// The subjects of the INBOX, read the way the sync does (`fetch_folder`).
 fn inbox_subjects(e: &Env, port: u16) -> Vec<String> {
     let (mut s, _) = mail::connect_with_socket(&account(&e.user, port), &e.pass).expect("connect");
-    let ff = mail::fetch_folder(&mut s, "INBOX", 0, 0, 200).expect("fetch");
+    let ff = mail::fetch_folder(&mut s, "INBOX", &crate::folderstate::Known::Unknown, 0, 0, 200).expect("fetch");
     let _ = s.logout();
     ff.new.into_iter().map(|p| p.subject).collect()
 }

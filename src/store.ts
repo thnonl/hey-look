@@ -32,6 +32,7 @@ import { fmtNumber } from "./i18n/format";
 import { calTz, CalView, Day, rangeFor, systemTz, today } from "./calendar";
 import { accentText, accountColor, buttonAccent, clampMaxDownload, DEFAULT_PREFS, lightened, mergePrefs, Prefs, readableOn, staleAccountPrefs, topBar, validHex } from "./prefs";
 import { systemThemeAttribute } from "./osTheme";
+import type { MailCanvasSession } from "./mailCanvas";
 import { captionColors, gradientT } from "./captionColors";
 import { settingsWindowOpen } from "./popout/popoutCount";
 import { SETTINGS_KEY, settingsTarget } from "./popout/windowKinds";
@@ -356,6 +357,8 @@ interface State {
   sidebarToggle: number;
   ribbonTab: RibbonTab;
   prefs: Prefs;
+  /** The light theme's session-only mail background (WP13g): "dark" after the button was pressed in the light theme, never stored; any switch of the app theme clears it (mailCanvasSync.ts). */
+  mailCanvasSession: MailCanvasSession;
   /** The language the person just picked while its chunk is being fetched (src/i18n/lang-<code>.ts); `prefs.language` and the texts stay as they were until it is there. null when no switch is under way. */
   langLoading: Lang | null;
   aiConfigured: boolean;
@@ -451,6 +454,10 @@ interface State {
   dismissToast: (id: number) => void;
   /** The backend finished moving these conversations (their Undo time is over): they leave the open list now, without a re-read. */
   dropThreads: (ids: string[]) => void;
+  /** (W6.1) `folder-reset`: the server renumbered a folder and its mail was read again. A selection, a checked row or an open conversation of that folder is dropped (the ids of its messages name other mail now) and the list is read again. */
+  folderReset: (accountId: string, role: string) => void;
+  /** (W6.3) `mail-pruned`: the mailbox is at its download limit after a prune (a sync, a push, the limit lowered): its folders show the notice "Download limit reached" at the end of the list without a sync. */
+  onPruned: (accountId: string) => void;
   /** A toast that stays until it is answered (or `null` to remove it); one per `key`, a new text replaces the old in place. */
   setStickyToast: (
     key: string,
@@ -471,6 +478,7 @@ interface State {
   /** Swap one message of the open conversation (after it was decrypted). */
   replaceMessage: (m: MessageFull) => void;
   setPrefs: (p: Partial<Prefs>) => void;
+  setMailCanvasSession: (v: MailCanvasSession) => void;
   refreshAi: () => Promise<void>;
   setModule: (m: "mail" | "calendar") => void;
   setCalView: (v: CalView) => void;
@@ -577,6 +585,15 @@ function nextMailbox(ids: Set<string>, threads: { accountId: string; lastDate: n
   }
   return best;
 }
+
+/** The `limited` keys ("<account>|<folder key>") of every folder of a mailbox: the standard ones and the ones the folder pane lists. */
+export function limitedKeys(accountId: string, folders: { accountId: string; key: string }[]): string[] {
+  const keys = new Set(["inbox", "sent", "drafts", "archive", "trash", "junk", ...folders.filter((f) => f.accountId === accountId).map((f) => f.key)]);
+  return [...keys].map((k) => `${accountId}|${k}`);
+}
+
+/** `limited` keys a sync in progress was told about (`mail-pruned`): they survive the clearing that ends the sync. */
+const prunedDuringSync = new Set<string>();
 
 /** Preferences the backend acts on (saving, retries, quit) are also stored as plain settings. */
 const BACKEND_SETTINGS: [keyof Prefs, string, (v: unknown) => string][] = [
@@ -781,6 +798,7 @@ export const useStore = create<State>((set, get) => ({
   sidebarToggle: 0,
   ribbonTab: "home",
   prefs: { ...DEFAULT_PREFS },
+  mailCanvasSession: null,
   langLoading: null,
   aiConfigured: false,
   loaded: false,
@@ -1059,8 +1077,9 @@ export const useStore = create<State>((set, get) => ({
         get().showToast(() => t("errors.toast.withAccount", { account: acct?.email ?? t("errors.toast.accountFallback"), error: friendlyError(reasons[first[0]]) }), undefined, "error");
       }
     } finally {
-      // new mail may have arrived and a failed fetch may work now: scrolling may ask the server for older mail again
-      set({ syncing: false, exhausted: {}, limited: {}, moreError: false });
+      // new mail may have arrived and a failed fetch may work now: scrolling may ask the server for older mail again (except where this very sync pruned at the cap: those stay marked)
+      set({ syncing: false, exhausted: {}, limited: Object.fromEntries([...prunedDuringSync].map((k) => [k, true as const])), moreError: false });
+      prunedDuringSync.clear();
       await get().refresh();
     }
   },
@@ -1497,6 +1516,21 @@ export const useStore = create<State>((set, get) => ({
 
   dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 
+  onPruned: (accountId) => {
+    const keys = limitedKeys(accountId, get().folders);
+    // (a sync clears `limited` when it ends; what it pruned meanwhile is put back then)
+    if (get().syncing) for (const k of keys) prunedDuringSync.add(k);
+    set((s) => ({ limited: { ...s.limited, ...Object.fromEntries(keys.map((k) => [k, true as const])) } }));
+  },
+
+  folderReset: (accountId, role) => {
+    const s = get();
+    if (s.folder !== role || (s.accountId !== null && s.accountId !== accountId)) return;
+    set({ checked: new Set() });
+    if (s.selected) void get().select(null);
+    void get().refresh();
+  },
+
   dropThreads: (ids) => {
     const gone = new Set(ids);
     if (!get().threads.some((x) => gone.has(x.threadId))) return;
@@ -1578,6 +1612,9 @@ export const useStore = create<State>((set, get) => ({
 
   replaceMessage: (m) => set((s) => ({ messages: s.messages.map((x) => (x.id === m.id ? m : x)) })),
 
+  setMailCanvasSession: (v) => {
+    if (get().mailCanvasSession !== v) set({ mailCanvasSession: v });
+  },
   setPrefs: (patch) => {
     if ("language" in patch) {
       const seq = ++langSeq;
@@ -1607,6 +1644,8 @@ export const useStore = create<State>((set, get) => ({
     const prefs = { ...before, ...patch };
     // a new cap: mailboxes that were stopped by the old one are asked again
     if ("maxDownload" in patch && patch.maxDownload !== get().prefs.maxDownload) set({ limited: {} });
+    // (W6.3) a LOWER cap: the extra local mail goes at once, in the background, once the backend has the new value; the conversation in the pane stays
+    const lowered = "maxDownload" in patch && patch.maxDownload !== undefined && patch.maxDownload < get().prefs.maxDownload;
     const languageChanged = "language" in patch && patch.language !== get().prefs.language;
     set({ prefs });
     // every screen reads `accounts`: a new order shows everywhere at once (folder pane, Compose From, Settings)
@@ -1616,6 +1655,10 @@ export const useStore = create<State>((set, get) => ({
     const saved = api.setSetting("prefs", JSON.stringify(prefs));
     void saved.catch(() => undefined);
     const mirrored = mirrorSettings(patch);
+    if (lowered) {
+      const keep = get().selected;
+      void Promise.all(mirrored).then(() => api.pruneToLimit(keep ? [keep] : [])).catch(() => undefined);
+    }
     if (languageChanged) {
       // texts the backend writes in the chosen language (repeat descriptions of events) are read again once it knows the new language
       void Promise.all(mirrored).then(() => {

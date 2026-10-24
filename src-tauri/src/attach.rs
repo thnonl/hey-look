@@ -11,6 +11,27 @@ use std::sync::LazyLock;
 static RISKY_EXT: LazyLock<HashSet<String>> =
     LazyLock::new(|| serde_json::from_str::<Vec<String>>(include_str!("../../src/riskyExt.json")).expect("src/riskyExt.json is a JSON array of strings").into_iter().collect());
 
+/// The extensions of a file picker filter, each in lower and in upper case (`asc`, `ASC`): GTK's filters (Linux) compare the case, so `KEY.ASC` and `INVITE.ICS` were
+/// not listed; Windows and macOS compare without regard to case and show the same files (W6.16). A mixed-case name (`Key.Gpg`) still needs "All files" on Linux.
+pub fn filter_extensions(lower: &[&str]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for e in lower {
+        for form in [e.to_lowercase(), e.to_uppercase()] {
+            if !out.contains(&form) {
+                out.push(form);
+            }
+        }
+    }
+    out
+}
+
+/// A file dialog with one filter: the name and the extensions in both cases (`filter_extensions`). Every filter of the app goes through here.
+pub fn with_filter<R: tauri::Runtime>(dialog: tauri_plugin_dialog::FileDialogBuilder<R>, name: impl Into<String>, lower: &[&str]) -> tauri_plugin_dialog::FileDialogBuilder<R> {
+    let all = filter_extensions(lower);
+    let refs: Vec<&str> = all.iter().map(String::as_str).collect();
+    dialog.add_filter(name, &refs)
+}
+
 /// Windows reserved device names other than COM0-9 / LPT0-9 (see `is_reserved`); they cannot be used as file names.
 const RESERVED: [&str; 6] = ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"];
 
@@ -238,6 +259,59 @@ mod tests {
         for n in ["a.rdp", "a.xll", "a.xla", "a.one", "a.vhdx", "a.jnlp", "a.vhd", "a.xbap", "a.py", "a.RDP", "x.onepkg"] {
             assert!(is_risky(n), "{n}");
         }
+    }
+
+    /// W6.15: the types of macOS and Linux/Unix that open a target or run code, and the cross-platform packages, ask like `.exe` does (the F-19 types stay in).
+    #[test]
+    fn the_types_of_macos_and_linux_are_risky_too() {
+        let added = [
+            "webloc", "inetloc", "fileloc", "kext", "prefpane", "dylib", "plugin", "osax", // macOS
+            "bash", "zsh", "csh", "ksh", "fish", "flatpakref", "flatpak", "snap", // Linux / Unix
+            "apk", "xpi", // everywhere
+        ];
+        let before = ["app", "pkg", "mpkg", "scpt", "applescript", "workflow", "terminal", "command", "desktop", "appimage", "run", "deb", "rpm", "bin", "sh", "dmg"];
+        for e in added.iter().chain(before.iter()) {
+            assert!(RISKY_EXT.contains(*e), "{e} is in the shared list");
+            for n in [format!("a.{e}"), format!("install.{}", e.to_uppercase()), format!("dir/x.y.{e}"), format!("x.{e}. "), format!("x.{e}\u{a0}")] {
+                assert!(is_risky(&n), "{n:?}");
+            }
+        }
+        // the names of the plan
+        for n in ["install.command", "x.AppImage", "a.webloc", "y.deb", "setup.exe"] {
+            assert!(is_risky(n), "{n}");
+        }
+        // ordinary files are not asked about
+        for n in ["a.pdf", "plugin.txt", "snap.png", "fish.jpg", "apk", "notes.webloc.txt", "x.xpi.pdf"] {
+            assert!(!is_risky(n), "{n}");
+        }
+    }
+
+    /// W6.16: every extension filter lists lower and upper case, so GTK shows KEY.ASC and INVITE.ICS; and no dialog of the app builds a filter by hand.
+    #[test]
+    fn the_file_filters_list_upper_case_extensions_too() {
+        assert_eq!(filter_extensions(&["ics"]), ["ics", "ICS"]);
+        assert_eq!(filter_extensions(&["asc", "gpg", "pgp", "key", "txt"]), ["asc", "ASC", "gpg", "GPG", "pgp", "PGP", "key", "KEY", "txt", "TXT"]);
+        assert_eq!(filter_extensions(&["ASC", "asc"]), ["asc", "ASC"], "no duplicates, whatever the case given");
+        assert!(filter_extensions(&[]).is_empty());
+        // every dialog with a filter goes through `with_filter`
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut found = 0;
+        for entry in std::fs::read_dir(&dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.extension().is_none_or(|e| e != "rs") {
+                continue;
+            }
+            let src = crate::test_guard::non_test_code(&std::fs::read_to_string(&path).unwrap());
+            let name = path.file_name().unwrap().to_string_lossy().to_string();
+            let by_hand = src.matches(".add_filter(").count();
+            if name == "attach.rs" {
+                assert_eq!(by_hand, 1, "attach.rs builds the one filter");
+            } else {
+                assert_eq!(by_hand, 0, "{name} builds a filter by hand: use attach::with_filter");
+            }
+            found += src.matches("attach::with_filter(").count();
+        }
+        assert_eq!(found, 3, "the two calendar dialogs and the PGP key import");
     }
 
     #[test]

@@ -6,6 +6,8 @@ use std::time::Duration;
 /// Run `f` on its own thread and give it `secs` seconds. A panic inside `f` is re-raised here; a run that does not finish panics with
 /// "hung", leaving the stuck thread behind (it dies with the test process).
 pub fn within<T: Send + 'static>(secs: u64, f: impl FnOnce() -> T + Send + 'static) -> T {
+    // (a test that must have the process-wide state to itself - `alone` - waits for the ones in flight and keeps the others out meanwhile)
+    let _shared = ISOLATION.read().unwrap_or_else(|p| p.into_inner());
     let (tx, rx) = mpsc::channel();
     let handle = std::thread::spawn(move || {
         let _ = tx.send(f());
@@ -18,6 +20,15 @@ pub fn within<T: Send + 'static>(secs: u64, f: impl FnOnce() -> T + Send + 'stat
             Ok(()) => unreachable!("the closure ended without sending its result"),
         },
     }
+}
+
+static ISOLATION: std::sync::RwLock<()> = std::sync::RwLock::new(());
+
+/// Run `f` while no other test that uses `within` runs: for a test that fills a process-wide bounded store (the opened versions of drafts, `draftmail::remember_opened`) until
+/// it evicts what the others have just put there.
+pub fn alone<T>(f: impl FnOnce() -> T) -> T {
+    let _exclusive = ISOLATION.write().unwrap_or_else(|p| p.into_inner());
+    f()
 }
 
 /// The text of a source file outside its inline test modules, for the tests that read the sources. Line endings are normalised. The

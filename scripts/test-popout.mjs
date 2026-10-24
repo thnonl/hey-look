@@ -176,7 +176,8 @@ assert.equal(readerAllowed("scheduled", "outbox"), false);
   assert.equal(readerKey(k("w", { ctrlKey: true }), ctx()), "close");
   assert.equal(readerKey(k("w", { metaKey: true }), ctx({ mac: true })), "close");
   assert.equal(readerKey(k("p", { ctrlKey: true }), ctx()), "print");
-  assert.equal(readerKey(k("p", { metaKey: true }), ctx({ mac: true })), "print", "Cmd+P prints on macOS (W5.3)");
+  assert.equal(readerKey(k("p", { metaKey: true }), ctx({ mac: true })), null, "Cmd+P is the File > Print… item of the menu bar on macOS (W5.11): the page takes no second one");
+  assert.equal(readerKey(k("p", { ctrlKey: true }), ctx({ mac: true })), null, "Ctrl+P does not print on macOS");
   assert.equal(readerKey(k("p", { ctrlKey: true, shiftKey: true }), ctx()), null);
   // not while typing, not behind a dialog (Esc closes the dialog first), no other modifier combination
   for (const key of Object.keys(table)) {
@@ -285,6 +286,12 @@ assert.equal(popoutTitle(readerTitleText("", "(no subject)")), "(no subject) –
   bad("prefs", { theme: "dark" });
   bad("prefs", { downloadDir: "C:\\" });
   bad("prefs", {});
+  // the light theme's session mail background (WP13g): set, take off, or just ask; never a preference
+  assert.deepEqual(ok("canvas-session", { dark: true }), { kind: "canvas-session", dark: true });
+  assert.deepEqual(ok("canvas-session", { dark: false }), { kind: "canvas-session", dark: false });
+  assert.deepEqual(ok("canvas-session", {}), { kind: "canvas-session", dark: null });
+  assert.deepEqual(ok("canvas-session", { dark: "yes" }), { kind: "canvas-session", dark: null }, "anything but a boolean is only a question");
+  assert.deepEqual(ok("canvas-session", null), { kind: "canvas-session", dark: null });
   // answers
   const msg = { id: "m1", subject: "Hi" };
   assert.equal(ok("compose", { mode: "replyAll", message: msg, threadMessageIds: ["<a@b>", null, 5] }).req.threadMessageIds.length, 2, "only Message-IDs travel");
@@ -380,7 +387,7 @@ assert.equal(popoutTitle(readerTitleText("", "(no subject)")), "(no subject) –
     const c = /invoke(?:<[^(]*>)?\("(\w+)"/.exec(line);
     if (c && prop) cmd.set(prop, c[1]);
   }
-  assert.equal(cmd.get("getThread"), "get_thread");
+  assert.equal(cmd.get("getThread"), "get_thread_packed");
   assert.equal(cmd.get("popoutRequest"), "popout_request");
   const allowed = new Set(JSON.parse(read("src-tauri/capabilities/popout.json")).permissions.filter((p) => p.startsWith("allow-")).map((p) => p.slice(6).replace(/-/g, "_")));
   let checked = 0;

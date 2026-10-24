@@ -23,6 +23,10 @@ The installers are not code-signed with a publisher certificate and the macOS ap
 
 Your mail stays on your computer and your passwords in your system's credential store. Every feature and its known limits: [Features](https://heylook.namthai.site/features.html) and [Known limitations](https://heylook.namthai.site/features.html#limits).
 
+## Known notes
+
+- macOS: the first time you print, macOS may ask whether Hey Look! may find devices on your local network. This lets the print window find your printers; Hey Look! uses the local network for nothing else.
+
 ## Documentation and support
 
 - [Features](https://heylook.namthai.site/features.html) · [Help and FAQ](https://heylook.namthai.site/help.html) · [Download](https://heylook.namthai.site/download.html) · [Support the project](https://heylook.namthai.site/support.html)

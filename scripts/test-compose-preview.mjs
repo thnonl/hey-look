@@ -16,15 +16,20 @@ assert.equal(previewFromCanvas("dark"), "dark");
 assert.equal(togglePreview("light"), "dark");
 assert.equal(togglePreview("dark"), "light");
 assert.equal(togglePreview(togglePreview("light")), "light");
+// (WP13g) the start value is the app theme's: light in the light theme whatever is stored, the stored message background in the dark theme
 forgetPreview();
-assert.equal(startPreview("original"), "light");
-assert.equal(startPreview("dark"), "dark");
+assert.equal(startPreview(true, "original"), "light");
+assert.equal(startPreview(true, "dark"), "dark");
+assert.equal(startPreview(false, "dark"), "light", "light app: light preview even with a stored dark");
+assert.equal(startPreview(false, "original"), "light");
 rememberPreview("dark");
-assert.equal(startPreview("original"), "dark", "the session's choice wins over the preference");
+assert.equal(startPreview(true, "original"), "dark", "the session's choice wins over the preference");
+assert.equal(startPreview(false, "original"), "dark");
 rememberPreview("light");
-assert.equal(startPreview("dark"), "light");
+assert.equal(startPreview(true, "dark"), "light");
 forgetPreview();
-assert.equal(startPreview("dark"), "dark");
+assert.equal(startPreview(true, "dark"), "dark", "a switch of the theme forgets the choice: the new theme's start value");
+assert.equal(startPreview(false, "dark"), "light");
 
 // the surfaces are the reading pane's: same text, link and background colours as frameBaseCss
 const css = frameBaseCss();
@@ -56,7 +61,7 @@ const sec = compose.slice(compose.indexOf("const currentSecurity"), compose.inde
 assert.ok(!PV.test(sec));
 // the preview state is only used to look: the class and variables of the body surface, the region effect and the toggle
 const uses = compose.split("\n").filter((l) => PV.test(l) || /\bsetPv\b/.test(l));
-for (const l of uses) assert.ok(/useState<PreviewBg>|setPv\(p\)|pv-\$\{pv\}|previewVars\(pv\)|pv === "dark"|pv === "light"|, pv\]\)|setPreviewMode\(editor, pv\)|<PreviewSwitch pv=\{pv\} onChoose=\{choosePreview\}/.test(l), `preview state used only for display: ${l.trim()}`);
+for (const l of uses) assert.ok(/useState<PreviewBg>|setPv\(p\)|setPv\(startPreview\(themeIsDark\(st\.prefs\.theme, osDark\(\)\), st\.prefs\.mailCanvas\)\)|pv-\$\{pv\}|previewVars\(pv\)|pv === "dark"|pv === "light"|, pv\]\)|setPreviewMode\(editor, pv\)|<PreviewSwitch pv=\{pv\} onChoose=\{choosePreview\}/.test(l), `preview state used only for display: ${l.trim()}`);
 assert.match(compose, /className=\{`cp-editor cp-pv pv-\$\{pv\}`\} style=\{\{ \.\.\.previewVars\(pv\), "--cp-font": base\.family, "--cp-size": `\$\{base\.size\}pt` \} as React\.CSSProperties\}/);
 assert.ok(!/useStore\.setState\(\{[^}]*pv/.test(compose) && !/setPrefs\(\{[^}]*pv/.test(compose), "no new preference, nothing persisted");
 

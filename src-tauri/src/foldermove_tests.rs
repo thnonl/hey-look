@@ -20,6 +20,10 @@ fn setup(tag: &str, fmap: &str, inbox: &[u32]) -> (Db, Account) {
     let acc = account();
     db::insert_account(&lock(&db), &acc).unwrap();
     db::set_setting(&lock(&db), &format!("fmap:{ACC}"), fmap).unwrap();
+    // (W6.1) the numbering a sync has recorded for the folders the tests act on (the fake server answers UIDVALIDITY 1)
+    for (role, name) in [("inbox", "INBOX"), ("trash", "Trash"), ("archive", "Archive"), ("junk", "Junk")] {
+        folderstate::set(&lock(&db), ACC, role, name, 1).unwrap();
+    }
     for uid in inbox {
         lock(&db)
             .execute(

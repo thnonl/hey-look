@@ -98,6 +98,14 @@ fn validate_sequence_set(value: &str) -> Result<&str> {
     Ok(value)
 }
 
+/// A part of a command that has literals (`Session::uid_search_with_literals`).
+pub enum SearchPart<'a> {
+    /// text of the command
+    Text(&'a str),
+    /// bytes sent as a literal
+    Literal(&'a [u8]),
+}
+
 /// An authenticated IMAP session providing the usual IMAP commands. This type is what you get from
 /// a succesful login attempt.
 ///
@@ -1276,6 +1284,37 @@ impl<T: Read + Write> Session<T> {
     pub fn uid_search<S: AsRef<str>>(&mut self, query: S) -> Result<HashSet<Uid>> {
         self.run_command_and_read_response(&format!("UID SEARCH {}", query.as_ref()))
             .and_then(|lines| parse_ids(&lines, &mut self.unsolicited_responses_tx))
+    }
+
+    /// Hey Look! addition: `UID SEARCH` whose command carries literals (RFC 3501 4.3), for search text that is not ASCII (`CHARSET UTF-8 TEXT {n}` + the bytes). `parts` is the
+    /// command after `UID SEARCH `, as text and literals in order: each literal is announced as `{n}` at the end of the line, the server answers `+`, the bytes follow, and the
+    /// rest of the command goes on in the same line. A server that refuses the literal (a tagged `NO` / `BAD` instead of `+`) gives that answer as the error.
+    pub fn uid_search_with_literals(&mut self, parts: &[SearchPart<'_>]) -> Result<HashSet<Uid>> {
+        let mut line = String::from("UID SEARCH ");
+        let mut first = true;
+        for p in parts {
+            match p {
+                SearchPart::Text(t) => line.push_str(t),
+                SearchPart::Literal(bytes) => {
+                    line.push_str(&format!("{{{}}}", bytes.len()));
+                    let out = if first { self.conn.create_command(&line) } else { line.clone() };
+                    first = false;
+                    self.conn.write_line(out.as_bytes())?;
+                    line.clear();
+                    let mut v = Vec::new();
+                    self.conn.readline(&mut v)?;
+                    if !v.starts_with(b"+") {
+                        // the server answered the command itself: its tag says NO or BAD
+                        let text = String::from_utf8_lossy(&v).trim_end().to_string();
+                        return Err(if text.contains(" BAD") { Error::Bad(text) } else { Error::No(text) });
+                    }
+                    self.conn.stream.write_all(bytes)?;
+                }
+            }
+        }
+        let out = if first { self.conn.create_command(&line) } else { line };
+        self.conn.write_line(out.as_bytes())?;
+        self.conn.read_response().and_then(|lines| parse_ids(&lines, &mut self.unsolicited_responses_tx))
     }
 
     // these are only here because they are public interface, the rest is in `Connection`

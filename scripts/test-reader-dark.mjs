@@ -64,6 +64,11 @@ async function waitFrame(base, pred, limit = 8000) {
 // the real pixels of the frame: a screenshot of its rectangle, drawn into a canvas in the page: the most frequent colour (the surface) and how many pixels have
 // text-like contrast (>= 4.5:1) against it
 async function pixels(tag) {
+  // The status block "Opening message…" (.rp-opening, openStatus.tsx, W13.6) is DESIGNED to cover the body area from the selection until the frame is visible, and once it is shown
+  // it stays 300 ms: in the light theme it is a light surface, so a screenshot taken under it shows white, which says nothing about the frame (fix32: every white sample of a
+  // throttled run had the block up, none without it). The frame is sampled once the block is gone, and the block must go.
+  const gone = await evaluate(`new Promise((ok) => { const t0 = performance.now(); const look = () => { if (!document.querySelector('.rp-opening')) return ok(true); if (performance.now() - t0 > 2500) return ok(false); setTimeout(look, 25); }; look(); })`);
+  check(tag, gone, 'the "Opening message…" block still covers the mail 2.5 s after the frame was shown');
   await evaluate(`document.querySelector('.msg-frame').scrollIntoView({ block: 'start' }); new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok)))`); // (two painted frames)
   await sleep(150);
   const r = await evaluate(`(() => { const b = document.querySelector('.msg-frame').getBoundingClientRect(); return [b.left, b.top, b.width, Math.min(b.height, innerHeight - b.top, 420)]; })()`);
@@ -82,6 +87,8 @@ async function pixels(tag) {
   }; im.onerror = () => ok(null); im.src = 'data:image/png;base64,${shot.data}'; })`);
 }
 
+/** Is a picture of the open mail still on its way? */
+const PENDING_IMG = `[...(document.querySelector('.msg-frame')?.contentDocument?.images ?? [])].some((i) => !i.complete)`;
 const near = (a, b, tol = 8) => a && a.every((v, i) => Math.abs(v - b[i]) <= tol);
 const sig = (st) => JSON.stringify(st.rows.map((r) => r.slice(0, 3)));
 const BUTTON = 'button[aria-pressed][aria-label="Message background: original / dark"]';
@@ -126,7 +133,8 @@ async function darkConfig(tag, { reader, theme, id = 'dk11', origMin = 4.5 }) {
   check(tag, first.ms !== null, `first open: the mail was not shown within 5 s (${JSON.stringify(st && { cls: st.cls, vis: st.bodyVis, rs: st.rs })})`);
   if (!st) return;
   check(tag, first.ms === null || Date.now() - t0 < 3500, `first open: shown after ${Date.now() - t0} ms (limit 3500)`);
-  check(tag, st.rs !== 'complete', `first open: the document was already complete (${st.rs}), so this run did not exercise a pending picture`);
+  // (since fix35 the mail is written into the frame and its document is "complete" as soon as it is parsed, whatever the pictures do: the pending picture is the image that has not loaded)
+  check(tag, await evaluate(PENDING_IMG), `first open: every picture had already loaded (document ${st.rs}), so this run did not exercise a pending picture`);
   check(tag, st.cls.split(' ').includes('hm-dark') && !st.cls.includes('hm-pend'), `first open: classes "${st.cls}"`);
   check(tag, st.hmAttr > 0 || st.sheets >= 2, `first open: the dark sheet is not in the frame`);
   check(tag, logoRequests >= 1, 'the frame did not ask for the picture (the test does not exercise a pending picture)');
@@ -134,7 +142,10 @@ async function darkConfig(tag, { reader, theme, id = 'dk11', origMin = 4.5 }) {
   await readable(tag, 'first open', DARK, st);
   const S1 = sig(st);
   // 2. the picture arrives: nothing changes
-  const done = await waitFrame(DARK, (s) => s.rs === 'complete', SLOW_MS + 4000);
+  const t1 = Date.now();
+  while (Date.now() - t1 < SLOW_MS + 4000 && await evaluate(PENDING_IMG)) await sleep(60);
+  const done = await waitFrame(DARK, () => true, 2000);
+  if (await evaluate(PENDING_IMG)) done.ms = null;
   check(tag, done.ms !== null, 'the picture never completed');
   if (done.state) { check(tag, sig(done.state) === S1, 'after the picture arrived the colours differ from the first look'); check(tag, !done.state.cls.includes('hm-pend') && done.state.bodyVis === 'visible', 'after the picture arrived the mail is hidden'); }
   // 3. original, then dark again (the button): the dark result is the first look
@@ -196,12 +207,61 @@ async function lightConfig(tag) {
   check(tag, blocked[0] === 0 && blocked[1] >= 1, `light: remote picture not blocked (img with src ${blocked[0]}, placeholders ${blocked[1]})`);
   await sleep(500);
   check(tag, logoRequests === 0, `light: the blocked picture was asked for ${logoRequests} time(s)`);
-  // the dark background in the light theme
-  await evaluate(`window.__store.getState().setPrefs({ mailCanvas: 'dark' }); 1`);
+  // the dark background in the light theme is the session choice of the button (WP13g): nothing is stored
+  const { click } = inputs(H, null, tag);
+  await click(BUTTON);
   const d = await waitFrame(DARK, (s) => s.cls.includes('hm-dark') && !s.cls.includes('hm-pend') && s.bodyVis === 'visible', 3000);
   check(tag, d.ms !== null, 'light theme, dark background: the mail was not shown');
   if (d.state) await readable(tag, 'light theme, dark background', DARK, d.state);
   check(tag, logoRequests === 0, `light theme, dark background: the blocked picture was asked for ${logoRequests} time(s)`);
+  check(tag, await evaluate(`window.__store.getState().prefs.mailCanvas === 'original' && window.__store.getState().mailCanvasSession === 'dark'`), 'light theme, dark background: the choice was stored (it is for this session only)');
+}
+
+/** WP13g (DEC-025): a stored dark message background does not show in the light theme: the mail is the original (white, nothing recoloured, nothing hidden); the stored value stays. */
+async function lightStoredDark(tag) {
+  logoRequests = 0;
+  await cdp('Emulation.setEmulatedMedia', { media: '', features: [{ name: 'prefers-color-scheme', value: 'light' }] });
+  await H.openApp('lang=en', 1280, 900);
+  await evaluate(`window.__store.getState().setPrefs({ theme: 'light', mailCanvas: 'dark', loadRemote: true }); window.__store.getState().select('dk11'); 1`);
+  const o = await waitFrame(WHITE, (s) => s.text > 300, 5000);
+  check(tag, o.ms !== null, 'light theme, stored dark: the mail was not shown');
+  const st = o.state;
+  if (st) {
+    check(tag, st.cls === '' && st.bodyVis === 'visible', `light theme, stored dark: classes "${st.cls}", body ${st.bodyVis}`);
+    check(tag, st.hmAttr === 0, 'light theme, stored dark: elements were recoloured');
+    check(tag, st.min >= 4.3, `light theme, stored dark: lowest text contrast ${st.min}:1`);
+    await readable(tag, 'light theme, stored dark', WHITE, st);
+  }
+  check(tag, await evaluate(`window.__store.getState().prefs.mailCanvas === 'dark'`), 'the stored value was changed');
+  const pressed = await evaluate(`document.querySelector('${BUTTON}').getAttribute('aria-pressed')`);
+  check(tag, pressed === 'false', `light theme, stored dark: the button says pressed=${pressed}`);
+}
+
+/** WP13g: the button in the light theme gives the dark background for this session: it reads, stays for another mail, is the same after switching back, and the next press gives the original. */
+async function lightSessionDark(tag) {
+  logoRequests = 0;
+  await cdp('Emulation.setEmulatedMedia', { media: '', features: [{ name: 'prefers-color-scheme', value: 'light' }] });
+  await H.openApp('lang=en', 1280, 900);
+  await evaluate(`window.__store.getState().setPrefs({ theme: 'light', mailCanvas: 'original', loadRemote: true }); window.__store.getState().select('dk12'); 1`);
+  const o = await waitFrame(WHITE, (s) => s.text > 300, 5000);
+  check(tag, o.ms !== null && o.state.cls === '', 'light theme: the mail did not show on the original background');
+  const { click } = inputs(H, null, tag);
+  await click(BUTTON);
+  const first = await waitFrame(DARK, (s) => s.cls.includes('hm-dark') && !s.cls.includes('hm-pend') && s.bodyVis === 'visible' && s.text > 300, 4000);
+  check(tag, first.ms !== null, 'session dark: the mail did not turn dark');
+  if (first.state) await readable(tag, 'session dark', DARK, first.state);
+  check(tag, await evaluate(`window.__store.getState().prefs.mailCanvas === 'original'`), 'session dark: the choice was stored');
+  // another mail, and back: still dark (the session lasts), the same colours
+  await open('dk1');
+  const other = await waitFrame(DARK, (s) => s.text > 20 && !s.cls.includes('hm-pend'), 3000);
+  check(tag, other.ms !== null && other.state.cls.includes('hm-dark'), 'session dark: another mail did not open dark');
+  await open('dk12');
+  const back = await waitFrame(DARK, (s) => s.cls.includes('hm-dark') && !s.cls.includes('hm-pend') && s.bodyVis === 'visible' && s.text > 300, 3000);
+  check(tag, back.ms !== null, 'session dark: the mail did not come back dark');
+  if (back.state && first.state) check(tag, sig(back.state) === sig(first.state), 'session dark: the colours differ after switching away and back');
+  await click(BUTTON);
+  const orig = await waitFrame(WHITE, (s) => !s.cls.includes('hm-dark'), 3000);
+  check(tag, orig.ms !== null && orig.state.bodyVis === 'visible' && near(orig.state.bodyBg.match(/\d+/g).map(Number), WHITE, 2), 'session dark: the second press did not give the original');
 }
 
 /** Other dark fixtures: shown at once, readable (the rest of the dark rendering is checked by __darkCheck, devDarkCheck.ts). */
@@ -217,14 +277,21 @@ async function otherFixtures(tag) {
   }
 }
 
+// --only=<configuration> --repeat=<n>: one configuration n times in a row (hunting an intermittent failure; the checks are the same)
+const ONLY = arg('only'), REPEAT = Number(arg('repeat') || 1);
+const CONFIGS = [
+  ['main-dark', () => darkConfig('main-dark', { reader: false, theme: 'dark' }), true],
+  ['reader-dark', () => darkConfig('reader-dark', { reader: true, theme: 'dark' }), true],
+  ['main-dark-styled', () => darkConfig('main-dark-styled', { reader: false, theme: 'dark', id: 'dk12', origMin: 4.3 }), true], // (the sender's own grey text on white is 4.4:1)
+  ['main-light', () => lightConfig('main-light'), false],
+  ['main-light-theme-dark-canvas', () => lightStoredDark('main-light-theme-dark-canvas'), false], // (WP13g: the stored dark does not show in the light theme)
+  ['main-light-theme-session-dark', () => lightSessionDark('main-light-theme-session-dark'), false],
+  ['fixtures', () => otherFixtures('fixtures'), false],
+];
 try {
-  await darkConfig('main-dark', { reader: false, theme: 'dark' });
-  await darkConfig('reader-dark', { reader: true, theme: 'dark' });
-  await darkConfig('main-dark-styled', { reader: false, theme: 'dark', id: 'dk12', origMin: 4.3 }); // (the sender's own grey text on white is 4.4:1)
-  if (!QUICK) {
-    await lightConfig('main-light');
-    await darkConfig('main-light-theme-dark-canvas', { reader: false, theme: 'light' });
-    await otherFixtures('fixtures');
+  for (const [name, run, quick] of CONFIGS) {
+    if (ONLY ? name !== ONLY : !quick && QUICK) continue;
+    for (let i = 0; i < (ONLY ? REPEAT : 1); i++) await run();
   }
 } catch (e) {
   fail('run', e && e.stack ? e.stack : String(e));

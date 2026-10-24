@@ -84,6 +84,9 @@ pub enum K {
     MacHideOthers,
     MacShowAll,
     MacPasteMatch,
+    MacSettings,
+    MacPrint,
+    MacHelp,
     ActArchive,
     ActDelete,
     ActRead,
@@ -123,7 +126,7 @@ pub enum K {
 /// Every text key; the tests walk it (the app itself matches on `K`).
 #[cfg(test)]
 pub const ALL: &[K] = &[
-    K::TrayOpen, K::TrayCompose, K::TraySync, K::TrayPause, K::TrayQuit, K::MacQuit, K::MacAbout, K::MacServices, K::MacHide, K::MacHideOthers, K::MacShowAll, K::MacPasteMatch, K::ActArchive, K::ActDelete, K::ActRead, K::ActFlag,
+    K::TrayOpen, K::TrayCompose, K::TraySync, K::TrayPause, K::TrayQuit, K::MacQuit, K::MacAbout, K::MacServices, K::MacHide, K::MacHideOthers, K::MacShowAll, K::MacPasteMatch, K::MacSettings, K::MacPrint, K::MacHelp, K::ActArchive, K::ActDelete, K::ActRead, K::ActFlag,
     K::ActReply, K::ActSnooze, K::TrayHintTitle, K::TrayHintMac, K::TrayHintLinux, K::TrayHintOther, K::TestTitle, K::TestLine1, K::TestLine2,
     K::EveryDay, K::EveryMonth, K::EveryYear, K::SaveAttachmentsTo, K::ChooseKeyFile,
     K::OpenPgpKeys, K::CalendarFile, K::SavePublicKey, K::SaveKeyBackup,
@@ -147,6 +150,10 @@ fn texts(k: K) -> [&'static str; 3] {
         K::MacShowAll => ["Show All", "Hiện tất cả", "Tout afficher"],
         // the Edit menu's item next to Paste (the words macOS shows for it in each language)
         K::MacPasteMatch => ["Paste and Match Style", "Dán và khớp kiểu", "Coller et adapter le style"],
+        // the macOS menu bar items of W5.11 (the words macOS shows in each language: Settings…, File > Print…, Help > <app> Help)
+        K::MacSettings => ["Settings…", "Cài đặt…", "Réglages…"],
+        K::MacPrint => ["Print…", "In…", "Imprimer…"],
+        K::MacHelp => ["Hey Look! Help", "Trợ giúp Hey Look!", "Aide Hey Look!"],
         K::ActArchive => ["Archive", "Lưu trữ", "Archiver"],
         K::ActDelete => ["Delete", "Xóa", "Supprimer"],
         K::ActRead => ["Mark as read", "Đánh dấu đã đọc", "Marquer comme lu"],
@@ -560,6 +567,36 @@ mod tests {
             assert!(!text.trim().is_empty() && !text.contains("Hey Look!"), "{l:?}: {text:?}");
             if l != Lang::En {
                 assert_ne!(text, en(K::MacPasteMatch), "{l:?} is still English");
+            }
+        }
+    }
+
+    /// W5.11 (DEC-026): Settings…, File > Print… and Help > Hey Look! Help in every language, exactly as agreed with the language specialists (Apple's own forms: German with a
+    /// space before the ellipsis, Japanese プリント and a space before ヘルプ, French Réglages). Each follows a language switch at once (shell.rs `refresh_language`).
+    #[test]
+    fn the_menu_bar_items_of_w5_11_read_as_agreed() {
+        let want: [(Lang, [&str; 3]); 8] = [
+            (Lang::En, ["Settings…", "Print…", "Hey Look! Help"]),
+            (Lang::Vi, ["Cài đặt…", "In…", "Trợ giúp Hey Look!"]),
+            (Lang::Fr, ["Réglages…", "Imprimer…", "Aide Hey Look!"]),
+            (Lang::ZhHans, ["设置…", "打印…", "Hey Look!帮助"]),
+            (Lang::Es, ["Ajustes…", "Imprimir…", "Ayuda de Hey Look!"]),
+            (Lang::Ja, ["設定…", "プリント…", "Hey Look! ヘルプ"]),
+            (Lang::De, ["Einstellungen …", "Drucken …", "Hey Look!-Hilfe"]),
+            (Lang::Ru, ["Настройки…", "Напечатать…", "Справка Hey Look!"]),
+        ];
+        assert_eq!(want.len(), LANGS.len());
+        for (l, texts) in want {
+            for (k, text) in [K::MacSettings, K::MacPrint, K::MacHelp].into_iter().zip(texts) {
+                assert!(ALL.contains(&k), "{k:?} is not in ALL");
+                assert_eq!(tr_in(l, k), text, "{l:?} {k:?}");
+            }
+        }
+        // the three differ from each other and from the other items of the same menu in every language
+        for l in LANGS {
+            let mut seen = std::collections::HashSet::new();
+            for k in [K::MacAbout, K::MacSettings, K::MacServices, K::MacHide, K::MacHideOthers, K::MacShowAll, K::MacQuit, K::MacPrint, K::MacHelp] {
+                assert!(seen.insert(tr_in(l, k)), "{l:?} {k:?}: the same text as another menu bar item");
             }
         }
     }

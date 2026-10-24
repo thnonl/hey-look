@@ -16,6 +16,8 @@
   "node --experimental-strip-types scripts/test-send-size.mjs": 0,
   "node --experimental-strip-types scripts/test-from-account.mjs": 0,
   "node --experimental-strip-types scripts/test-attach-name.mjs": 0,
+  "node --experimental-strip-types scripts/test-folder-name.mjs": 0,
+  "node --experimental-strip-types scripts/test-link-check.mjs": 0,
   "node --experimental-strip-types scripts/test-link-url.mjs": 0,
   "node scripts/test-csp-ready.mjs": 0,
   "node --experimental-strip-types scripts/test-update-result.mjs": 0,
@@ -248,6 +250,10 @@
   "node --experimental-strip-types scripts/test-calendar-series-ui.mjs --quick --require-browser": 75,
   "node --experimental-strip-types scripts/test-caldav-dialog.mjs --quick --require-browser": 60,
   "node --experimental-strip-types scripts/test-calendar-move.mjs": 1,
-  "node --experimental-strip-types scripts/test-calendar-move-ui.mjs --quick --require-browser": 70
+  "node --experimental-strip-types scripts/test-calendar-move-ui.mjs --quick --require-browser": 70,
+  "node scripts/test-folder-reset.mjs --require-browser": 20,
+  "node scripts/test-update-toast.mjs --require-browser": 25,
+  "node scripts/test-prune-limit.mjs --require-browser": 20,
+  "node scripts/test-server-search-ui.mjs --require-browser": 40
  }
 }

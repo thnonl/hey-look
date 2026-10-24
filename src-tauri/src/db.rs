@@ -146,6 +146,9 @@ pub fn migrate(conn: &Connection) -> R<()> {
     // draft the message was written from, removed once it is sent.
     add_column(conn, "ALTER TABLE outbox ADD COLUMN undo INTEGER NOT NULL DEFAULT 0")?;
     add_column(conn, "ALTER TABLE outbox ADD COLUMN replaces TEXT")?;
+    // (W6.5) the SMTP server accepted the message at `smtp_done_at`; `sent_raw` = the bytes of its Sent copy, kept until the copy is stored. A row with the marker is never sent again.
+    add_column(conn, "ALTER TABLE outbox ADD COLUMN smtp_done_at INTEGER")?;
+    add_column(conn, "ALTER TABLE outbox ADD COLUMN sent_raw BLOB")?;
     // (messages: pgp = 1 encrypted / 2 signed with the raw message kept for those, ics + cal_method for invitations: see shard.rs)
     // signatures / templates / filter rules can apply to one account (NULL = every account)
     for t in ["rules", "signatures", "templates"] {

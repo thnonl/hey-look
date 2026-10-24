@@ -3,6 +3,7 @@ import { Channel, invoke as tauriInvoke, type InvokeArgs, type InvokeOptions } f
 import { DATA_CHANGING } from "./popout/windowKinds";
 import { slimDraft } from "./draftUpload";
 import { t } from "./i18n";
+import { unpackThread } from "./threadPack";
 import type { RecoveredDraft, RecoveryInfo, RecoveryLoaded, SnapshotOut } from "./recovery";
 import type { PopoutKind } from "./popout/route";
 import type { Importance } from "./importance";
@@ -439,6 +440,33 @@ export interface ThreadFilter {
 
 export type SearchScope = "current" | "account" | "all";
 
+/** A message the mail server has and this computer does not (headers only), from "Search on the server" (W6.7). */
+export interface ServerRow {
+  accountId: string;
+  role: string;
+  uid: number;
+  /** the UIDVALIDITY the UID was read under */
+  validity: number | null;
+  subject: string;
+  fromName: string;
+  fromEmail: string;
+  date: number;
+  seen: boolean;
+  flagged: boolean;
+  hasAttach: boolean;
+}
+
+export interface ServerSearchResult {
+  rows: ServerRow[];
+  /** more were found than the newest 200 shown */
+  capped: boolean;
+  errors: { accountId: string; error: string }[];
+  /** `is:pinned` / `is:snoozed` were left out (they are known on this computer only) */
+  localOnly: boolean;
+  /** a newer search or Cancel made this one stale */
+  cancelled: boolean;
+}
+
 export interface LoadOlderResult {
   added: number;
   /** the server has nothing older in that folder */
@@ -661,6 +689,8 @@ export const api = {
   openExternal: (url: string) => invoke<void>("open_external", { url }),
   /** macOS Print (W5.3): the print document (printDoc.ts) and the job title; the system print sheet opens on the calling window. */
   printHtml: (html: string, title: string) => invoke<void>("print_html", { html, title }),
+  /** macOS: whether this window shows a message that can be printed now; File > Print… in the menu bar follows the window with the focus (macMenu.ts, W5.11) */
+  macMenuState: (canPrint: boolean) => invoke<void>("mac_menu_state", { canPrint }),
   /** text on the system clipboard through the backend (Linux only; see open.ts) */
   copyText: (text: string) => invoke<void>("copy_text", { text }),
   /** the text and the HTML on the system clipboard through the backend (macOS only: Cmd+Shift+V in the editors, see editor/pasteOptions.tsx) */
@@ -676,8 +706,9 @@ export const api = {
   /** Which list has a conversation (a click on its notification opens it there, notifyOpen.ts); null = it is not on this computer. */
   locateThread: (threadId: string) => invoke<ThreadHome | null>("locate_thread", { threadId }),
   /** `light`: without the bodies (`html`, `text`) - for a caller that reads what it needs itself (opening a draft: `draftEditorParts`). An encrypted message is still opened, for its `security`. */
-  getThread: (threadId: string, scope?: string, light?: boolean) =>
-    invoke<MessageFull[]>("get_thread", { threadId, scope: scope ?? null, light: light ?? null }),
+  getThread: async (threadId: string, scope?: string, light?: boolean): Promise<MessageFull[]> =>
+    // (the bodies come as raw bytes in one buffer, not as a JSON string: threadPack.ts; nothing here keeps the buffer)
+    unpackThread(await invoke<ArrayBuffer>("get_thread_packed", { threadId, scope: scope ?? null, light: light ?? null })),
   threadAction: (threadIds: string[], action: string, arg?: string, scope?: string) =>
     invoke<void>("thread_action", { threadIds, action, arg: arg ?? null, scope: scope ?? null }),
   /**
@@ -692,6 +723,14 @@ export const api = {
   cancelAction: (id: string) => invoke<boolean>("cancel_action", { id }),
   /** Downloads up to `limit` (max 50) messages older than what is stored. Rejects with the server's error; never turns it into "none". */
   loadOlder: (accountId: string, role: string, limit = 50) => invoke<LoadOlderResult>("load_older", { accountId, role, limit }),
+  /** Search the mail server(s) with the words and scope of the local search; headers only, nothing is stored (W6.7). */
+  serverSearch: (filter: ThreadFilter) => invoke<ServerSearchResult>("server_search", { filter }),
+  /** Stop the running server search (its connections are closed). */
+  serverSearchCancel: () => invoke<void>("server_search_cancel"),
+  /** Download one message of a server row and store it; resolves to its conversation. */
+  serverOpen: (accountId: string, role: string, uid: number, validity: number | null) => invoke<string>("server_open", { accountId, role, uid, validity }),
+  /** The download limit was lowered (W6.3): every mailbox is brought to it at once, except the conversations in `keepThreads` (and the ones in reader windows). Resolves to how many messages went. */
+  pruneToLimit: (keepThreads: string[]) => invoke<number>("prune_to_limit", { keepThreads }),
   attachmentData: (messageId: string, index: number) =>
     invoke<{ name: string; mime: string; dataBase64: string }>("attachment_data", { messageId, index }),
   setSecret: (name: SecretName, value: string) => invoke<void>("set_secret", { name, value }),

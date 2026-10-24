@@ -492,6 +492,16 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
 .ml-float .ml-group { position: absolute; left: 0; right: 0; top: 0; }
 .ml-foot { padding: 14px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .ml-foot .spin { margin-right: 4px; }
+/* Search on the server (W6.7): the button, the running line, the heading and the rows at the end of the results */
+/* every state of the footer is at least as tall as the idle one (the button), and the running state is one line like it: starting a search does not move the list (WK-37.02) */
+.ml-srv { padding: 12px 14px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; box-sizing: border-box; min-height: 48px; }
+.ml-srv .ml-row { content-visibility: visible; } /* the rows below the fold are drawn at their real height, like the list's own (the skipped ones took the 78 px of .ml-row) */
+.ml-srv-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 10px; min-height: 24px; }
+.ml-srv section { width: 100%; text-align: left; }
+.ml-srv-head { margin: 4px 0 6px; padding: 0 2px; font-size: 12px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--muted); }
+.ml-srv-rows { display: block; }
+.ml-srv-err { word-break: break-word; overflow-wrap: anywhere; }
+.ml-srv section > .muted { padding: 8px 2px; text-align: center; }
 .gmail-search { display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: 100%; }
 .gmail-search .btn { max-width: 100%; flex-direction: column; gap: 0; }
 .gs-main { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -565,7 +575,14 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
 .rp-body .summary { margin: 10px 0; }
 /* "Opening message…" over the body area while the open message's frame is not visible yet (W13.6, openStatus.tsx): no scrolling, the block covers the area */
 .rp-body.opening { position: relative; overflow: hidden; }
-.rp-opening { position: absolute; top: 0; right: 0; bottom: 0; left: 0; z-index: 2; margin: 0; max-width: none; justify-content: center; background: var(--bg); }
+/* "Opening message…" (W13.6): ONE surface over the whole body area (not the 34em box of .reader-state, which a later rule would otherwise give back), in the colour the mail has there once it is
+   shown (mailCanvas.ts: #fff for the original canvas, DARK_CANVAS for the dark one), the text and the ring in the colours that read on it. Same box as the area, so nothing moves when the mail replaces it. */
+.rp-body > .rp-opening { position: absolute; top: 0; right: 0; bottom: 0; left: 0; z-index: 2; margin: 0; width: auto; max-width: none; box-sizing: border-box; justify-content: center; }
+.rp-body > .rp-opening.on-light { background: #ffffff; color: #5b6470; }
+.rp-body > .rp-opening.on-dark { background: #1b1c20; color: #a2a8b3; }
+.rp-opening p { color: inherit; }
+.rp-opening.on-light .spin { border-color: #d3d7dd; border-top-color: var(--accent); }
+.rp-opening.on-dark .spin { border-color: #3d4048; border-top-color: var(--accent); }
 .tr-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
 /* the sentence keeps a readable width and the time + Cancel drop to their own line when the card is narrow (a long translated sentence used to be squeezed to three lines) */
 .tr-main { display: flex; align-items: center; gap: 8px; flex: 1 1 15em; min-width: 0; }
@@ -836,7 +853,7 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 .ask-back { z-index: var(--z-ask); }
 .ask { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow); width: 440px; max-width: 92vw; padding: 20px 22px; animation: pop .16s var(--ease); }
 .ask h3 { font-size: 1.15em; margin-bottom: 6px; }
-.ask p { margin: 0 0 16px; line-height: 1.5; }
+.ask p { margin: 0 0 16px; line-height: 1.5; word-break: break-word; overflow-wrap: anywhere; } /* (W6.14) a long xn-- host of the link warning stays inside the box */
 .ask-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
 
 /* ===== settings ===== */

@@ -1,0 +1,2 @@
+/* W5.11: the reason macOS shows the first time the print window looks for printers on the local network */
+"NSLocalNetworkUsageDescription" = "Hey Look!仅在您打印时使用本地网络来查找打印机。";

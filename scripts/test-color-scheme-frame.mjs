@@ -37,12 +37,13 @@ const open = async (id, os, theme, canvas, w = 1280, h = 800) => {
   await cdp('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: false });
   await cdp('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: os }] });
   await H.openApp('lang=en', w, h);
-  await evaluate(`window.__store.getState().setPrefs({ theme: ${JSON.stringify(theme)}, mailCanvas: ${JSON.stringify(canvas)} }); 1`);
+  // (WP13g: in the dark app theme the Dark background is the stored choice; in the light theme it is the session choice of the button, nothing is stored)
+  await evaluate(`window.__store.getState().setPrefs({ theme: ${JSON.stringify(theme)}, mailCanvas: ${JSON.stringify(theme === 'dark' ? canvas : 'original')} }); window.__store.getState().setMailCanvasSession(${JSON.stringify(theme !== 'dark' && canvas === 'dark' ? 'dark' : null)}); 1`);
   await evaluate(`(async () => { window.__mockAddThread(${JSON.stringify(id)}, 'Newsletter ${id}', { html: ${JSON.stringify(id === 'n1' ? N1 : PLAIN)}, fromName: 'News', fromEmail: 'news@example.org' }); await window.__store.getState().refresh(); await window.__store.getState().select(${JSON.stringify(id)}); return 1; })()`);
   assert.ok(await waitFor(`!!document.querySelector('.msg-frame')?.contentDocument?.querySelector('p')`), 'the mail did not open');
   await sleep(700); // (the dark presentation is recoloured on load)
 };
-const toggle = () => evaluate(`window.__store.getState().setPrefs({ mailCanvas: window.__store.getState().prefs.mailCanvas === 'dark' ? 'original' : 'dark' }); 1`);
+const toggle = () => evaluate(`(() => { const s = window.__store.getState(); if (s.prefs.theme === 'dark') s.setPrefs({ mailCanvas: s.prefs.mailCanvas === 'dark' ? 'original' : 'dark' }); else s.setMailCanvasSession(s.mailCanvasSession === 'dark' ? null : 'dark'); return 1; })()`);
 
 try {
   await check('AC-5.5.1 OS dark + app Light + Original: light body, light logo, light picture, the mail\'s dark-only blocks off', async () => {
@@ -94,7 +95,7 @@ try {
   });
   await check('AC-5.5.3 a mail without colour-scheme rules looks the same in both backgrounds (nothing of it is rewritten)', async () => {
     await open('p1', 'dark', 'light', 'original');
-    const srcOriginal = await evaluate(`document.querySelector('.msg-frame').getAttribute('srcdoc')`);
+    const srcOriginal = await evaluate(`document.querySelector('.msg-frame').contentDocument.documentElement.outerHTML`);
     assert.ok(!srcOriginal.includes('data-hm-orig'), 'no element was marked');
     assert.ok(srcOriginal.includes('A plain mail without any colour-scheme rule.'));
     await toggle();

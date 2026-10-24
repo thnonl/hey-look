@@ -68,6 +68,8 @@ export type DialogReq = { type: "settings"; tab?: string; focus?: string } | { t
 export type Parsed =
   | { kind: "thread-action"; req: ThreadActionReq }
   | { kind: "prefs"; patch: Record<string, unknown> }
+  /** the light theme's session mail background (WP13g): `dark` sets (true) or takes off (false) the override, null only asks for it */
+  | { kind: "canvas-session"; dark: boolean | null }
   | { kind: "compose"; req: ComposeReq }
   | { kind: "compose-new"; req: ComposeNewReq }
   | { kind: "import-key"; messageId: string; index: number }
@@ -114,6 +116,9 @@ export function parseRequest(kind: string, payload: unknown, ctx?: RequestCtx): 
       if (!prefsPatchAllowed(ctx?.from ?? "", p, ctx?.prefKeys ?? [])) return { error: "prefs: only mailCanvas" };
       return { kind: "prefs", patch: ctx?.from?.startsWith("settings-") ? p : { mailCanvas: p.mailCanvas } };
     }
+    case "canvas-session":
+      // any reader may set or ask for it; it is a view choice of this run and stores nothing (the main page ignores a set while the app theme is dark)
+      return { kind: "canvas-session", dark: typeof p.dark === "boolean" ? p.dark : null };
     case "toast": {
       // an event window that saved or deleted and ends: the toast is made here (REQ-4.6.7). Only an event window.
       const text = str(p.text)?.trim();

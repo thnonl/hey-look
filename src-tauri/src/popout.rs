@@ -143,12 +143,12 @@ impl Kind {
     /// Default size, logical pixels, outer (frame and title bar included; REQ-W3).
     pub fn default_size(self) -> (f64, f64) {
         match self {
-            Kind::Compose => (760.0, 680.0),
-            Kind::Reader => (820.0, 720.0),
-            Kind::Event => (640.0, 720.0),
-            Kind::Settings => (900.0, 680.0),
-            Kind::Search => (760.0, 720.0),
-            Kind::Scheduled => (720.0, 640.0),
+            Kind::Compose => (960.0, 780.0),
+            Kind::Reader => (1040.0, 820.0),
+            Kind::Event => (760.0, 780.0),
+            Kind::Settings => (1040.0, 760.0),
+            Kind::Search => (960.0, 780.0),
+            Kind::Scheduled => (860.0, 700.0),
         }
     }
 
@@ -597,6 +597,11 @@ fn log(what: &str) {
 pub fn ready_labels(app: &AppHandle) -> Vec<String> {
     let labels = reg(app).ready_labels();
     labels.into_iter().filter(|l| app.get_webview_window(l).is_some()).collect()
+}
+
+/// The conversations the reader windows show (their keys, W6.3): a prune that lowers the download limit keeps them.
+pub fn reader_keys(app: &AppHandle) -> Vec<String> {
+    reg(app).entries.iter().filter(|e| e.kind == Kind::Reader).flat_map(|e| e.keys.iter().cloned()).collect()
 }
 
 /// Bring a secondary window to the front (also from the tray or minimized).
@@ -1651,8 +1656,8 @@ mod tests {
             let (w, h) = (k.default_size(), k.min_size());
             assert!(w.0 > h.0 && w.1 > h.1, "the default is larger than the minimum");
         }
-        assert_eq!(Kind::Compose.default_size(), (760.0, 680.0));
-        assert_eq!(Kind::Reader.default_size(), (820.0, 720.0));
+        assert_eq!(Kind::Compose.default_size(), (960.0, 780.0));
+        assert_eq!(Kind::Reader.default_size(), (1040.0, 820.0));
         assert_eq!(Kind::Compose.min_size(), (560.0, 440.0));
         assert_eq!(Kind::Reader.min_size(), (520.0, 400.0));
         assert_ne!(Kind::Compose.setting_key(), Kind::Reader.setting_key());
@@ -1662,12 +1667,12 @@ mod tests {
     #[test]
     fn every_window_kind_has_its_label_size_and_setting_key() {
         let want = [
-            (Kind::Compose, "compose", "window.compose", (760.0, 680.0), (560.0, 440.0)),
-            (Kind::Reader, "reader", "window.reader", (820.0, 720.0), (520.0, 400.0)),
-            (Kind::Event, "event", "window.event", (640.0, 720.0), (480.0, 480.0)),
-            (Kind::Settings, "settings", "window.settings", (900.0, 680.0), (720.0, 500.0)),
-            (Kind::Search, "search", "window.search", (760.0, 720.0), (520.0, 400.0)),
-            (Kind::Scheduled, "scheduled", "window.scheduled", (720.0, 640.0), (520.0, 400.0)),
+            (Kind::Compose, "compose", "window.compose", (960.0, 780.0), (560.0, 440.0)),
+            (Kind::Reader, "reader", "window.reader", (1040.0, 820.0), (520.0, 400.0)),
+            (Kind::Event, "event", "window.event", (760.0, 780.0), (480.0, 480.0)),
+            (Kind::Settings, "settings", "window.settings", (1040.0, 760.0), (720.0, 500.0)),
+            (Kind::Search, "search", "window.search", (960.0, 780.0), (520.0, 400.0)),
+            (Kind::Scheduled, "scheduled", "window.scheduled", (860.0, 700.0), (520.0, 400.0)),
         ];
         assert_eq!(want.len(), KINDS.len());
         for (i, (k, name, key, def, min)) in want.into_iter().enumerate() {
@@ -2147,18 +2152,18 @@ mod tests {
     #[test]
     fn the_default_is_centred_over_the_main_window() {
         let p = place(Kind::Compose, None, &big(), Some(rect(100, 50, 1280, 800)), None);
-        // 760 x 680, centre of main = (740, 450)
-        assert_eq!(p.rect, Some(rect(360, 110, 760, 680)));
-        assert_eq!(p.size, (760.0, 680.0));
+        // 960 x 780, centre of main = (740, 450)
+        assert_eq!(p.rect, Some(rect(260, 60, 960, 780)));
+        assert_eq!(p.size, (960.0, 780.0));
         let p = place(Kind::Reader, None, &big(), Some(rect(100, 50, 1280, 800)), None);
-        assert_eq!(p.rect.map(|r| (r.w, r.h)), Some((820, 720)));
+        assert_eq!(p.rect.map(|r| (r.w, r.h)), Some((1040, 820)));
     }
 
     #[test]
     fn without_a_visible_main_window_the_primary_monitor_is_used() {
         let mons = vec![mon(0, 0, 1920, 1040, 1.0, false), mon(1920, 0, 2560, 1400, 1.0, true)];
         let p = place(Kind::Compose, None, &mons, None, None).rect.unwrap();
-        assert_eq!((p.x, p.y), (1920 + (2560 - 760) / 2, (1400 - 680) / 2));
+        assert_eq!((p.x, p.y), (1920 + (2560 - 960) / 2, (1400 - 780) / 2));
     }
 
     #[test]
@@ -2166,25 +2171,50 @@ mod tests {
         // the 1620 x 648 display of QA round 8: at most 583 px high
         let mons = vec![mon(0, 0, 1620, 648, 1.0, true)];
         let r = place(Kind::Compose, None, &mons, None, None).rect.unwrap();
-        assert_eq!((r.w, r.h), (760, 583));
+        assert_eq!((r.w, r.h), (960, 583));
         assert!(mons[0].work.contains(&r));
         // and the minimum is respected where the area allows it (440 <= 583)
         let r = place(Kind::Reader, None, &mons, None, None).rect.unwrap();
-        assert_eq!((r.w, r.h), (820, 583));
+        assert_eq!((r.w, r.h), (1040, 583));
         // a tiny area: the window is the area, no larger
         let tiny = vec![mon(0, 0, 500, 300, 1.0, true)];
         let r = place(Kind::Compose, None, &tiny, None, None).rect.unwrap();
         assert!(r.w <= 500 && r.h <= 300, "{r:?}");
     }
 
+    /// fix34 (owner: the defaults are larger): on a laptop screen every default is cut to 90 % of the work area, so the whole window, title bar included, is on screen; a size the
+    /// person chose still wins over the default.
+    #[test]
+    fn the_larger_defaults_still_fit_a_laptop_screen_and_a_saved_size_still_wins() {
+        // 1366 x 768 with the task bar (40 px): work area 1366 x 728; 1280 x 720 with the task bar: 1280 x 680; a 1536 x 864 logical screen at 125 % (physical 1920 x 1080, work 1920 x 1040)
+        for (work, scale) in [((1366, 728), 1.0), ((1280, 680), 1.0), ((1920, 1040), 1.25)] {
+            let mons = vec![mon(0, 0, work.0, work.1, scale, true)];
+            for k in KINDS {
+                let r = place(k, None, &mons, None, None).rect.unwrap();
+                assert!(mons[0].work.contains(&r), "{k:?} on {work:?}: {r:?} is not inside the work area");
+                assert!(r.w <= (work.0 as f64 * 0.9) as i32 && r.h <= (work.1 as f64 * 0.9) as i32, "{k:?} on {work:?}: {r:?} is more than 90 % of the area");
+                let (min_w, min_h) = k.min_size();
+                assert!(r.w >= (min_w * scale) as i32 && r.h >= (min_h * scale) as i32, "{k:?} on {work:?}: {r:?} is below the minimum");
+            }
+        }
+        // the compose window on 1366 x 728: 960 wide (a 1229 cap), 655 high (90 % of 728), centred over the primary monitor
+        let mons = vec![mon(0, 0, 1366, 728, 1.0, true)];
+        let r = place(Kind::Compose, None, &mons, None, None).rect.unwrap();
+        assert_eq!((r.w, r.h), (960, 655));
+        assert_eq!((r.x, r.y), (683 - 480, 364 - 327), "centred: centre of the area minus half the window");
+        // what the person resized to is kept, the default only applies to the first open of a kind
+        let saved_size = place(Kind::Compose, Some(&saved(100, 40, 700.0, 600.0)), &mons, None, None).rect.unwrap();
+        assert_eq!((saved_size.w, saved_size.h), (700, 600));
+    }
+
     #[test]
     fn sizes_follow_the_scale_of_the_monitor() {
-        // 150 %: 760 x 680 logical = 1140 x 1020 physical, inside 90 % of 2560 x 1400 (the height 1020 <= 1260)
+        // 150 %: 960 x 780 logical = 1440 x 1170 physical, inside 90 % of 2560 x 1400 (the height 1170 <= 1260)
         let mons = vec![mon(0, 0, 2560, 1400, 1.5, true)];
         let p = place(Kind::Compose, None, &mons, None, None);
         let r = p.rect.unwrap();
-        assert_eq!((r.w, r.h), (1140, 1020));
-        assert_eq!(p.size, (760.0, 680.0), "the logical size asked of the window system");
+        assert_eq!((r.w, r.h), (1440, 1170));
+        assert_eq!(p.size, (960.0, 780.0), "the logical size asked of the window system");
     }
 
     #[test]
@@ -2229,7 +2259,7 @@ mod tests {
         assert_eq!((r.w, r.h), (560, 440), "the minimum of the kind");
         // a nonsense size falls back to the default
         let r = place(Kind::Compose, Some(&saved(10, 10, 0.0, -3.0)), &mons, None, None).rect.unwrap();
-        assert_eq!(r.w, 760.min((1000.0 * 0.9) as i32));
+        assert_eq!(r.w, 960.min((1000.0 * 0.9) as i32));
         // maximized is carried
         let s = Saved { maximized: true, ..saved(10, 10, 700.0, 600.0) };
         assert!(place(Kind::Compose, Some(&s), &mons, None, None).maximized);
@@ -2248,10 +2278,10 @@ mod tests {
         let s = place(Kind::Compose, None, &m150, None, Some(f)).rect.unwrap();
         assert_eq!((s.x - f.x, s.y - f.y), (42, 42));
         // the next one would leave the work area: it starts again at the place it would have had
-        let low = rect(1920 - 760 - 10, 100, 760, 680);
+        let low = rect(1920 - 960 - 10, 100, 960, 780);
         let wrapped = place(Kind::Compose, None, &mons, Some(rect(0, 0, 1280, 800)), Some(low)).rect.unwrap();
         assert_eq!(wrapped, first);
-        let low = rect(300, 1040 - 680, 760, 680);
+        let low = rect(300, 1040 - 780, 960, 780);
         assert_eq!(place(Kind::Compose, None, &mons, Some(rect(0, 0, 1280, 800)), Some(low)).rect.unwrap(), first);
     }
 
@@ -2259,7 +2289,7 @@ mod tests {
     fn no_monitor_known_leaves_the_place_to_the_system() {
         let p = place(Kind::Reader, None, &[], None, None);
         assert_eq!(p.rect, None);
-        assert_eq!(p.size, (820.0, 720.0));
+        assert_eq!(p.size, (1040.0, 820.0));
         let p = place(Kind::Reader, Some(&saved(5, 5, 600.0, 500.0)), &[], None, None);
         assert_eq!((p.rect, p.size), (None, (600.0, 500.0)));
     }

@@ -148,6 +148,8 @@ export default defineLocale<typeof ns.en>({
   "reading.body.frameTitleSubject": "Nội dung thư: {subject}",
   "reading.body.linkWarnTitle": "Liên kết này có thể không dẫn đến nơi nó hiển thị",
   "reading.body.linkWarnBody": "Liên kết hiển thị là “{text}” nhưng thực tế mở {target}. Vẫn mở?",
+  "reading.body.linkWarnLookalike": "Liên kết này mở {target}, một địa chỉ dùng các chữ cái của bảng chữ cái khác trông giống chữ cái thông thường. Vẫn mở?",
+  "reading.body.linkWarnHidden": "Liên kết này giấu địa chỉ thật và mở {target}. Vẫn mở?",
   "reading.body.linkWarnConfirm": "Mở liên kết",
   "reading.pic.missing": "Thư này thiếu ảnh (cid:{cid})",
   "reading.pic.loading": "Đang tải {size}…",

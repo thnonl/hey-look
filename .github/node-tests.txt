@@ -13,6 +13,10 @@ static | node --experimental-strip-types scripts/test-pasted-html.mjs
 static | node --experimental-strip-types scripts/test-send-size.mjs
 static | node --experimental-strip-types scripts/test-from-account.mjs
 static | node --experimental-strip-types scripts/test-attach-name.mjs
+# W6.8: the folder name in the save texts (Windows, POSIX, UNC, root)
+static | node --experimental-strip-types scripts/test-folder-name.mjs
+# W6.14: the link warning cases L1 to L4 and the cases that are not warned
+static | node --experimental-strip-types scripts/test-link-check.mjs
 static | node --experimental-strip-types scripts/test-link-url.mjs
 static | node scripts/test-csp-ready.mjs
 static | node --experimental-strip-types scripts/test-update-result.mjs
@@ -314,6 +318,8 @@ ui-d | node scripts/test-new-mail-ui.mjs --require-browser
 ui-d | node scripts/test-user-select-ui.mjs --require-browser
 # 1.0.7 W13.6: "Opening message…" over the body area (up within 150 ms, no flash for a quick open, 300 ms minimum, painted before a heavy mail is cleaned, replaced by a newer selection, dots under reduced motion, the reader window never blank)
 ui-b | node scripts/test-open-loading.mjs --require-browser
+# 1.0.7 fix38: "Opening message…" is one surface over the whole body area of the pane and of the reader window, in the colour the mail will have there (Light / Dark x original / dark x small / heavy x 960 / 1280), no small card, the same box when the mail replaces it; the composer shell on the preview colour
+ui-b | node scripts/test-open-surface.mjs --require-browser
 # 1.0.7 W13.14: the pending states of a big batch (count toast), Send (busy button, Sending toasts), Print, Save all, search / tab / folder loading and the Check mail button, and the texts in 8 languages
 ui-e | node scripts/test-busy-actions.mjs --require-browser
 # 1.0.7 WP9d (W9.2): the parts that load on demand (src/lazyLoad.ts): one import at a time, a success kept, a failure retried once after 500 ms and not remembered, the dev seam, the prefetch swallowing a failure; and the source guards: only lazyViews.tsx starts the editor, Settings, Calendar, PGP dialogs and pop-out views, App.tsx draws the wrappers, the idle / pointer / focus prefetch is installed, the compose shell does not need the editor
@@ -376,6 +382,12 @@ ui-d | node scripts/test-os-theme-ui.mjs --require-browser
 static | node --experimental-strip-types scripts/test-print-doc.mjs
 # 1.0.7 W5.3: Print on macOS in the dev preview (per-message menu, reader Cmd+P, failure toast)
 ui-c | node scripts/test-print-ui.mjs --require-browser
+# 1.0.7 W5.11 (DEC-026): the macOS menu bar items: Info.plist reason text without NSBonjourServices and the 7 translated InfoPlist.strings placed by tauri.conf.json, no Cmd+P handler in the page on macOS, the wiring (command in the three places, capabilities, listeners)
+static | node --experimental-strip-types scripts/test-mac-menu.mjs
+# 1.0.7 W5.11 (AC-5.11.1 to AC-5.11.4 page part): the page tells the menu when a message can be printed (within 200 ms, once per change, off for Confidential mail, a dialog in front, nothing selected), the menu events print once / open Help in the language / open Settings, Windows never reports
+ui-c | node scripts/test-mac-menu-ui.mjs --require-browser
+# 1.0.7 D-104: every plugin command a page sends, or a plugin sends for it (the notification plugin asks is_permission_granted in every window), is granted to the windows that run it; the plugin grant is for macOS and Linux only
+static | node scripts/test-plugin-capabilities.mjs
 # 1.0.7 W5.6: the five tray places pick the no-tray / menu-bar text
 static | node --experimental-strip-types scripts/test-no-tray-texts.mjs
 # 1.0.7 W5.6: no-tray texts and the Mac Welcome bullet in the dev preview, 8 languages
@@ -409,3 +421,18 @@ ui-a | node --experimental-strip-types scripts/test-caldav-dialog.mjs --quick --
 static | node --experimental-strip-types scripts/test-calendar-move.mjs
 # 1.0.7 W7.5 in the real page with real clicks and keys (days of October 2030, not today): the popover has an icon-only "Move to another calendar…" right after Duplicate for the user's own event with a writable calendar to go to (not for a read-only calendar), the dialog lists the calendars of the same mailbox (My events: every writable synced one), a series says it moves whole, guests where the service cannot move them show the sentence instead of the list, the move makes one call and the toast names the calendar, a slow move shows its pending state by 150 ms (scaled), keyboard only; Settings > Calendar: the dot is a button with the colour choice (a colour is kept and shown, the service colour comes back), New calendar (the dialog, the call, a refusal stays in the dialog, Esc closes only it, none for Google); the dialogs, the button and the colour row fit at 960 x 560 in light and dark in 8 languages (--quick: English and German; the full run is `node scripts/test-calendar-move-ui.mjs`)
 ui-b | node --experimental-strip-types scripts/test-calendar-move-ui.mjs --quick --require-browser
+# 1.0.7 fix39 (D-103): a conversation reaches the page as one raw buffer (get_thread_packed, threadPack.ts), not as a JSON string: the round trip, the layout, the wiring and the capabilities; then in the dev preview the packed read equals the JSON read for every fixture mail, opening a mail asks only the packed command, 40 reads keep no bytes
+static | node --experimental-strip-types scripts/test-thread-pack.mjs
+ui-c | node scripts/test-thread-pack-ui.mjs --require-browser
+# 1.0.7 fix35: the message frame is written, not navigated: one frame, constant history, no srcdoc copy of the mail, over 20 selections
+ui-c | node scripts/test-mail-frame-history.mjs --require-browser
+# 1.0.7 WP13g (DEC-025): the app theme decides the mail background - Light shows the original whatever is stored, the button there is a session choice (nothing stored) that any theme switch clears, Dark shows the stored choice, System follows the OS (the app's OS-theme seam); the reading pane, the reader window and the composer's Preview as recipient follow within 1 s, the frame pixels show only the old and the new background through every switch, a mail with its own dark design is not recoloured, print is original
+ui-e | node scripts/test-mail-canvas-theme.mjs --require-browser
+# 1.0.7 W6.1: `folder-reset` (the server renumbered a folder and it was read again): the folder on screen drops the selection, the checked rows and the open conversation and the list is read again; another folder or mailbox changes nothing; the all-mailboxes view follows every mailbox
+ui-b | node scripts/test-folder-reset.mjs --require-browser
+# 1.0.7 W6.17b: the toast "Downloading Hey Look!" is keyed and goes when the download leaves `downloading`: a fast download shows the ready text and no Downloading toast beside it, a slow one keeps it until it is over, a cancel takes it away
+ui-b | node scripts/test-update-toast.mjs --require-browser
+# 1.0.7 W6.3: lowering the download limit asks the backend to prune at once with the open conversation kept, raising it asks nothing, `mail-pruned` shows the limit notice at the end of an unfiltered list without a sync (not under a filter), a sync in progress keeps what it was told
+ui-b | node scripts/test-prune-limit.mjs --require-browser
+# 1.0.7 W6.7: "Search on the server" in the real page - the button at the end of a search (never started by itself, hint, before the webmail buttons), Enter starts it, the running state and Cancel, the heading and the rows (unread, attachment, flag, no snippet), arrows / Home / End between the rows and Enter opens one, a different search or scope drops the results, the capped / nothing more / failed mailbox / pinned notes, a row whose message is gone
+ui-b | node scripts/test-server-search-ui.mjs --require-browser

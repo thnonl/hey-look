@@ -18,6 +18,8 @@ This is the unmodified crates.io source of `imap` 2.4.1 (licences: `LICENSE-APAC
    in a read cannot be woken from another thread on Windows when the peer is silent: `TcpStream::shutdown` returned the read only when
    the peer closed (measured: 60 s with a peer that did nothing), so stopping a push session needs this.
 
+6. `src/client.rs`: new `Session::uid_search_with_literals(parts)` and `SearchPart` (an addition, nothing changed): `UID SEARCH` with literals (`{n}`, the server's `+`, the bytes), for search text that is not ASCII (server search, W6.7). `hey-look.patch` does not list it; the code carries a comment.
+
 Why: Hey Look! is built with `panic = "abort"`, so any panic in the crate ends the whole app, and a mail server must never be able to do
 that. The tests `idle::tests::a_server_that_answers_idle_wrongly_...` and `an_untagged_alert_inside_the_examine_answer_...` run the IDLE
 worker against a fake server that does each of this; without the patch they fail with a panic.
