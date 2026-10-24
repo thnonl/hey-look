@@ -69,6 +69,7 @@ async function open(c) {
   if (c.lang !== 'en') await evaluate(languageJs(c.lang));
   await settingsOpen('general');
   check(await waitFor(`!!document.querySelector(${JSON.stringify(BOX)}) && !!document.getElementById('set-pg-general') && !!window.__settingsIndex`), 'Settings did not open with the search box');
+  check(!(await boxState()).focused, 'the box has the focus when Settings opens (REQ-8.12.1: it must not)');
 }
 
 /** Shows the page (and the section) of an entry the way a person does: the tab through the store, a section by its button. */
