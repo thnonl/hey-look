@@ -220,6 +220,7 @@ try {
     assert.ok(await waitFor(`document.querySelector('.pv-pdfjs').scrollTop > ${t1}`, 2000), 'ArrowDown did not scroll');
     await key('Home');
     assert.ok(await waitFor(`document.querySelector('.pv-pdfjs').scrollTop === 0`, 2000), 'Home did not go to the top');
+    await sleep(300); // (a key pressed in the last frame of the smooth scroll of the one before is dropped by the engine)
     await key('End');
     assert.ok(await waitFor(`/Page 30 of 30/.test(document.querySelector('.pv-head').innerText)`, 8000), `End did not go to the last page: ${await evaluate(`JSON.stringify({ top: document.querySelector('.pv-pdfjs').scrollTop, h: document.querySelector('.pv-pdfjs').scrollHeight, head: document.querySelector('.pv-head').innerText, active: document.activeElement.className })`)}`); // (the engine animates a long jump)
     await key('Tab', 8);
