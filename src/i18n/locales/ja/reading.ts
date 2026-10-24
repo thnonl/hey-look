@@ -6,7 +6,8 @@ import type ns from "../../ns/reading.ts";
 export default defineLocale<typeof ns.en>({
   // ---- message background switch, confidential mail (protect.ts)
   "reading.canvas.label": "メッセージの背景：元の色 / ダーク",
-  "reading.protect.note": "機密：このメッセージでは、画面キャプチャ、コピー、印刷、転送が無効になっています。",
+  "reading.protect.note": "機密：このメッセージでは、画面キャプチャ、コピー、印刷、転送、AIアシスタントが無効になっています。",
+  "reading.protect.noteLinux": "機密：このメッセージでは、コピー、印刷、転送、AIアシスタントが無効になっています。Linuxでは画面キャプチャを防止できません。",
   "reading.protect.denied": "このメッセージは機密のため、この操作は許可されていません。",
   "reading.protect.captureOff": "機密メールでは、画面キャプチャが無効になっています。",
   // ---- appearance preview (miniature window in Settings > Appearance)

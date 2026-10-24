@@ -5,7 +5,8 @@ import type ns from "../../ns/reading.ts";
 
 export default defineLocale<typeof ns.en>({
   "reading.canvas.label": "Nền thư: gốc / tối",
-  "reading.protect.note": "Thư mật: đã tắt chụp màn hình, sao chép, in và chuyển tiếp đối với thư này.",
+  "reading.protect.note": "Thư mật: đã tắt chụp màn hình, sao chép, in, chuyển tiếp và Trợ lý AI đối với thư này.",
+  "reading.protect.noteLinux": "Thư mật: đã tắt sao chép, in, chuyển tiếp và Trợ lý AI đối với thư này. Linux không thể chặn chụp màn hình.",
   "reading.protect.denied": "Đây là thư mật nên thao tác đó không được phép.",
   "reading.protect.captureOff": "Đã tắt chụp màn hình đối với thư mật.",
 

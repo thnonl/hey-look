@@ -5,7 +5,8 @@ export default define({
   en: {
     // ---- message background switch, confidential mail (protect.ts)
     "reading.canvas.label": "Message background: original / dark",
-    "reading.protect.note": "Confidential: screen capture, copying, printing and forwarding are turned off for this message.",
+    "reading.protect.note": "Confidential: screen capture, copying, printing, forwarding and the AI Assistant are turned off for this message.",
+    "reading.protect.noteLinux": "Confidential: copying, printing, forwarding and the AI Assistant are turned off for this message. Linux can’t block screen capture.",
     "reading.protect.denied": "This message is confidential, so that isn’t allowed.",
     "reading.protect.captureOff": "Screen capture is turned off for confidential mail.",
 

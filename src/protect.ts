@@ -1,6 +1,8 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, type CSSProperties, type ImgHTMLAttributes, type SyntheticEvent } from "react";
+import { captureToastOn } from "./confNote";
 import { t } from "./i18n";
+import { osNow } from "./platform";
 import { useStore } from "./store";
 
 /**
@@ -10,7 +12,11 @@ import { useStore } from "./store";
  *
  * Capture protection is the OS's own: SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE) on Windows, NSWindowSharingNone on
  * macOS. Screenshots, Snipping Tool, Teams / Zoom sharing and recordings show the window black. It does not stop a camera
- * pointed at the screen, and Linux has no equivalent (the call is accepted and does nothing).
+ * pointed at the screen, and Linux has no equivalent (the call is accepted and does nothing): the banner says so there and Print Screen shows no toast (W8.8e).
+ *
+ * Links and remote pictures are NOT part of this (1.0.7 W8.8f, decided and unchanged): a link click is the person's own action and carries no message content out
+ * (Outlook opens links in protected mail too), and remote pictures follow the normal rule - blocked until the person shows them. An email link starts a new message that
+ * does not carry the Confidential content (W8.10).
  */
 let users = 0;
 
@@ -28,7 +34,7 @@ setProtected(false);
 function onKey(e: KeyboardEvent) {
   if (e.key === "PrintScreen") {
     void navigator.clipboard?.writeText("").catch(() => undefined);
-    if (e.type === "keydown") useStore.getState().showToast(t("reading.protect.captureOff"), undefined, "info");
+    if (e.type === "keydown" && captureToastOn(osNow())) useStore.getState().showToast(t("reading.protect.captureOff"), undefined, "info"); // (not on Linux: capture is not blocked there, P-02)
   } else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "p") {
     e.preventDefault(); // the webview would print the whole window, message included
   }
@@ -52,6 +58,10 @@ export function useContentProtection(active: boolean) {
     };
   }, [active]);
 }
+
+/** The details of an event made from Confidential mail (the description of the popover, the notes of the event dialog): nothing is copied, cut or dragged out, no context menu (W8.8d). */
+const stopEvent = (e: SyntheticEvent) => e.preventDefault();
+export const copyLock = { onCopy: stopEvent, onCut: stopEvent, onContextMenu: stopEvent, onDragStart: stopEvent };
 
 /** Is the message with this id, among the messages being read, confidential? */
 export function isConfidentialId(id: string): boolean {

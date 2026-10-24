@@ -5,7 +5,8 @@ import type ns from "../../ns/reading.ts";
 
 export default defineLocale<typeof ns.en>({
   "reading.canvas.label": "Arrière-plan du message : d’origine / sombre",
-  "reading.protect.note": "Confidentiel : la capture d’écran, la copie, l’impression et le transfert sont désactivés pour ce message.",
+  "reading.protect.note": "Confidentiel : la capture d’écran, la copie, l’impression, le transfert et l’assistant IA sont désactivés pour ce message.",
+  "reading.protect.noteLinux": "Confidentiel : la copie, l’impression, le transfert et l’assistant IA sont désactivés pour ce message. Linux ne peut pas bloquer la capture d’écran.",
   "reading.protect.denied": "Ce message est confidentiel : cette action n’est pas autorisée.",
   "reading.protect.captureOff": "La capture d’écran est désactivée pour les messages confidentiels.",
 

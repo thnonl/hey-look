@@ -145,8 +145,19 @@ if (new URLSearchParams(window.location.hash.slice(1)).has("wp8")) {
   threads.unshift(
     t("tw8-sel", "Budget notes", ["Linh Tran"], "Quarterly budget review moved to Friday", 0.1 * H, { unread: 1 }),
     t("tw8-mailto", "WP8 mailto links", ["Linh Tran"], "Email links for the new message", 0.2 * H, { unread: 1 }),
+    t("tw8-att", "WP8 attachments", ["Linh Tran"], "Four attachments", 0.4 * H, { unread: 1, hasAttach: true }),
+    t("tw8-att-conf", "WP8 attachments — Confidential", ["Linh Tran"], "Four attachments", 0.5 * H, { unread: 1, hasAttach: true, confidential: true }),
     t("tw8-mix", "WP8 mixed conversation", ["Linh Tran"], "Plain and Confidential messages", 0.3 * H, { unread: 1, confidential: true }),
   );
+  // W8.8c: the same four attachments in an ordinary and in a Confidential message (a picture, a text, a PDF, an archive: the archive is never in the preview; a Confidential one has no PDF either)
+  const atts4 = [
+    { index: 0, name: "a.png", mime: "image/png", size: 84000 },
+    { index: 1, name: "b.txt", mime: "text/plain", size: 1200 },
+    { index: 2, name: "c.pdf", mime: "application/pdf", size: 240000 },
+    { index: 3, name: "d.zip", mime: "application/zip", size: 51000 },
+  ];
+  mockThreadMsgs["tw8-att"] = [secMsg("m-wp8-att", "WP8 attachments", "Linh Tran", "linh@example.com", { seen: false }, "<p>Four attachments.</p>", atts4)];
+  mockThreadMsgs["tw8-att-conf"] = [secMsg("m-wp8-attc", "WP8 attachments — Confidential", "Linh Tran", "linh@example.com", { seen: false, confidential: true }, "<p>Four attachments.</p>", atts4)];
   // W8.3: one plain and one Confidential message (the second is 6,000 characters long, so a request that carried it is easy to tell from the request counts: chars)
   mockThreadMsgs["tw8-mix"] = [
     secMsg("m-wp8-mix1", "WP8 mixed conversation", "Linh Tran", "linh@example.com", { seen: false }, "<p>Plain first message.</p>"),
@@ -1979,7 +1990,7 @@ export function installMock() {
           calls.push({ messageId: String(a.messageId), index: Number(a.index), at: performance.now() });
           return later((dw.__mockDelays.quote ?? 0) + (first ? dw.__mockDelays.quoteFirst ?? 0 : 0), () => handle("attachment_data", { ...a, internal: true }));
         }
-        const att = ([m4, ...messages, ...mockLayerMsgs] as { id: string; attachments: { index: number; name: string; mime: string }[] }[]).find((x) => x.id === a.messageId)?.attachments.find((z) => z.index === a.index);
+        const att = ([m4, ...messages, ...mockLayerMsgs, ...Object.values(mockThreadMsgs).flat()] as { id: string; attachments: { index: number; name: string; mime: string }[] }[]).find((x) => x.id === a.messageId)?.attachments.find((z) => z.index === a.index);
         const name = att?.name ?? "file.pdf";
         const mime = att?.mime ?? "application/pdf";
         // (a check sets window.__mockPdf = { "<attachment name>": "<base64>" } to preview another PDF: scripts/lib/pdf-fixtures.mjs)
@@ -2444,6 +2455,8 @@ export function installMock() {
         return null;
       }
       case "quit_now": return null;
+      // (W8.8d: every change of the window's capture protection, in order - window.__protectLog; a check reads which calls a Confidential event makes)
+      case "plugin:window|set_content_protected": ((window as unknown as { __protectLog?: boolean[] }).__protectLog ??= []).push(a.value === true); return null;
       case "frame_info": return { custom: frame, snapLayouts: false };
       case "frame_caption_rect": return false; // no OS hit-testing in a browser: plain DOM buttons
       case "frame_system_menu": return null;

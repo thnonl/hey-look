@@ -41,6 +41,7 @@ import { fmtFull, fmtSize, plainToHtml, sanitizeHtml, snoozePresets, subjectText
 import { AttachmentStrip, Lightbox, LbItem } from "./Attachments";
 import { InviteCard } from "./InviteCard";
 import { osNow } from "../platform";
+import { confNoteKey } from "../confNote";
 import { EmptyState } from "./overlays";
 import { useDelayedFlag } from "../delayedFlag";
 import { hlMark } from "../perfMarks";
@@ -508,6 +509,8 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     window.addEventListener("resize", measure);
     void doc.fonts?.ready.then(measure);
     doc.querySelectorAll<HTMLAnchorElement>("a[href]").forEach((a) => (a.title = a.href)); // show the real target on hover
+    // Confidential mail (1.0.7 W8.8f, decided and unchanged): a link click is the person's own action and carries no message content out, so links open as in any other message
+    // (after the warning of linkCheck where it applies); remote pictures stay blocked until "Show pictures"; an email link starts a new message that does not carry the Confidential content.
     const onClick = (e: MouseEvent) => {
       if (e.type === "auxclick" && e.button !== 1) return; // (auxclick is every button but the left one: only the middle button opens a link; the right one is the menu's)
       const target = e.target as HTMLElement;
@@ -909,7 +912,7 @@ export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boole
         <div className={`rp-msg-body ${conf ? "confidential" : ""}`} onCopy={noCopy} onCut={noCopy} onContextMenu={noCopy} onDragStart={noCopy}>
           {conf && (
             <div className="notice conf-banner" role="note">
-              <ShieldAlert size={14} aria-hidden /> {t("reading.protect.note")}
+              <ShieldAlert size={14} aria-hidden /> {t(confNoteKey(osNow()))}
             </div>
           )}
           <SecBadges m={m} />

@@ -87,6 +87,7 @@ export default defineLocale<typeof ns.en>({
   "calendar.pop.openEmail": "招待メールを開く",
   "calendar.pop.inviteLocalOnly": "この招待はメールで届いたもので、{service}にはありません。返信はメールで主催者に送られます。",
   "calendar.pop.duplicate": "複製",
+  "calendar.pop.confidentialOff": "機密メールから作成されたイベントでは使用できません",
   // ---- toasts
   "calendar.toast.saved": "{name}を保存しました",
   "calendar.toast.saveFailed": "ファイルを保存できませんでした：{error}",

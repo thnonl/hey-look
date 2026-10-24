@@ -518,6 +518,14 @@ const advances = new AdvanceTracker();
 let autoMarking = false;
 
 /** The mail of a move is back in the list (refused, dropped or undone): the selection and the unread state the app changed go back too. */
+/** A message that is found confidential only when it is opened (W8.8b: the Sensitivity header inside an encrypted message) marks its conversation in the list at once, without waiting for the next refresh of the list. */
+function confMark(threads: ThreadSummary[], id: string, messages: MessageFull[]): { threads?: ThreadSummary[] } {
+  if (!messages.some((m) => m.confidential)) return {};
+  const i = threads.findIndex((t) => t.threadId === id);
+  if (i < 0 || threads[i].confidential) return {};
+  return { threads: threads.map((t, j) => (j === i ? { ...t, confidential: true } : t)) };
+}
+
 function mailBack(token: string): Promise<unknown> {
   const st = () => useStore.getState();
   return advances.mailBack(token, {
@@ -938,7 +946,7 @@ export const useStore = create<State>((set, get) => ({
     const tok = intents.begin();
     try {
       const messages = intents.messages(selected, await api.getThread(selected, scopeOf(folder)), tok);
-      if (get().selected === selected) set({ messages });
+      if (get().selected === selected) set((s) => ({ messages, ...confMark(s.threads, selected, messages) }));
     } catch {
       /* keep what is shown */
     } finally {
@@ -1225,7 +1233,7 @@ export const useStore = create<State>((set, get) => ({
     }
     hlMark("open:thread:end");
     if (get().selected !== id) return;
-    set({ messages });
+    set((s) => ({ messages, ...confMark(s.threads, id, messages) }));
     if (messages.some((m) => !m.seen) && prefs.markReadDelay >= 0) {
       const mark = () => {
         if (get().selected === id) {
@@ -1612,7 +1620,11 @@ export const useStore = create<State>((set, get) => ({
 
   bumpKeys: () => set((s) => ({ keysRev: s.keysRev + 1 })),
 
-  replaceMessage: (m) => set((s) => ({ messages: s.messages.map((x) => (x.id === m.id ? m : x)) })),
+  replaceMessage: (m) =>
+    set((s) => {
+      const messages = s.messages.map((x) => (x.id === m.id ? m : x));
+      return { messages, ...(s.selected ? confMark(s.threads, s.selected, messages) : {}) };
+    }),
 
   setMailCanvasSession: (v) => {
     if (get().mailCanvasSession !== v) set({ mailCanvasSession: v });

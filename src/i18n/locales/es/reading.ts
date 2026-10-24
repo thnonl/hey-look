@@ -6,7 +6,8 @@ import type ns from "../../ns/reading.ts";
 export default defineLocale<typeof ns.en>({
   // ---- message background switch, confidential mail (protect.ts)
   "reading.canvas.label": "Fondo del mensaje: original / oscuro",
-  "reading.protect.note": "Confidencial: la captura de pantalla, la copia, la impresión y el reenvío están desactivados para este mensaje.",
+  "reading.protect.note": "Confidencial: la captura de pantalla, la copia, la impresión, el reenvío y el Asistente de IA están desactivados para este mensaje.",
+  "reading.protect.noteLinux": "Confidencial: la copia, la impresión, el reenvío y el Asistente de IA están desactivados para este mensaje. Linux no puede bloquear la captura de pantalla.",
   "reading.protect.denied": "Este mensaje es confidencial, así que no se permite esa acción.",
   "reading.protect.captureOff": "La captura de pantalla está desactivada para el correo confidencial.",
   // ---- appearance preview (miniature window in Settings > Appearance)

@@ -86,6 +86,7 @@ export default defineLocale<typeof ns.en>({
   "calendar.pop.openEmail": "Mở thư mời",
   "calendar.pop.inviteLocalOnly": "Thư mời này được gửi qua email và không có trong {service}. Câu trả lời của bạn sẽ được gửi đến người tổ chức qua email.",
   "calendar.pop.duplicate": "Nhân bản",
+  "calendar.pop.confidentialOff": "Không khả dụng với sự kiện từ thư mật",
 
   "calendar.toast.saved": "Đã lưu {name}",
   "calendar.toast.saveFailed": "Không lưu được tệp: {error}",

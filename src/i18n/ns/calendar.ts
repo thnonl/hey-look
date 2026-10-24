@@ -88,6 +88,7 @@ export default define({
     "calendar.pop.openEmail": "Open invitation email",
     "calendar.pop.inviteLocalOnly": "This invitation came by mail and isn’t in {service}. Your answer goes to the organizer by email.",
     "calendar.pop.duplicate": "Duplicate",
+    "calendar.pop.confidentialOff": "Not available for events from confidential mail",
 
     // ---- toasts
     "calendar.toast.saved": "Saved {name}",

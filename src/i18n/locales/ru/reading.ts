@@ -6,7 +6,8 @@ import type ns from "../../ns/reading.ts";
 export default defineLocale<typeof ns.en>({
   // ---- message background switch, confidential mail (protect.ts)
   "reading.canvas.label": "Фон письма: оригинальный / тёмный",
-  "reading.protect.note": "Конфиденциально: снимки экрана, копирование, печать и пересылка для этого письма отключены.",
+  "reading.protect.note": "Конфиденциально: снимки экрана, копирование, печать, пересылка и ИИ-помощник для этого письма отключены.",
+  "reading.protect.noteLinux": "Конфиденциально: копирование, печать, пересылка и ИИ-помощник для этого письма отключены. В Linux нельзя заблокировать снимки экрана.",
   "reading.protect.denied": "Это письмо конфиденциально, поэтому это действие запрещено.",
   "reading.protect.captureOff": "Снимки экрана отключены для конфиденциальных писем.",
   // ---- appearance preview (miniature window in Settings > Appearance)

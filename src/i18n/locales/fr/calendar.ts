@@ -86,6 +86,7 @@ export default defineLocale<typeof ns.en>({
   "calendar.pop.openEmail": "Ouvrir l’e-mail d’invitation",
   "calendar.pop.inviteLocalOnly": "Cette invitation est arrivée par e-mail et ne figure pas dans {service}. Votre réponse est envoyée à l’organisateur par e-mail.",
   "calendar.pop.duplicate": "Dupliquer",
+  "calendar.pop.confidentialOff": "Indisponible pour les événements issus d’un message confidentiel",
 
   "calendar.toast.saved": "{name} enregistré",
   "calendar.toast.saveFailed": "Impossible d’enregistrer le fichier : {error}",
