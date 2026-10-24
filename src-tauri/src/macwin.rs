@@ -132,6 +132,149 @@ pub fn windows_summary() -> String {
     }
 }
 
+/// Everything the app side can undo on a window that is about to be closed, as one deterministic step before its end (D-093, round 10b). Main thread. Returns the line for the log, `None`
+/// when no window is held under `label`. Nothing here releases a reference that is not ours: it clears what points at the window and what the window points at.
+///
+/// In this order:
+/// 1. the first responder (`makeFirstResponder:nil`: the window's strong `_firstResponder` is a web view otherwise, and the focus ring view of AppKit points at it);
+/// 2. the drag destinations of the window and of every view below its content view (`unregisterDraggedTypes`: an `NSDragDestination` holds its window strongly), W4.7's and wry's;
+/// 3. every notification observer of the window, its delegate and its views, on the default and on the distributed centre (tao registers its delegate for the appearance change);
+/// 4. the web view: its navigation and UI delegate cleared, loading stopped, taken out of the window (the web view and the window must not keep each other);
+/// 5. the title bar accessories and the toolbar (what hangs on the window's own frame view), and the content view is replaced by an empty one (the views of tao, wry and the web view go).
+/// The window stays alive and in its place until tauri closes it; the page is gone from the screen at once, which is what a window that is closing is anyway.
+pub fn teardown(label: &str) -> Option<String> {
+    let (w, delegate) = {
+        let g = lock();
+        let h = g.get(label)?;
+        (h.window.clone(), h.delegate.clone())
+    };
+    let ptr = Retained::as_ptr(&w) as *mut AnyObject;
+    // SAFETY: `w` (and `delegate`) are retained copies, so every pointer below stays valid for the whole function; the messages are the ones NSWindow / NSView / WKWebView answer (asked with
+    // `answers` where a class may not know one); main thread (caller).
+    let line = unsafe {
+        let nil: *mut AnyObject = std::ptr::null_mut();
+        let responder: *mut AnyObject = msg_send![ptr, firstResponder];
+        let responder_class = if responder.is_null() { "none".to_string() } else { text(msg_send![responder, className]) };
+        let cleared: Bool = msg_send![ptr, makeFirstResponder: nil];
+        // all views below the content view (a few dozen at most; capped), and the frame view's own children, for the log
+        let content: *mut AnyObject = msg_send![ptr, contentView];
+        let frame: *mut AnyObject = if content.is_null() { nil } else { msg_send![content, superview] };
+        let mut views: Vec<*mut AnyObject> = Vec::new();
+        if !content.is_null() {
+            collect_views(content, &mut views, 0);
+        }
+        let frame_children = if frame.is_null() { "none".to_string() } else { subview_classes(frame) };
+        // 2. drag destinations
+        let mut unregistered = 0;
+        for target in std::iter::once(ptr).chain(views.iter().copied()) {
+            if answers(target, c"unregisterDraggedTypes") {
+                let _: () = msg_send![target, unregisterDraggedTypes];
+                unregistered += 1;
+            }
+        }
+        // 3. observers
+        let mut observers = 0;
+        let centers: Vec<*mut AnyObject> = [AnyClass::get(c"NSNotificationCenter"), AnyClass::get(c"NSDistributedNotificationCenter")]
+            .into_iter()
+            .flatten()
+            .map(|class| msg_send![class, defaultCenter])
+            .filter(|c: &*mut AnyObject| !c.is_null())
+            .collect();
+        let mut targets: Vec<*mut AnyObject> = vec![ptr];
+        if let Some(d) = delegate.as_ref() {
+            targets.push(Retained::as_ptr(d) as *mut AnyObject);
+        }
+        targets.extend(views.iter().copied());
+        for center in &centers {
+            for t in &targets {
+                let _: () = msg_send![*center, removeObserver: *t];
+                observers += 1;
+            }
+        }
+        // 4. the web view(s)
+        let mut web = 0;
+        for v in views.iter().copied() {
+            if answers(v, c"setNavigationDelegate:") {
+                let _: () = msg_send![v, setNavigationDelegate: nil];
+                if answers(v, c"setUIDelegate:") {
+                    let _: () = msg_send![v, setUIDelegate: nil];
+                }
+                if answers(v, c"stopLoading") {
+                    let _: () = msg_send![v, stopLoading];
+                }
+                let _: () = msg_send![v, removeFromSuperview];
+                web += 1;
+            }
+        }
+        // 5. the title bar accessories and the toolbar; the content view
+        let mut accessories = 0;
+        if answers(ptr, c"titlebarAccessoryViewControllers") {
+            let list: *mut AnyObject = msg_send![ptr, titlebarAccessoryViewControllers];
+            let count: usize = if list.is_null() { 0 } else { msg_send![list, count] };
+            for _ in 0..count.min(16) {
+                let _: () = msg_send![ptr, removeTitlebarAccessoryViewControllerAtIndex: 0usize];
+                accessories += 1;
+            }
+        }
+        let _: () = msg_send![ptr, setToolbar: nil];
+        if let Some(view) = AnyClass::get(c"NSView") {
+            let empty: Retained<AnyObject> = msg_send![view, new];
+            let _: () = msg_send![ptr, setContentView: &*empty];
+        }
+        format!(
+            "teardown: first responder {responder_class} cleared {}; {unregistered} drag destination(s) unregistered; {observers} observer removal(s); {web} web view(s) detached; {accessories} title bar accessory(ies) removed; frame view children before: {frame_children}; {} view(s) below the content view",
+            cleared.as_bool(),
+            views.len()
+        )
+    };
+    Some(line)
+}
+
+/// `view` and every view below it (depth first, at most 200, 12 levels): the pointers are valid while the window is held.
+///
+/// SAFETY (caller): main thread; `view` is a live NSView.
+unsafe fn collect_views(view: *mut AnyObject, out: &mut Vec<*mut AnyObject>, depth: usize) {
+    if out.len() >= 200 || depth > 12 {
+        return;
+    }
+    out.push(view);
+    // SAFETY: `view` is a live NSView (caller); the array and its elements are checked for null.
+    unsafe {
+        let list: *mut AnyObject = msg_send![view, subviews];
+        if list.is_null() {
+            return;
+        }
+        let count: usize = msg_send![list, count];
+        for i in 0..count.min(64) {
+            let child: *mut AnyObject = msg_send![list, objectAtIndex: i];
+            if !child.is_null() {
+                collect_views(child, out, depth + 1);
+            }
+        }
+    }
+}
+
+/// The class names of the direct subviews of `view`, for the log ("NSTitlebarContainerView, _NSCoreHostingView<ThemeWidgetView>, ...").
+///
+/// SAFETY (caller): main thread; `view` is a live NSView.
+unsafe fn subview_classes(view: *mut AnyObject) -> String {
+    // SAFETY: `view` is a live NSView (caller); the array and its elements are checked for null.
+    unsafe {
+        let list: *mut AnyObject = msg_send![view, subviews];
+        if list.is_null() {
+            return "none".into();
+        }
+        let count: usize = msg_send![list, count];
+        let names: Vec<String> = (0..count.min(24))
+            .filter_map(|i| {
+                let child: *mut AnyObject = msg_send![list, objectAtIndex: i];
+                (!child.is_null()).then(|| text(msg_send![child, className]))
+            })
+            .collect();
+        names.join(", ")
+    }
+}
+
 /// Finish the native window of `label` and let go of the references held here. Returns the line for the log, `None` when no window is held.
 /// Main thread only. Every step is a message that is harmless on a window that is closed already; none of them releases anything that is not ours.
 pub fn sweep(label: &str) -> Option<String> {
@@ -196,7 +339,7 @@ pub fn sweep(label: &str) -> Option<String> {
 
 /// A second after `sweep`: was the window freed? A weak reference answers `None` once nothing holds it. Returns the line for the log, `None` when the window was not swept.
 /// Main thread only. In a debug build started with `HEYLOOK_MAC_RELEASE_LEAK=1` (an experiment for the Mac QA, never in a release build): a window that is still alive with exactly one
-/// reference besides the one this check takes is a leak of exactly one reference, and it is released once.
+/// reference besides the one this check takes is a leak, and those references are released (see the experiment below).
 pub fn check(label: &str) -> Option<String> {
     let Watched(weak, number) = watched().lock().unwrap_or_else(|p| p.into_inner()).remove(label)?;
     let Some(strong) = weak.load() else {
@@ -208,12 +351,21 @@ pub fn check(label: &str) -> Option<String> {
     // SAFETY: `strong` keeps the window alive; main thread (caller).
     let retains: usize = unsafe { msg_send![ptr, retainCount] };
     let mut text = format!("native window {number}: STILL ALIVE after being finished, retain count {retains} (this check's own reference is one of them); {}", windows_summary());
-    if cfg!(debug_assertions) && std::env::var("HEYLOOK_MAC_RELEASE_LEAK").as_deref() == Ok("1") && retains == 2 {
-        // SAFETY: the window is closed, nothing of the app holds it, and one reference more than ours is the leak itself (experiment, see above).
-        unsafe {
-            let _: () = msg_send![ptr, release];
+    if cfg!(debug_assertions) && std::env::var("HEYLOOK_MAC_RELEASE_LEAK").as_deref() == Ok("1") {
+        // The experiment: the window is closed and the app side has let go of everything it can (`teardown`, `sweep`); every reference that is still there besides this check's own is one that
+        // nothing will ever release. They are released here, one by one, at most 40; `HEYLOOK_MAC_RELEASE_KEEP=<n>` leaves n of them (references of the system itself that the QA found out about).
+        let keep: usize = std::env::var("HEYLOOK_MAC_RELEASE_KEEP").ok().and_then(|v| v.trim().parse().ok()).unwrap_or(0);
+        let extra = retains.saturating_sub(1 + keep).min(40);
+        for _ in 0..extra {
+            // SAFETY: see above; this check's own reference keeps the window alive until `drop(strong)`.
+            unsafe {
+                let _: () = msg_send![ptr, release];
+            }
         }
-        text.push_str("; released the leaked reference once (HEYLOOK_MAC_RELEASE_LEAK)");
+        drop(strong);
+        let gone = weak.load().is_none();
+        text.push_str(&format!("; released {extra} reference(s) (HEYLOOK_MAC_RELEASE_LEAK, keeping {keep}): the window is {}", if gone { "gone" } else { "STILL ALIVE" }));
+        return Some(text);
     }
     drop(strong);
     Some(text)

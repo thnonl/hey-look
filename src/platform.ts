@@ -38,6 +38,8 @@ export async function loadPlatform(): Promise<void> {
     const os: Os = i.os === "macos" || i.os === "linux" ? i.os : "windows";
     // (an old backend does not say: the frame is only known to draw on Windows)
     const pdfView: PdfView = i.pdfView === "frame" || i.pdfView === "object" || i.pdfView === "card" ? i.pdfView : os === "windows" ? "frame" : "card";
+    // (CSS that is for one system only: `:root[data-os="macos"]`, e.g. the ground colour at the top of a window whose title bar is transparent, D-092)
+    document.documentElement.dataset.os = os;
     usePlatform.setState({ os, tray: i.tray, testData: i.testData ?? null, pdfView, pdfTest: i.pdfTest === true, copyFail: i.copyFail === true, openFail: i.openFail === true, accountsDelayMs: typeof i.accountsDelayMs === "number" ? i.accountsDelayMs : 0, managed: i.managed === "snap" || i.managed === "apt" || i.managed === "msstore" ? i.managed : null, loaded: true });
   } catch {
     usePlatform.setState({ loaded: true });

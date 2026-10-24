@@ -1004,6 +1004,10 @@ pub fn on_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
                 // (it stops counting, takes no more shows, frees its key)
                 if reg(app).start_retire(&label) == Some(true) {
                     announce_counts(app);
+                    // (the close goes through at once: the native window is made ready to end now, macOS)
+                    if let Some(text) = native_teardown(&label) {
+                        log(&format!("{label}: {text}"));
+                    }
                 }
             }
         }
@@ -1322,6 +1326,10 @@ fn destroy_on_event_loop(app: &AppHandle, label: &str) {
     let (handle, name) = (app.clone(), label.to_string());
     if let Err(e) = app.run_on_main_thread(move || match handle.get_webview_window(&name) {
         Some(w) => {
+            // macOS: what the app side can undo on the native window is undone first (first responder, drag destinations, observers, web view delegates, title bar accessories, content view)
+            if let Some(text) = native_teardown(&name) {
+                log(&format!("{name}: {text}"));
+            }
             if let Err(e) = w.destroy() {
                 log(&format!("{name}: destroy was refused: {e}"));
             }
@@ -1382,6 +1390,16 @@ fn native_sweep(label: &str) -> Option<String> {
 }
 #[cfg(not(target_os = "macos"))]
 fn native_sweep(_label: &str) -> Option<String> {
+    None
+}
+
+/// Main thread. The line for the log about what was undone on the native window before it ends (macOS, macwin.rs `teardown`), `None` elsewhere or when none is held.
+#[cfg(target_os = "macos")]
+fn native_teardown(label: &str) -> Option<String> {
+    crate::macwin::teardown(label)
+}
+#[cfg(not(target_os = "macos"))]
+fn native_teardown(_label: &str) -> Option<String> {
     None
 }
 
@@ -1871,6 +1889,33 @@ mod tests {
         assert!(include_str!("testbridge/native.rs").contains("macwin::sweep_stats()"));
     }
 
+    /// D-093 (round 10b): before a window ends, the app side undoes what points at it and what it points at; read from the source (macOS only code).
+    #[test]
+    fn the_macos_teardown_comes_before_every_end_of_a_window() {
+        let mac = crate::test_guard::non_test_code(include_str!("macwin.rs"));
+        let td = &mac[mac.find("pub fn teardown(").unwrap()..mac.find("unsafe fn collect_views(").unwrap()];
+        let steps = ["makeFirstResponder: nil", "unregisterDraggedTypes", "removeObserver: *t", "setNavigationDelegate: nil", "setUIDelegate: nil", "stopLoading", "removeFromSuperview", "removeTitlebarAccessoryViewControllerAtIndex", "setToolbar: nil", "setContentView: &*empty"];
+        let mut at = 0;
+        for step in steps {
+            let i = td.find(step).unwrap_or_else(|| panic!("teardown lacks {step}"));
+            assert!(i >= at, "{step} is out of order");
+            at = i;
+        }
+        assert!(td.contains("NSDistributedNotificationCenter") && td.contains("NSNotificationCenter"), "both centres");
+        assert!(!td.contains("close]") && !td.contains("release]") && !td.contains("setReleasedWhenClosed"), "teardown releases and closes nothing: it is not the end of the window");
+        let pop = crate::test_guard::non_test_code(include_str!("popout.rs"));
+        let destroy = &pop[pop.find("fn destroy_on_event_loop(").unwrap()..];
+        let destroy = &destroy[..destroy.find("
+}
+").unwrap()];
+        assert!(destroy.find("native_teardown(&name)").unwrap() < destroy.find("w.destroy()").unwrap(), "before the window is destroyed");
+        let close = &pop[pop.find("tauri::WindowEvent::CloseRequested { api, .. } =>").unwrap()..];
+        assert!(close[..close.find("tauri::WindowEvent::Moved").unwrap()].contains("native_teardown(&label)"), "and when a close that goes straight through starts");
+        // the experiment loops over the references and is debug-only
+        let check = &mac[mac.find("pub fn check(").unwrap()..mac.find("/// What [`apply_appearance`]").unwrap()];
+        assert!(check.contains("HEYLOOK_MAC_RELEASE_KEEP") && check.contains(".min(40)") && check.contains("for _ in 0..extra") && check.contains("cfg!(debug_assertions)"));
+    }
+
     #[test]
     fn windows_on_their_way_out_do_not_count_against_the_cap_of_eight() {
         // D-094: after a run of closed windows the next Settings / search / Scheduled window must open, not be refused as "too many"
@@ -2027,7 +2072,7 @@ mod tests {
         // no #[cfg(target_os)] around the road itself: the macOS-only parts are the native hold / sweep / summary functions
         let road = &code[code.find("pub fn retire(").unwrap()..code.find("/// macOS: keep a reference to the native window").unwrap()];
         assert!(!road.contains("cfg(target_os") && !road.contains("cfg(windows"), "the end of a window is the same on every system");
-        assert_eq!(code.matches("#[cfg(target_os = \"macos\")]").count(), 4, "native_hold, native_sweep, native_check, native_summary");
+        assert_eq!(code.matches("#[cfg(target_os = \"macos\")]").count(), 5, "native_hold, native_teardown, native_sweep, native_check, native_summary");
         // a window that was ended is never put on screen again: by a second open, by its own page getting ready late, by the wait for the page
         assert!(code.contains("if !reg(app).may_show(label) {"));
         let ready = &code[code.find("pub fn mark_ready(").unwrap()..];

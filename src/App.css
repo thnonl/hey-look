@@ -1662,6 +1662,9 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 /* ===== reader window (src/popout/ReaderView.tsx): the reading pane under a toolbar of labelled buttons ===== */
 .reader-win { display: flex; flex-direction: column; height: 100vh; background: var(--bg); color: var(--fg); }
 .reader-bar { display: flex; align-items: center; flex-wrap: nowrap; overflow: hidden; gap: 1px; padding: 6px 8px; border-bottom: 1px solid var(--border); background: var(--bg2); }
+/* macOS (D-092): the native title bar of a window is transparent, so the top edge of the page is what shows in the strip above it: the ground colour (--bg) in every kind of window, not the toolbar's or the nav's own grey */
+:root[data-os="macos"] .reader-bar { background: var(--bg); }
+:root[data-os="macos"] .modal.windowed .settings-nav { background: var(--bg); }
 .reader-bar .rb { padding: 7px 8px; gap: 6px; flex: none; }
 .reader-bar .dd { flex: none; }
 .reader-bar .sep { align-self: stretch; width: 1px; margin: 4px 5px; background: var(--border); flex: none; }
