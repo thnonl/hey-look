@@ -2066,3 +2066,158 @@ PASS (numbers): the sheet within 2 s of the click for a one-page mail (`print sh
 | WK-36.26 | Mac | 5 prints in a row (AC-5.3.7) | P-print-win | `nsapp.total` +0, WebContent back in 60 s | OPEN |
 | WK-36.27 | Mac | forced failure, 8 languages (AC-5.3.9) | `HEYLOOK_TEST_PRINT_FAIL=1` | toast text, no sheet, a second print works | OPEN |
 | WK-36.28 | Windows, Linux | Print still opens the system / GTK print dialog with the message (AC-5.3.10) | look | dialog with the mail | OPEN |
+
+### 36.F WP5d (W5.4, W5.6) and WP5c (W5.7, W5.9): Linux notification buttons, no-tray texts, signals, the macOS app menu
+
+Nothing here ran on Linux or a Mac. The Linux Rust (`linuxnotify.rs`: zbus 5 blocking, `GetCapabilities`, `NameHasOwner`, `ListActivatableNames`, `receive_all_signals` for `ActionInvoked` / `NotificationClosed`; notify-rust 4.18 `action`, `Hint::Category`, `Hint::DesktopEntry`, `show().id()`) was type-checked in a scratch crate for `x86_64-unknown-linux-gnu` (the notify-rust calls verbatim, the module itself); the signal handlers of W5.9 and the rest of `shell.rs` compile only on Linux CI. The rules are tested on every system.
+Visible changes: (1) Linux, W5.4: a new-mail notification has the buttons of Settings > Mailboxes > Notifications > Buttons (default Archive, Delete, Mark as read) when the service lists `actions`; a click on the body opens the conversation in the main window (also from the tray); the summary (more than 3 mails) and the test notification have no buttons, their body click shows the main window; hints `category email.arrived`, `desktop-entry hey-look`. Without `actions`, Settings shows the note `settings.notify.noButtonsDesktop` and sends no actions. (2) Linux without a tray host, W5.6: five texts (Welcome bullet, quit question button "Keep Hey Look! open", Send later picker without the tray link, Settings > Filters intro, Settings tab "Notifications & startup"). The macOS Welcome says "menu bar". Send test answers at once when no notification service exists and none can be started. (3) W5.9 Linux: SIGTERM / SIGHUP / SIGINT leave by the exit path without questions; a second signal ends the process. (4) W5.7 macOS: the app menu plan keeps Show All (unit-tested; no UI change).
+Probes: P-nact (Linux, through a notification monitor: `dbus-monitor "interface='org.freedesktop.Notifications'"` while a new mail arrives): the `Notify` call's actions array `default, Open Hey Look!, archive, Archive, delete, Delete, read, Mark as read` (labels in the app language) and the hints. P-nthreads: `ls /proc/<pid>/task | wc -l` before and after 50 notifications. P-notray (`/eval` in the main window): `document.body.innerText` on Welcome / the quit question / the Send later picker / Settings > Filters / the Settings tab contains no "tray" (en) and no "Infobereich" (de), except the disabled keep-running row and its hint. P-sig: `kill -TERM <pid>` with a scheduled message waiting and a queued archive: startup.log has `quit: signal SIGTERM: leaving without questions`, `exit: done, the process ends` within 5 s; a second `kill -TERM` within the first 2 s logs `ending the process now`.
+PASS (numbers): AC-5.4.1 hidden window, new mail: 3 buttons in en then in de; Archive puts the mail in Archive on the stub and updates the badge, no window opens; AC-5.4.2 a body click shows the conversation; AC-5.4.3 buttons Flag / Snooze / Reply do their job (Snooze until the "tomorrow" time, Reply opens the main window with a reply); AC-5.4.4 none, none, none: no buttons and the body click works; AC-5.4.6 thread count within +-2 after 50 notifications; AC-5.6.1 the 4 screens contain no "tray" / "Infobereich"; AC-5.6.4 in a `dbus-run-session` without a notification service Send test fails with "No notification service is running..." within 1 s (if the bus can start a service that fails: within 6 s with the button busy); AC-5.6.5 the nav entry "Benachrichtigungen & Autostart" is not clipped at 960 x 560 (the dev-preview test measured it on Windows fonts: record `clipped` false and the font on Linux); AC-5.9: the P-sig lines on Linux, 1 Mac row for Cmd+Q / Dock Quit / log out ending by the same road.
+Engine features relied on: D-Bus (`org.freedesktop.Notifications` 1.2: `actions` capability, `ActionInvoked`, `NotificationClosed`); GLib `unix_signal_add_local` for the signals.
+
+| ID | Platform | Look at | Probe | PASS (numbers) | Status |
+|---|---|---|---|---|---|
+| WK-36.29 | Linux (KDE VM) | AC-5.4.1 buttons in en and de, Archive works while the window is hidden | P-nact | 3 buttons; mail in Archive; no window | OPEN |
+| WK-36.30 | Linux | AC-5.4.2 / 5.4.3 / 5.4.4: body click, the other buttons, no buttons | P-nact | as listed | OPEN |
+| WK-36.31 | Linux | AC-5.4.5 `HEYLOOK_TEST_NOTIFY_NO_ACTIONS=1` (debug build): the note in 8 languages, no actions sent | P-nact | note shown, `Notify` actions empty | OPEN |
+| WK-36.32 | Linux | AC-5.4.6 50 notifications | P-nthreads | thread count +-2 | OPEN |
+| WK-36.33 | Linux (GNOME if available) | AC-5.4.7 | P-nact | as WK-36.29 | NOT RUN unless GNOME |
+| WK-36.34 | Linux (KDE, System Tray widget removed) | AC-5.6.1 the four screens, restart first | P-notray | no "tray" / "Infobereich" except the disabled row | OPEN |
+| WK-36.35 | Mac | AC-5.6.3 the Welcome bullet in 8 languages (fresh data folder) | look | "menu bar" text | OPEN |
+| WK-36.36 | Linux | AC-5.6.4 Send test without a service | P-notray | error within 1 s | OPEN |
+| WK-36.37 | Linux | AC-5.6.5 nav entry at 960 x 560 in de | P-nav-clip | not clipped | OPEN |
+| WK-36.38 | Linux | AC-5.9 SIGTERM / SIGHUP / SIGINT | P-sig | log lines; exit within 5 s | OPEN |
+| WK-36.39 | Mac | AC-5.7 / 5.9 Show All in the app menu; Cmd+Q, Dock Quit, log out end by the same exit road | look + startup.log | Show All present; same `exit:` lines | OPEN |
+
+## 37. WP6 mail core and data safety (coder, `feature/v107-wp6`): W6.7 Search on the server, W6.2 filter option text, W6.6 / W6.3 Settings hints, W6.14 link warning, W6.8 saved folder name, W6.13 previews, W6.15 / W6.16 native
+
+Nothing here was run on a Mac or Linux. Windows (Chromium, dev preview with the mock backend `#serversearch`): `scripts/test-server-search-ui.mjs`, `scripts/test-link-check.mjs`, `scripts/test-folder-name.mjs`, `scripts/test-junk-folder.mjs`, `scripts/test-list-limit-footer.mjs`. The rows below are the visible changes and the engine features the code relies on.
+
+Engine features relied on (macOS 11+ WKWebView, WebKitGTK 2.40+):
+- `new URL(...).hostname` converts an international host name to its `xn--` form (WHATWG URL / IDNA). `src/linkCheck.ts` reads the label from it; if an engine hands back the Unicode form instead, the check still works on the Unicode label (and the dialog then names the Unicode host). Probe P-idna below.
+- Unicode property escapes in regular expressions: `\p{L}`, `\p{N}`, `\p{Script=Latin}`, `\p{Script=Cyrillic}`, `\p{Script=Greek}` with the `u` flag (WebKit 11.1+, macOS 10.13+; WebKitGTK 2.20+).
+- `overflow-wrap: anywhere` with the older `word-break: break-word` written before it as the fallback (`overflow-wrap: anywhere` is WebKit 15.4+; macOS 11 and 12.0 to 12.2 WebViews may lack it). Used by `.ml-srv-err` and `.ask p`.
+- Flex layout with `gap` (`.ml-srv`: WebKit 14.1 / macOS 11.3+, WebKitGTK 2.30+; where `gap` is missing the children sit 0 px apart but each has its own padding, so the layout stays readable), `position: sticky` is NOT used. No `:has()`, no `clamp()`, no `dvh`, no `color-mix`, no `inert` in this section.
+
+### 37.A W6.7 "Search on the server" below the results (`.ml-srv`, `src/components/ServerSearch.tsx`)
+
+Kit needs: a Mac session / Linux VM with a QA stub mailbox (`E:\hey-mail\e2e-v107-wp6\`, switch `/cfg` `serversearch`), more mail on the stub than downloaded (limit 50), a search (Ctrl+F) for a word that is on the server only.
+
+Visible: in the footer of the message list, a small button (idle), a spinner line with Cancel (running), then a heading "On the server" with rows that look and behave like list rows, a note when more than 200 were found (`capped`), "Nothing more found" (`none`), the per-mailbox error line (`failed`, long server text), and the "Pinned and snoozed" note (`localOnly`).
+
+Probe P-srv (main window, the bridge `eval`): `(()=>{const q=document.querySelector('.ml-srv');if(!q)return JSON.stringify(null);const b=q.querySelector('button'),r=q.getBoundingClientRect(),rows=[...q.querySelectorAll('.ml-row')],loc=[...document.querySelectorAll('.ml-row')].find(x=>!x.closest('.ml-srv')),h=x=>x?Math.round(x.getBoundingClientRect().height*10)/10:null,e=q.querySelector('.ml-srv-err');return JSON.stringify({state:q.dataset.serverSearch,w:Math.round(r.width),h:Math.round(r.height),overflowX:q.scrollWidth>q.clientWidth+1,btnH:h(b),btnLines:b?Math.round(b.getBoundingClientRect().height/parseFloat(getComputedStyle(b).lineHeight||'16')):null,rows:rows.length,rowH:rows.slice(0,3).map(h),localRowH:h(loc),errOverflow:e?e.scrollWidth>e.clientWidth+1:null,spin:(()=>{const s=q.querySelector('.spin');return s?getComputedStyle(s).animationName:null})(),font:getComputedStyle(q).fontFamily})})()`
+
+PASS (numbers): `overflowX` false in every state; `btnH` between 24 and 36 and `btnLines` <= 2; when running, `spin` is not `none` and `h` differs from the idle `h` by at most 6 (no jump of the list); `rowH` each within 1 of `localRowH`; `errOverflow` false for a 300-character error text with no spaces; at the narrowest list width (drag the splitter to the minimum, about 280 px) `w` equals the list width and `overflowX` false; texts in de, ja and ru (the longest `capped`, `localOnly`) wrap to at most 4 lines.
+
+| ID | Platform | Look at | Probe | PASS (numbers) | Status |
+|---|---|---|---|---|---|
+| WK-37.01 | Mac, Linux | the idle button under the results of a search, 960 x 560 and 1280 x 800, light and dark, de / ja / ru; the tooltip (hint) on hover and the screen reader description | P-srv | `overflowX` false, `btnH` 24 to 36, `btnLines` <= 2 | OPEN |
+| WK-37.02 | Mac, Linux | running: spinner turns, Cancel works with Enter and Space and mouse, the list does not jump | P-srv | `spin` not `none`, `abs(h - idleH)` <= 6 | OPEN |
+| WK-37.03 | Mac, Linux | results: heading + rows, arrow keys move between the rows and back to the local ones, a click opens the message in the pane and a double click in a window | P-srv | `rowH` within 1 of `localRowH`; focus ring visible (record outline width >= 2) | OPEN |
+| WK-37.04 | Mac, Linux | `capped`, `none`, `localOnly`, `failed` with a 300-character server text at 280 px list width, de and ru | P-srv | `overflowX` false, `errOverflow` false, <= 4 lines each | OPEN |
+
+### 37.B W6.2 the filter option "Move to Junk (no Junk folder)" in Settings > Filters
+
+Visible: the option text of the select for a mailbox without Junk (vi / es / fr / ru use the short "(no folder)" form; fr is the longest, 50 characters). The option is disabled for a new rule and stays selectable for a rule that already has it.
+
+Probe P-junkopt (Settings window, the filter editor open on a mailbox without Junk): `(()=>{const s=[...document.querySelectorAll('select')].find(x=>[...x.options].some(o=>o.value==='junk'));if(!s)return JSON.stringify(null);const o=[...s.options].find(o=>o.value==='junk'),r=s.getBoundingClientRect(),p=s.closest('.settings-body,.modal-body')||document.body,pr=p.getBoundingClientRect();return JSON.stringify({text:o.textContent,disabled:o.disabled,selW:Math.round(r.width),inside:r.right<=pr.right+1&&r.left>=pr.left-1,textW:(()=>{const c=document.createElement('canvas').getContext('2d');c.font=getComputedStyle(s).font;return Math.round(c.measureText(o.textContent).width)})()})})()`
+
+PASS (numbers): `inside` true at 960 x 560 and 1280 x 800; the closed select shows its text without clipping when the option is chosen (`textW` <= `selW` - 28, the arrow and padding), otherwise the open list (native menu) shows the whole text; record `textW` per language.
+
+| ID | Platform | Look at | Probe | PASS (numbers) | Status |
+|---|---|---|---|---|---|
+| WK-37.05 | Mac, Linux | the select closed and open, fr / de / ja / ru / vi, 960 x 560 | P-junkopt | `inside` true, text complete when open, `disabled` true for a new rule | OPEN |
+
+### 37.C W6.6 / W6.3 the longer hints in Settings > Reading (push hint, download limit hint)
+
+Visible: `settings.reading.pushHint` and `settings.reading.maxDownloadHint` are longer than before (up to about 330 characters in ru / de / fr).
+
+Probe P-hint: `(()=>{const out={};for(const k of ['pushHint','maxDownloadHint']){const h=[...document.querySelectorAll('.hint,.muted.small,.setting-hint')].find(x=>x.textContent.length>120&&(k==='pushHint'?/IDLE|push|Push/.test(x.textContent):/server|Server|Serveur|сервер|サーバー|máy chủ/.test(x.textContent)));if(h){const r=h.getBoundingClientRect(),lh=parseFloat(getComputedStyle(h).lineHeight)||16;out[k]={lines:Math.round(r.height/lh),clipped:h.scrollWidth>h.clientWidth+1||h.scrollHeight>h.clientHeight+1,w:Math.round(r.width)}}}return JSON.stringify(out)})()`
+
+PASS (numbers): `clipped` false, `lines` <= 8 at 960 x 560 in ru and de, the hint stays inside the settings body (`w` <= body width).
+
+| ID | Platform | Look at | Probe | PASS (numbers) | Status |
+|---|---|---|---|---|---|
+| WK-37.06 | Mac, Linux | the two hints, ru / de / fr / ja, light and dark, 960 x 560 and 1280 x 800 | P-hint | `clipped` false, `lines` <= 8 | OPEN |
+
+### 37.D W6.14 the link warning (`src/linkCheck.ts`, two new bodies, `.ask p` wrapping)
+
+Visible: the question "This link may not go where it says" with a new body for a look-alike address (names the `xn--` host) and for a link with a user name. The `.ask p` rule now breaks a long unbroken word (a 60-character `xn--` host) instead of overflowing the 440 px box.
+
+Probe P-idna (any window, the bridge `eval`; the engine's own URL parser): `JSON.stringify({apple:new URL('https://\u0430pple.test/').hostname,ru:new URL('https://\u043f\u0440\u0438\u043c\u0435\u0440.\u0440\u0444/').hostname,user:(()=>{const u=new URL('https://bank.test@evil.test/');return [u.username,u.hostname]})(),props:(()=>{try{return /\p{Script=Cyrillic}/u.test('\u0430')&&/\p{Script=Greek}/u.test('\u03bf')&&/\p{L}/u.test('x')}catch(e){return String(e)}})()})`
+
+PASS (numbers): `apple` = `xn--pple-43d.test`, `ru` = `xn--e1afmkfd.xn--p1ai`, `user` = `["bank.test","evil.test"]`, `props` true. If `apple` or `ru` come back in Unicode, record it (the check still warns; the dialog then shows the Unicode host).
+
+Probe P-ask (while the question is open): `(()=>{const a=document.querySelector('.ask');if(!a)return JSON.stringify(null);const p=a.querySelector('p'),r=a.getBoundingClientRect();return JSON.stringify({w:Math.round(r.width),h:Math.round(r.height),overflowX:a.scrollWidth>a.clientWidth+1||p.scrollWidth>p.clientWidth+1,inView:r.top>=0&&r.bottom<=innerHeight&&r.left>=0&&r.right<=innerWidth,lines:Math.round(p.getBoundingClientRect().height/(parseFloat(getComputedStyle(p).lineHeight)||20)),text:p.textContent})})()`
+
+PASS (numbers): `overflowX` false, `inView` true at 960 x 560, `lines` <= 6, `w` <= 440 (or 92 vw); the `text` contains the host in its `xn--` form for the look-alike case and no other path or secret; Cancel opens nothing.
+
+| ID | Platform | Look at | Probe | PASS (numbers) | Status |
+|---|---|---|---|---|---|
+| WK-37.07 | Mac, Linux | P-idna in the main window | P-idna | values as above | OPEN |
+| WK-37.08 | Mac, Linux | kit mail with 10 links (spec AC-6.14.1), click each in the reading pane, then the same through the context menu "Open link" and in a reader window; the expected result per link is in the kit | P-ask | warnings exactly for links 3, 4, 5, 6; none for the others | OPEN |
+| WK-37.09 | Mac, Linux | the look-alike and the hidden-user bodies in all 8 languages at 960 x 560, with a 60-character `xn--` host | P-ask | `overflowX` false, `inView` true, `lines` <= 6 | OPEN |
+
+### 37.E W6.8 the saved folder name (button tooltip, toast, strip)
+
+Visible change on Mac / Linux: POSIX paths. Set Settings > Reading > Download folder to `/Users/<you>/v107 saves` (Linux `/home/<you>/v107 saves`), save an attachment, then Save all.
+
+| ID | Platform | Look at | Probe | PASS (numbers) | Status |
+|---|---|---|---|---|---|
+| WK-37.10 | Mac, Linux | the attachment button tooltip, the toast "Saved a.txt to ..." and the Save all strip with the folder above; the default folder (no setting) says "Downloads" | read the toast / strip text (`document.querySelector('.toast,.att-strip').textContent`) | the text contains `v107 saves` and not `/Users` or `/home`; default "Downloads" | OPEN |
+
+### 37.F W6.13 previews (no visible layout change)
+
+| ID | Platform | Look at | Probe | PASS (numbers) | Status |
+|---|---|---|---|---|---|
+| WK-37.11 | Mac | a kit mail whose first line is "Xem thư này trên trình duyệt" in NFD (the macOS Mail / Telex way), the notification text and the list preview | `document.querySelector('.ml-row .preview').textContent` (the preview line must be on in Settings) and the notification | starts with the real content, not with the boilerplate; the real content keeps its diacritics (compare code points) | OPEN |
+
+### 37.G W6.15 / W6.16 native (Mac, Linux; no layout change)
+
+| ID | Platform | Look at | Probe | PASS (numbers) | Status |
+|---|---|---|---|---|---|
+| WK-37.12 | Mac, Linux | open attachments named `install.command`, `x.AppImage`, `a.webloc` (Linux also `y.deb`, `a.bash`, `a.flatpakref`): the same "can run programs" question as `.exe` on Windows; Cancel opens nothing; with "warn before opening" off it opens | none (native dialog) | the question appears for each name; 0 files opened on Cancel | OPEN |
+| WK-37.13 | Linux | files `KEY.ASC`, `key.asc`, `Key.Gpg` in a folder: Settings > Encryption (PGP) > Import > Choose file lists `KEY.ASC` and `key.asc` (`Key.Gpg` may need "All files": record it); Calendar > Import lists `INVITE.ICS` | none (GTK dialog) | `KEY.ASC`, `key.asc`, `INVITE.ICS` listed in the filtered view | OPEN |
+
+#### 35.C fix35 (coder, `feature/v107-fix35`): the message frame is written, not navigated (D-103, Mac QA fix33: +38 MB of WebContent in 20 selections of the 2 MB mail in the MAIN window)
+
+What changed: `ReadingPane.tsx` no longer gives the frame a `srcdoc` attribute. `src/mailFrame.ts` writes the document into the frame's own empty document (`document.open(); write(head); write(mail); write(tail); close()`), in three pieces so the one concatenated string of the mail is never made, before the first paint (a layout effect). One frame element per open mail (the pane is keyed by the conversation), removed with it. `window.__mailFrame` (all builds) reports `{created, removed, writes, fallbacks, live, historyLength, frameHistoryLength}`; read it through the bridge `/eval`. What Chromium shows too is pinned by `scripts/test-mail-frame-history.mjs` (20 selections: one iframe, `created - removed = 1`, `history.length`, the frame's `history.length` and the navigation entries constant, no `srcdoc` / `src` attribute). The engine-specific part, the memory of the WebContent process, is the Mac row below.
+
+Engine features relied on: `document.open()` / `write()` / `close()` on a same-origin frame (`allow-same-origin` is in the sandbox on every engine; on WebKit the sandbox also has `allow-scripts`, as before) keeps the frame's `Document` object and replaces its root element (the code forgets what it knew about the old root: `hooked`, the dark sheet is keyed by the root); a written document inherits the page's Content-Security-Policy like a `srcdoc` one and carries its own `<meta http-equiv="Content-Security-Policy">`; `document.readyState` of a written document is `complete` as soon as it is parsed (Chromium; the pictures load afterwards and the code measures again on each picture's `load` / `error` and with a ResizeObserver, as it did). If a WebKit leaves `readyState` at `loading` for a while, the watcher polls every 15 ms for 10 s before it hooks the document (as before).
+
+Probe P-mailframe (main window, the bridge `/eval`): `JSON.stringify({ mail: window.__mailFrame, frames: document.querySelectorAll('iframe').length, attrs: (() => { const f = document.querySelector('.msg-frame'); return f ? [f.hasAttribute('srcdoc'), f.hasAttribute('src')] : null; })(), rs: document.querySelector('.msg-frame')?.contentDocument?.readyState })`
+
+Memory reading (Mac): `footprint <pid of the main page's com.apple.WebKit.WebContent>` (or Activity Monitor "Real Memory" is not enough; use `vmmap -summary <pid> | grep "Physical footprint"`) after the main window has been idle 20 s with one short mail open (A), then select the 2 MB mail and a short mail alternately 20 times (a key press or a click, 1 s apart, no reader window anywhere, the list not scrolled), wait 10 s with the short mail open (B).
+
+PASS (numbers): `(B - A) / 20` < 0.3 MB per selection (the report: 270 -> 308 MB, 1.9 MB per selection, before); `frames` = 1, `mail.live` = 1, `mail.created - mail.removed` = 1, `mail.fallbacks` = 0 after the last selection; `attrs` = `[false, false]`; `mail.historyLength` and `mail.frameHistoryLength` equal after selection 1 and after selection 20; the mail is shown (text visible) and a link click, the picture placeholder click, the dark / original button, Find in page (Cmd+F) and Print still work on the last one.
+
+| ID | Platform | Look at | Probe | PASS (numbers) | Status |
+|---|---|---|---|---|---|
+| WK-35.36 | Mac | the footprint of the main page's WebContent over 20 alternating selections of the 2 MB mail and a short mail, no reader window | vmmap / footprint before and 10 s after + P-mailframe | < 0.3 MB per selection; frames = 1; created - removed = 1; history lengths constant | OPEN |
+| WK-35.37 | Mac, Linux | the same with the 1 MB plain-text mail and the 500 KB mail in the rotation, and a reader window opened and closed 5 times in the middle | footprint + P-mailframe | no growth beyond 0.3 MB per selection; the reader window's frame is its own (`__mailFrame` of that window: created - removed = 1) | OPEN |
+| WK-35.38 | Mac, Linux | behaviour of the written frame on WebKit: first paint of a dark mail in the Light theme (no white frame, no flash of the original colours), links open (and the look-alike / hidden-user warnings ask), "Load content" and blocked pictures, the height follows the content (no inner scroll bar), selection and Cmd+C inside the mail, Find in page, Print | P-mailframe, `scripts/lib/dark-frame-probe.mjs` (WK-F7.01) | `cls` has `hm-dark` and no `hm-pend` within 3 s; `rs` is `complete` or `interactive`; no horizontal scroll bar; `fallbacks` = 0 | OPEN |
+
+## 39. WP13g (coder, `feature/v107-wp13g-mailbg`, W13.15, DEC-025): the app theme decides the mail background
+
+What changed that is visible: in the Light app theme the mail (reading pane, reader window, the composer's "Preview as recipient") is always on the original (white where the sender gave no colour), whatever `mailCanvas` is stored; the sun / moon button there sets a session choice (nothing stored); every switch of the app theme (Settings, command bar, the OS under System) clears the session choice and the composer's preview choice and the surfaces follow within 1 s. The Dark app is unchanged (the button stores). No CSS, layout, font or text was added or changed: the only paint that moves is the frame's own background (class `hm-dark` on the frame's `<html>`, `hm-pend`, and the background style of the `iframe.msg-frame` element: all existing, D-052 / fix25 / fix32) and the composer's `--pv-*` variables.
+
+Engine features relied on (all already in use before this change): `matchMedia('(prefers-color-scheme: dark)')` with `addEventListener('change')` (WebKit 14 = macOS 11 and later; on Linux the backend answer `os-color-scheme` replaces it, osTheme.ts), `MutationObserver` on `data-theme` (the probe only), CSS custom properties, `color-scheme`, `@media screen` / `print`, `visibility`, `requestAnimationFrame` (the probe only). New: none (no clamp(), :has(), inert, color-mix, dvh, scroll-padding). No fallbacks are needed for this change.
+
+Probes (DOM only, run in the page through the test bridge `/eval` of the window that is looked at: `main`, `reader-N`, `compose-N`; the expressions are printed by `node scripts/lib/mail-canvas-probe.mjs` and `node scripts/lib/mail-canvas-probe.mjs watch 3000`; the same file serves CDP):
+- P-state: `mailCanvasProbe()` -> `{ theme, themeAttr, osDark, mailCanvas, session, pressed, frame: { cls, hmBg, bodyBg, bodyVis, frameBg, painted, rect, dpr } | null, composer: { cls, bg } | null }`. `painted` is the colour the empty parts of the mail show (the body's, else the frame element's).
+- P-watch: `mailCanvasWatch(ms)` starts a sampler (one sample per animation frame) and answers after `ms` with `{ frames, span, osAt, themeAt, colours: [{ c, from, to, n }, ...] (runs in order of appearance), hidden, samples }`. Start it (bridge `/eval` with `timeoutMs` above `ms`), then switch in the same second, by hand or from another request.
+- P-pixel (Mac, real pixels at 2x): `GET /snapshot?window=main` (PNG of the web content, 2x on a Retina Mac), then `node scripts/lib/mail-canvas-probe.mjs pixel snap.png <x*dpr> <y*dpr>` with a point inside `frame.rect` that has no mail content (bottom right corner: `rect.x + rect.w - 16`, `rect.y + min(rect.h, innerHeight - rect.y) - 16`). Linux has no `/snapshot` (HTTP 501): there the P-state / P-watch DOM numbers and a screenshot by hand are the evidence.
+- Fixtures: any HTML mail without colours of its own (a paragraph and a list) for the white / dark rows, and a newsletter with its own dark design (dark wrapper `#121212`, light text) for WK-39.07.
+
+| ID | Platform | Look at | Probe | PASS (numbers) | Status |
+|---|---|---|---|---|---|
+| WK-39.01 | Mac, Linux | Fresh profile (new data folder), theme System with the OS light: the plain HTML mail in the pane; then Settings > Appearance > Light; open it again in a reader window (double-click) | P-state in `main` and `reader-N`; P-pixel on Mac | `frame.cls` = "" (no `hm-dark`), `bodyVis` = visible, `hmBg` = `#ffffff`, `painted` = [255,255,255]; Mac pixel = 255,255,255 +-2 at 2x; `pressed` = "false"; `mailCanvas` = "original" | OPEN |
+| WK-39.02 | Mac, Linux | Stored dark in the Dark app, then switch the app to Light (Settings, and Ctrl+K / Cmd+K): the pane, a reader window and a composer with the preview on dark, all open at once | P-watch(3000) in `main`, `reader-N`, `compose-N` started before the switch; P-state after | In every window: `colours` = exactly two runs, the dark one first (about 27,28,32; composer `--pv-bg` 27,28,32) then white (255,255,255), no third colour; the white run starts <= 1000 ms after the setting changed (`themeAt`); `hidden` = 0 for the switch to Light; afterwards `mailCanvas` = "dark" (unchanged), `session` = null | OPEN |
+| WK-39.03 | Mac, Linux | The reverse: Light -> Dark with the stored dark: pane, reader window, composer | P-watch(3000) | Runs in order: white, then dark; no third colour; the dark run starts <= 1000 ms after `themeAt`; `hidden` may be > 0 only while `frame.cls` has `hm-pend` and the frame element's own background is dark (`frameBg` = rgb(27, 28, 32)), and `colours` shows no white after the first dark run | OPEN |
+| WK-39.04 | Mac, Linux | Real OS switch with the theme System (AC-13.15.5): stored dark, then flip the OS appearance (macOS: System Settings > Appearance Light / Dark; Linux: `gsettings set org.gnome.desktop.interface color-scheme prefer-dark` / `default`, or the KDE / portal switch). Pane and a reader window open, and a composer on its start value | P-watch(6000) started, then the OS switch; P-state after each | `osAt` or `themeAt` is set (the app noticed); the colour runs are white -> dark on the way to a dark OS and dark -> white on the way back, two runs each; the new run starts <= 1000 ms after `osAt` / `themeAt`; the composer's `cls` is `pv-dark` on the dark OS (stored dark) and `pv-light` on the light OS | OPEN |
+| WK-39.05 | Mac, Linux | Light app, press the sun / moon button (session choice): dark; open another mail in the pane (still dark); open a reader window now (dark at open); quit and start the app (original) | P-state before / after each step | After the press: `session` = "dark", `mailCanvas` unchanged, `pressed` = "true", `painted` about [27,28,32]; the new reader window shows `painted` about [27,28,32] within 1000 ms of its first frame; after the restart `session` = null, `painted` = [255,255,255]; the stored `mailCanvas` is what it was before the press | OPEN |
+| WK-39.06 | Mac, Linux | Dark app, stored original: button -> dark (stored); switch to Light -> original; back to Dark -> dark | P-watch(3000) around each switch, P-state | `mailCanvas` = "dark" after the press and after both switches; runs: dark -> white -> dark; no third colour | OPEN |
+| WK-39.07 | Mac, Linux | Light app, the newsletter with its own dark design | P-state; P-pixel on Mac inside the dark wrapper | `frame.cls` = "" (not recoloured), the wrapper's computed background `rgb(18, 18, 18)` and text `rgb(238, 238, 238)` unchanged, no `data-hm` attribute in the frame; Mac pixel inside the wrapper about 18,18,18 +-3 | OPEN |
+| WK-39.08 | Mac | Print preview (Cmd+P, W5.3) in each of: Light/original, Light/session dark, Dark/original, Dark/dark | the system print sheet's preview (the printed document is `printDoc.ts`, always light) | The preview is white with dark text in all four; the pane after cancelling is unchanged (`painted` as before) | OPEN |
+| WK-39.09 | Mac, Linux | Open a mail in the Dark app with the stored dark right after a switch Light -> Dark (fix32 rule), and a reader window opened in the Dark app | P-watch(2000) started before the open, `dark-frame-probe.mjs` (WK-F7.01) | No white run after a dark one in the Dark app; `cls` has `hm-dark` and no `hm-pend` within 3 s | OPEN |
+| WK-39.10 | Mac, Linux | The theme setting chosen again with the value it has (Settings > Light while Light), and a preference that is not the theme (density) while the session choice is dark | P-state | `session` stays "dark" (no theme switch happened); choosing System while Light with the OS light clears it (the setting changed) | OPEN |
