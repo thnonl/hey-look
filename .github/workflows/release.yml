@@ -615,7 +615,7 @@ jobs:
           cnf="$RUNNER_TEMP/rehearse-cert.cnf"
           printf '%s\n' '[req]' 'distinguished_name = dn' 'x509_extensions = ext' 'prompt = no' '[dn]' "CN = $name" '[ext]' 'basicConstraints = critical,CA:false' 'keyUsage = critical,digitalSignature' 'extendedKeyUsage = critical,codeSigning' > "$cnf"
           openssl req -x509 -newkey rsa:2048 -nodes -days 1 -config "$cnf" -keyout "$RUNNER_TEMP/rehearse-cert.key" -out "$RUNNER_TEMP/rehearse-cert.pem"
-          openssl pkcs12 -export -inkey "$RUNNER_TEMP/rehearse-cert.key" -in "$RUNNER_TEMP/rehearse-cert.pem" -out "$RUNNER_TEMP/rehearse-cert.p12" -passout "pass:$pw"
+          openssl pkcs12 -export -inkey "$RUNNER_TEMP/rehearse-cert.key" -in "$RUNNER_TEMP/rehearse-cert.pem" -out "$RUNNER_TEMP/rehearse-cert.p12" -passout "pass:$pw" -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1
           cert="$(openssl base64 -A < "$RUNNER_TEMP/rehearse-cert.p12")"
           echo "::add-mask::$cert"
           rm -f "$RUNNER_TEMP/rehearse-cert.key" "$RUNNER_TEMP/rehearse-cert.pem" "$RUNNER_TEMP/rehearse-cert.p12" "$cnf"
