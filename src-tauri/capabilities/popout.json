@@ -21,6 +21,7 @@
     "allow-list-accounts",
     "allow-list-folders",
     "allow-get-thread",
+    "allow-get-thread-packed",
     "allow-get-raw",
     "allow-reply-headers",
     "allow-get-setting",

@@ -3,6 +3,7 @@ import { Channel, invoke as tauriInvoke, type InvokeArgs, type InvokeOptions } f
 import { DATA_CHANGING } from "./popout/windowKinds";
 import { slimDraft } from "./draftUpload";
 import { t } from "./i18n";
+import { unpackThread } from "./threadPack";
 import type { RecoveredDraft, RecoveryInfo, RecoveryLoaded, SnapshotOut } from "./recovery";
 import type { PopoutKind } from "./popout/route";
 import type { Importance } from "./importance";
@@ -666,8 +667,9 @@ export const api = {
   /** Which list has a conversation (a click on its notification opens it there, notifyOpen.ts); null = it is not on this computer. */
   locateThread: (threadId: string) => invoke<ThreadHome | null>("locate_thread", { threadId }),
   /** `light`: without the bodies (`html`, `text`) - for a caller that reads what it needs itself (opening a draft: `draftEditorParts`). An encrypted message is still opened, for its `security`. */
-  getThread: (threadId: string, scope?: string, light?: boolean) =>
-    invoke<MessageFull[]>("get_thread", { threadId, scope: scope ?? null, light: light ?? null }),
+  getThread: async (threadId: string, scope?: string, light?: boolean): Promise<MessageFull[]> =>
+    // (the bodies come as raw bytes in one buffer, not as a JSON string: threadPack.ts; nothing here keeps the buffer)
+    unpackThread(await invoke<ArrayBuffer>("get_thread_packed", { threadId, scope: scope ?? null, light: light ?? null })),
   threadAction: (threadIds: string[], action: string, arg?: string, scope?: string) =>
     invoke<void>("thread_action", { threadIds, action, arg: arg ?? null, scope: scope ?? null }),
   /**

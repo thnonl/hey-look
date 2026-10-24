@@ -9,6 +9,8 @@ import { setSimulatedWindow } from "./winframe";
 import { parseReplyTo } from "./replyTo";
 import { nameInlinePicture } from "./editor/messageBody";
 import type { LangPref } from "./i18n";
+import { packThread } from "./threadPack";
+import type { MessageFull } from "./api";
 
 const now = Math.floor(Date.now() / 1000);
 const H = 3600;
@@ -1227,6 +1229,11 @@ export function installMock() {
     // `window.__mockDelays.cmds[cmd]` (ms): a slow command (a big batch, a big message), answered after that time (W13.14 checks)
     const cmdWait = (window as unknown as { __mockDelays?: MockDelays }).__mockDelays?.cmds?.[cmd] ?? 0;
     if (cmdWait > 0 && !a.__waited) return later(cmdWait, () => handle(cmd, { ...a, __waited: true }));
+    // the packed form of the same answer (threadPack.ts; the real command is get_thread_packed in lib.rs)
+    if (cmd === "get_thread_packed") {
+      const msgs = handle("get_thread", a);
+      return msgs instanceof Promise ? msgs.then((m) => packThread(m as MessageFull[])) : packThread(msgs as MessageFull[]);
+    }
     // a conversation's read / flag state is kept (as the server does), so the Unread and Flagged filters behave like the real list
     if (cmd === "get_thread" && !a.raw) {
       const delays = (window as unknown as { __mockDelays?: MockDelays }).__mockDelays;
