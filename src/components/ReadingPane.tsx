@@ -6,7 +6,7 @@ import { guardFrame } from "../contextGuard";
 import { Archive, Clock, ExternalLink, Flag, Forward, MailX, MoreHorizontal, Moon, Pin, Reply, ReplyAll, Sparkles, Sun, Trash2, ChevronsDownUp, ChevronsUpDown, Mail, ShieldAlert, AlertTriangle } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { mailFrameStats, writeMailDocument } from "../mailFrame";
-import { forward, replyTo } from "../actions";
+import { forward, mailtoCompose, replyTo } from "../actions";
 import { useAnswerBusy } from "../answerBusy";
 import { answerKey } from "../popout/entry";
 import { startCompose } from "../popout/composeOpen";
@@ -508,6 +508,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     void doc.fonts?.ready.then(measure);
     doc.querySelectorAll<HTMLAnchorElement>("a[href]").forEach((a) => (a.title = a.href)); // show the real target on hover
     const onClick = (e: MouseEvent) => {
+      if (e.type === "auxclick" && e.button !== 1) return; // (auxclick is every button but the left one: only the middle button opens a link; the right one is the menu's)
       const target = e.target as HTMLElement;
       const ph = target.closest?.(".hl-ph[data-cid]") as HTMLElement | null;
       if (ph) {
@@ -527,14 +528,19 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
       e.preventDefault();
       const text = (a.textContent ?? "").trim();
       const warn = linkWarning(text, a.href);
+      // an email link starts a new message here (W8.10; after the look-alike warning, which every link gets); any other link opens in the browser (an open that fails says so and copies the link)
+      const open = () => {
+        if (/^mailto:/i.test(a.href) && mailtoCompose(m, a.href, { shift: e.shiftKey })) return;
+        void openUpdateLink(a.href);
+      };
       if (warn) {
         void confirm({
           title: t("reading.body.linkWarnTitle"),
           body: warn.kind === "mismatch" ? t("reading.body.linkWarnBody", { text: warn.text, target: warn.target }) : warn.kind === "lookalike" ? t("reading.body.linkWarnLookalike", { target: warn.target }) : t("reading.body.linkWarnHidden", { target: warn.target }),
           confirmLabel: t("reading.body.linkWarnConfirm"),
           danger: true,
-        }).then((ok) => ok && void openUpdateLink(a.href));
-      } else void openUpdateLink(a.href); // (an open that fails says so and copies the link, instead of doing nothing)
+        }).then((ok) => ok && open());
+      } else open();
     };
     doc.addEventListener("click", onClick);
     doc.addEventListener("auxclick", onClick); // middle click on a link opens it in the browser too (REQ-50)
@@ -546,7 +552,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     win?.addEventListener("afterprint", afterPrint);
     const unlock = lockedNow.current ? lockDocument(doc) : undefined;
     // no native webview menu in the mail either: Copy on selected text, Open link / Copy link address on a link (confidential mail has no menu at all)
-    const unguard = lockedNow.current ? undefined : guardFrame(frame, doc);
+    const unguard = lockedNow.current ? undefined : guardFrame(frame, doc, { search: true });
     stopObserve.current = () => {
       unlock?.();
       unguard?.();
@@ -1104,7 +1110,7 @@ export function ReadingPane() {
   return (
     <section className="reading-pane" aria-label={t("reading.pane.label")}>
       <div className="rp-head">
-        <h2>{subjectText(summ.subject)}</h2>
+        <h2 data-subject={subjectText(summ.subject)}>{subjectText(summ.subject)}</h2>
         <div className="rp-tools">
           <button className="icon-btn" title={t("reading.head.archiveTip")} aria-label={t("reading.head.archive")} onClick={() => void act(id, "archive", undefined, () => t("reading.head.archived"))}><Archive size={16} /></button>
           <button className="icon-btn" title={t("reading.head.deleteTip")} aria-label={t("reading.head.delete")} onClick={() => void act(id, "trash", undefined, () => t("reading.head.trashed"))}><Trash2 size={16} /></button>

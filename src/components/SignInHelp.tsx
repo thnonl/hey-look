@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Account, api } from "../api";
-import { endHint, endNotice, endReason, GOOGLE_REVIEW_HELP_URL, providerLabel, waitHint, type EndReason, type SignInProvider } from "../signIn";
+import { endHint, endNotice, endReason, googleReviewHelpUrl, providerLabel, waitHint, type EndReason, type SignInProvider } from "../signIn";
 import { friendlyError, useStore } from "../store";
 import { useT } from "../i18n/react";
 import { openUpdateLink } from "../updates";
@@ -23,7 +23,7 @@ export function signInEnd(provider: SignInProvider, purpose: "mail" | "calendar"
 function HelpLink() {
   const t = useT();
   return (
-    <button className="link" onClick={() => void openUpdateLink(GOOGLE_REVIEW_HELP_URL)}>{t("signin.google.learn")}</button>
+    <button className="link" onClick={() => void openUpdateLink(googleReviewHelpUrl())}>{t("signin.google.learn")}</button>
   );
 }
 

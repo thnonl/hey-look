@@ -20,9 +20,9 @@ export interface AboutLink {
   url: string;
 }
 
-// `text` and the support `url` are read when the link is drawn or pressed, so they follow the language in use
+// `text` and the Website / support `url` are read when the link is drawn or pressed, so they follow the language in use
 export const ABOUT_LINKS: readonly AboutLink[] = [
-  { get text() { return t("settings.about.website"); }, url: SITE },
+  { get text() { return t("settings.about.website"); }, get url() { return siteUrl(""); } },
   { get text() { return t("settings.about.coffee"); }, get url() { return supportUrl(); } },
   { get text() { return t("settings.about.source"); }, url: "https://github.com/thnonl/hey-look" },
   // (Microsoft Store policy 10.5.1: the privacy policy is reachable inside the app; the page of the language in use, read when the link is pressed)

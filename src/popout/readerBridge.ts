@@ -6,6 +6,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { CANVAS_SESSION_EVENT } from "../mailCanvasSync";
 import { answerVia } from "../actions";
+import { searchVia } from "../selectionSearch";
 import { api, type MessageFull } from "../api";
 import { t } from "../i18n";
 import { friendlyError, useStore, type Dialog } from "../store";
@@ -46,6 +47,12 @@ export interface ReaderBridge {
 export async function installReaderBridge(b: ReaderBridge): Promise<() => void> {
   answerVia.reply = (m, all, thread) => void askMain("compose", { mode: all ? "replyAll" : "reply", message: m, threadMessageIds: idsOf(thread) }, 10_000);
   answerVia.forward = (m, thread) => void askMain("compose", { mode: "forward", message: m, threadMessageIds: idsOf(thread) }, 10_000);
+  // an email link of a message: a compose window of the main page (always a window: the reader is one, REQ-R5); the text menu's "Search mail for ..." shows the main window (W8.1)
+  // (taken off again only if they are still these: a second install - the dev build runs effects twice - may have replaced them before the first one is undone)
+  const mailto: typeof answerVia.mailto = (accountId, f) => void askMain("compose-new", { init: { accountId, to: f.to, cc: f.cc, bcc: f.bcc, subject: f.subject, bodyText: f.body } }, 30_000);
+  const search = (query: string) => void askMain("search", { text: query });
+  answerVia.mailto = mailto;
+  searchVia.run = search;
   answerVia.importKey = async (m, index) => {
     if (await askMain("import-key", { messageId: m.id, index }, 60_000)) b.reload();
   };
@@ -97,6 +104,8 @@ export async function installReaderBridge(b: ReaderBridge): Promise<() => void> 
     offCanvas();
     answerVia.reply = undefined;
     answerVia.forward = undefined;
+    if (answerVia.mailto === mailto) answerVia.mailto = undefined;
+    if (searchVia.run === search) searchVia.run = undefined;
     answerVia.importKey = undefined;
     off();
   };

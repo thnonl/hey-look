@@ -176,7 +176,7 @@ assert.match(read("src/popout/ComposeView.tsx"), /setDialog: \(d\) => \{\s*if \(
 const settings = read("src/components/SettingsDialog.tsx");
 for (const id of ["set-aiBaseUrl", "set-aiKey", "set-aiModel"]) assert.ok(settings.includes(`id="${id}"`), `${id} in the AI Assistant tab`);
 assert.equal((settings.match(/id="set-aiModel"/g) || []).length, 2, "the Model control has the id as a list and as a text box");
-assert.match(settings, /if \(focus\.startsWith\("ai"\)\) return void el\?\.focus\(\{ preventScroll: true \}\);/);
+assert.match(settings, /if \(focus\.startsWith\("ai"\)\) \{\s*const el = document\.getElementById\(\x60set-\$\{focus\}\x60\);\s*if \(el\) \(el\.focus\(\{ preventScroll: true \}\), \(deepDone\.current = done\)\);\s*return;\s*\}/, "an AI field: the cursor goes in, nothing scrolls or moves (the other deep links use the jump of settingsJump.ts)");
 assert.match(settings, /\[focus, tab, mbTab, nonce\]\);/, "asked again while Settings is open: the cursor goes in again");
 // Esc on the toast closes the toast and nothing else (the app's own Esc closes the open conversation)
 const overlays = read("src/components/overlays.tsx");

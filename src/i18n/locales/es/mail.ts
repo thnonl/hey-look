@@ -133,6 +133,7 @@ export default defineLocale<typeof ns.en>({
   "mail.folder.subfolders": "Subcarpetas de {name}",
   // right-click menu of a list row
   "mail.ctx.copySubject": "Copiar asunto",
+  "mail.ctx.searchSelection": "Buscar en el correo “{text}”",
   "mail.ctx.copyEmail": "Copiar dirección de correo",
   "mail.ctx.selectAll": "Seleccionar todo",
   "mail.ctx.textMenu": "Acciones de texto",

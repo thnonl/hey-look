@@ -526,6 +526,7 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
           <h1
             ref={titleRef}
             tabIndex={-1}
+            data-subject={title}
             // (W4.7) the subject is the conversation: drag it onto a folder of the main window (the main window moves it and closes this one)
             draggable={!gone && !locked && mayDragRow(info.view, info.folder) ? true : undefined}
             onDragStart={(e) => (gone || locked || !mayDragRow(info.view, info.folder) ? e.preventDefault() : startMailDrag(e, [{ threadId: info.threadId, accountId: info.accountId, folder: info.folder }], info.view))}

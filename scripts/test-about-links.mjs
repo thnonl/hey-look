@@ -3,6 +3,9 @@
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { ABOUT_LINKS, siteUrl, supportUrl } from "../src/aboutLinks.ts";
+import { googleReviewHelpUrl } from "../src/signIn.ts";
+import { readdirSync, statSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { LANGUAGES } from "../src/i18n/languages.ts";
 import { loadAllLanguages, setLangPref } from "../src/i18n/index.ts";
 import { LANGS as SITE_LANGS } from "./generate-site-languages.mjs";
@@ -43,6 +46,30 @@ for (const l of LANGUAGES) {
   const help = read(`docs/${folder}help.html`);
   assert.equal((help.match(/<details class="hq" id="ai-report">/g) ?? []).length, 1, `${l.code}: help.html has the section id="ai-report" once`);
   assert.ok(help.includes(`<summary>${l.code === "en" ? "Content from the AI Assistant" : ""}`), `${l.code}: the section has a summary`);
+}
+// W8.4: the Website link and the Google sign-in help open the site in the language in use, computed when the link is pressed (a switch of the language counts at once)
+for (const l of LANGUAGES) {
+  const dir = dirOf(l.code);
+  setLangPref(l.code);
+  const folder = dir ? dir + "/" : "";
+  assert.equal(ABOUT_LINKS[0].url, SITE + folder, `${l.code}: Settings > About Website link`);
+  assert.equal(siteUrl(""), SITE + folder, `${l.code}: the home page of the language`);
+  assert.equal(googleReviewHelpUrl(), SITE + folder + "help.html#google-review", `${l.code}: the Google sign-in help link`);
+  for (const page of ["index.html", "support.html", "help.html"]) assert.ok(existsSync(new URL(`../docs/${folder}${page}`, import.meta.url)), `${l.code}: docs/${folder}${page} exists`);
+  assert.equal((read(`docs/${folder}help.html`).match(/id="google-review"/g) ?? []).length, 1, `${l.code}: help.html has the question id="google-review"`);
+}
+setLangPref("ja");
+assert.equal(ABOUT_LINKS[0].url, SITE + "ja/", "ja: https://heylook.namthai.site/ja/");
+assert.equal(ABOUT_LINKS[1].url, SITE + "ja/support.html", "ja: the coffee link");
+setLangPref("fr");
+assert.equal(ABOUT_LINKS[0].url, SITE + "fr/", "a language switch with Settings open: the next click opens /fr/");
+assert.equal(ABOUT_LINKS[2].url, "https://github.com/thnonl/hey-look", "Source code stays the repository");
+// no other source file writes the site's address: every link goes through siteUrl()
+const walk = (dir) => readdirSync(dir).flatMap((n) => { const p = dir + "/" + n; return statSync(p).isDirectory() ? walk(p) : /\.(ts|tsx)$/.test(n) ? [p] : []; });
+const root = fileURLToPath(new URL("../src", import.meta.url));
+for (const file of walk(root)) {
+  if (file.endsWith("aboutLinks.ts")) continue;
+  assert.ok(!readFileSync(file, "utf8").includes("heylook.namthai.site"), `${file} writes the site's address: use siteUrl()`);
 }
 setLangPref("en");
 const dlgSrc = read("src/components/SettingsDialog.tsx");

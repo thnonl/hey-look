@@ -440,3 +440,11 @@ ui-b | node scripts/test-server-search-ui.mjs --require-browser
 static | node --experimental-strip-types scripts/test-settings-index.mjs
 # 1.0.7 W8.12 in the real page: every page and section compared with the index (en Windows, ja macOS, ru Linux without a tray; the full run has 24 combinations and every entry), the jump (first result, page, middle of the body, lit, focus, 300 ms scaled), Ctrl/Cmd+F and /, the Esc sequence, an input method's Enter, ARIA and the live region, nothing moves while typing, the deep link with reduced motion, 960x560
 ui-a | node --experimental-strip-types scripts/test-settings-search.mjs --quick --require-browser
+# 1.0.7 W8.4 / W8.9 / W8.1 / W8.10 (WP8a): "Search in Gmail" - Archive and "all" add no folder term, the exact link (authuser + the search in the fragment), the other folders unchanged
+static | node --experimental-strip-types scripts/test-webmail.mjs
+# W8.1: the query made from selected text (whitespace, quotes, operator words, 8 words, 100 characters, the 30-character label, what a reader window may ask for)
+static | node --experimental-strip-types scripts/test-selection-search.mjs
+# W8.10: what is taken from a mailto: link (RFC 6068: to, cc, bcc, subject, body; ignored fields, decoding, 50 addresses, 255 / 8,000 characters, header cleaning) and the HTML of the body
+static | node --experimental-strip-types scripts/test-mailto-link.mjs
+# W8.1 and W8.10 in the real page: the text menu with a selection (Search mail for ..., the box, the list, the recent searches, the scope), Copy subject, Shift+F10, no search entry in Settings or the list, a reader window's request; a click (left, middle, Shift) on a mailto link starts a message with the fields of the link and never the system opener
+ui-a | node --experimental-strip-types scripts/test-ctx-search.mjs --require-browser

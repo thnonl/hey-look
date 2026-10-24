@@ -133,6 +133,7 @@ export default defineLocale<typeof ns.en>({
   "mail.folder.subfolders": "{name}的子文件夹",
   // right-click menu of a list row
   "mail.ctx.copySubject": "复制主题",
+  "mail.ctx.searchSelection": "在邮件中搜索“{text}”",
   "mail.ctx.copyEmail": "复制电子邮件地址",
   "mail.ctx.selectAll": "全选",
   "mail.ctx.textMenu": "文本操作",

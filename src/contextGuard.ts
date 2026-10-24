@@ -6,6 +6,7 @@ import { create } from "zustand";
 import { isContextMenuKey, isKeyEcho } from "./contextMenu";
 import { decideContextMenu, emailAtOffset, fieldKind, INTERACTIVE, nativeMenuWanted, PLUGIN_HOST, SELECT_SCOPE, safeLinkHref } from "./contextPolicy";
 import { usePlatform } from "./platform";
+import { selectionQuery } from "./selectionSearch";
 
 export interface GuardMenu {
   at: { x: number; y: number };
@@ -19,6 +20,10 @@ export interface GuardMenu {
   email: string | null;
   /** the Select all entry (null: none) */
   selectAll: (() => void) | null;
+  /** the subject as shown, when the menu was opened on the subject heading of the reading pane or of a reader window (the Copy subject entry, W8.1) */
+  subject: string | null;
+  /** the search for the selected text (the "Search mail for ..." entry, W8.1); null outside the reading areas or with nothing selected */
+  search: string | null;
   /** where the focus goes when the menu closes */
   returnTo: HTMLElement | null;
 }
@@ -71,7 +76,7 @@ const selectable = (win: Window, el: Element) => {
  * What is under the pointer (`pt`), or at the focus when the menu was asked for with the keyboard (`pt` null: the selection, the focused link or
  * the focused read-only field).
  */
-function probe(doc: Document, target: EventTarget | null, pt: Pt | null) {
+function probe(doc: Document, target: EventTarget | null, pt: Pt | null, inMessageFrame = false) {
   const View = (doc.defaultView ?? window) as Window & typeof globalThis;
   const sel = doc.getSelection();
   const asEl = (n: Node | null | undefined): Element | null => (n instanceof View.Element ? n : (n?.parentElement ?? null));
@@ -99,9 +104,13 @@ function probe(doc: Document, target: EventTarget | null, pt: Pt | null) {
   const onText = !!hit && !!el && !interactive && selectable(View, el);
   const tagged = el?.closest("[data-email]")?.getAttribute("data-email") ?? null;
   const email = href ? null : (tagged || (hit && onText ? emailAtOffset(hit.node.data, hit.offset) : null) || null);
+  // the subject heading of the reading pane and of a reader window (data-subject): "Copy subject"; and the places where a selection can be searched for: the message's frame, the reading pane
+  // (header, subject, sender line, the AI box) and a reader window's message area (it is a reading pane too)
+  const subject = field === "none" ? (el?.closest("[data-subject]")?.getAttribute("data-subject") ?? null) : null;
+  const searchArea = field === "none" && (inMessageFrame || !!el?.closest(".reading-pane, [data-mail-search]"));
   const scope = field === "readonly" ? null : doc !== document ? doc.body : ((el?.closest(SELECT_SCOPE) as HTMLElement | null) ?? doc.body);
   return {
-    field, a, href, text, email, onText, el,
+    field, a, href, text, email, onText, el, subject, searchArea,
     own: !!el?.closest("[data-own-menu]"),
     plugin: !!el?.closest(PLUGIN_HOST),
     locked: !!el?.closest(".confidential, [data-no-copy]"),
@@ -122,11 +131,12 @@ function probe(doc: Document, target: EventTarget | null, pt: Pt | null) {
 let keyAt = 0;
 
 /** `frame`: set for a message's frame - where it sits in the window. (The pointer position of an event in the frame is in the frame's own viewport pixels, also when a wide mail is zoomed out to fit: checked in the preview.) */
-function handle(doc: Document, e: MouseEvent, frame?: HTMLIFrameElement) {
+function handle(doc: Document, e: MouseEvent, frame?: HTMLIFrameElement, searchable = false) {
   if (nativeMenuStays()) return;
   try {
-    const p = probe(doc, e.target, { x: e.clientX, y: e.clientY });
-    const policy = decideContextMenu({ dev: false, field: p.field, locked: p.locked, link: p.href, email: p.email, selection: p.text.length > 0, onText: p.onText, plugin: p.plugin });
+    const p = probe(doc, e.target, { x: e.clientX, y: e.clientY }, searchable);
+    // (the subject heading is text to the menu even where the engine would not select it: a reader window's title is draggable)
+    const policy = decideContextMenu({ dev: false, field: p.field, locked: p.locked, link: p.href, email: p.email, selection: p.text.length > 0, onText: p.onText || p.subject !== null, plugin: p.plugin });
     if (policy === "native") return;
     e.preventDefault();
     if (p.own || policy === "block" || isKeyEcho(keyAt, Date.now())) return;
@@ -155,6 +165,8 @@ function show(p: ReturnType<typeof probe>, at: Pt, keyboard: boolean) {
       link: p.href && a ? { href: p.href, open: () => a.click() } : null,
       email: p.email,
       selectAll: p.selectAll,
+      subject: p.subject,
+      search: p.searchArea && p.text ? selectionQuery(p.text) : null,
       returnTo: (document.activeElement as HTMLElement | null) ?? null,
     },
   });
@@ -177,10 +189,10 @@ function keyAnchor(doc: Document, el: Element | null, frame?: HTMLIFrameElement)
   return r ? { x: (off?.left ?? 0) + r.left, y: (off?.top ?? 0) + r.bottom } : null;
 }
 
-function handleKey(doc: Document, e: KeyboardEvent, frame?: HTMLIFrameElement) {
+function handleKey(doc: Document, e: KeyboardEvent, frame?: HTMLIFrameElement, searchable = false) {
   if (!isContextMenuKey(e) || nativeMenuStays()) return;
-  const p = probe(doc, null, null);
-  const policy = decideContextMenu({ dev: false, field: p.field, locked: p.locked, link: p.href, email: p.email, selection: p.text.length > 0, onText: false });
+  const p = probe(doc, null, null, searchable);
+  const policy = decideContextMenu({ dev: false, field: p.field, locked: p.locked, link: p.href, email: p.email, selection: p.text.length > 0, onText: p.subject !== null });
   if (policy === "native" || p.own) return; // a field answers its own key; the mail list does too
   e.preventDefault();
   keyAt = Date.now();
@@ -205,9 +217,10 @@ export function installContextGuard(): () => void {
  * The same for the document of a message's frame (same origin, filled with `srcDoc`). "Open link" clicks the anchor itself, which runs the reading
  * pane's own click handler: the look-alike-link warning, then the safe external opener - the webview never navigates. Returns the remover.
  */
-export function guardFrame(frame: HTMLIFrameElement, doc: Document): () => void {
-  const onContext = (e: MouseEvent) => handle(doc, e, frame);
-  const onKey = (e: KeyboardEvent) => handleKey(doc, e, frame);
+export function guardFrame(frame: HTMLIFrameElement, doc: Document, opts?: { search?: boolean }): () => void {
+  const searchable = !!opts?.search; // (the frame of a message: its selection can be searched for, W8.1; the frame of an attachment preview cannot)
+  const onContext = (e: MouseEvent) => handle(doc, e, frame, searchable);
+  const onKey = (e: KeyboardEvent) => handleKey(doc, e, frame, searchable);
   const close = (e: KeyboardEvent) => isContextMenuKey(e) || closeGuardMenu();
   const closeAny = () => closeGuardMenu();
   // a press in the frame never reaches the window's document: tell the popovers of the main window (their outside-press listeners are on document, capture phase)

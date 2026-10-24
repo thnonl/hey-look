@@ -140,6 +140,7 @@ export default define({
 
     // right-click menu of a list row
     "mail.ctx.copySubject": "Copy subject",
+    "mail.ctx.searchSelection": "Search mail for “{text}”",
     "mail.ctx.copyEmail": "Copy email address",
     "mail.ctx.selectAll": "Select all",
     "mail.ctx.textMenu": "Text actions",

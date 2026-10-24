@@ -3,14 +3,14 @@
 // Checks src/signIn.ts. Run: node --experimental-strip-types scripts/test-sign-in.mjs
 import assert from "node:assert/strict";
 import { loadAllLanguages, setLangPref } from "../src/i18n/index.ts";
-import { GOOGLE_REVIEW_HELP_URL, GOOGLE_REVIEW_PENDING, endHint, endLead, endNotice, endReason, needsSignIn, waitHint } from "../src/signIn.ts";
+import { googleReviewHelpUrl, GOOGLE_REVIEW_PENDING, endHint, endLead, endNotice, endReason, needsSignIn, waitHint } from "../src/signIn.ts";
 import { calendarErrorText, statusLine } from "../src/calendarSync.ts";
 import { backendText } from "../src/backendErrors.ts";
 
 await loadAllLanguages(); // (the languages are chunks of their own: setLangPref needs them loaded)
 
 assert.equal(GOOGLE_REVIEW_PENDING, true, "1.0.1 ships while Google has not verified the app");
-assert.equal(GOOGLE_REVIEW_HELP_URL, "https://heylook.namthai.site/help.html#google-review");
+assert.equal(googleReviewHelpUrl(), "https://heylook.namthai.site/help.html#google-review");
 
 // ---- how a sign-in ended (the texts are what the Rust code sends)
 const mail = (code, label, rest = "") => `${code}|label=${label}${rest}: whatever`;

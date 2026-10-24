@@ -4,6 +4,8 @@
 // The answer goes back through the backend to that window (`popout_reply`).
 import { forward, replyTo } from "../actions";
 import { startCompose } from "./composeOpen";
+import { bodyTextToHtml } from "../mailtoLink";
+import { searchMailHere } from "../searchSelection";
 import { importKeyFromMessage } from "../components/Pgp";
 import { api, MessageFull } from "../api";
 import { t, type Key } from "../i18n";
@@ -66,9 +68,18 @@ async function run(env: Envelope): Promise<unknown> {
     case "import-key":
       await importKeyFromMessage({ id: p.messageId } as unknown as MessageFull, p.index);
       return null;
-    case "compose-new":
-      void startCompose(p.req, { window: true, shift: false });
+    case "compose-new": {
+      const { bodyText, ...init } = p.req;
+      void startCompose(bodyText ? { ...init, typedHtml: bodyTextToHtml(bodyText) } : init, { window: true, shift: false });
       return null;
+    }
+    case "search": {
+      // the main window comes forward, shows the mail (not the calendar) and searches there with the scope the person chose (W8.1, REQ-8.1.6)
+      showMain();
+      if (st.module !== "mail") st.setModule("mail");
+      searchMailHere(p.text);
+      return null;
+    }
     case "dialog":
       showMain();
       st.setDialog(p.req.type === "settings" ? { type: "settings", tab: p.req.tab, focus: p.req.focus, nonce: Date.now() } : (p.req as unknown as Dialog));

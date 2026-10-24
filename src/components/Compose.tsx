@@ -594,7 +594,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     },
     // a new message: typed text, then the signature region, then (reply / forward) the quoted message
     // a quoted or reopened body never brings a remote picture into the editor (the reader's "Load pictures" is the only place they load)
-    content: (startContent.current ??= stripRemotePictures(editing ? startDoc.current!.html : `<p></p>${SIG_MARK}${extractQuote(init.bodyHtml ?? "<p></p>").html}`).html),
+    content: (startContent.current ??= stripRemotePictures(editing ? startDoc.current!.html : `${init.typedHtml || "<p></p>"}${SIG_MARK}${extractQuote(init.bodyHtml ?? "<p></p>").html}`).html),
     autofocus: (init.to?.length ?? 0) > 0 ? "start" : false,
     // a body from an older build may lack the paragraph above the signature region: add it without counting as an edit
     onCreate: ({ editor: ed }) => {

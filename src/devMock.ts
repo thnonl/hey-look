@@ -138,6 +138,25 @@ threads.push(
 mockThreadMsgs["timp-hi"] = [secMsg("m-imp-hi", "Please approve the change window today", "Linh Tran", "linh@example.com", { importance: "high", seen: false }, "<p>Hi Nam,</p><p>We need your sign-off before 17:00 so the release can go out tonight.</p><p>— Linh</p>")];
 mockThreadMsgs["timp-lo"] = [secMsg("m-imp-lo", "FYI: newsletter archive has moved", "Minh Pham", "minh@example.com", { importance: "low" }, "<p>Hi Nam,</p><p>No action needed, just so you know where to find the old issues.</p><p>— Minh</p>")];
 
+// WP8a (W8.1, W8.10): `#wp8` adds two conversations at the top of the Inbox: one to select words in (the text menu's "Search mail for ..."), one with the email links of the acceptance criteria.
+if (new URLSearchParams(window.location.hash.slice(1)).has("wp8")) {
+  const many = Array.from({ length: 60 }, (_, i) => `u${i}@many.test`).join(",");
+  threads.unshift(
+    t("tw8-sel", "Budget notes", ["Linh Tran"], "Quarterly budget review moved to Friday", 0.1 * H, { unread: 1 }),
+    t("tw8-mailto", "WP8 mailto links", ["Linh Tran"], "Email links for the new message", 0.2 * H, { unread: 1 }),
+  );
+  mockThreadMsgs["tw8-sel"] = [secMsg("m-wp8-sel", "Budget notes", "Linh Tran", "linh@example.com", { seen: false }, "<p id=\"q\">Quarterly budget review moved to Friday</p><p id=\"long\">one two three four five six seven eight nine ten eleven twelve</p><p id=\"ops\">from:boss subject:\"pay\" Re: invoice</p><p>Write to <a id=\"mail\" href=\"mailto:boss@example.test\">boss@example.test</a></p>")];
+  mockThreadMsgs["tw8-mailto"] = [secMsg("m-wp8-mailto", "WP8 mailto links", "Linh Tran", "linh@example.com", { seen: false }, [
+    "<p><a id=\"l1\" href=\"mailto:qa1@example.test\">one address</a></p>",
+    "<p><a id=\"l2\" href=\"mailto:qa1@example.test,qa2@example.test?cc=qa3@example.test&amp;bcc=qa4@example.test&amp;subject=Hello%20there&amp;body=Line%201%0D%0ALine%202\">full link</a></p>",
+    "<p><a id=\"l3\" href=\"mailto:?subject=Only%20subject\">only a subject</a></p>",
+    "<p><a id=\"l4\" href=\"mailto:qa1@example.test?attach=C:%5CWindows%5Cwin.ini&amp;from=evil@example.test&amp;In-Reply-To=%3Cx@y%3E\">ignored fields</a></p>",
+    `<p><a id="l5" href="mailto:${many}?body=${"x".repeat(10000)}">many addresses</a></p>`,
+    "<p><a id=\"l9\" href=\"mailto:other@example.test\">bank.example.test</a></p>",
+    "<p><a id=\"l10\" href=\"https://example.test/page\">a web link</a></p>",
+  ].join(""))];
+}
+
 const messages = [
   { id: "m1", accountId: "a1", folder: "inbox", messageId: "<1@x>", subject: "Q4 roadmap review", fromName: "Linh Tran", fromEmail: "linh@example.com", to: "nam@example.com", cc: "", date: now - 3 * H, html: body("Attaching the latest roadmap deck."), text: "Attaching the latest roadmap deck.", seen: true, flagged: false, attachments: [{ index: 0, name: "roadmap-q4.pdf", mime: "application/pdf", size: 482113 }], canUnsubscribe: false },
   { id: "m2", accountId: "a1", folder: "inbox", messageId: "<2@x>", subject: "Re: Q4 roadmap review", fromName: "Nam", fromEmail: "nam@example.com", to: "linh@example.com", cc: "", date: now - 2 * H, html: body("Thanks, looking now."), text: "Thanks, looking now.", seen: true, flagged: false, attachments: [], canUnsubscribe: false },
@@ -1120,8 +1139,8 @@ export function installMock() {
     eq('body:budget body:"q4 plan" report', 'budget "q4 plan" report');
     eq("folder:sent report", "in:sent report");
     eq("in:spam in:bin in:drafts in:inbox", "in:spam in:trash in:drafts in:inbox");
-    eq("in:archive x", "in:anywhere x");
-    eq("folder:all x", "in:anywhere x");
+    eq("in:archive x", "x");
+    eq("folder:all x", "x");
     eq("folder:Projects/Hey x", "label:Projects/Hey x");
     eq("report", "report in:sent", "sent");
     eq("report", "report in:spam", "junk");

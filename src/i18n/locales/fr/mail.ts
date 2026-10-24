@@ -134,6 +134,7 @@ export default defineLocale<typeof ns.en>({
 
   // right-click menu of a list row
   "mail.ctx.copySubject": "Copier l’objet",
+  "mail.ctx.searchSelection": "Rechercher « {text} » dans les messages",
   "mail.ctx.copyEmail": "Copier l’adresse e-mail",
   "mail.ctx.selectAll": "Tout sélectionner",
   "mail.ctx.textMenu": "Actions sur le texte",

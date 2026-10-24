@@ -156,8 +156,8 @@ assert.match(guard, /doc\.addEventListener\("contextmenu", onContext, true\)/, "
 assert.match(guard, /window\.addEventListener\("keydown", onKey, true\)/, "the ContextMenu key / Shift+F10 in the window");
 assert.match(guard, /doc\.addEventListener\("keydown", onKey, true\)/, "and in a message's frame");
 assert.match(guard, /fieldKind\(/, "the field case is decided by contextPolicy");
-assert.match(guard, /decideContextMenu\(\{ dev: false, field: p\.field, locked: p\.locked, link: p\.href, email: p\.email, selection: p\.text\.length > 0, onText: p\.onText, plugin: p\.plugin \}\)/, "the decision function is the one tested here (mouse)");
-assert.match(guard, /decideContextMenu\(\{ dev: false, field: p\.field, locked: p\.locked, link: p\.href, email: p\.email, selection: p\.text\.length > 0, onText: false \}\)/, "and the keyboard asks the same question");
+assert.match(guard, /decideContextMenu\(\{ dev: false, field: p\.field, locked: p\.locked, link: p\.href, email: p\.email, selection: p\.text\.length > 0, onText: p\.onText \|\| p\.subject !== null, plugin: p\.plugin \}\)/, "the decision function is the one tested here (mouse)");
+assert.match(guard, /decideContextMenu\(\{ dev: false, field: p\.field, locked: p\.locked, link: p\.href, email: p\.email, selection: p\.text\.length > 0, onText: p\.subject !== null \}\)/, "and the keyboard asks the same question");
 assert.match(guard, /if \(nativeMenuStays\(\)\) return;/, "dev / debug builds keep the native menu");
 assert.match(guard, /import\.meta\.env\.DEV/, "the dev detection is Vite's");
 assert.match(guard, /nativeMenuWanted\(window\.location\.hash, import\.meta\.env\.DEV, usePlatform\.getState\(\)\.testData !== null\)/, "a debug build of the app is told by the backend's test-data folder; the rule is nativeMenuWanted (tested above)");
@@ -169,7 +169,25 @@ assert.match(guard, /closest\("\.confidential, \[data-no-copy\]"\)/, "confidenti
 assert.match(guard, /e\.preventDefault\(\);\s*\n\s*if \(p\.own \|\| policy === "block" \|\| isKeyEcho\(keyAt, Date\.now\(\)\)\) return;/, "swallowed first, then the app's menu if there is one (and not twice for one key press)");
 assert.match(guard, /if \(policy === "native" \|\| p\.own\) return;/, "a field answers its own key, the mail list answers its own");
 // the screens
-assert.match(read("src/components/ReadingPane.tsx"), /lockedNow\.current \? undefined : guardFrame\(frame, doc\)/, "the message frame has it, confidential mail has no menu at all");
+assert.match(read("src/components/ReadingPane.tsx"), /lockedNow\.current \? undefined : guardFrame\(frame, doc, \{ search: true \}\)/, "the message frame has it (and its selection can be searched for), confidential mail has no menu at all");
+// W8.1: Copy subject and Search mail for the selection - in the reading areas only, never for locked content, never in an attachment preview
+assert.match(read("src/components/ReadingPane.tsx"), /<h2 data-subject=\{subjectText\(summ\.subject\)\}>/, "the subject heading of the reading pane is marked");
+assert.match(read("src/popout/ReaderView.tsx"), /data-subject=\{title\}/, "and the one of a reader window");
+assert.match(guard, /closest\("\[data-subject\]"\)\?\.getAttribute\("data-subject"\)/, "the probe reads the mark");
+assert.match(guard, /inMessageFrame \|\| !!el\?\.closest\("\.reading-pane, \[data-mail-search\]"\)/, "the search is offered in the message frame, the reading pane and a reader window's message area only");
+assert.match(guard, /search: p\.searchArea && p\.text \? selectionQuery\(p\.text\) : null/, "and only with text selected");
+assert.match(guard, /decideContextMenu\(\{ dev: false, field: p\.field, locked: p\.locked, [^}]*onText: p\.onText \|\| p\.subject !== null/, "the subject heading is text to the menu (a reader window's title is draggable)");
+assert.match(read("src/components/Attachments.tsx"), /guardFrame\(f, f\.contentDocument\)/, "the frame of an attachment preview has no search entry");
+const hostSrc = read("src/components/GuardMenuHost.tsx");
+assert.match(hostSrc, /t\("mail\.ctx\.searchSelection", \{ text: selectionLabel\(menu\.search\) \}\)/, "the entry names the words, cut to 30 characters");
+assert.match(hostSrc, /\(searchVia\.run \?\? searchMailHere\)\(menu\.search!\)/, "the main window searches itself, a reader window asks the main page");
+assert.match(hostSrc, /t\("mail\.ctx\.copySubject"\)/, "Copy subject uses the key of the row menu");
+assert.match(hostSrc, /t\("reading\.msg\.copied"\)[\s\S]*?: fail\(\)/, "Copied on success, mail.ctx.copyFailed on failure");
+const textBranch = hostSrc.slice(hostSrc.indexOf("...subject,"));
+assert.ok(textBranch.indexOf("common.copy") > 0 && textBranch.indexOf("mail.ctx.selectAll") > textBranch.indexOf("common.copy"), "Copy subject comes first, then Copy and Select all");
+assert.ok(textBranch.lastIndexOf("...search,") > textBranch.indexOf("mail.ctx.selectAll"), "the search entry comes after Select all, below a divider");
+assert.match(read("src/searchSelection.ts"), /setSearch\(query, true\)/, "the search is remembered (the recent searches of W13.4)");
+assert.match(read("src/popout/readerBridge.ts"), /const search = \(query: string\) => void askMain\("search", \{ text: query \}\);\s*answerVia\.mailto = mailto;\s*searchVia\.run = search;/, "a reader window asks the main page");
 assert.match(read("src/components/ReadingPane.tsx"), /className="rp-from ellipsis" data-email=\{m\.fromEmail\}/, "the sender of a message in the reader");
 assert.match(read("src/components/RecipientField.tsx"), /data-email=\{EMAIL\.test\(bareAddress\(v\)\) \? bareAddress\(v\) : undefined\}/, "a recipient chip in Compose");
 assert.match(read("src/components/ListContextMenu.tsx"), /"data-own-menu"/);

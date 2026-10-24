@@ -52,7 +52,7 @@ check("the pages use these functions (no key is written in the page any more)", 
   assert.match(sp, /t\("compose\.schedule\.quitWarning"\)/, "the warning sentence stays");
   const sd = read("src/components/SettingsDialog.tsx");
   assert.match(sd, /t\(filtersIntroKey\(tray\)\)/);
-  assert.match(sd, /<h3>\{t\(trayTabTitleKey\(tray\)\)\}<\/h3>/);
+  assert.match(sd, /<h3 id="set-pg-tray">\{t\(trayTabTitleKey\(tray\)\)\}<\/h3>/);
   assert.match(sd, /item\(k, t\(k === "tray" \? trayTabTitleKey\(trayHost\) : l\)\)/);
   // the disabled keep-running row keeps its own texts (the one place that names the tray on purpose)
   assert.match(sd, /t\("settings\.tray\.noTray"\)/);

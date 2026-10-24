@@ -61,6 +61,8 @@ export interface ComposeInit {
   bcc?: string[];
   subject?: string;
   bodyHtml?: string;
+  /** HTML for the typing area of a NEW message, above the signature (an email link's body, W8.10); `bodyHtml` is what comes after the signature (the quote of an answer) */
+  typedHtml?: string;
   inReplyTo?: string | null;
   references?: string[];
   replaces?: string; // draft thread id being edited

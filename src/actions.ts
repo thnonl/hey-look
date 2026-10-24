@@ -1,4 +1,5 @@
 import { api, AnswersRef, MessageFull, ReplyHeaders } from "./api";
+import { bodyTextToHtml, parseMailto, type MailtoFields } from "./mailtoLink";
 import { t } from "./i18n";
 import { eff } from "./prefs";
 import { friendlyError, useStore, type ComposeInit } from "./store";
@@ -62,7 +63,41 @@ function fallbackHeaders(m: MessageFull, thread: MessageFull[]): ReplyHeaders {
  * A secondary window (the reader) does not write messages itself: it sets these once, and an answer / forward is handed to the main window
  * (src/popout/ReaderView.tsx; the main window never sets them).
  */
-export const answerVia: { importKey?: (m: MessageFull, index: number) => void | Promise<void>; reply?: (m: MessageFull, all: boolean, thread: MessageFull[]) => void | Promise<void>; forward?: (m: MessageFull, thread: MessageFull[]) => void | Promise<void> } = {};
+export const answerVia: {
+  importKey?: (m: MessageFull, index: number) => void | Promise<void>;
+  reply?: (m: MessageFull, all: boolean, thread: MessageFull[]) => void | Promise<void>;
+  forward?: (m: MessageFull, thread: MessageFull[]) => void | Promise<void>;
+  /** an email link of a message: the reader window asks the main page for a compose window (W8.10) */
+  mailto?: (accountId: string, fields: MailtoFields) => void | Promise<void>;
+} = {};
+
+/**
+ * An email link (`mailto:`) in a received message starts a new message in Hey Look! instead of handing the link to the system's mail program (W8.10): its addresses, Cc, Bcc, subject and
+ * body are taken over (mailtoLink.ts), nothing else. It is written from the account that received the message, as a Reply is; it is not an answer (no In-Reply-To, References or flag
+ * of the message) and the confidential mark of the message does not carry over. In the main window it opens in the pane or in a window by the setting and Shift (`o.shift`: the
+ * click's, since a click in the message's frame never reaches the window's listeners); a reader window always asks the main page for a compose window (REQ-R5). False = not a link
+ * this can read (the caller opens it as any link).
+ */
+export function mailtoCompose(m: MessageFull, href: string, o: StartOpts = {}): boolean {
+  const f = parseMailto(href);
+  if (!f) return false;
+  const st = useStore.getState();
+  const accountId = fromAccountFor(st.accounts, m.accountId, st.prefs.defaultAccount);
+  if (answerVia.mailto) {
+    void answerVia.mailto(accountId, f);
+    return true;
+  }
+  const init: ComposeInit = {
+    accountId,
+    to: f.to,
+    ...(f.cc.length ? { cc: f.cc } : {}),
+    ...(f.bcc.length ? { bcc: f.bcc } : {}),
+    subject: f.subject,
+    ...(f.body ? { typedHtml: bodyTextToHtml(f.body) } : {}),
+  };
+  void startCompose(init, { shift: o.shift ?? shiftNow() });
+  return true;
+}
 
 /** How long a reply waits for the pictures of the message it quotes (they are fetched from the server when they are large), and how many bytes of them it takes. */
 const QUOTE_PICTURES_WAIT_MS = 8000;

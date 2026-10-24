@@ -1,5 +1,6 @@
 // What the main page accepts from a secondary window (REQ-S4): each kind of request is checked here before anything is done, so a page can
 // ask for these things and nothing else. Pure, so scripts/test-popout.mjs runs it. (src/popout/mainRequests.ts does the work.)
+import { checkedSearchText } from "../selectionSearch.ts";
 
 /** The envelope the backend sends to the main page (`popout-request`): `from` is stamped by the backend. */
 import { prefsPatchAllowed } from "./windowKinds.ts";
@@ -54,11 +55,15 @@ export interface ComposeReq {
   threadMessageIds: (string | null)[];
 }
 
-/** A new message started from a reader (unsubscribe by mail, "attach to a new message"): only what those two need. */
+/** A new message started from a reader (unsubscribe by mail, "attach to a new message", an email link of a message): only what those need. */
 export interface ComposeNewReq {
   accountId: string;
   to?: string[];
+  cc?: string[];
+  bcc?: string[];
   subject?: string;
+  /** plain text for the typing area (an email link's body, at most 8,000 characters); the main page makes the HTML */
+  bodyText?: string;
   attachments?: { filename: string; mime: string; dataBase64: string }[];
 }
 
@@ -76,6 +81,8 @@ export type Parsed =
   | { kind: "dialog"; req: DialogReq }
   | { kind: "calendar"; day: { y: number; m: number; d: number } | null }
   | { kind: "show-main" }
+  /** the text menu's "Search mail for ..." in a reader window: the main page shows itself and searches (the text is a query already, `selectionQuery`) */
+  | { kind: "search"; text: string }
   | { kind: "neighbors"; req: NeighborsReq }
   /** a toast of an event window that ends (made where the person still looks, W4.6) */
   | { kind: "toast"; text: string; level: "info" | "success" | "error" }
@@ -148,11 +155,15 @@ export function parseRequest(kind: string, payload: unknown, ctx?: RequestCtx): 
       const i = isObj(p.init) ? p.init : null;
       const accountId = str(i?.accountId);
       if (!i || !accountId) return { error: "compose-new: no mailbox" };
-      const to = Array.isArray(i.to) ? i.to.filter((x): x is string => typeof x === "string").slice(0, 20) : undefined;
+      const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").slice(0, 50) : undefined);
+      const to = list(i.to);
+      const cc = list(i.cc);
+      const bcc = list(i.bcc);
+      const bodyText = str(i.bodyText)?.slice(0, 8000);
       const attachments = Array.isArray(i.attachments)
         ? i.attachments.filter(isObj).map((a) => ({ filename: str(a.filename) ?? "", mime: str(a.mime) ?? "application/octet-stream", dataBase64: str(a.dataBase64) ?? "" })).filter((a) => a.filename && a.dataBase64)
         : undefined;
-      return { kind: "compose-new", req: { accountId, to, subject: str(i.subject), attachments } };
+      return { kind: "compose-new", req: { accountId, to, ...(cc?.length ? { cc } : {}), ...(bcc?.length ? { bcc } : {}), subject: str(i.subject), ...(bodyText ? { bodyText } : {}), attachments } };
     }
     case "dialog": {
       const d = isObj(p.dialog) ? p.dialog : null;
@@ -173,6 +184,10 @@ export function parseRequest(kind: string, payload: unknown, ctx?: RequestCtx): 
     }
     case "show-main":
       return { kind: "show-main" };
+    case "search": {
+      const text = checkedSearchText(p.text);
+      return text ? { kind: "search", text } : { error: "search: nothing to search for" };
+    }
     case "neighbors": {
       const threadId = str(p.threadId);
       if (!threadId) return { error: "neighbors: no conversation" };

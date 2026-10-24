@@ -95,7 +95,9 @@ function folderTerm(name: string): string {
     case "drafts": return "in:drafts";
     case "trash": case "deleted": case "bin": return "in:trash";
     case "junk": case "spam": return "in:spam";
-    case "archive": case "all": return "in:anywhere";
+    // The app's Archive of a Gmail mailbox IS "All Mail" (`[Gmail]/All Mail`: Inbox mail included, Spam and Trash left out), and that is exactly what a plain Gmail search covers: no
+    // folder term. `in:anywhere` would also search Spam and Trash, which the app's own Archive search does not (W8.9). The same for the "all" view.
+    case "archive": case "all": return "";
     case "": return "";
     default: return `label:${k.replace(/\s+/g, "-")}`;
   }
@@ -165,7 +167,12 @@ export function toGmailQuery(query: string, openFolder?: string): string {
   return out.join(" ");
 }
 
-/** Opens the search in that account's Gmail (authuser picks the signed-in Google account in the browser). */
+/**
+ * Opens the search in that account's Gmail (authuser picks the signed-in Google account in the browser).
+ * Privacy (W8.9, decided after round-22 O1): nothing else may be added to this address. `authuser=<address>` is the only reliable way to open the right Google account when the browser is
+ * signed in to several (an index would open the wrong mailbox), and google.com already knows the address; the search text sits in the fragment (`#…`), which the browser does not send in
+ * the request line, and Gmail's own search puts the same text in the same place, so the history gets nothing that searching in Gmail directly would not give it.
+ */
 export const gmailSearchUrl = (email: string, gmailQuery: string): string =>
   `https://mail.google.com/mail/?authuser=${encodeURIComponent(email)}#search/${encodeURIComponent(gmailQuery)}`;
 

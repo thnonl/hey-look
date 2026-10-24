@@ -300,6 +300,25 @@ assert.equal(popoutTitle(readerTitleText("", "(no subject)")), "(no subject) –
   bad("compose", { mode: "reply", message: {} });
   assert.equal(ok("compose-new", { init: { accountId: "a1", subject: "unsubscribe", to: ["x@y.z"], attachments: [{ filename: "f.txt", mime: "text/plain", dataBase64: "QQ==" }, { filename: "", dataBase64: "QQ==" }] } }).req.attachments.length, 1);
   bad("compose-new", { init: { subject: "x" } });
+  // W8.10: an email link of a message - cc, bcc (50 each) and the body text (8,000 characters, cut)
+  {
+    const many = (n) => Array.from({ length: n }, (_, i) => `u${i}@x.test`);
+    const r = ok("compose-new", { init: { accountId: "a1", to: many(60), cc: ["c@x.test", 5, "d@x.test"], bcc: many(80), subject: "S", bodyText: "b".repeat(9000) } }).req;
+    assert.equal(r.to.length, 50);
+    assert.deepEqual(r.cc, ["c@x.test", "d@x.test"], "only strings travel");
+    assert.equal(r.bcc.length, 50);
+    assert.equal(r.bodyText.length, 8000, "a body longer than 8,000 characters is cut");
+    const plain = ok("compose-new", { init: { accountId: "a1", to: ["x@y.z"] } }).req;
+    assert.ok(!("cc" in plain) && !("bcc" in plain) && !("bodyText" in plain), "no cc, bcc or body when none was sent");
+    assert.deepEqual(ok("compose-new", { init: { accountId: "a1", cc: "x@y.z", bcc: {}, bodyText: 5 } }).req.cc, undefined, "wrong types are dropped");
+    assert.equal(ok("compose-new", { init: { accountId: "a1", bodyText: "" } }).req.bodyText, undefined, "an empty body is no body");
+  }
+  // W8.1: "Search mail for ..." from a reader window - a string with something to search for
+  assert.deepEqual(ok("search", { text: "budget review" }), { kind: "search", text: "budget review" });
+  assert.deepEqual(ok("search", { text: "from:boss" }), { kind: "search", text: "from boss" }, "the main page does not take a filter from a reader");
+  assert.equal(ok("search", { text: "a".repeat(200) }).text.length, 100);
+  for (const t of ["", "   ", "a".repeat(201), 5, null, undefined, ["a"], {}]) bad("search", { text: t });
+  bad("search", null);
   // dialogs: Settings, the event dialog and the PGP key dialogs; not the cleaner, not a dialog of the reader
   assert.equal(ok("dialog", { dialog: { type: "settings", tab: "ai" } }).req.tab, "ai");
   assert.equal(ok("dialog", { dialog: { type: "event", init: { summary: "x" } } }).req.type, "event");
@@ -416,7 +435,7 @@ assert.equal(popoutTitle(readerTitleText("", "(no subject)")), "(no subject) –
   assert.ok(!reader.includes("<iframe"), "the reader draws its frames only through the reading-pane components");
   assert.ok(reader.includes("<MessageCard"), "the message body is the reading pane's MessageBody");
   // those components guard their frames: the message body, and the attachment preview (PDF / text)
-  assert.ok(read("src/components/ReadingPane.tsx").includes("lockedNow.current ? undefined : guardFrame(frame, doc)"), "message frame guarded (confidential mail has no menu at all: lockDocument)");
+  assert.ok(read("src/components/ReadingPane.tsx").includes("lockedNow.current ? undefined : guardFrame(frame, doc, { search: true })"), "message frame guarded (confidential mail has no menu at all: lockDocument)");
   assert.ok(read("src/components/ReadingPane.tsx").includes("lockDocument(doc)"));
   assert.ok(read("src/components/Attachments.tsx").includes("guardFrame(f, f.contentDocument)"), "attachment preview frame guarded");
   const html = read("src/components/ReadingPane.tsx") + read("src/components/Attachments.tsx");

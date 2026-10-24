@@ -1,5 +1,6 @@
 // What to say around the browser sign-in (mail and calendar): the hint while it waits, and the notice when it ends without access.
 // Pure functions: scripts/test-sign-in.mjs loads this file with node (explicit .ts imports).
+import { siteUrl } from "./aboutLinks.ts";
 import { backendCode, parseCoded } from "./backendErrors.ts";
 import { calendarErrorCode } from "./calendarSync.ts";
 import { t } from "./i18n/index.ts";
@@ -12,8 +13,8 @@ import type { Key } from "./i18n/index.ts";
  */
 export const GOOGLE_REVIEW_PENDING = true;
 
-/** The Help entry that explains Google's warning page (opened in the system browser). */
-export const GOOGLE_REVIEW_HELP_URL = "https://heylook.namthai.site/help.html#google-review";
+/** The Help entry that explains Google's warning page, in the language in use (opened in the system browser; read when the link is pressed). */
+export const googleReviewHelpUrl = (): string => siteUrl("help.html#google-review");
 
 export type SignInProvider = "google" | "microsoft";
 export const providerLabel = (p: SignInProvider): string => (p === "google" ? "Google" : "Microsoft");

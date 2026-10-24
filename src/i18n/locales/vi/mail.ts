@@ -134,6 +134,7 @@ export default defineLocale<typeof ns.en>({
 
   // right-click menu of a list row
   "mail.ctx.copySubject": "Sao chép chủ đề",
+  "mail.ctx.searchSelection": "Tìm “{text}” trong thư",
   "mail.ctx.copyEmail": "Sao chép địa chỉ email",
   "mail.ctx.selectAll": "Chọn tất cả",
   "mail.ctx.textMenu": "Thao tác với văn bản",
