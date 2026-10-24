@@ -259,9 +259,17 @@ fn has_guests(e: &CalEvent, me: &str) -> bool {
 /// a synced calendar (an event without guests, made there and deleted here). The target and the original change together or not at all. A changed occurrence of a series moves with its series.
 pub fn move_event(db: &Db, factory: &dyn ProviderFactory, id: &str, target_id: &str) -> R<CalEvent> {
     let mut e = calendar::get_event(&lock(db), id)?;
+    // (Outlook lists a series occurrence by occurrence and never the master: the series is then moved by its id, and its etag is read from the service below)
+    let mut unlisted_master: Option<String> = None;
     if matches!(e.remote_kind.as_deref(), Some("exception" | "occurrence")) {
-        let sid = e.series_id.clone().ok_or("CAL_GONE: This event is not part of a synced calendar.")?;
-        e = store::find_remote(&lock(db), &e.calendar_id, &sid).ok_or("CAL_GONE: This event is not part of a synced calendar.")?;
+        let gone = || "CAL_GONE: This event is not part of a synced calendar.".to_string();
+        let sid = e.series_id.clone().ok_or_else(gone)?;
+        let master = store::find_remote(&lock(db), &e.calendar_id, &sid);
+        match master {
+            Some(m) => e = m,
+            None if target(db, &e.calendar_id).is_ok_and(|t| t.src.kind.lists_occurrences()) => unlisted_master = Some(sid),
+            None => return Err(gone()),
+        }
     }
     if e.calendar_id == target_id {
         return Ok(e);
@@ -320,9 +328,17 @@ pub fn move_event(db: &Db, factory: &dyn ProviderFactory, id: &str, target_id: &
     if has_guests(&e, &me) && (t1.src.kind == Kind::Microsoft || (t1.src.kind == Kind::CalDav && schedules)) {
         return Err(move_guests_text(&service));
     }
-    let remote_id = e.remote_id.clone().ok_or("CAL_GONE: This event is not part of a synced calendar.")?;
+    let remote_id = match unlisted_master {
+        Some(sid) => sid,
+        None => e.remote_id.clone().ok_or("CAL_GONE: This event is not part of a synced calendar.")?,
+    };
     let provider = factory.provider(&t1.src).map_err(|x| fail(db, &t1, x))?;
-    let re = match provider.move_event(&t1.cal.remote(), &remote_id, e.etag.as_deref().unwrap_or(""), &t2.cal.remote()) {
+    let etag = match e.remote_kind.as_deref() {
+        // (the etag of the row is the occurrence's, the move deletes the master: ask for the master's)
+        Some("exception" | "occurrence") => provider.get_series(&t1.cal.remote(), &remote_id).map_err(|x| after_failed_write(db, factory, &t1, id, &remote_id, x))?.etag,
+        _ => e.etag.clone().unwrap_or_default(),
+    };
+    let re = match provider.move_event(&t1.cal.remote(), &remote_id, &etag, &t2.cal.remote()) {
         Ok(re) => re,
         Err(x) => return Err(after_failed_write(db, factory, &t1, id, &remote_id, x)),
     };
@@ -705,6 +721,32 @@ mod tests {
         move_event(&e.db, &e.factory, &event_id(&e, "s_x"), &work).unwrap();
         assert!(e.fake.writes().last().unwrap().starts_with("move:primary:s:work"), "an exception moves its series: {:?}", e.fake.writes());
         assert_eq!((e.fake.count("primary"), e.fake.count("work")), (1, 3), "the master and the exception are in the target");
+    }
+
+    /// Outlook lists a series occurrence by occurrence and never as a master row: moving an occurrence must still move the whole series (the master is
+    /// read from the service for its etag) instead of ending in "not part of a synced calendar" (found with the QA kit's fake Graph).
+    #[test]
+    fn an_outlook_series_moves_although_its_master_is_never_a_row() {
+        let e = two_calendars(Kind::Microsoft);
+        let work = calendar_id(ACC, Kind::Microsoft, "work");
+        let start = T0 + 86_400;
+        e.fake.add_event("primary", series("s", "Weekly", start, "FREQ=WEEKLY;COUNT=4"));
+        let mut occ = RemoteEvent::single("s_1", "Weekly", start + 7 * 86_400, start + 7 * 86_400 + 3600);
+        occ.kind = EventKind::Occurrence;
+        occ.series_id = Some("s".into());
+        occ.recurrence_id = Some(start + 7 * 86_400);
+        e.fake.add_event("primary", occ);
+        engine::refresh_calendar(&e.db, &e.factory, &e.cal, Clock { now: T0 + 200, jitter: 0.5 }).unwrap();
+        // (what the service never lists)
+        lock(&e.db).execute("DELETE FROM events WHERE remote_id='s'", []).unwrap();
+        let occ_id = event_id(&e, "s_1");
+        move_event(&e.db, &e.factory, &occ_id, &work).unwrap();
+        let w = e.fake.writes();
+        assert!(w.iter().any(|l| l.starts_with("get_series:primary:s")), "the master's etag is asked for: {w:?}");
+        assert!(w.last().unwrap().starts_with("move:primary:s:work"), "the series moves, not the occurrence: {w:?}");
+        let left: i64 = lock(&e.db).query_row("SELECT COUNT(*) FROM events WHERE calendar_id=?1 AND (series_id='s' OR remote_id='s')", [&e.cal], |r| r.get(0)).unwrap();
+        assert_eq!(left, 0, "no row of the series stays in the source calendar");
+        assert_eq!((e.fake.count("primary"), e.fake.count("work")), (2, 2), "the master and the occurrence are in the target");
     }
 
     #[test]
