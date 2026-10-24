@@ -313,7 +313,7 @@ async function keys(c) {
   check(st.live === '', `the live region is silent while typing: "${st.live}"`);
   await sleep(380);
   check((await boxState()).live === '', 'and 380 ms after the last change');
-  await sleep(450);
+  await waitFor(`(document.querySelector('.set-search [role=status]')?.textContent ?? '') !== ''`); // (the page says it 500 ms after the last change by its own timer: a slow machine or a busy page says it later, so it is waited for, not slept for)
   const count = (await boxState()).live;
   check(/\d/.test(count) && count.length > 3, `the live region says the count 500 ms after the last change: "${count}"`);
   const n = (await boxState()).opts.length;
@@ -328,7 +328,7 @@ async function keys(c) {
   await press('Enter', 'Enter');
   await sleep(150);
   check((await evaluate(`document.querySelector('.settings-body h3')?.textContent`)) === pageBefore && !(await evaluate(`!!document.querySelector('.set-hit')`)), 'Enter with no result did nothing');
-  await sleep(500);
+  await waitFor(`(document.querySelector('.set-search [role=status]')?.textContent ?? '') !== ''`);
   const none = (await boxState()).live;
   check(none.length > 3 && none === (await boxState()).none.split(/(?<=\S)(?=[A-ZÀ-ÖА-Я])/)[0].trim() || none.length > 3, `the live region says "No settings found": "${none}"`);
   // case, accents, spaces
