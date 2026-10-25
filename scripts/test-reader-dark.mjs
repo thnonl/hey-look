@@ -42,6 +42,10 @@ const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUl
 let logoRequests = 0;
 H.net.stub = (u) => { if (!u.includes('/templates/logo.png')) return undefined; logoRequests++; return { status: 200, type: 'image/png', body: PNG_1PX, delay: SLOW_MS }; };
 
+// the dev mock's backend fetch of web pictures (reply-images, 1.0.8) answers at once with a data: copy, so the picture would never be pending: make it as slow as the picture's
+// own request, like a real download. Set before every page starts, the reader window is a page of its own.
+await cdp('Page.addScriptToEvaluateOnNewDocument', { source: `window.__remoteFetchDelayMs = ${SLOW_MS};` });
+
 if (arg('throttle')) await cdp('Emulation.setCPUThrottlingRate', { rate: Number(arg('throttle')) }); // a loaded CI machine
 const DARK = [27, 28, 32], WHITE = [255, 255, 255];
 

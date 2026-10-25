@@ -2127,10 +2127,12 @@ export function installMock() {
       case "inline_image": return { mime: "image/png", dataBase64: PIC, name: "picture.png" };
       // the backend fetch of pictures from the web (the reading pane, the quote of a reply): every address answers with the 1 x 1 picture except the ones that contain "unreachable"; `window.__remoteFetchCalls` lists the calls
       case "fetch_remote_images": {
-        const w = window as unknown as { __remoteFetchCalls?: string[][] };
+        const w = window as unknown as { __remoteFetchCalls?: string[][]; __remoteFetchDelayMs?: number };
         const urls = (a.urls as string[]) ?? [];
         (w.__remoteFetchCalls ??= []).push(urls);
-        return Object.fromEntries(urls.filter((u) => !u.includes("unreachable")).map((u) => [u, `data:image/png;base64,${PIC}`]));
+        // (a test can make the backend slow like a real download: `window.__remoteFetchDelayMs`, set before the page starts)
+        const answer = Object.fromEntries(urls.filter((u) => !u.includes("unreachable")).map((u) => [u, `data:image/png;base64,${PIC}`]));
+        return w.__remoteFetchDelayMs ? new Promise((r) => setTimeout(() => r(answer), w.__remoteFetchDelayMs)) : answer;
       }
       case "save_attachments": return ["C:/Users/Me/Downloads/logo.png"];
       case "attachment_save_as": return "C:/Users/Me/Downloads/logo.png";
