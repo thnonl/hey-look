@@ -9,7 +9,7 @@ what is done by hand; the last chapter, [Microsoft Store](#microsoft-store-windo
 | Snap Store (Ubuntu App Center, `snap install hey-look`) | `snap/snapcraft.yaml` | `linux-stores.yml` on every tag | the workflow, to the `candidate` channel, only with the repository variable `SNAP_PUBLISH` = `true` (off); `stable` by hand |
 | AppImageHub (appimage.github.io) | the release AppImage | `release.yml` | one-time listing; it follows the GitHub releases |
 
-**What a tag run publishes (DEC-028).** Releases 1.0.7 and 1.0.8 are published on GitHub only (installers for Windows, macOS and Linux, `latest.json` for the in-app updater). The APT
+**What a tag run publishes (DEC-028).** Releases 1.0.7, 1.0.8 and 1.0.9 are published on GitHub only (installers for Windows, macOS and Linux, `latest.json` for the in-app updater). The APT
 repository, the Snap Store upload and the Microsoft Store are **off**, and a tag run is green without them: no job waits for a key, a store login or a Partner Center step.
 Each channel has a repository variable (Settings > Secrets and variables > Actions > Variables), exactly the value `true` switches it on, unset or anything else leaves it off:
 
@@ -41,7 +41,7 @@ repository keep the in-app updater.
 
 ## APT repository (Debian and Ubuntu)
 
-**Off in releases 1.0.7 and 1.0.8: this chapter describes what runs when the repository variable `APT_PUBLISH` is `true`.** The `.deb` is then also published in a signed APT repository at `https://heylook.namthai.site/apt`, so people on Debian 12 or later and Ubuntu 22.04 or later
+**Off in releases 1.0.7, 1.0.8 and 1.0.9: this chapter describes what runs when the repository variable `APT_PUBLISH` is `true`.** The `.deb` is then also published in a signed APT repository at `https://heylook.namthai.site/apt`, so people on Debian 12 or later and Ubuntu 22.04 or later
 install and update Hey Look! with `apt` and the desktop's software updater. The repository holds the same `.deb` as the GitHub release (nothing is
 rebuilt), for `amd64` only, in one suite `stable`, component `main`. Not the Debian/Ubuntu archive and not a PPA (a PPA takes source packages and
 builds them without network access, which this app cannot do).
@@ -192,7 +192,7 @@ offer `snap install hey-look` and the Snap Store badge beside the AppImage, `.de
 Hey Look! goes to the Microsoft Store as an **MSIX package** (option A of the plan; the Store signs it itself, hosts it and updates it, so it needs no
 certificate and no hosting of ours). An EXE installer for the Store (option B) is built too, but switched off (last section of this chapter).
 The release workflow makes and checks the package on every Windows build; **what is submitted and when is the owner's decision**: nothing here
-publishes, and nothing reads a store credential, unless a repository variable (below) says so. **Releases 1.0.7 and 1.0.8 are not submitted to the Store** (DEC-028): the job `msix` and `msix-check` run as checks only,
+publishes, and nothing reads a store credential, unless a repository variable (below) says so. **Releases 1.0.7, 1.0.8 and 1.0.9 are not submitted to the Store** (DEC-028): the job `msix` and `msix-check` run as checks only,
 the website's Store block stays hidden (`STORE_PRODUCT_ID` in `docs/assets/site.js` is empty) and the help page says the app is not in the Store yet.
 
 **The app in the package (packaged mode, `src-tauri/src/pkg.rs`).** The same `hey-look.exe` notices that it has a package identity (`GetCurrentPackageFullName`) and then
