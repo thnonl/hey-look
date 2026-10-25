@@ -335,7 +335,8 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .menu-row { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: none; border: 0; border-radius: var(--r-sm); padding: 7px 9px; cursor: pointer; }
 .menu-row:hover:not(:disabled), .menu-row.hl { background: var(--bg3); }
 .menu-ico { width: 16px; display: inline-flex; justify-content: center; color: var(--accent-text); }
-.menu-lbl { flex: 1; white-space: nowrap; }
+/* (flex-basis auto, not the 0% of `flex: 1`: WebKit counts a 0% basis as 0 when a menu sizes itself to its widest entry, so the menu stayed at its min-width and long labels were cut: "Déplacer vers Courrier indésirable", 1.0.8 WebKit QA; the same in 1.0.7) */
+.menu-lbl { flex: 1 1 auto; white-space: nowrap; }
 .menu { max-width: min(440px, 92vw); }
 /* account chooser (Compose From, Settings default account): same look as the other dropdowns */
 .acct-pick-wrap { display: block; flex: 1; min-width: 0; }
@@ -1734,7 +1735,8 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 .rd-conds { display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow-y: auto; padding: 2px 2px 2px 0; }
 .rd-item { display: flex; flex-direction: column; gap: 4px; }
 .rd-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
-.rd-row select { max-width: 11em; min-width: 0; }
+/* a select keeps the width of its widest option (never shrunk, so the chosen text is not cut: ru "точно совпадает", "Тема или текст"); a row that is too narrow wraps its next control */
+.rd-row select { flex: none; max-width: 100%; min-width: 0; }
 .rd-row input:not([type="checkbox"]) { flex: 1 1 10em; min-width: 0; }
 .rd-on, .rd-check input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; flex: none; }
 .rd-static { white-space: nowrap; padding: 0 4px; }

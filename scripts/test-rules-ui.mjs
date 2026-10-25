@@ -3,6 +3,7 @@
 // (`#rules` adds the fixture conversations: twelve from Deals <deals@shop.example>, three from news@shop.example); CDP only, no real input device. Port hint 5820.
 //   node scripts/test-rules-ui.mjs [--require-browser] [--shots=<dir>]
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import path from 'node:path';
 import { arg, sleep, startHarness, languageJs, inputs } from './cdp-harness.mjs';
 
@@ -387,6 +388,40 @@ try {
     await closeDialog();
   });
 
+  // every menu of the mail list in the 8 languages: no label cut, the menu inside the window (WebKit sized a menu to its min-width: "Déplacer vers Courrier indésirable" was cut)
+  const menuProbe = `(() => { const m = document.querySelector('[role=menu]'); if (!m) return null; const r = m.getBoundingClientRect(); return { inView: r.left >= 0 && r.right <= innerWidth + 1 && r.top >= 0 && r.bottom <= innerHeight + 1, cut: [...m.querySelectorAll('.menu-lbl')].filter((l) => l.scrollWidth > l.clientWidth + 1).map((l) => l.textContent), widest: Math.max(...[...m.querySelectorAll('.menu-lbl')].map((l) => l.scrollWidth)), box: Math.round(r.width), n: m.querySelectorAll('[role=menuitem]').length }; })()`;
+  for (const lang of ['en', 'vi', 'fr', 'zh-Hans', 'es', 'ja', 'de', 'ru']) {
+    await check(`menus ${lang} 960x560: the row menu, the More menu and the mailbox menu show every label whole`, async () => {
+      await openApp(`rules&lang=${lang}`, 960, 560);
+      await evaluate(`${S('setView')}('inbox', 'a1').then(() => 1)`);
+      await sleep(400);
+      const p = await centre(row('tdeals'));
+      await rightClick(p[0], p[1]);
+      const a = await evaluate(menuProbe);
+      assert.ok(a && a.inView && a.cut.length === 0 && a.box >= a.widest, `row menu ${J(a)}`);
+      await evaluate(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); 1`);
+      await sleep(100);
+      await evaluate(`${S('select')}('tdeals').then(() => 1)`);
+      await sleep(700);
+      await evaluate(`document.querySelector('.rp-msg-actions .icon-btn[aria-label], .rp-msg-actions .icon-btn[title]') && [...document.querySelectorAll('.rp-msg-actions .icon-btn')].pop().click(); 1`);
+      await sleep(200);
+      const b = await evaluate(menuProbe);
+      assert.ok(b && b.inView && b.cut.length === 0 && b.box >= b.widest, `More menu ${J(b)}`);
+      await evaluate(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); 1`);
+      await sleep(100);
+      const h = await centre('.fp-group[data-reorder-id="a1"] .fp-head');
+      await rightClick(h[0], h[1]);
+      const c = await evaluate(menuProbe);
+      assert.ok(c && c.inView && c.cut.length === 0 && c.box >= c.widest, `mailbox menu ${J(c)}`);
+    });
+  }
+  // the CSS rule behind it (Chrome sizes the menu right either way, so this is what keeps WebKit honest)
+  await check('the menu label has flex-basis auto (not the 0% of flex: 1), and a select of the rule dialog never shrinks', async () => {
+    const css = fs.readFileSync(new URL('../src/App.css', import.meta.url), 'utf8');
+    assert.ok(/\.menu-lbl \{ flex: 1 1 auto;/.test(css), '.menu-lbl');
+    assert.ok(/\.rd-row select \{ flex: none;/.test(css), '.rd-row select');
+  });
+
   // ---------------------------------------------------------------- layout: de, fr, ru and en at 960x560 and 1280x800, light and dark; the narrow 375 px
   const LAYOUTS = QUICK ? [['en', 'light'], ['de', 'light'], ['ru', 'dark']] : [['en', 'light'], ['de', 'light'], ['fr', 'dark'], ['ru', 'dark'], ['vi', 'light'], ['ja', 'light'], ['zh-Hans', 'dark'], ['es', 'light']];
   for (const [lang, theme] of LAYOUTS) {
@@ -409,13 +444,22 @@ try {
         const lay = await evaluate(`(() => {
           const d = document.querySelector('.rd-form'); const m = d.closest('.modal'); const r = m.getBoundingClientRect();
           const clip = [...d.querySelectorAll('label, .rd-head, .sb-chip, .rd-link, .rd-now span, .btn, option, .muted')].filter((e) => e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).overflow !== 'visible' && e.tagName !== 'OPTION').map((e) => e.textContent.trim().slice(0, 40));
-          const wide = [...d.querySelectorAll('select')].filter((s) => s.scrollWidth > s.clientWidth + 1).length;
+          // the chosen text of every select fits its box (a select shrunk below its widest option cut "точно совпадает" on WebKitGTK): measured with the select's own font
+          const cv = document.createElement('canvas').getContext('2d');
+          const cutSelects = [...d.querySelectorAll('select')].filter((s) => { const cs = getComputedStyle(s); cv.font = cs.fontStyle + ' ' + cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily; const t = s.options[s.selectedIndex] ? s.options[s.selectedIndex].textContent : ''; return cv.measureText(t).width + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) > s.getBoundingClientRect().width + 1; }).map((s) => (s.options[s.selectedIndex] || {}).textContent);
+          const body = m.querySelector('.modal-body'); const head = m.querySelector('.modal-head'); const acts = d.querySelector('.rd-actions').getBoundingClientRect(); const bb = body.getBoundingClientRect();
+          const open = { scrollTop: body.scrollTop, headBottom: Math.round(head.getBoundingClientRect().bottom), bodyTop: Math.round(bb.top), firstRowTop: Math.round(d.querySelector('.rd-row').getBoundingClientRect().top), scrolls: body.scrollHeight > body.clientHeight + 1, actionsInside: acts.bottom <= bb.bottom + 1 && acts.top >= bb.top };
           const chipLines = [...d.querySelectorAll('.rd-now span')].map((s) => Math.round(s.getBoundingClientRect().height / parseFloat(getComputedStyle(s).lineHeight || '20')));
-          return { fits: r.left >= 0 && r.right <= innerWidth + 1 && r.top >= 0 && r.bottom <= innerHeight + 1, hscroll: d.scrollWidth > d.clientWidth + 1 || m.scrollWidth > m.clientWidth + 1, clip, chipLines, bodyScroll: document.documentElement.scrollWidth > innerWidth + 1 };
+          return { cutSelects, open, fits: r.left >= 0 && r.right <= innerWidth + 1 && r.top >= 0 && r.bottom <= innerHeight + 1, hscroll: d.scrollWidth > d.clientWidth + 1 || m.scrollWidth > m.clientWidth + 1, clip, chipLines, bodyScroll: document.documentElement.scrollWidth > innerWidth + 1 };
         })()`);
         assert.ok(lay.fits, `the dialog is inside the window ${J(lay)}`);
         assert.equal(lay.hscroll, false, 'no horizontal scroll in the dialog');
         assert.deepEqual(lay.clip, [], `clipped: ${J(lay.clip)}`);
+        assert.deepEqual(lay.cutSelects, [], `the chosen text of a select is cut: ${J(lay.cutSelects)}`);
+        assert.equal(lay.open.scrollTop, 0, `the dialog opens at its top ${J(lay.open)}`);
+        assert.ok(lay.open.firstRowTop >= lay.open.headBottom, `the first row is not under the header ${J(lay.open)}`);
+        assert.ok(lay.open.actionsInside, `Cancel / Save stay inside the dialog ${J(lay.open)}`);
+        if (h <= 560) assert.ok(lay.open.scrolls, `a small height scrolls the body inside the dialog ${J(lay.open)}`);
         assert.ok(lay.chipLines.every((n) => n <= 3), `the "also move" label is at most 3 lines ${J(lay.chipLines)}`);
         if (w === 960 && h === 560 && (lang === 'de' || lang === 'ru')) await shot(`dialog-${lang}-${theme}`);
         await closeDialog();

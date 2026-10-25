@@ -195,7 +195,13 @@ export function RuleDialog({ rule, source, scope = null, onClose, onSaved }: Rul
 
   // ---- focus: the folder (the one thing to choose) when made from a message, else the first field
   useEffect(() => {
-    const id = setTimeout(() => (source && action === "move" ? folderRef.current : firstText.current)?.focus(), 0);
+    // (preventScroll: the dialog opens at its top; the browser would scroll the body to show a field far down, and the first rows sat under the header)
+    const id = setTimeout(() => {
+      const el = source && action === "move" ? folderRef.current : firstText.current;
+      el?.focus({ preventScroll: true });
+      const body = el?.closest<HTMLElement>(".modal-body");
+      if (body) body.scrollTop = 0;
+    }, 0);
     return () => clearTimeout(id);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -449,7 +455,7 @@ export function RuleDialog({ rule, source, scope = null, onClose, onSaved }: Rul
           parentKey={null}
           onClose={() => {
             setNested(false);
-            requestAnimationFrame(() => folderRef.current?.focus());
+            requestAnimationFrame(() => folderRef.current?.focus({ preventScroll: true }));
           }}
           onCreated={(key) => {
             setFolderKey(key);
