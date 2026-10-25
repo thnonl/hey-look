@@ -55,6 +55,7 @@ static | node --experimental-strip-types scripts/test-list-limit-footer.mjs
 static | node --experimental-strip-types scripts/test-link-copy.mjs
 static | node --experimental-strip-types scripts/test-backfill-line.mjs
 static | node --experimental-strip-types scripts/test-about-links.mjs
+static | node scripts/test-no-autofill.mjs
 static | node --experimental-strip-types scripts/test-mail-canvas.mjs
 static | node --experimental-strip-types scripts/test-compose-preview.mjs
 static | node --experimental-strip-types scripts/test-calendar-sync.mjs
