@@ -1,0 +1,37 @@
+Delivered-To: namth.onl@gmail.com
+Return-Path: <notifications@github.com>
+Content-Type: multipart/alternative;
+ boundary="part_b4720f"; charset=UTF-8
+List-Id: thnonl/hey-look <hey-look.thnonl.github.com>
+Reply-To: thnonl/hey-look <hey-look@noreply.github.com>
+Date: Sat, 24 Oct 2026 05:07:06 -0700
+Message-Id: <thnonl/hey-look/check-suites/CS_kwDOVFgeuM8AAAAZTVEscw/1792843606@github.com>
+Subject: [thnonl/hey-look] Run failed: Pages - release/v1.0.7 (46d82f2)
+To: "thnonl/hey-look" <hey-look@noreply.github.com>
+From: "Nam Thai" <notifications@github.com>
+Mime-Version: 1.0
+
+--part_b4720f
+Content-Transfer-Encoding: 7bit
+Content-Type: text/plain; charset=UTF-8
+
+[thnonl/hey-look] Pages workflow run
+Jobs:
+  * deploy failed (2 annotations)
+
+--part_b4720f
+Content-Transfer-Encoding: quoted-printable
+Content-Type: text/html; charset=UTF-8
+
+<!DOCTYPE html><html><body style=3D"background-color: #fff;">
+<table width=3D"100%"><tr><td>
+<img src=3D"https://github.githubassets.com/assets/octocat-logo-805b5c3e249f.png" alt=3D"GitHub" width=3D"32" />
+<h2>[thnonl/hey-look] Pages workflow run</h2>
+<img src=3D"https://github.githubassets.com/assets/actions-1cc0c3ccfe18.png" width=3D"56" height=3D"56" alt=3D"" />
+<h3>Pages: Some jobs were not successful</h3>
+<img src=3D"https://github.githubassets.com/assets/x-circle-fill-red-153d16960fc8.png" alt=3D"deploy" height=3D"24" width=3D"24" /> Pages / deploy Failed in 1 second
+<img src=3D"https://github.githubassets.com/assets/report-gray-d5f2721544ee.png" alt=3D"annotations for Pages / deploy" width=3D"16" height=3D"16" /> 2
+<img src=3D"https://github.githubassets.com/assets/skip-gray-7e79a83b13ac.png" alt=3D"apt-live-check" height=3D"24" width=3D"24" /> Skipped
+</td></tr></table></body></html>
+
+--part_b4720f--
