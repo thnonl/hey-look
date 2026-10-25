@@ -2134,7 +2134,7 @@ function AiTab() {
               <button className="link small" onClick={() => void removeKey()}>{t("settings.ai.removeKey")}</button>
             )}
           </div>
-          <input autoComplete="off" ref={keyRef} id="set-aiKey" aria-label={t("settings.ai.apiKey")} type="password" value={key} onChange={(e) => (setSaveErr(""), setKey(e.target.value))} placeholder={hasKey ? t("settings.add.savedIn", { store: credStore() }) : t("settings.ai.keyOptional")} />
+          <input ref={keyRef} autoComplete="off" id="set-aiKey" aria-label={t("settings.ai.apiKey")} type="password" value={key} onChange={(e) => (setSaveErr(""), setKey(e.target.value))} placeholder={hasKey ? t("settings.add.savedIn", { store: credStore() }) : t("settings.ai.keyOptional")} />
         </div>
         <label>{t("settings.ai.model")}</label>
         {asList ? (
