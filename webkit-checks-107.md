@@ -2905,3 +2905,16 @@ Probe: in Settings > About (bridge `eval`): `JSON.stringify({versions: (document
 |---|---|---|---|---|---|
 | WK-RP.01 | Mac, Linux | Settings > About of the 1.0.8 build | the About probe | `versions` contains "1.0.8" and not "1.0.7"; the version line is on one line (its `getBoundingClientRect().height` <= 1.6 x the computed line-height) | OPEN |
 | WK-RP.02 | Mac, Linux | Any home page of the built site in a WebKit browser (Safari / Epiphany) | the site probe | `v` is "1.0.8" before the GitHub answer; the hero line does not wrap differently from 1.0.7 (same height as the screenshot of 1.0.7, +-1 px) | OPEN (only if the owner wants a site look; the strings have equal length) |
+
+### Section 60, round 5 (WebKit layout fixes, coder-v108-rules.md "Round 5")
+
+Changes: (a) `.menu-lbl` is `flex: 1 1 auto` (was `flex: 1`, basis 0%): a context menu / More menu now sizes to its widest label on WebKit; (b) the rule dialog focuses its first field with `preventScroll` and opens at `scrollTop` 0; (c) the selects of a condition row never shrink (`flex: none; max-width: 100%`), the row wraps instead.
+
+Probe 60.D (bridge `eval` with the Create rule dialog open, one line): `(()=>{const d=document.querySelector('.rd-form');if(!d)return JSON.stringify(null);const m=d.closest('.modal');const body=m.querySelector('.modal-body');const cv=document.createElement('canvas').getContext('2d');const sel=[...d.querySelectorAll('select')].map(s=>{const cs=getComputedStyle(s);cv.font=cs.fontStyle+' '+cs.fontWeight+' '+cs.fontSize+' '+cs.fontFamily;const t=s.options[s.selectedIndex]?s.options[s.selectedIndex].textContent:'';return{t,need:Math.round(cv.measureText(t).width+parseFloat(cs.paddingLeft)+parseFloat(cs.paddingRight)),w:Math.round(s.getBoundingClientRect().width)}});return JSON.stringify({scrollTop:body.scrollTop,headBottom:Math.round(m.querySelector('.modal-head').getBoundingClientRect().bottom),firstRowTop:Math.round(d.querySelector('.rd-row').getBoundingClientRect().top),scrolls:body.scrollHeight>body.clientHeight+1,sel,cut:sel.filter(x=>x.need>x.w+1).map(x=>x.t)})})()`
+
+| ID | Platform | Look at | Probe | PASS (numbers) | Status |
+|---|---|---|---|---|---|
+| WK-60.01 (again) | Mac, Linux | Row menu in fr ("Déplacer vers Courrier indésirable"), es ("Mover a Correo no deseado"), de, ru; the reading pane More menu; the mailbox heading menu | 60.B | `clipped` [] in every menu; the menu box wide enough for its widest label (no ellipsis on a label under 440 px) | OPEN |
+| WK-60.09 | Mac, Linux | Create rule on a message at 960x560 (window as small as possible), en, ru, de | 60.D | `scrollTop` 0, `firstRowTop` >= `headBottom`, `scrolls` true, Cancel / Save visible at the bottom | OPEN |
+| WK-60.10 | Linux (WebKitGTK), Mac | Condition rows in ru ("точно совпадает", "Тема или текст", "Отправитель, адресаты или тема"), also en, de, fr | 60.D | `cut` [] (the chosen text of every select fits its box); the row may wrap its text field to the next line | OPEN |
+| WK-60.02 / .03 (again) | Mac, Linux | The dialog at 960x560 and 1280x800 after the CSS change | 60.A | unchanged pass numbers | OPEN |
