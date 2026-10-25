@@ -1,6 +1,8 @@
 // The message a rule is made from ("Create rule…" in the list menu, the reading pane, a reader window and the command bar): what the rule dialog needs of it, and nothing more.
 // Plain data, so a reader window can hand it to the main window (src/popout/requestKinds.ts checks it with `parseRuleSource`). Pure: scripts/test-rule-suggest.mjs runs it.
 
+import type { Rule } from "./api";
+
 export interface RuleSource {
   accountId: string;
   /** the folder the message is in: a role or folder key (`inbox`, `archive`, `f:Projects`) */
@@ -80,4 +82,25 @@ export function parseRuleSource(v: unknown): RuleSource | null {
   const fromName = str(o.fromName, 400);
   if (!accountId || !folder || fromEmail === null || subject === null || fromName === null) return null;
   return { accountId, folder, fromName, fromEmail, subject, text: o.text === null ? null : str(o.text, 2000), mine: o.mine === true };
+}
+
+const FIELDS = new Set(["from", "to", "subject", "body", "subjectBody", "any"]);
+const ACTIONS = new Set(["archive", "trash", "junk", "read", "star", "pin", "move"]);
+
+/** A rule received from the Settings window (Run now): checked field by field, cut to what the matcher reads (or null). */
+export function parseRuleDraft(v: unknown): Rule | null {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  if (typeof o.action !== "string" || !ACTIONS.has(o.action) || !Array.isArray(o.conditions) || o.conditions.length === 0 || o.conditions.length > 10) return null;
+  const conditions: Rule["conditions"] = [];
+  for (const c of o.conditions) {
+    const k = c as Record<string, unknown> | null;
+    if (!k || typeof k.field !== "string" || !FIELDS.has(k.field) || !Array.isArray(k.values) || k.values.length > 50) return null;
+    const values = k.values.filter((x): x is string => typeof x === "string").map((x) => x.slice(0, 500));
+    if (values.length === 0) return null;
+    conditions.push({ field: k.field as Rule["conditions"][number]["field"], op: k.op === "equals" ? "equals" : "contains", values });
+  }
+  const accountId = typeof o.accountId === "string" && o.accountId ? o.accountId.slice(0, 200) : null;
+  const arg = typeof o.arg === "string" && o.arg ? o.arg.slice(0, 400) : null;
+  return { id: typeof o.id === "string" ? o.id.slice(0, 100) : "draft", accountId, name: typeof o.name === "string" ? o.name.slice(0, 400) : "", conditions, action: o.action as Rule["action"], arg, enabled: o.enabled !== false };
 }

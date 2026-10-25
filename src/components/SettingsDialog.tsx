@@ -1,5 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
-import { ChevronDown, ChevronUp, ExternalLink, KeyRound, Lock, Plus, ShieldAlert, Trash2, Upload, Volume2 } from "lucide-react";
+import { ChevronDown, ChevronUp, ExternalLink, KeyRound, Lock, Play, Plus, ShieldAlert, Trash2, Upload, Volume2 } from "lucide-react";
 import { openPopout } from "../popout/open";
 import { SETTINGS_KEY } from "../popout/windowKinds";
 import { openUpdateLink } from "../updates";
@@ -1184,7 +1184,7 @@ function FiltersPanel({ scope }: { scope: string | null }) {
             <>
               <button className="icon-btn" title={t("mail.acct.moveUp")} aria-label={t("mail.acct.moveUp")} disabled={i <= 0} onClick={(e) => { e.stopPropagation(); void move(r, false); }}><ChevronUp size={15} /></button>
               <button className="icon-btn" title={t("mail.acct.moveDown")} aria-label={t("mail.acct.moveDown")} disabled={i < 0 || i >= own.length - 1} onClick={(e) => { e.stopPropagation(); void move(r, true); }}><ChevronDown size={15} /></button>
-              <button className="btn small" onClick={(e) => { e.stopPropagation(); void runNow(r); }}>{t("settings.rules.runNow")}</button>
+              <button className="icon-btn" title={t("settings.rules.runNow")} aria-label={t("settings.rules.runNow")} onClick={(e) => { e.stopPropagation(); void runNow(r); }}><Play size={15} /></button>
             </>
           );
         }}
@@ -1815,7 +1815,7 @@ function MailboxPage({ scope, tab, close }: { scope: string | null; tab: MbTab; 
           </div>
         </div>
       </div>
-      <div className="mb-body" id="set-sec" role="region" aria-label={t(mailboxSections(scope, accounts).find(([k]) => k === active)![1])}>
+      <div className="mb-body" id="set-sec" tabIndex={-1} role="region" aria-label={t(mailboxSections(scope, accounts).find(([k]) => k === active)![1])}>
         {active === "profile" && account && <ProfilePanel account={account} />}
         {active === "composing" && <ComposingPanel scope={scope} />}
         {active === "signatures" && <SignaturesPanel scope={scope} />}
@@ -2363,8 +2363,18 @@ export function Settings({ initial, focus, nonce, section, windowed }: { initial
       return;
     }
     if (initial) setTab(initial === "accounts" ? "mb:all" : initial === "notifications" ? "tray" : initial);
-    if (section) setMbTab(section);
+    if (section) (setMbTab(section), (focusSection.current = true));
   }, [initial, nonce]); // eslint-disable-line react-hooks/exhaustive-deps
+  // a deep link to a section of a mailbox (Manage rules…): the focus goes to the section once it is drawn
+  const focusSection = useRef(!!section);
+  useEffect(() => {
+    if (!focusSection.current) return;
+    const id = setTimeout(() => {
+      focusSection.current = false;
+      document.getElementById("set-sec")?.focus({ preventScroll: true });
+    }, 150);
+    return () => clearTimeout(id);
+  }, [tab, mbTab, nonce]);
   // the deep link (`focus`): the same jump as a result of the search (src/settingsJump.ts), once per request
   const deepDone = useRef("");
   useEffect(() => {

@@ -5,6 +5,7 @@ import type { Rule } from "./api";
 import { t } from "./i18n";
 import { accountHasFolder, canMoveToJunk } from "./junk";
 import { folderLabel, folderTitle } from "./prefs";
+import { inSecondaryWindow } from "./popout/route";
 import { ruleTitle } from "./ruleText";
 import { useStore } from "./store";
 
@@ -24,6 +25,12 @@ export function runSourceOk(folder: string, rule: Pick<Rule, "action" | "arg">):
 
 /** Run the rule on the mail of `folder` (a folder key of every mailbox it applies to). Returns how many conversations it acted on. Errors are shown by the move itself. */
 export async function runRule(rule: Rule, folder: string): Promise<number> {
+  // the Settings window may not queue a move itself: the main window runs it (its Undo toast), and the number is not known here
+  if (inSecondaryWindow()) {
+    const { askMain } = await import("./popout/readerBridge");
+    await askMain("rule-run", { rule, folder }, 120_000); // (a failure is shown by askMain)
+    return 0;
+  }
   const st = useStore.getState();
   const dest = ruleDestination(rule);
   if (dest !== null && dest === folder) return 0;

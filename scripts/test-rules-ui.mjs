@@ -285,7 +285,7 @@ try {
     await sleep(300);
     assert.equal(await evaluate(`document.querySelector('.list-row .lr-title').textContent`), 'Move newsletters');
     // Run now with no match: the info toast, no question
-    await evaluate(`[...document.querySelectorAll('.list-row')[0].querySelectorAll('button')].find((b) => b.textContent === 'Run now').click(); 1`);
+    await evaluate(`[...document.querySelectorAll('.list-row')[0].querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'Run now').click(); 1`);
     await sleep(500);
     assert.ok((await toasts()).some((x) => x.text === 'No messages in the Inbox match this rule.'), J(await toasts()));
     // New rule opens the dialog with one empty From row, no chips, no domain switch

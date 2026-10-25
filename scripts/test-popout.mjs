@@ -327,6 +327,12 @@ assert.equal(popoutTitle(readerTitleText("", "(no subject)")), "(no subject) –
   assert.deepEqual(ok("dialog", { dialog: { type: "rule", source: ruleSource } }).req, { type: "rule", source: ruleSource });
   assert.equal(ok("dialog", { dialog: { type: "rule", source: { ...ruleSource, text: "x".repeat(9000) } } }).req.source.text.length, 2000);
   for (const source of [null, {}, { ...ruleSource, accountId: "" }, { ...ruleSource, subject: 4 }, "x"]) bad("dialog", { dialog: { type: "rule", source } });
+  // (1.0.8) Run now in the Settings window: the main window runs it; only from a settings window, and the rule is checked
+  const draft = { id: "r1", accountId: null, name: "x", conditions: [{ field: "from", op: "equals", values: ["a@b.c"] }], action: "move", arg: "archive", enabled: true };
+  assert.deepEqual(parseRequest("rule-run", { rule: draft, folder: "inbox" }, { from: "settings-main", prefKeys: [] }), { kind: "rule-run", rule: { ...draft, accountId: null }, folder: "inbox" });
+  for (const [payload, from] of [[{ rule: draft, folder: "inbox" }, "reader-a"], [{ rule: draft }, "settings-x"], [{ rule: { ...draft, action: "boom" }, folder: "inbox" }, "settings-x"], [{ rule: { ...draft, conditions: [] }, folder: "inbox" }, "settings-x"], [{ rule: { ...draft, conditions: [{ field: "x", op: "contains", values: ["a"] }] }, folder: "inbox" }, "settings-x"], [{ rule: null, folder: "inbox" }, "settings-x"]]) {
+    assert.ok("error" in parseRequest("rule-run", payload, { from, prefKeys: [] }), JSON.stringify(payload).slice(0, 80));
+  }
   assert.equal(ok("dialog", { dialog: { type: "pgp-key", fingerprint: "ABCD" } }).req.fingerprint, "ABCD");
   assert.equal(ok("dialog", { dialog: { type: "pgp-import", paste: true } }).req.paste, true);
   ok("dialog", { dialog: { type: "pgp-generate" } });
