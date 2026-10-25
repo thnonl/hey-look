@@ -16,6 +16,7 @@
 //   --quick  the fit matrix for en and de at the two lower sizes in light and dark; the full run (no flag) is 4 languages x 3 sizes x 2 themes
 import { flag, arg, sleep, startHarness, inputs } from './cdp-harness.mjs';
 import { loadDict } from './lib/i18n-dicts.mjs';
+import { calmDay } from './lib/cal-calm-day.mjs';
 import { CALIBRATE } from './lib/reply-open-probe.mjs';
 
 const LANGS = arg('langs') ? arg('langs').split(',') : flag('quick') ? ['en', 'de'] : ['en', 'fr', 'de', 'ru'];
@@ -209,7 +210,10 @@ try {
   }
 
   // ---------------------------------------------------------------- AC-7.12.3: each button does what the menu item did
-  await openDay(0, 'month');
+  // (the month cell shows 3 chips and the sample series fill the days around today, so which of the sample events is a chip depends on the weekday: see scripts/lib/cal-calm-day.mjs)
+  const CALM = await calmDay(evaluate, [['e3', 15, 0], ['e2', 10, 30], ['e4', 12, 0]]);
+  await sleep(300);
+  await openDay(CALM, 'month');
   await waitFor(`document.querySelectorAll('.ev-chip').length > 3`, 'chips');
   const btn = (name) => evaluate(`(() => { const b = [...document.querySelectorAll('.ev-foot button')].find((x) => (x.getAttribute('aria-label') || x.textContent).trim() === ${JSON.stringify(name)}); if (!b) return null; const r = b.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; })()`);
   const press = async (name) => { const p = await btn(name); ok(!!p, `the ${name} button exists`); if (p) await clickAt(p[0], p[1]); };
@@ -240,7 +244,7 @@ try {
   ok(!(await evaluate(`!!document.querySelector('.ev-pop')`)) || true, 'Delete: asked');
   ok((await calls('calendar_delete_event')) === 0, 'Delete: dismissing the question deletes nothing');
   await closeAll();
-  await openDay(1, 'month');
+  await openDay(CALM, 'month');
   await waitFor(`document.querySelectorAll('.ev-chip').length > 3`, 'chips again');
   await openPopover('.ev-chip', 'Lunch with Alice', 'click Delete (plain)');
   await press('Delete');
@@ -248,11 +252,11 @@ try {
   ok((await evaluate(`document.querySelector('.ask h3').textContent`)) === 'Delete “Lunch with Alice”?', 'Delete of a plain event asks "Delete “…”?"');
   await esc();
   await closeAll();
-  await openDay(0, 'month');
+  await openDay(CALM, 'month');
   await openPopover('.ev-chip', 'Design review', 'click Open email');
-  await openDay(1, 'month');
+  await openDay(CALM, 'month');
   await closeAll();
-  await openDay(1, 'month');
+  await openDay(CALM, 'month');
   await waitFor(`document.querySelectorAll('.ev-chip').length > 3`, 'chips for the mail');
   await openPopover('.ev-chip', 'Design review', 'click Open email');
   const mail = await btn(L('en', 'calendar.pop.openEmail'));

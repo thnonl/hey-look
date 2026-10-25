@@ -1031,6 +1031,12 @@ export function installMock() {
     calEvents = [...calEvents.filter((e) => e.id !== id), ev(id, summary, start, end, over)];
     void emit("calendar-changed", {});
   };
+  // ... and `__mockMoveEvent("id", startSec)` moves one event of the mock to start then (same length, all else kept): the month view shows 3 chips a day and the series of the
+  // sample events (Standup on weekdays, Weekly planning, Product sync) crowd the days around today, so a test that needs an event as a month chip puts it on a day it chose
+  (window as unknown as { __mockMoveEvent: unknown }).__mockMoveEvent = (id: string, start: number) => {
+    calEvents = calEvents.map((e) => (e.id === id ? { ...e, start, end: start + (e.end - e.start) } : e));
+    void emit("calendar-changed", {});
+  };
   (window as unknown as { __mockCalSync: unknown }).__mockCalSync = {
     state: (st: string, account = "a2") => { mockCalState(st, account); void emit("calendar-changed", {}); },
     get: (account = "a2") => calSrcs[account] ?? null,

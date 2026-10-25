@@ -13,6 +13,7 @@
 //   node --experimental-strip-types scripts/test-calendar-dblclick.mjs [--require-browser | --url=http://127.0.0.1:1420/] [--quick] [--shots=dir]
 import { flag, arg, languageJs, sleep, startHarness, inputs } from './cdp-harness.mjs';
 import { loadDict } from './lib/i18n-dicts.mjs';
+import { calmDay } from './lib/cal-calm-day.mjs';
 
 const ALL = ['en', 'vi', 'fr', 'zh-Hans', 'es', 'ja', 'de', 'ru'];
 const LANGS = arg('langs') ? arg('langs').split(',') : flag('quick') ? ['en', 'de'] : ALL;
@@ -118,7 +119,10 @@ try {
   await sleep(500);
 
   // ---------------------------------------------------------------- month
-  await openDay(0, 'month');
+  // (the month cell shows 3 chips and the sample series fill the days around today, so which of the sample events is a chip depends on the weekday: see scripts/lib/cal-calm-day.mjs)
+  const CALM = await calmDay(evaluate, [['e3', 15, 0], ['e2', 10, 30], ['e4', 12, 0]]);
+  await sleep(300);
+  await openDay(CALM, 'month');
   await waitFor(`document.querySelectorAll('.ev-chip').length > 3`, 'chips in the month');
   await expectEdit('.ev-chip', 'Q4 contract call', 'e3', 'month, My events');
   await expectDetails('.ev-chip', 'Design review', 'month, invitation', ['Accept', 'Tentative', 'Decline']);
@@ -156,7 +160,7 @@ try {
   ok((await evaluate(`document.querySelector('.modal-head b')?.textContent`)) === dicts.en['calendar.newEvent'], 'month empty space: the dialog is New event');
   await closeAll();
   // the chip inside a cell: no new event on top of the edit
-  await openDay(0, 'month');
+  await openDay(CALM, 'month');
   const chip = await centre('.ev-chip', 'Q4 contract call');
   await dbl(chip[0], chip[1]);
   await waitFor(`window.__store.getState().dialog?.type === 'event'`, 'the dialog');
@@ -187,7 +191,7 @@ try {
 
   // ---------------------------------------------------------------- the keyboard
   for (const [name, mod] of [['Ctrl+Enter', CTRL], ['Cmd+Enter', META]]) {
-    await openDay(0, 'month');
+    await openDay(CALM, 'month');
     await waitFor(`document.querySelectorAll('.ev-chip').length > 3`, 'chips');
     const focusChip = (text) => evaluate(`(() => { const e = [...document.querySelectorAll('.ev-chip')].find((x) => x.title.includes(${JSON.stringify(text)})); e.focus(); return document.activeElement === e; })()`);
     ok(await focusChip('Q4 contract call'), `${name}: the chip takes the focus`);
@@ -215,7 +219,7 @@ try {
     await closeAll();
   }
   // a dialog that closes after the event left the grid (saved with another date): the focus is not lost to the page
-  await openDay(0, 'month');
+  await openDay(CALM, 'month');
   const sv = await centre('.ev-chip', 'Q4 contract call');
   await dbl(sv[0], sv[1]);
   await waitFor(`window.__store.getState().dialog?.type === 'event'`, 'the dialog to save');

@@ -111,6 +111,21 @@ export async function startHarness(name, { vitePort0 = 5480 } = {}) {
   // HEYLOOK_CPU_SLOWDOWN=4 runs the page 4 times slower (CDP CPU throttling): the way to look for a race that only a slow CI runner meets
   const slowdown = Number(process.env.HEYLOOK_CPU_SLOWDOWN || 1);
   if (slowdown > 1) await cdp('Emulation.setCPUThrottlingRate', { rate: slowdown });
+  // HEYLOOK_FAKE_NOW=2026-10-25T09:00:00 (local time; with a Z or an offset: that instant) moves the page's clock to that moment, still running: the way to run a test on
+  // another weekday or time of day (the dev mock places its calendar events relative to today, so a test can depend on the weekday of the run)
+  if (process.env.HEYLOOK_FAKE_NOW) {
+    const want = new Date(process.env.HEYLOOK_FAKE_NOW).getTime();
+    if (Number.isNaN(want)) throw new Error('HEYLOOK_FAKE_NOW is not a date: ' + process.env.HEYLOOK_FAKE_NOW);
+    const offset = want - Date.now();
+    const source = `(() => {
+      const Real = Date, off = ${offset};
+      function FakeDate(...a) { return a.length ? new Real(...a) : new Real(Real.now() + off); }
+      FakeDate.prototype = Real.prototype; FakeDate.UTC = Real.UTC; FakeDate.parse = Real.parse; FakeDate.now = () => Real.now() + off;
+      Object.defineProperty(Real.prototype, 'constructor', { value: FakeDate, writable: true, configurable: true });
+      window.Date = FakeDate;
+    })()`;
+    await cdp('Page.addScriptToEvaluateOnNewDocument', { source });
+  }
   // hermetic: the dev preview talks to its mock, never to the network. A request to any host but this machine is refused and recorded, and the test fails at exit
   // (a page that starts to call out must say so in the test, with a stub, instead of working on a good day and failing on a runner that is rate-limited)
   const net = await installHermeticNet({ cdp, on: (h) => handlers.push(h) });
