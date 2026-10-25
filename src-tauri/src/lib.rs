@@ -6397,6 +6397,8 @@ pub fn run() {
         std::process::exit(credwipe::run());
     }
     startup::init_clock();
+    // the first line of the log: how this process was started (version, arguments, who started it, the start-up information)
+    startup::line("start", &startup::launch_description());
     // (the names shared with other copies of the app: credential store service, notification id; see identity.rs)
     let mut context = tauri::generate_context!();
     // (how a PDF attachment is previewed on this system is decided, and logged, once: pdfmode.rs; the content security policy is never changed for it)

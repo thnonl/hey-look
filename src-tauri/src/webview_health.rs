@@ -186,6 +186,10 @@ impl BrowserState {
 
 #[cfg(not(windows))]
 pub fn wait_for_previous_run() {}
+#[cfg(not(windows))]
+pub fn launcher_text() -> String {
+    String::new()
+}
 #[cfg(windows)]
 pub use win::watch_window;
 #[cfg(not(windows))]
@@ -203,7 +207,7 @@ pub fn child_info(_app: &tauri::AppHandle) -> Option<String> {
     None
 }
 #[cfg(windows)]
-pub use win::{browser_state, child_info, nudge, reassert, wait_for_previous_run, watch};
+pub use win::{browser_state, child_info, launcher_text, nudge, reassert, wait_for_previous_run, watch};
 #[cfg(all(windows, debug_assertions))]
 pub use win::set_visible;
 
@@ -221,7 +225,7 @@ mod win {
     use windows::Win32::Foundation::{CloseHandle, FILETIME, HANDLE, HWND, RECT, UNICODE_STRING, WAIT_TIMEOUT};
     use windows::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS};
     use windows::Win32::System::Threading::{
-        GetCurrentProcessId, GetExitCodeProcess, GetProcessTimes, OpenProcess, QueryFullProcessImageNameW, WaitForSingleObject, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+        GetCurrentProcessId, GetExitCodeProcess, GetProcessTimes, GetStartupInfoW, STARTUPINFOW, OpenProcess, QueryFullProcessImageNameW, WaitForSingleObject, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
         PROCESS_SYNCHRONIZE,
     };
     use windows::Win32::UI::WindowsAndMessaging::{FindWindowExW, GetClientRect, GetWindowRect, IsWindowVisible};
@@ -246,6 +250,26 @@ mod win {
             let _ = CloseHandle(snap);
         }
         out
+    }
+
+    /// Who started this process and with which start-up information (`STARTUPINFO`: the first `ShowWindow` of a process takes its `wShowWindow`, so a start that
+    /// asks for a hidden or minimized window changes what the first show does), for the first line of `startup.log`.
+    pub fn launcher_text() -> String {
+        let mut si = STARTUPINFOW { cb: std::mem::size_of::<STARTUPINFOW>() as u32, ..Default::default() };
+        // SAFETY: `si` is a valid STARTUPINFOW of the right size
+        unsafe { GetStartupInfoW(&mut si) };
+        let me = unsafe { GetCurrentProcessId() };
+        let procs = snapshot();
+        let parent = procs.iter().find(|p| p.pid == me).map(|p| p.ppid);
+        let by = match parent {
+            Some(pp) => match procs.iter().find(|p| p.pid == pp) {
+                Some(p) => format!("{} (pid {pp})", p.name),
+                None => format!("pid {pp}, which has ended already"),
+            },
+            None => "unknown".to_string(),
+        };
+        let uses_show = si.dwFlags.0 & 1 != 0;
+        format!(", started by {by}, start-up information: flags 0x{:x}{}", si.dwFlags.0, if uses_show { format!(", the first ShowWindow takes show command {}", si.wShowWindow) } else { String::new() })
     }
 
     /// The command line of a process of this user (None when it cannot be read).
