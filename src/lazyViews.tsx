@@ -19,6 +19,7 @@ import { useStore } from "./store";
 //   dialogs     the bulk cleaner and Show original                                   on open
 //   search      "Advanced search" of the search panel (filters, dates, fields)       when the person opens it
 //   folder      the New folder / New subfolder dialog                                on open
+//   rule        the Create rule / Edit rule dialog with the suggested words           on open
 //   pdfview     the PDF viewer of the attachment preview (PDF.js, macOS and Linux)   on the first PDF preview of the run (W5.1)
 //   popout      the compose window's and the reader window's view                    their own window (popout/views.tsx)
 // Loading, retry and failure: lazy.tsx / lazyLoad.ts.
@@ -34,6 +35,7 @@ const pgpModule = () => import("./components/PgpDialogs");
 const dialogsModule = () => import("./components/Dialogs");
 const searchAdvancedModule = () => import("./components/SearchAdvanced");
 const folderModule = () => import("./components/FolderDialog");
+const ruleModule = () => import("./components/RuleDialog");
 const pdfViewModule = () => import("./pdfView");
 
 export const loadComposeWindowView = () => import("./popout/ComposeView").then(async (m) => (await m.ready(), m));
@@ -214,6 +216,18 @@ export const LazyFolderDialog = lazyView<FolderModule, React.ComponentProps<Fold
   dialog: true,
   frame: (p, late) => <DialogFrame title={p.parentKey ? "mail.folder.dlgTitleSub" : "mail.folder.dlgTitle"} late={late} width={440} onClose={closeDialog} />,
   failed: closeDialog,
+});
+
+type RuleModule = Awaited<ReturnType<typeof ruleModule>>;
+/** Create rule / Edit rule (1.0.8): the frame (title and box) at once, the form when the part is there. `onClose` is the dialog's own (it is also opened inside Settings, which must stay). */
+export const LazyRuleDialog = lazyView<RuleModule, React.ComponentProps<RuleModule["RuleDialog"]>>({
+  key: "rule",
+  kind: "rule",
+  load: ruleModule,
+  pick: (m) => m.RuleDialog,
+  dialog: true,
+  frame: (p, late) => <DialogFrame title={p.rule ? "settings.rules.edit" : "settings.rules.create"} late={late} width={560} onClose={p.onClose} />,
+  failed: (p) => p.onClose(),
 });
 
 type PdfViewModule = Awaited<ReturnType<typeof pdfViewModule>>;

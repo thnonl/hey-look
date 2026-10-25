@@ -203,6 +203,8 @@ export default defineLocale<typeof ns.en>({
   "app.cmd.unflag": "Quitar bandera",
   "app.cmd.pin": "Anclar",
   "app.cmd.unpin": "Desanclar",
+  "app.cmd.createRule": "Crear regla del mensaje",
+  "app.cmd.manageRules": "Administrar reglas",
   "app.cmd.switchTo": "Cambiar a {email}",
   "app.cmd.showAll": "Mostrar todas las cuentas",
   // ---- search box

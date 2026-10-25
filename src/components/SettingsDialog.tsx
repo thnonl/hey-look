@@ -1,5 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
-import { ExternalLink, KeyRound, Lock, Plus, ShieldAlert, Trash2, Upload, Volume2 } from "lucide-react";
+import { ChevronDown, ChevronUp, ExternalLink, KeyRound, Lock, Plus, ShieldAlert, Trash2, Upload, Volume2 } from "lucide-react";
 import { openPopout } from "../popout/open";
 import { SETTINGS_KEY } from "../popout/windowKinds";
 import { openUpdateLink } from "../updates";
@@ -23,6 +23,9 @@ import { folderVisible, ruleTargetProblem } from "../junk";
 import { cutAtWord, friendlyError, useStore } from "../store";
 import { credStore, kbd, riskyHint, usePlatform } from "../platform";
 import { portFromText, portText } from "../portField";
+import { LazyRuleDialog } from "../lazyViews";
+import { ACTION_WORD, ruleTitle } from "../ruleText";
+import { runRule } from "../ruleRun";
 import { filtersIntroKey, keepRunningLabelKey, startsMinimizedKey, trayBadgeLabelKey, trayTabTitleKey } from "../trayWords";
 import { systemTz } from "../calendar";
 import { setEnabled as setNudgeEnabled } from "../supportNudge";
@@ -987,7 +990,7 @@ function MiniToolbarRow() {
 }
 
 function ScopedList<T extends { id: string; accountId?: string | null }>({
-  scope, items, title, tags, render, onOpen, onDelete, empty,
+  scope, items, title, tags, render, extra, onOpen, onDelete, empty,
 }: {
   scope: string | null;
   items: T[];
@@ -995,6 +998,8 @@ function ScopedList<T extends { id: string; accountId?: string | null }>({
   /** badges of the row (default, off...): right-aligned, just before the action */
   tags?: (i: T) => ReactNode;
   render?: (i: T) => ReactNode;
+  /** more buttons of the row, before Delete (the order and Run now of the rules) */
+  extra?: (i: T) => ReactNode;
   onOpen: (i: T) => void;
   onDelete: (i: T) => void;
   empty: string;
@@ -1009,6 +1014,7 @@ function ScopedList<T extends { id: string; accountId?: string | null }>({
         <div key={i.id} className="list-row" onClick={() => onOpen(i)}>
           <div className="lr-name"><span className="lr-title">{title(i)}</span>{render?.(i)}</div>
           {tags?.(i) && <span className="lr-tags">{tags(i)}</span>}
+          {extra?.(i)}
           <button className="icon-btn" title={t("common.delete")} aria-label={t("common.delete")} onClick={(e) => { e.stopPropagation(); onDelete(i); }}><Trash2 size={15} /></button>
         </div>
       ))}
@@ -1114,25 +1120,45 @@ function TemplatesPanel({ scope }: { scope: string | null }) {
   );
 }
 
-/** The words a filter is described with in the list (field, condition, action), lower case as the rule reads: "from contains “x”". */
-const FIELD_WORD: Record<Rule["field"], Key> = { from: "settings.filters.wFrom", to: "settings.filters.wTo", subject: "settings.filters.wSubject", any: "settings.filters.wAny" };
-const OP_WORD: Record<Rule["op"], Key> = { contains: "settings.filters.opContains", equals: "settings.filters.opEquals" };
-const ACTION_WORD: Record<Rule["action"], Key> = {
-  archive: "settings.filters.wArchive", trash: "settings.filters.wTrash", junk: "settings.filters.wJunk", read: "settings.filters.wRead",
-  star: "settings.filters.wStar", pin: "settings.filters.wPin", move: "settings.filters.wMove",
-};
-
+/** The rules (Settings > Mailboxes > Rules, 1.0.8): the ordered list with Move up / Move down / Run now / Delete on each row; a click on a row edits it; New rule and Edit rule open the rule dialog. */
 function FiltersPanel({ scope }: { scope: string | null }) {
   const t = useT();
   const { folders, showToast, confirm, accounts } = useStore();
   const accountIds = accounts.map((a) => a.id);
   const tray = usePlatform((s) => s.tray);
   const [list, setList] = useState<Rule[]>([]);
-  const [cur, setCur] = useState<Rule | null>(null);
+  const [dlg, setDlg] = useState<{ rule?: Rule } | null>(null);
   const load = () => api.listRules().then(setList);
   useEffect(() => void load(), []);
-  const roles = Array.from(new Set(folders.filter((f) => !scope || f.accountId === scope).map((f) => f.key))).filter((k) => !["inbox", "sent", "drafts"].includes(k));
-  const junkProblem = cur ? ruleTargetProblem({ action: "junk", accountId: cur.accountId }, folders, accountIds) !== null : false;
+  // a rule saved in another window (the Settings window and the main window's dialog, or a rule made from a message) shows here
+  useEffect(() => {
+    const off = listen<{ what?: string }>("data-changed", (e) => {
+      if (e.payload?.what === "rules") void load();
+    });
+    return () => void off.then((f) => f()).catch(() => undefined);
+  }, []);
+  const own = list.filter((r) => (r.accountId ?? null) === scope);
+  const move = async (r: Rule, down: boolean) => {
+    await api.moveRule(r.id, down);
+    void load();
+  };
+  const runNow = async (r: Rule) => {
+    try {
+      const scan = await api.ruleCount(r, "inbox");
+      if (scan.n === 0 && !scan.capped) {
+        showToast(t("settings.rules.runNone"), undefined, "info");
+        return;
+      }
+      const ok = await confirm({
+        title: t("settings.rules.runTitle", { name: ruleTitle(r) }),
+        body: scan.capped ? undefined : t("settings.rules.runBody", { n: scan.n }),
+        confirmLabel: t("settings.rules.run"),
+      });
+      if (ok) await runRule(r, "inbox");
+    } catch (e) {
+      showToast(() => t("errors.toast.failed", { error: friendlyError(e) }), undefined, "error");
+    }
+  };
   return (
     <>
       <div className="muted small pad">{t(filtersIntroKey(tray))}</div>
@@ -1140,15 +1166,29 @@ function FiltersPanel({ scope }: { scope: string | null }) {
         scope={scope}
         items={list}
         empty={t("settings.filters.empty")}
-        title={(r) => r.name || t("settings.filters.autoName", { field: t(FIELD_WORD[r.field]), op: t(OP_WORD[r.op]), value: r.value })}
-        tags={(r) => (
-          <>
-            {!r.enabled && <span className="ov-tag">{t("settings.filters.off")}</span>}
-            {ruleTargetProblem(r, folders, accountIds) && <span className="ov-tag">{t("mail.junk.none")}</span>}
-          </>
-        )}
-        render={(r) => <div className="muted small">{t(ACTION_WORD[r.action])}{r.arg ? ` → ${folderLabel(r.arg)}` : ""}</div>}
-        onOpen={setCur}
+        title={(r) => ruleTitle(r)}
+        tags={(r) => {
+          const problem = ruleTargetProblem(r, folders, accountIds);
+          return (
+            <>
+              {!r.enabled && <span className="ov-tag">{t("settings.filters.off")}</span>}
+              {problem === "no-junk" && <span className="ov-tag">{t("mail.junk.none")}</span>}
+              {problem === "no-folder" && <span className="ov-tag">{t("settings.rules.folderMissing")}</span>}
+            </>
+          );
+        }}
+        render={(r) => <div className="muted small">{t(ACTION_WORD[r.action])}{r.arg && r.action === "move" ? ` → ${folderLabel(r.arg)}` : ""}</div>}
+        extra={(r) => {
+          const i = own.findIndex((x) => x.id === r.id);
+          return (
+            <>
+              <button className="icon-btn" title={t("mail.acct.moveUp")} aria-label={t("mail.acct.moveUp")} disabled={i <= 0} onClick={(e) => { e.stopPropagation(); void move(r, false); }}><ChevronUp size={15} /></button>
+              <button className="icon-btn" title={t("mail.acct.moveDown")} aria-label={t("mail.acct.moveDown")} disabled={i < 0 || i >= own.length - 1} onClick={(e) => { e.stopPropagation(); void move(r, true); }}><ChevronDown size={15} /></button>
+              <button className="btn small" onClick={(e) => { e.stopPropagation(); void runNow(r); }}>{t("settings.rules.runNow")}</button>
+            </>
+          );
+        }}
+        onOpen={(r) => setDlg({ rule: r })}
         onDelete={async (r) => {
           if (await confirm({ title: t("settings.filters.deleteTitle"), confirmLabel: t("common.delete"), danger: true })) {
             await api.deleteRule(r.id);
@@ -1156,52 +1196,10 @@ function FiltersPanel({ scope }: { scope: string | null }) {
           }
         }}
       />
-      <button className="btn" onClick={() => setCur({ id: crypto.randomUUID(), accountId: scope, name: "", field: "from", op: "contains", value: "", action: "archive", arg: null, enabled: true })}>
+      <button className="btn" onClick={() => setDlg({})}>
         <Plus size={14} /> {t("settings.filters.new")}
       </button>
-      {cur && (
-        <div className="form set-card">
-          <label>{t("settings.form.name")}</label>
-          <input aria-label={t("settings.form.name")} placeholder={t("settings.filters.namePlaceholder")} value={cur.name} onChange={(e) => setCur({ ...cur, name: e.target.value })} />
-          <label>{t("settings.filters.when")}</label>
-          <div className="row-inline">
-            <select aria-label={t("settings.filters.ruleField")} value={cur.field} onChange={(e) => setCur({ ...cur, field: e.target.value as Rule["field"] })}>
-              <option value="from">{t("settings.filters.from")}</option><option value="to">{t("settings.filters.to")}</option><option value="subject">{t("settings.filters.subject")}</option><option value="any">{t("settings.filters.anyField")}</option>
-            </select>
-            <select aria-label={t("settings.filters.ruleCondition")} value={cur.op} onChange={(e) => setCur({ ...cur, op: e.target.value as Rule["op"] })}>
-              <option value="contains">{t("settings.filters.opContains")}</option><option value="equals">{t("settings.filters.opEquals")}</option>
-            </select>
-            <input aria-label={t("settings.filters.ruleText")} placeholder="newsletter@example.com" value={cur.value} onChange={(e) => setCur({ ...cur, value: e.target.value })} />
-          </div>
-          <label>{t("settings.filters.then")}</label>
-          <div className="row-inline">
-            <select aria-label={t("settings.filters.ruleAction")} value={cur.action} onChange={(e) => setCur({ ...cur, action: e.target.value as Rule["action"] })}>
-              <option value="archive">{t("settings.action.archive")}</option><option value="trash">{t("common.delete")}</option>
-              {/* (W6.2) where the mailbox has no Junk folder the option is greyed out and says so; a rule that already moves to Junk keeps it selected with the same words */}
-              <option value="junk" disabled={junkProblem && cur.action !== "junk"}>{junkProblem ? t("settings.filters.toJunkNone") : t("settings.filters.toJunk")}</option>
-              <option value="read">{t("settings.action.read")}</option><option value="star">{t("settings.action.flag")}</option><option value="pin">{t("settings.action.pin")}</option><option value="move">{t("settings.filters.toFolder")}</option>
-            </select>
-            {cur.action === "junk" && junkProblem && <div className="muted small" role="note">{t("mail.junk.noneTip")}</div>}
-            {cur.action === "move" && (
-              <select aria-label={t("settings.filters.targetFolder")} value={cur.arg ?? ""} onChange={(e) => setCur({ ...cur, arg: e.target.value })}>
-                <option value="">{t("settings.filters.chooseFolder")}</option>
-                {roles.map((k) => <option key={k} value={k}>{folderLabel(k, folders.find((f) => f.key === k)?.name)}</option>)}
-              </select>
-            )}
-          </div>
-          <Switch checked={cur.enabled} onChange={(v) => setCur({ ...cur, enabled: v })} label={t("settings.filters.enabled")} />
-          <div className="row-inline">
-            <button
-              className="btn primary"
-              disabled={!cur.value.trim() || (cur.action === "move" && !cur.arg)}
-              onClick={async () => { await api.saveRule(cur); setCur(null); void load(); showToast(t("settings.filters.saved"), undefined, "success"); }}
-            >
-              {t("common.save")}
-            </button>
-            <button className="btn" onClick={() => setCur(null)}>{t("common.cancel")}</button>
-          </div>
-        </div>
-      )}
+      {dlg && <LazyRuleDialog key={dlg.rule?.id ?? "new"} rule={dlg.rule} scope={scope} onClose={() => setDlg(null)} onSaved={() => void load()} />}
     </>
   );
 }
@@ -2365,7 +2363,8 @@ export function Settings({ initial, focus, nonce, section, windowed }: { initial
       return;
     }
     if (initial) setTab(initial === "accounts" ? "mb:all" : initial === "notifications" ? "tray" : initial);
-  }, [initial, nonce]);
+    if (section) setMbTab(section);
+  }, [initial, nonce]); // eslint-disable-line react-hooks/exhaustive-deps
   // the deep link (`focus`): the same jump as a result of the search (src/settingsJump.ts), once per request
   const deepDone = useRef("");
   useEffect(() => {

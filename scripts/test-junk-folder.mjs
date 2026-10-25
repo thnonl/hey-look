@@ -88,9 +88,20 @@ assert.equal(accountHasJunk([{ accountId: "a1", key: "junk" }, { accountId: "a1"
   const gained = [...withJunk, ...rows("a2", ["inbox", "sent", "drafts", "junk"])];
   assert.equal(ruleTargetProblem(junkRule("a2"), gained, ids), null);
   const dlg = readFileSync(new URL("../src/components/SettingsDialog.tsx", import.meta.url), "utf8").replaceAll(String.fromCharCode(13), "");
-  assert.ok(dlg.includes('ruleTargetProblem(r, folders, accountIds) && <span className="ov-tag">{t("mail.junk.none")}</span>'), "the list tag");
-  assert.ok(dlg.includes('<option value="junk" disabled={junkProblem && cur.action !== "junk"}>{junkProblem ? t("settings.filters.toJunkNone") : t("settings.filters.toJunk")}</option>'), "the option");
-  assert.ok(dlg.includes('cur.action === "junk" && junkProblem && <div className="muted small" role="note">{t("mail.junk.noneTip")}</div>'), "the hint under the select");
+  assert.ok(dlg.includes('{problem === "no-junk" && <span className="ov-tag">{t("mail.junk.none")}</span>}'), "the list tag");
+  // (1.0.8) the rule dialog replaced the inline editor of Settings: the same option and hint live there
+  const rd = readFileSync(new URL("../src/components/RuleDialog.tsx", import.meta.url), "utf8").replaceAll(String.fromCharCode(13), "");
+  assert.ok(rd.includes('<option value="junk" disabled={junkProblem && action !== "junk"}>{junkProblem ? t("settings.filters.toJunkNone") : t("settings.filters.toJunk")}</option>'), "the option");
+  assert.ok(rd.includes('action === "junk" && junkProblem && <div className="muted small" role="note">{t("mail.junk.noneTip")}</div>'), "the hint under the select");
+  // (1.0.8) a rule that moves to a folder its mailbox does not have: "no-folder"
+  const std = [...rows("a1", ["inbox", "sent", "drafts", "junk", "archive", "trash"]), { accountId: "a1", key: "f:Projects", name: "Projects" }];
+  assert.equal(ruleTargetProblem({ action: "move", arg: "f:Projects", accountId: "a1" }, std, ["a1"]), null, "the folder is there");
+  assert.equal(ruleTargetProblem({ action: "move", arg: "f:Gone", accountId: "a1" }, std, ["a1"]), "no-folder", "the folder was removed");
+  assert.equal(ruleTargetProblem({ action: "move", arg: "f:Projects", accountId: null }, std, ["a1"]), null, "all mailboxes: one has it");
+  assert.equal(ruleTargetProblem({ action: "move", arg: "f:Gone", accountId: null }, std, ["a1"]), "no-folder", "all mailboxes: none has it");
+  assert.equal(ruleTargetProblem({ action: "move", arg: "f:Gone", accountId: "a9" }, std, ["a1", "a9"]), null, "folders of the mailbox not loaded: not judged");
+  assert.equal(ruleTargetProblem({ action: "move", arg: "junk", accountId: "a2" }, folders, ids), "no-junk", "a move to Junk is a Junk rule");
+  assert.equal(ruleTargetProblem({ action: "move", arg: null, accountId: "a1" }, std, ["a1"]), null, "no folder chosen yet");
 }
 
 console.log("ok - test-junk-folder");

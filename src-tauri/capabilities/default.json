@@ -61,6 +61,8 @@
     "allow-save-rule",
     "allow-delete-rule",
     "allow-move-rule",
+    "allow-rule-count",
+    "allow-rule-targets",
     "allow-get-raw",
     "allow-reply-headers",
     "allow-save-attachments",

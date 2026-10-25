@@ -201,6 +201,8 @@ export default defineLocale<typeof ns.en>({
   "app.cmd.unflag": "Retirer le suivi",
   "app.cmd.pin": "Épingler",
   "app.cmd.unpin": "Désépingler",
+  "app.cmd.createRule": "Créer une règle depuis ce message",
+  "app.cmd.manageRules": "Gérer les règles",
   "app.cmd.switchTo": "Passer à {email}",
   "app.cmd.showAll": "Afficher tous les comptes",
 

@@ -43,18 +43,27 @@ export function accountsOf(threads: readonly { threadId: string; accountId: stri
   return [...out];
 }
 
-/** What is wrong with a filter rule's target on this computer's folder lists (W6.2); null: nothing. */
-export type RuleProblem = "no-junk";
+/** What is wrong with a rule's target on this computer's folder lists (W6.2, 1.0.8): `no-junk` (it moves mail to Junk and there is no Junk folder), `no-folder` (its folder is not in the list of its mailbox); null: nothing. */
+export type RuleProblem = "no-junk" | "no-folder";
+
+/** Whether the saved folder list of `accountId` has the folder `key`. Unknown (the folders are not loaded yet for it) counts as yes. */
+export function accountHasFolder(folders: readonly FolderLike[], accountId: string, key: string): boolean {
+  const mine = folders.filter((f) => f.accountId === accountId);
+  return mine.length === 0 || mine.some((f) => f.key === key && f.listed !== false);
+}
 
 /**
- * Whether a filter rule can work with the folders its mailbox has. A rule that moves mail to Junk needs a Junk folder in the saved list of its mailbox; a rule for all mailboxes
- * works wherever there is one, so it has the problem only when NO mailbox has Junk. Unknown folders (not loaded yet) are fine: nothing is blocked on a guess. The filter editor
- * (settings) and the list of rules use it; the backend skips such a rule the same way when it runs (`sync_impl`), so the mail stays where it is and no error is told.
+ * Whether a rule can work with the folders its mailbox has. A rule that moves mail to Junk needs a Junk folder in the saved list of its mailbox; a rule that moves to a folder needs
+ * that folder; a rule for all mailboxes works wherever there is one, so it has the problem only when NO mailbox has it. Unknown folders (not loaded yet) are fine: nothing is blocked on a
+ * guess. The rule list and the rule dialog (settings) use it; the backend skips a Junk rule the same way when it runs (`sync_impl`), so the mail stays where it is and no error is told.
  */
-export function ruleTargetProblem(rule: { action: string; accountId?: string | null }, folders: readonly FolderLike[], accountIds: readonly string[]): RuleProblem | null {
-  if (rule.action !== "junk") return null;
-  if (rule.accountId) return accountHasJunk(folders, rule.accountId) ? null : "no-junk";
-  return accountIds.length > 0 && accountIds.every((a) => !accountHasJunk(folders, a)) ? "no-junk" : null;
+export function ruleTargetProblem(rule: { action: string; arg?: string | null; accountId?: string | null }, folders: readonly FolderLike[], accountIds: readonly string[]): RuleProblem | null {
+  const dest = rule.action === "junk" ? "junk" : rule.action === "move" && rule.arg ? rule.arg : null;
+  if (!dest) return null;
+  const has = (a: string) => (dest === "junk" ? accountHasJunk(folders, a) : accountHasFolder(folders, a, dest));
+  const problem: RuleProblem = dest === "junk" ? "no-junk" : "no-folder";
+  if (rule.accountId) return has(rule.accountId) ? null : problem;
+  return accountIds.length > 0 && accountIds.every((a) => !has(a)) ? problem : null;
 }
 
 /** Actions that move mail to Junk (`block` adds the sender to the blocked list and then moves the mail to Junk). */

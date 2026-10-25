@@ -480,6 +480,80 @@ pub fn move_in_list(c: &Connection, id: &str, down: bool) -> R<()> {
     Ok(())
 }
 
+// ---------- rules on the mail that is already there ("Run now", and the count in the rule dialog) ----------
+
+/// Only this many of the newest local messages of a folder are looked at.
+pub const SCAN_CAP: usize = 5000;
+
+/// The conversations of one mailbox that a rule matches.
+#[derive(Serialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanGroup {
+    pub account_id: String,
+    pub thread_ids: Vec<String>,
+}
+
+#[derive(Serialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Scan {
+    /// conversations that match (a conversation counts once)
+    pub n: u32,
+    /// the folder holds more than `SCAN_CAP` local messages: only the newest ones were looked at
+    pub capped: bool,
+    /// the conversations per mailbox (empty when only the count was asked for)
+    pub groups: Vec<ScanGroup>,
+}
+
+/// Match the local mail of `folder` (a role or a folder key such as `inbox`, `archive`, `f:Projects`) of every mailbox in `accounts` against `rule`, with the matcher of the sync.
+/// The rule may be a draft that is not saved and may be switched off. Mail of blocked senders is left out of the Inbox, as the Inbox leaves it out.
+pub fn scan(c: &Connection, rule: &Rule, accounts: &[String], folder: &str, want_ids: bool) -> R<Scan> {
+    let compiled = Compiled::new(rule);
+    let mut out = Scan { n: 0, capped: false, groups: vec![] };
+    let blocked = if folder == "inbox" { " AND from_email NOT IN (SELECT email FROM blocked)" } else { "" };
+    let sql = format!(
+        "SELECT thread_id, from_name, from_email, to_addrs, subject, substr(COALESCE(body_text,''),1,{BODY_CHARS}), pgp FROM messages WHERE account_id=?1 AND folder=?2{blocked} ORDER BY date DESC LIMIT {}",
+        SCAN_CAP + 1
+    );
+    for acc in accounts {
+        let mut st = c.prepare(&sql).map_err(|e| e.to_string())?;
+        let mut rows = st.query(params![acc, folder]).map_err(|e| e.to_string())?;
+        let mut seen: std::collections::HashSet<String> = Default::default();
+        let mut ids: Vec<String> = vec![];
+        let mut looked = 0usize;
+        while let Some(r) = rows.next().map_err(|e| e.to_string())? {
+            looked += 1;
+            if looked > SCAN_CAP {
+                out.capped = true;
+                break;
+            }
+            let tid: String = r.get(0).map_err(|e| e.to_string())?;
+            if seen.contains(&tid) {
+                continue;
+            }
+            let to: String = r.get(3).map_err(|e| e.to_string())?;
+            let pgp: i64 = r.get(6).map_err(|e| e.to_string())?;
+            let mail = MailIn {
+                from_name: r.get(1).map_err(|e| e.to_string())?,
+                from_email: r.get(2).map_err(|e| e.to_string())?,
+                to: to.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect(),
+                subject: r.get(4).map_err(|e| e.to_string())?,
+                body: r.get(5).map_err(|e| e.to_string())?,
+                // FLAG_ENCRYPTED | FLAG_CONFIDENTIAL (pgpmail.rs)
+                encrypted: pgp & 5 != 0,
+            };
+            if compiled.matches(&Prepared::new(&mail)) {
+                seen.insert(tid.clone());
+                ids.push(tid);
+            }
+        }
+        out.n += ids.len() as u32;
+        if want_ids && !ids.is_empty() {
+            out.groups.push(ScanGroup { account_id: acc.clone(), thread_ids: ids });
+        }
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -567,6 +641,15 @@ mod tests {
         assert_eq!(strip_prefixes("Reply to everyone"), "Reply to everyone", "a word that starts like a prefix is not one");
         assert_eq!(strip_prefixes("Отв: Ответ: Привет"), "Привет");
         assert_eq!(strip_prefixes("答复：转发：会议"), "会议");
+    }
+
+    /// The table src/ruleSuggest.ts is tested with (scripts/test-rule-suggest.mjs): one list of prefixes on both sides.
+    #[test]
+    fn strip_prefixes_shared_table() {
+        let v: serde_json::Value = serde_json::from_str(include_str!("../../scripts/data/rule-prefix-cases.json")).unwrap();
+        for c in v["cases"].as_array().unwrap() {
+            assert_eq!(strip_prefixes(c[0].as_str().unwrap()), c[1].as_str().unwrap(), "{}", c[0]);
+        }
     }
 
     #[test]
@@ -749,6 +832,65 @@ mod tests {
         assert_eq!(all[0].name, "renamed");
         // a rule with only empty values is refused
         assert!(save(&c, &rule("e", "archive", vec![cond("from", "contains", &[" "])])).is_err());
+    }
+
+    fn mail_db() -> Connection {
+        let c = db();
+        c.execute_batch(
+            "CREATE TABLE messages(id TEXT PRIMARY KEY, account_id TEXT, folder TEXT, thread_id TEXT, subject TEXT, from_name TEXT, from_email TEXT, to_addrs TEXT, body_text TEXT, date INTEGER, pgp INTEGER DEFAULT 0);
+             CREATE TABLE blocked(email TEXT PRIMARY KEY);",
+        )
+        .unwrap();
+        c
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn put(c: &Connection, id: &str, acc: &str, folder: &str, thread: &str, from: &str, subject: &str, body: &str, date: i64) {
+        c.execute(
+            "INSERT INTO messages(id,account_id,folder,thread_id,subject,from_name,from_email,to_addrs,body_text,date) VALUES(?1,?2,?3,?4,?5,'',?6,'me@x.test',?7,?8)",
+            params![id, acc, folder, thread, subject, from, body, date],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn run_now_counts_and_queues_the_matches_of_a_folder() {
+        let c = mail_db();
+        put(&c, "1", "a", "inbox", "t1", "deals@shop.example", "Sale", "", 5);
+        put(&c, "2", "a", "inbox", "t1", "deals@shop.example", "Re: Sale", "", 6); // the same conversation counts once
+        put(&c, "3", "a", "inbox", "t2", "deals@shop.example", "More", "invoice inside", 4);
+        put(&c, "4", "a", "inbox", "t3", "other@x.test", "Hello", "", 3);
+        put(&c, "5", "a", "archive", "t4", "deals@shop.example", "Old", "", 2);
+        put(&c, "6", "b", "inbox", "t5", "deals@shop.example", "Other mailbox", "", 1);
+        put(&c, "7", "a", "inbox", "t6", "evil@shop.example", "Blocked", "", 1);
+        c.execute("INSERT INTO blocked(email) VALUES('evil@shop.example')", []).unwrap();
+        let mut r = rule("R", "move", vec![cond("from", "contains", &["@shop.example"])]);
+        r.enabled = false; // a switched-off rule can be run by hand
+        let both = vec!["a".to_string(), "b".to_string()];
+        let s = scan(&c, &r, &["a".to_string()], "inbox", true).unwrap();
+        assert_eq!((s.n, s.capped), (2, false));
+        assert_eq!(s.groups, vec![ScanGroup { account_id: "a".into(), thread_ids: vec!["t1".into(), "t2".into()] }], "newest first; the blocked sender and the archive are left out");
+        let s = scan(&c, &r, &both, "inbox", false).unwrap();
+        assert_eq!((s.n, s.groups.len()), (3, 0), "only the count was asked for");
+        assert_eq!(scan(&c, &r, &both, "archive", true).unwrap().n, 1);
+        // a body condition looks at the stored text
+        let body = rule("B", "move", vec![cond("body", "contains", &["invoice"])]);
+        assert_eq!(scan(&c, &body, &both, "inbox", true).unwrap().groups[0].thread_ids, vec!["t2".to_string()]);
+    }
+
+    #[test]
+    fn a_big_folder_is_counted_over_its_newest_5000_messages() {
+        let c = mail_db();
+        c.execute_batch("BEGIN").unwrap();
+        for i in 0..(SCAN_CAP + 10) {
+            put(&c, &format!("m{i}"), "a", "inbox", &format!("t{i}"), "x@y.test", "invoice", "", i as i64);
+        }
+        c.execute_batch("COMMIT").unwrap();
+        let r = rule("R", "archive", vec![cond("subject", "contains", &["invoice"])]);
+        let s = scan(&c, &r, &["a".to_string()], "inbox", true).unwrap();
+        assert!(s.capped);
+        assert_eq!(s.n as usize, SCAN_CAP);
+        assert!(!s.groups[0].thread_ids.contains(&"t0".to_string()), "the oldest are not looked at");
     }
 
     #[test]

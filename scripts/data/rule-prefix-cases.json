@@ -1,0 +1,27 @@
+{
+  "_": "Shared by scripts/test-rule-suggest.mjs (src/ruleSuggest.ts stripReplyPrefixes) and the Rust test strip_prefixes_shared_table (src-tauri/src/mailrules.rs). [subject, subject without its reply / forward prefixes]",
+  "cases": [
+    ["Re: Weekly report", "Weekly report"],
+    ["RE: re: Weekly report", "Weekly report"],
+    ["Re[2]: Weekly report", "Weekly report"],
+    ["Re(3): Weekly report", "Weekly report"],
+    ["Fw: Fwd: FW: Hello", "Hello"],
+    ["AW: WG: Rechnung 2026-10 für Projekt Alpha", "Rechnung 2026-10 für Projekt Alpha"],
+    ["SV: VS: Möte", "Möte"],
+    ["TR: RV: RES: ENC: Reunião", "Reunião"],
+    ["R: I: Riunione", "Riunione"],
+    ["Antw: Doorst: Odp: Vergadering", "Vergadering"],
+    ["Отв: Ответ: Пересл: Привет, мир", "Привет, мир"],
+    ["回复：转发：会议纪要 10月25日", "会议纪要 10月25日"],
+    ["回覆: 答复: 轉寄: 會議", "會議"],
+    ["返信: 転送: 打ち合わせ", "打ち合わせ"],
+    ["Trả lời: Chuyển tiếp: TL: CT: Hóa đơn tháng 10", "Hóa đơn tháng 10"],
+    ["Reply to everyone", "Reply to everyone"],
+    ["Regards from the team", "Regards from the team"],
+    ["Resume: tips", "Resume: tips"],
+    ["Re:", ""],
+    ["  Re:   spaced  ", "spaced"],
+    ["[dev-list] Re: Build", "[dev-list] Re: Build"],
+    ["Weekly report", "Weekly report"]
+  ]
+}

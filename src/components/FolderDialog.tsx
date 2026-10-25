@@ -15,9 +15,27 @@ import { Modal } from "./ui";
 
 const STANDARD = ["inbox", "drafts", "sent", "archive", "junk", "trash"];
 
-export function FolderDialog({ accountId, parentKey }: { accountId: string; parentKey: string | null }) {
+/**
+ * `onClose` / `onCreated`: the dialog is drawn inside another one (the rule dialog's folder picker, 1.0.8) instead of being the store's dialog: it closes through `onClose`, tells which
+ * folder was made, and takes Esc for itself first.
+ */
+export function FolderDialog({ accountId, parentKey, onClose, onCreated }: { accountId: string; parentKey: string | null; onClose?: () => void; onCreated?: (key: string) => void }) {
   const t = useT();
   const { accounts, folders, setDialog, addFolder, showToast, sync } = useStore();
+  const close = () => (onClose ? onClose() : setDialog(null));
+  const closeRef = useRef(close);
+  closeRef.current = close;
+  useEffect(() => {
+    if (!onClose) return;
+    // (a capture listener: the dialogs under this one must not close with it)
+    const k = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented || useStore.getState().ask) return;
+      e.preventDefault();
+      closeRef.current();
+    };
+    window.addEventListener("keydown", k, true);
+    return () => window.removeEventListener("keydown", k, true);
+  }, [onClose]);
   const [name, setName] = useState("");
   const [touched, setTouched] = useState(false);
   const [server, setServer] = useState<string | null>(null);
@@ -87,11 +105,14 @@ export function FolderDialog({ accountId, parentKey }: { accountId: string; pare
       addFolder(info);
       showToast(() => t("mail.folder.created", { name: info.label ?? check.name }), undefined, "success");
       setTimeout(() => void sync(), 2000); // (the sync shows the folder when the server's LIST was late)
+      onCreated?.(info.key);
       if (alive.current) {
-        setDialog(null);
-        // the new row gets the keyboard focus (it is not opened)
-        const sel = `[data-fkey="${CSS.escape(collapsedKey(accountId, info.key))}"]`;
-        requestAnimationFrame(() => requestAnimationFrame(() => document.querySelector<HTMLElement>(sel)?.focus({ preventScroll: false })));
+        close();
+        if (!onClose) {
+          // the new row gets the keyboard focus (it is not opened)
+          const sel = `[data-fkey="${CSS.escape(collapsedKey(accountId, info.key))}"]`;
+          requestAnimationFrame(() => requestAnimationFrame(() => document.querySelector<HTMLElement>(sel)?.focus({ preventScroll: false })));
+        }
       }
     } catch (err) {
       if (alive.current) {
@@ -104,7 +125,7 @@ export function FolderDialog({ accountId, parentKey }: { accountId: string; pare
   };
 
   return (
-    <Modal title={t(parentKey ? "mail.folder.dlgTitleSub" : "mail.folder.dlgTitle")} onClose={() => setDialog(null)} width={440}>
+    <Modal title={t(parentKey ? "mail.folder.dlgTitleSub" : "mail.folder.dlgTitle")} onClose={close} width={440}>
       {/* (not a form element: the policy has form-action none, so Enter is handled on the field and Create is a plain button) */}
       <div className="form fd-form">
         <div className="fd-loc">
@@ -137,7 +158,7 @@ export function FolderDialog({ accountId, parentKey }: { accountId: string; pare
           {shown && <div id="fd-err" className="fd-err err" role="alert">{shown}</div>}
         </div>
         <div className="row-inline fd-actions">
-          <button type="button" className="btn" onClick={() => setDialog(null)}>{t("common.cancel")}</button>
+          <button type="button" className="btn" onClick={close}>{t("common.cancel")}</button>
           <button type="button" className="btn primary" disabled={!name.trim()} aria-busy={busy || undefined} onClick={() => void submit()}>
             {busy && <span className="spin" aria-hidden />}
             <span>{t("mail.folder.create")}</span>

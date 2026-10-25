@@ -211,6 +211,85 @@ const mockLayerMsgs = [
 mockThreadMsgs.tlayer = mockLayerMsgs;
 threads.push(t("tlayer", "Layering check", ["Linh Tran"], "A conversation whose first message has attachments.", 1 * H, { count: 4, hasAttach: true }));
 
+// 1.0.8 mail rules (`#rules`): a conversation from `Deals <deals@shop.example>` for "Create rule…" (AC-3.1: its subject; AC-3.5: its body, whose words give the chips `invoice`, `Acme`, `payment`),
+// ten more from that sender (twelve with the first two) and three from news@shop.example (all of them the newest rows of the list, so the list shows them without a scroll) (the count of "Also move the matching messages"), a confidential and an HTML-only one.
+// Only with the token: the rows would change the numbers every other check of the mock counts on.
+const DEALS_TEXT = [
+  "Hello,",
+  "Please find the invoice attached. The invoice is due soon; payment is expected by Friday.",
+  "> Acme quoted line that is not counted: payment payment payment",
+  "Acme will send a second invoice. Acme thanks you. Visit https://shop.example/unsubscribe/48213 or write to help@shop.example.",
+  "Click here to unsubscribe. The shop team. Order 48213.",
+  "shop shop shop",
+  "payment again, and thanks for your payment.",
+  "-- ",
+  "Signature words signature signature signature",
+].join("\n");
+const mockRulesOn = /(^|&)rules(&|$)/.test(window.location.hash.slice(1));
+if (mockRulesOn) {
+  const dealsMsg = (id: string, subject: string, name: string, email: string, text: string | null, over: Record<string, unknown> = {}) =>
+    secMsg(id, subject, name, email, { text, ...over }, text === null ? null : `<p>${text.replace(/\n/g, "<br>")}</p>`);
+  const add = (id: string, subject: string, name: string, email: string, text: string | null, ago: number, over: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) => {
+    mockThreadMsgs[id] = [dealsMsg(`m-${id}`, subject, name, email, text, over)];
+    threads.push(t(id, subject, [name], (text ?? "").replace(/\s+/g, " ").slice(0, 100), ago * H, extra));
+  };
+  add("tdeals", "Re: [Shop] Your order #48213 shipped on 2026-10-24", "Deals", "deals@shop.example", DEALS_TEXT, 0.01);
+  add("tacme", "Acme invoice", "Deals", "deals@shop.example", DEALS_TEXT, 0.02);
+  for (let i = 1; i <= 10; i++) add(`tdeals${i}`, `Deals offer ${i}`, "Deals", "deals@shop.example", `Offer number ${i} from the shop.`, 0.02 + i / 100);
+  for (let i = 1; i <= 3; i++) add(`tnews${i}`, `Shop news ${i}`, "Shop News", "news@shop.example", `News item ${i}.`, 0.04 + i / 100);
+  add("tdealsconf", "Highly confidential order", "Board", "board@corp.example", null, 0.05, { confidential: true }, { confidential: true });
+  mockThreadMsgs.tdealshtml = [secMsg("m-tdealshtml", "Gutscheine für Oktober", "Gutschein Team", "post@gutschein.example", { text: null }, "<html><head><style>p{color:red}</style></head><body><p>Gutscheine Gutscheine Gutscheine für Ihre Bestellung und Ihre Rechnung.</p></body></html>")];
+  threads.push(t("tdealshtml", "Gutscheine für Oktober", ["Gutschein Team"], "Gutscheine für Ihre Bestellung", 0.06 * H));
+}
+
+// the rules (list_rules, save_rule, delete_rule, move_rule) are kept in memory, with the same order and one-condition-per-old-rule conversion as the backend (src-tauri/src/mailrules.rs)
+type MockRule = { id: string; accountId: string | null; name: string; field?: string; op?: string; value?: string; conditions: { field: string; op: string; values: string[] }[]; action: string; arg: string | null; enabled: boolean; position: number };
+const mockRules: MockRule[] = [
+  { id: "r1", accountId: null, name: "Move newsletters", field: "from", op: "contains", value: "newsletter@example.com", conditions: [{ field: "from", op: "contains", values: ["newsletter@example.com"] }], action: "archive", arg: null, enabled: true, position: 1 },
+  { id: "r2", accountId: null, name: "", field: "subject", op: "contains", value: "a very long rule text that should be truncated in the list row", conditions: [{ field: "subject", op: "contains", values: ["a very long rule text that should be truncated in the list row"] }], action: "trash", arg: null, enabled: false, position: 2 },
+];
+const ruleList = () => [...mockRules].sort((x, y) => x.position - y.position).map((r) => ({ ...r, conditions: r.conditions.map((c) => ({ ...c, values: [...c.values] })) }));
+const ruleFold = (s: string) => s.normalize("NFKC").toLowerCase();
+const ruleMarks = (s: string) => /[̀-ͯ]|đ/.test(s.normalize("NFD"));
+const ruleStrip = (s: string) => ruleFold(s).normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/g, "d");
+/** The mock's matcher for the count and the targets: contains / is exactly on from, to, subject, body, subject or body (accent-smart, like the backend). */
+function mockRuleMatches(r: { conditions: { field: string; op: string; values: string[] }[] }, m: { fromName: string; fromEmail: string; to: string; subject: string; text: string }): boolean {
+  const hit = (hay: string, v: string, eq: boolean) => {
+    const f = ruleFold(v.trim());
+    if (!f) return false;
+    const [h, n] = ruleMarks(f) ? [ruleFold(hay), f] : [ruleStrip(hay), ruleStrip(f)];
+    return eq ? h === n : h.includes(n);
+  };
+  const subj = (s: string) => s.replace(/^\s*((re|fwd?|aw|wg)\s*:\s*)+/i, "");
+  return r.conditions.length > 0 && r.conditions.every((c) => c.values.some((v) => {
+    const eq = c.op === "equals";
+    const from = () => (eq ? hit(m.fromEmail, v, true) : hit(m.fromEmail, v, false) || hit(m.fromName, v, false));
+    const to = () => (eq ? m.to.split(",").some((x) => hit(x, v, true)) : hit(m.to, v, false));
+    const subject = () => (eq ? hit(subj(m.subject), subj(v), true) : hit(m.subject, v, false));
+    const body = () => hit(m.text.slice(0, 20000), v, false);
+    switch (c.field) {
+      case "from": return from();
+      case "to": return to();
+      case "subject": return subject();
+      case "body": return body();
+      case "subjectBody": return subject() || body();
+      default: return from() || to() || subject();
+    }
+  }));
+}
+function mockRuleScan(rule: MockRule, folder: string, withIds: boolean) {
+  const gone = queuedIds();
+  const rows = folder === "inbox" ? threads.filter((x) => !gone.has(x.threadId) && (!rule.accountId || x.accountId === rule.accountId)) : [];
+  const groups = new Map<string, string[]>();
+  for (const th of rows) {
+    const last = (mockThreadMsgs[th.threadId] as { fromName: string; fromEmail: string; to: string; subject: string; text: string | null }[] | undefined)?.slice(-1)[0];
+    const m = last ? { ...last, text: last.text ?? "" } : { fromName: th.participants[0] ?? "", fromEmail: "", to: "nam@example.com", subject: th.subject, text: th.snippet };
+    if (mockRuleMatches(rule, m)) groups.set(th.accountId, [...(groups.get(th.accountId) ?? []), th.threadId]);
+  }
+  const n = [...groups.values()].reduce((s, l) => s + l.length, 0);
+  return { n, capped: false, groups: withIds ? [...groups].map(([accountId, threadIds]) => ({ accountId, threadIds })) : [] };
+}
+
 type MockFolder = { accountId: string; key: string; name: string; unread: number; total: number; listed?: boolean; unreadFocused?: number; unreadOther?: number };
 const folders: MockFolder[] = ["inbox", "drafts", "sent", "archive", "junk", "trash"].flatMap((k, i) =>
   accounts.map((a) => ({ accountId: a.id, key: k, name: k, unread: k === "inbox" ? (a.id === "a1" ? 4 : 2) : 0, total: 10 + i })),
@@ -1450,7 +1529,38 @@ export function installMock() {
       case "list_templates": return [{ id: "tp1", name: "Thanks", subject: "Thanks!", body: "<p>Thanks for your message.</p>" }, { id: "tp2", name: "Quarterly customer success follow-up with a deliberately very long template name", subject: "Follow-up", body: "<p>Hello</p>" }];
       case "list_signatures": return (hashHas("nodefaultsig") ? (l: Array<Record<string, unknown>>) => l.map((x) => ({ ...x, isDefault: false })) : (l: Array<Record<string, unknown>>) => l)([{ id: "s1", name: "Work", html: "Nam<br>Hey Look!", isDefault: true }, { id: "s2", name: "Personal signature with a very long name that has to be cut with an ellipsis before it reaches the tag", html: "Nam", isDefault: false }, { id: "s3", accountId: "a2", name: "Gmail", html: "Nam (via Gmail)<br><i>nam@gmail.com</i>", isDefault: true }, { id: "s4", name: "Branded (coloured)", html: SIG_S4_HTML, isDefault: false }]);
       case "list_senders": return [{ email: "news@ph.com", name: "Product Hunt", count: 42, unread: 12, canUnsubscribe: true, lastDate: now - H }];
-      case "list_rules": return [{ id: "r1", accountId: null, name: "Move newsletters", field: "from", op: "contains", value: "newsletter@example.com", action: "archive", arg: null, enabled: true }, { id: "r2", accountId: null, name: "", field: "subject", op: "contains", value: "a very long rule text that should be truncated in the list row", action: "trash", arg: null, enabled: false }];
+      case "list_rules": return ruleList();
+      case "save_rule": {
+        const r = a.rule as MockRule;
+        const i = mockRules.findIndex((x) => x.id === r.id);
+        const first = r.conditions[0];
+        const legacy = r.conditions.length === 1 && first.values.length === 1 && ["from", "to", "subject", "any"].includes(first.field) ? { field: first.field, op: first.op, value: first.values[0] } : { field: "any", op: "equals", value: "\u0001hey-look-rule-v2\u0001" };
+        const row = { ...r, ...legacy, position: i >= 0 ? mockRules[i].position : Math.max(0, ...mockRules.map((x) => x.position)) + 1 };
+        if (i >= 0) mockRules[i] = row;
+        else mockRules.push(row);
+        (window as unknown as { __mockRuleSaves?: unknown[] }).__mockRuleSaves ??= [];
+        (window as unknown as { __mockRuleSaves: unknown[] }).__mockRuleSaves.push(JSON.parse(JSON.stringify(row)));
+        return null;
+      }
+      case "delete_rule": {
+        const i = mockRules.findIndex((x) => x.id === a.id);
+        if (i >= 0) mockRules.splice(i, 1);
+        return null;
+      }
+      case "move_rule": {
+        const all = ruleList();
+        const i = all.findIndex((x) => x.id === a.id);
+        if (i < 0) return null;
+        const scope = all[i].accountId;
+        const j = a.down === true ? all.findIndex((x, k) => k > i && x.accountId === scope) : all.map((x, k) => ({ x, k })).filter(({ x, k }) => k < i && x.accountId === scope).map(({ k }) => k).pop() ?? -1;
+        if (j < 0) return null;
+        const ids = all.map((x) => x.id);
+        [ids[i], ids[j]] = [ids[j], ids[i]];
+        ids.forEach((id, n) => { const r = mockRules.find((x) => x.id === id); if (r) r.position = n + 1; });
+        return null;
+      }
+      case "rule_count": return later(60, () => mockRuleScan(a.rule as MockRule, String(a.folder), false));
+      case "rule_targets": return later(60, () => mockRuleScan(a.rule as MockRule, String(a.folder), true));
       case "list_blocked": return [];
       case "thread_action": {
         // like the backend: the state changes when the server has done it (not at the call), after the IMAP time;

@@ -330,6 +330,16 @@ for (const lang of LANGUAGES.map((l) => l.code)) {
     first(idx, "AI", "pg-ai", 1);
     first(idx, "ＡＩ", "pg-ai", 1);
   });
+  // 1.0.8 AC-1.2: the Rules section is found by its name, by the old word (filter) and by "rule" / "rules", in every UI language
+  const rulesWords = { en: ["rule", "rules", "filter", "filters"], vi: ["quy tắc", "quy tac", "bộ lọc", "bo loc", "rule", "filter"], fr: ["règles", "regles", "filtres", "rule", "filter"], "zh-Hans": ["规则", "过滤器", "rule", "filter"], es: ["reglas", "filtros", "rule", "filter"], ja: ["仕分けルール", "フィルター", "ルール", "rule", "filter"], de: ["regeln", "filter", "rule", "filter"], ru: ["правила", "фильтры", "rule", "filter"] };
+  for (const [code, words] of Object.entries(rulesWords)) {
+    await lang(code, (idx) => {
+      for (const w of words) {
+        const hit = searchSettings(idx, w).find((h) => h.entry.id === "sec" && h.entry.section === "filters" && h.entry.tab === "mb:all");
+        ok(hit, `${code}: "${w}" finds the Rules section`);
+      }
+    });
+  }
   // listSep: the list of place names for a screen reader
   await lang("ja", () => eq(listSep(), "、", "ja list separator"));
   await lang("zh-Hans", () => eq(listSep(), "、", "zh-Hans list separator"));

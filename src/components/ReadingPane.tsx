@@ -15,6 +15,7 @@ import { startCompose } from "../popout/composeOpen";
 import { shiftNow } from "../popout/modifier";
 import { api, MessageFull } from "../api";
 import { copyToClipboard } from "../open";
+import { openRuleFor } from "../ruleOpen";
 import { revealSaved } from "../reveal";
 import { mailKey, setMailDark, taggedMailDocument } from "../darkMail";
 import { LANGS, t, type Key, type Lang } from "../i18n";
@@ -909,6 +910,7 @@ export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boole
                   onClick: () => setDialog({ type: "event", init: { summary: m.subject.replace(/^((re|fwd?):\s*)+/i, ""), description: conf ? "" : (m.text ?? "").trim().slice(0, 1500) } }),
                 },
                 { label: t("reading.msg.copySender"), onClick: () => void copyToClipboard(m.fromEmail).then((ok) => (ok ? showToast(t("reading.msg.copied")) : showToast(() => t("mail.ctx.copyFailed"), undefined, "error"))) },
+                { label: t("mail.ctx.createRule"), onClick: () => openRuleFor(m) },
                 { divider: true },
                 ...TRANSLATE_TO.map((l) => ({ label: t("reading.msg.translateTo", { lang: t(l.key) }), onClick: () => translate(l), disabled: needsCard(m) || conf, title: needsCard(m) ? t("reading.ai.unlockThis") : conf ? t("reading.ai.noConfidential") : undefined })),
                 ...(m.canUnsubscribe ? [{ divider: true }, { label: t("reading.msg.unsubscribe"), disabled: unsubBusy, onClick: () => void unsub() }] : []),

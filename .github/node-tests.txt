@@ -102,6 +102,7 @@ static | node --experimental-strip-types scripts/test-change-case.mjs
 static | node --experimental-strip-types scripts/test-find-replace.mjs
 static | node --experimental-strip-types scripts/test-signature-picture.mjs
 static | node --experimental-strip-types scripts/test-row-menu.mjs
+static | node --experimental-strip-types scripts/test-rule-suggest.mjs
 static | node --experimental-strip-types scripts/test-account-order.mjs
 static | node --experimental-strip-types scripts/test-account-label.mjs
 static | node --experimental-strip-types scripts/test-sidebar-state.mjs
@@ -358,6 +359,7 @@ static | node --experimental-strip-types scripts/test-notify-sound.mjs
 ui-a | node scripts/test-notify-sound-ui.mjs --require-browser
 # 1.0.7 W13.10: the name rules of the New folder dialog (the table of folders.rs check_name), the tree order and the collapsed folders, Move to... in tree order, the 17 texts in 8 languages, the wiring (lazy dialog, the command in its three places); in the dev preview: the menu of a mailbox heading and of a folder of the person (none on the others), the dialog (focus, Enter, Esc, Cancel, busy button, the server's refusals), the new row with the focus, the chevron and its saved state, the "." server with the INBOX namespace, a mailbox that needs a sign-in, Shift+F10, 8 languages at 960x560, light and dark
 ui-a | node --experimental-strip-types scripts/test-folder-create.mjs --require-browser
+ui-a | node scripts/test-rules-ui.mjs --quick --require-browser
 # 1.0.7 W4.3: the colours of the native title bar of the secondary windows (Windows 11): the colour of the main window's band behind its caption buttons in Light and in Dark for the default accent, the presets, the edge cases and a sweep of hues; where the minimize button sits on the 135deg gradient; the text stays readable (black or white when the band's own text does not read); only the main page hands them over (the command in its three places, not in popout.json)
 static | node --experimental-strip-types scripts/test-caption-colors.mjs
 # 1.0.7 W4.4 / W4.5: Next and Previous conversation in a reader window (two icon-only buttons first in the toolbar, the buttons and the keys j / k, the same window shows the next row and the registry is told, the subject has the focus, the ends are disabled with the two tooltips, another window that has the conversation comes forward, gone / main window silent = both off, 520 px, 8 languages); Move to main window in a compose window (the button where Pop out is, Ctrl+Shift+O, the request carries the message as the window holds it, Keep writing leaves the window as it was, the question waits, 5 s unreachable, no button while sending, 8 languages)

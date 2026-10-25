@@ -143,6 +143,7 @@ export default defineLocale<typeof ns.en>({
   "mail.folder.subfolders": "Подпапки: {name}",
   // right-click menu of a list row
   "mail.ctx.copySubject": "Копировать тему",
+  "mail.ctx.createRule": "Создать правило…",
   "mail.ctx.searchSelection": "Найти в почте «{text}»",
   "mail.ctx.copyEmail": "Копировать адрес электронной почты",
   "mail.ctx.selectAll": "Выделить всё",
@@ -153,6 +154,7 @@ export default defineLocale<typeof ns.en>({
   // reordering the mailboxes (folder pane, Settings)
   "mail.acct.moveUp": "Переместить выше",
   "mail.acct.moveDown": "Переместить ниже",
+  "mail.acct.manageRules": "Правила…",
   "mail.acct.drag": "Перетащите, чтобы изменить порядок: {email}",
   "mail.acct.moved": "{email}: позиция {n} из {total}",
   "mail.acct.cancelled": "Изменение порядка отменено",

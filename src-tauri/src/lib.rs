@@ -3760,6 +3760,32 @@ fn save_rule(state: tauri::State<AppState>, rule: Rule) -> R<()> {
     mailrules::save(&lock(&state.db), &rule)
 }
 
+/// The mailboxes a rule applies to (its own, or all) and the conversations of `folder` that it matches (REQ-7). Async: up to 5,000 messages per mailbox are read.
+async fn rule_scan(state: tauri::State<'_, AppState>, rule: Rule, folder: String, want_ids: bool) -> R<mailrules::Scan> {
+    let db = state.db.clone();
+    blocking(move || {
+        let c = lock(&db);
+        let accounts: Vec<String> = match rule.account_id.as_deref().filter(|a| !a.is_empty()) {
+            Some(a) => vec![a.to_string()],
+            None => db::list_accounts(&c)?.into_iter().map(|a| a.id).collect(),
+        };
+        mailrules::scan(&c, &rule, &accounts, &folder, want_ids)
+    })
+    .await
+}
+
+/// How many conversations of `folder` the rule matches (the dialog's "Also move the {n} matching messages").
+#[tauri::command]
+async fn rule_count(state: tauri::State<'_, AppState>, rule: Rule, folder: String) -> R<mailrules::Scan> {
+    rule_scan(state, rule, folder, false).await
+}
+
+/// The conversations of `folder` the rule matches, per mailbox (what "Run now" acts on).
+#[tauri::command]
+async fn rule_targets(state: tauri::State<'_, AppState>, rule: Rule, folder: String) -> R<mailrules::Scan> {
+    rule_scan(state, rule, folder, true).await
+}
+
 /// Move a rule one place up or down among the rules of its mailbox scope (the list the person sees).
 #[tauri::command]
 fn move_rule(state: tauri::State<AppState>, id: String, down: bool) -> R<()> {
@@ -6618,6 +6644,8 @@ pub fn run() {
             save_rule,
             delete_rule,
             move_rule,
+            rule_count,
+            rule_targets,
             get_raw,
             reply_headers,
             save_attachments,
@@ -7556,7 +7584,7 @@ mod capability_tests {
             "pgp_generate_key", "pgp_import_key", "pgp_import_from_message", "pgp_export_public", "pgp_export_secret", "pgp_delete_key", "pgp_set_verified", "pgp_set_default",
             "pgp_change_passphrase", "pgp_set_expiry", "pgp_lock_all", "pgp_pick_key_file", "pgp_inspect_key",
             // settings, rules, autostart, the lists of the main page
-            "set_setting", "save_rule", "delete_rule", "move_rule", "list_rules", "set_autostart", "get_autostart", "save_template", "delete_template", "save_signature", "delete_signature",
+            "set_setting", "save_rule", "delete_rule", "move_rule", "rule_count", "rule_targets", "list_rules", "set_autostart", "get_autostart", "save_template", "delete_template", "save_signature", "delete_signature",
             // updates
             "check_update", "update_download", "update_cancel", "update_discard", "update_defer", "update_note", "update_install", "update_startup_state", "update_startup_ack",
             // quit and the main page's start-up
@@ -7611,7 +7639,7 @@ mod capability_tests {
             ("scheduled", "scheduled-*", &["list_outbox", "outbox_open_for_edit", "outbox_release", "outbox_retry", "outbox_send_now", "cancel_outbox", "outbox_to_draft", "pgp_unlock", "popout_open", "list_accounts"], &[
                 "add_account", "update_account", "remove_account", "set_secret", "set_setting", "pgp_export_secret", "pgp_generate_key", "check_update", "update_download", "list_threads", "get_thread", "get_thread_packed", "calendar_save_event", "send_message",
             ]),
-            ("settings", "settings-*", &["add_account", "update_account", "remove_account", "set_secret", "set_setting", "save_signature", "save_template", "save_rule", "move_rule", "pgp_generate_key", "pgp_export_secret", "check_update", "update_download", "update_defer", "calendar_connect", "calendar_connect_caldav", "calendar_dav_password", "calendar_move_event", "calendar_create_calendar", "calendar_set_color", "get_autostart", "set_autostart"], &[
+            ("settings", "settings-*", &["add_account", "update_account", "remove_account", "set_secret", "set_setting", "save_signature", "save_template", "save_rule", "move_rule", "rule_count", "rule_targets", "pgp_generate_key", "pgp_export_secret", "check_update", "update_download", "update_defer", "calendar_connect", "calendar_connect_caldav", "calendar_dav_password", "calendar_move_event", "calendar_create_calendar", "calendar_set_color", "get_autostart", "set_autostart"], &[
                 "list_threads", "get_thread", "get_thread_packed", "get_raw", "calendar_save_event", "calendar_delete_event", "outbox_send_now", "cancel_outbox", "popout_open", "attachment_data",
             ]),
         ];

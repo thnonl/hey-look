@@ -201,6 +201,8 @@ export default defineLocale<typeof ns.en>({
   "app.cmd.unflag": "Bỏ gắn cờ",
   "app.cmd.pin": "Ghim",
   "app.cmd.unpin": "Bỏ ghim",
+  "app.cmd.createRule": "Tạo quy tắc từ thư này",
+  "app.cmd.manageRules": "Quản lý quy tắc",
   "app.cmd.switchTo": "Chuyển sang {email}",
   "app.cmd.showAll": "Hiện tất cả tài khoản",
 

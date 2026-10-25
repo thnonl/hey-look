@@ -219,6 +219,8 @@ export default defineLocale<typeof ns.en>({
   "app.cmd.unflag": "Снять флажок",
   "app.cmd.pin": "Закрепить",
   "app.cmd.unpin": "Открепить",
+  "app.cmd.createRule": "Создать правило из письма",
+  "app.cmd.manageRules": "Правила",
   "app.cmd.switchTo": "Переключиться на {email}",
   "app.cmd.showAll": "Показать все учётные записи",
   // ---- search box

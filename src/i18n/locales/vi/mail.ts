@@ -134,6 +134,7 @@ export default defineLocale<typeof ns.en>({
 
   // right-click menu of a list row
   "mail.ctx.copySubject": "Sao chép chủ đề",
+  "mail.ctx.createRule": "Tạo quy tắc…",
   "mail.ctx.searchSelection": "Tìm “{text}” trong thư",
   "mail.ctx.copyEmail": "Sao chép địa chỉ email",
   "mail.ctx.selectAll": "Chọn tất cả",
@@ -145,6 +146,7 @@ export default defineLocale<typeof ns.en>({
   // reordering the mailboxes (folder pane, Settings)
   "mail.acct.moveUp": "Di chuyển lên",
   "mail.acct.moveDown": "Di chuyển xuống",
+  "mail.acct.manageRules": "Quản lý quy tắc…",
   "mail.acct.drag": "Kéo để sắp xếp lại {email}",
   "mail.acct.moved": "{email} đã chuyển sang vị trí {n}/{total}",
   "mail.acct.cancelled": "Đã hủy sắp xếp lại",

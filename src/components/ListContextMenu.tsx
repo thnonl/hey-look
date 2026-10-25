@@ -1,4 +1,4 @@
-import { Archive, AtSign, Clock, ExternalLink, FolderInput, Flag, Forward, Mail, MailOpen, OctagonAlert, Pin, Reply, ReplyAll, Trash2, Type } from "lucide-react";
+import { Archive, AtSign, Clock, ExternalLink, FolderInput, Flag, Forward, ListFilter, Mail, MailOpen, OctagonAlert, Pin, Reply, ReplyAll, Trash2, Type } from "lucide-react";
 import { ReactNode, useRef, useState } from "react";
 import { forward, replyTo } from "../actions";
 import { api, MessageFull, ThreadSummary } from "../api";
@@ -12,6 +12,7 @@ import { friendlyError, scopeOf, useStore } from "../store";
 import { snoozePresets, subjectText } from "../util";
 import { ContextMenu, CtxItem } from "./ContextMenu";
 import { openReader } from "../popout/openReader";
+import { openRuleForThread } from "../ruleOpen";
 
 interface Open {
   /** a new object per opening: the menu starts afresh when it is opened again */
@@ -117,6 +118,10 @@ function RowMenu({ open, onClose }: { open: Open; onClose: () => void }) {
           : run(tr("common.delete"), <Trash2 size={ICON} />, () => void act(ids, "trash", undefined, () => tr("mail.done.trashed")));
       case "junk":
         return run(tr("app.ribbon.moveToJunk"), <OctagonAlert size={ICON} />, () => void act(ids, "junk", undefined, () => tr("mail.done.junk")));
+      case "createRule":
+        return run(tr("mail.ctx.createRule"), <ListFilter size={ICON} />, () =>
+          void messagesOf(first).then((m) => openRuleForThread(m)).catch((err) =>
+            useStore.getState().showToast(() => tr("errors.toast.failed", { error: friendlyError(err) }), undefined, "error")));
       case "copySender":
         return run(tr("reading.msg.copySender"), <AtSign size={ICON} />, () =>
           void messagesOf(first).then((m) => copyOf(senderOf(m, new Set(accounts.map((a) => a.email.toLowerCase()))), () => tr("reading.msg.copied"), () => tr("mail.ctx.copyFailed"))).catch((err) =>
