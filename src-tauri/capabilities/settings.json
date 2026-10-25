@@ -66,6 +66,7 @@
     "allow-list-rules",
     "allow-save-rule",
     "allow-delete-rule",
+    "allow-move-rule",
     "allow-list-blocked",
     "allow-unblock",
     "allow-ai-list-models",

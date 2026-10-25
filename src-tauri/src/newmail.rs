@@ -143,7 +143,7 @@ mod tests {
     #[test]
     fn sync_uses_the_one_definition_of_new_mail() {
         let src = include_str!("lib.rs");
-        let sync = &src[src.find("fn sync_impl(").unwrap()..src.find("/// What running the filters over new mail came to").unwrap()];
+        let sync = &src[src.find("fn sync_impl(").unwrap()..src.find("/// What running the rules over new mail came to").unwrap()];
         assert!(sync.contains("newmail::counts_as_new(&role, max_uid == 0, p.seen, &p.from_email, &own, moved)"), "the decision");
         let moved = sync.find("let moved =").unwrap();
         let insert = sync.find("let tid = insert_parsed(").unwrap();

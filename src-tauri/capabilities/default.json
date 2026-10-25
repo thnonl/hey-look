@@ -60,6 +60,7 @@
     "allow-list-rules",
     "allow-save-rule",
     "allow-delete-rule",
+    "allow-move-rule",
     "allow-get-raw",
     "allow-reply-headers",
     "allow-save-attachments",

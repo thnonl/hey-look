@@ -77,7 +77,7 @@ fn the_page_and_the_backend_are_wired_for_the_prune() {
 // ---- W6.2: a filter "Move to Junk" on a mailbox without a Junk folder
 
 fn rule(name: &str, action: &str) -> Rule {
-    Rule { id: name.into(), account_id: None, name: name.into(), field: "from".into(), op: "contains".into(), value: "x".into(), action: action.into(), arg: None, enabled: true }
+    Rule::basic(name, "from", "x", action)
 }
 
 #[test]
@@ -90,7 +90,7 @@ fn a_junk_filter_skips_a_mailbox_without_junk_without_an_error() {
     let (kept, skipped) = usable_rules(rules.clone(), false);
     assert_eq!(kept.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), vec!["a", "c"]);
     assert_eq!(skipped, 2);
-    let msgs = vec![("t1".to_string(), "x@y.z".to_string(), String::new(), "s".to_string())];
+    let msgs = vec![RuleInput::basic("t1", "x@y.z", "s")];
     let out = apply_rules(&kept, &msgs, &mut |_, _| Ok(()));
     assert!(out.errors.is_empty(), "{:?}", out.errors);
     // a mailbox whose only filter moves to Junk: nothing runs, the mail stays in the Inbox

@@ -9,7 +9,7 @@ const APP_COMMANDS: &[&str] = &[
     "google_env_configured", "microsoft_sign_in", "microsoft_env_configured", "microsoft_tenant", "discover_server", "update_account",
     "remove_account", "sync_account", "refresh_badge", "test_notification", "notify_permission", "os_color_scheme", "open_notification_settings", "print_html", "mac_menu_state", "notify_caps", "play_notify_sound", "create_mail_folder", "open_external", "copy_text", "read_clipboard_text", "get_autostart", "set_autostart",
     "list_folders", "list_threads", "locate_thread", "get_thread", "get_thread_packed", "thread_action", "prepare_action", "list_senders", "sender_action", "list_blocked", "unblock",
-    "list_rules", "save_rule", "delete_rule", "get_raw", "reply_headers", "save_attachments", "attachment_save_as", "attachment_save_all",
+    "list_rules", "save_rule", "delete_rule", "move_rule", "get_raw", "reply_headers", "save_attachments", "attachment_save_as", "attachment_save_all",
     "attachment_open", "attachment_reveal", "pick_folder", "inline_image", "send_message", "save_draft", "draft_recipients", "draft_editor_parts", "draft_data", "draft_upload", "discard_draft", "discard_draft_changes",
     "recovery_save", "recovery_clear", "recovery_list", "recovery_load", "recovery_save_draft", "list_outbox", "cancel_outbox", "outbox_pending_count",
     "outbox_open_for_edit", "outbox_release", "outbox_update", "outbox_reschedule", "outbox_retry", "outbox_to_draft", "pgp_list_keys",

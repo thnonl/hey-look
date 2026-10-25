@@ -1,6 +1,7 @@
 mod ai;
 mod attach;
 mod bgcolor;
+mod mailrules;
 mod calendar;
 mod calseries;
 mod calsync;
@@ -948,59 +949,7 @@ struct SyncResult {
     pruned: Option<u32>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct Rule {
-    id: String,
-    /// None = applies to every account
-    #[serde(default)]
-    account_id: Option<String>,
-    name: String,
-    /// from | to | subject | any
-    field: String,
-    /// contains | equals
-    op: String,
-    value: String,
-    /// archive | trash | junk | read | star | pin | move
-    action: String,
-    arg: Option<String>,
-    enabled: bool,
-}
-
-fn rule_matches(r: &Rule, from: &str, to: &str, subject: &str) -> bool {
-    let v = r.value.to_lowercase();
-    let test = |s: &str| {
-        let s = s.to_lowercase();
-        if r.op == "equals" { s == v } else { s.contains(&v) }
-    };
-    match r.field.as_str() {
-        "from" => test(from),
-        "to" => test(to),
-        "subject" => test(subject),
-        _ => test(from) || test(to) || test(subject),
-    }
-}
-
-fn load_rules(c: &Connection) -> Vec<Rule> {
-    let Ok(mut st) = c.prepare("SELECT id,name,field,op,value,action,arg,enabled,account_id FROM rules WHERE enabled=1") else {
-        return vec![];
-    };
-    st.query_map([], |r| {
-        Ok(Rule {
-            id: r.get(0)?,
-            name: r.get(1)?,
-            field: r.get(2)?,
-            op: r.get(3)?,
-            value: r.get(4)?,
-            action: r.get(5)?,
-            arg: r.get(6)?,
-            enabled: r.get::<_, i64>(7)? != 0,
-            account_id: r.get(8)?,
-        })
-    })
-    .map(|rows| rows.filter_map(|r| r.ok()).collect())
-    .unwrap_or_default()
-}
+use mailrules::Rule;
 
 /// Write the server's read / flagged state of known messages into their rows - except those a read / flag action changed while the
 /// flags were being read (`started` = `flagguard` epoch before the fetch): the action's own state is newer than the server's answer.
@@ -1050,7 +999,7 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
     let own = newmail::own_set(db::list_accounts(&lock(db)).unwrap_or_default().iter().map(|a| a.email.as_str()));
     let mut tally = newmail::Tally::default();
     let mut fresh: std::collections::HashSet<String> = Default::default(); // ids stored by this sync: never pruned
-    let mut to_rule: Vec<(String, String, String, String)> = vec![]; // thread, from, to, subject
+    let mut to_rule: Vec<RuleInput> = vec![]; // the new Inbox mail the rules look at
     for role in roles {
         let Some(name) = map.get(&role) else { continue };
         let (max_uid, min_uid, known): (u32, u32, folderstate::Known) = {
@@ -1113,7 +1062,9 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
                         bulk: p.list_unsub.is_some(),
                     });
                 }
-                to_rule.push((tid, p.from_email.clone(), p.to.join(","), p.subject.clone()));
+                if eligible_for_rules(&c, account_id, &p.from_email, p.message_id.as_deref(), &tally) {
+                    to_rule.push(RuleInput::of(tid, p));
+                }
             }
         }
         if max_uid > 0 {
@@ -1153,20 +1104,17 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
     }
     let _ = s.logout();
 
-    // apply filter rules to newly arrived inbox mail
-    startup::line("filters", &format!("account {}: {} new inbox message(s) to check", acc.id, to_rule.len()));
+    // run the rules on newly arrived inbox mail
+    startup::line("rules", &format!("account {}: {} new inbox message(s) to check", acc.id, to_rule.len()));
     if !to_rule.is_empty() {
-        let rules: Vec<Rule> = load_rules(&lock(db))
-            .into_iter()
-            .filter(|r| r.account_id.as_deref().map_or(true, |a| a == acc.id))
-            .collect();
-        // (W6.2) a filter that moves mail to Junk does nothing on a mailbox without a Junk folder (the saved list was refreshed at the start of this sync): one line per run, no
-        // error for the person (the filter list says "No Junk folder"); a Junk folder that appears later makes it work again by itself
+        let rules: Vec<Rule> = mailrules::list_enabled(&lock(db)).into_iter().filter(|r| mailrules::rule_applies(r, &acc.id)).collect();
+        // (W6.2) a rule that moves mail to Junk does nothing on a mailbox without a Junk folder (the saved list was refreshed at the start of this sync): one line per run, no
+        // error for the person (the rule list says "No Junk folder"); a Junk folder that appears later makes it work again by itself
         let (rules, skipped) = usable_rules(rules, map.contains_key("junk"));
         if skipped > 0 {
-            startup::line("filters", &format!("account {}: {skipped} filter(s) that move mail to Junk were skipped: this mailbox has no Junk folder", acc.id));
+            startup::line("rules", &format!("account {}: {skipped} rule(s) that move mail to Junk were skipped: this mailbox has no Junk folder", acc.id));
         }
-        startup::line("filters", &format!("{} filter(s) apply to this account", rules.len()));
+        startup::line("rules", &format!("{} rule(s) apply to this account", rules.len()));
         let outcome = apply_rules(&rules, &to_rule, &mut |r, tid| {
             let res = action_impl_in(db, vec![tid.to_string()], r.action.clone(), r.arg.clone(), Some("inbox".into()), false);
             // a move that reports success but left the message in the inbox did not happen
@@ -1178,9 +1126,9 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
             }
             res
         });
-        for why in &outcome.errors {
-            startup::line("filters", why);
-            note_rule_error(why.clone());
+        for (name, why) in &outcome.errors {
+            startup::line("rules", &format!("rule “{name}” couldn’t run on a new message: {why}"));
+            note_rule_error(name.clone(), why.clone());
         }
         result.new_inbox.retain(|n| !outcome.moved.contains(&n.thread_id));
         // (W13.2) a message a filter moved out of the Inbox is new in the folder it went to (a folder of the person's), not in the Inbox
@@ -1248,64 +1196,101 @@ fn usable_rules(rules: Vec<Rule>, has_junk: bool) -> (Vec<Rule>, usize) {
     (kept, skipped)
 }
 
-/// What running the filters over new mail came to: the threads that left the inbox, and one message per failed filter run.
+/// What running the rules over new mail came to: the threads that left the inbox, and one (rule name, reason) per failed rule run.
 struct RuleOutcome {
     moved: std::collections::HashSet<String>,
-    /// (thread, destination role or folder key) of every move a filter made
+    /// (thread, destination role or folder key) of every move a rule made
     moved_to: Vec<(String, String)>,
-    errors: Vec<String>,
+    errors: Vec<(String, String)>,
 }
 
-/// Run every matching filter on every new message. `run` performs the action of a filter on a thread. A failed action leaves the message
-/// where it is (it still counts as new mail for notifications and the badge) and is reported as `Filter “{name}” couldn’t run on new
-/// mail: {error}` (REQ-52); the other filters and messages carry on.
-fn apply_rules(rules: &[Rule], msgs: &[(String, String, String, String)], run: &mut dyn FnMut(&Rule, &str) -> R<()>) -> RuleOutcome {
+/// (1.0.8) Do the rules look at this new Inbox message? Not when the app itself moved it into the Inbox (Undo, Move to Inbox, a drag: a rule must not move back mail the person just put
+/// back) or it left another folder in this sync, and not when its sender is blocked (the Inbox hides that mail).
+fn eligible_for_rules(c: &Connection, account_id: &str, from_email: &str, message_id: Option<&str>, tally: &newmail::Tally) -> bool {
+    let put_back = message_id.is_some_and(|mid| tally.was_removed(mid) || newmail::was_moved(account_id, mid));
+    let blocked = c.query_row("SELECT 1 FROM blocked WHERE email=?1 COLLATE NOCASE", [from_email], |_| Ok(())).is_ok();
+    !put_back && !blocked
+}
+
+/// A new Inbox message as the rules see it.
+struct RuleInput {
+    tid: String,
+    mail: mailrules::MailIn,
+}
+
+impl RuleInput {
+    #[cfg(test)]
+    pub(crate) fn basic(tid: &str, from: &str, subject: &str) -> RuleInput {
+        RuleInput { tid: tid.into(), mail: mailrules::MailIn { from_email: from.into(), subject: subject.into(), ..Default::default() } }
+    }
+
+    fn of(tid: String, p: &mail::Parsed) -> RuleInput {
+        // only the part of the text a rule looks at is kept
+        let body: String = p.text.as_deref().unwrap_or("").chars().take(mailrules::BODY_CHARS).collect();
+        RuleInput {
+            tid,
+            mail: mailrules::MailIn {
+                from_name: p.from_name.clone(),
+                from_email: p.from_email.clone(),
+                to: p.to.clone(),
+                subject: p.subject.clone(),
+                body,
+                encrypted: p.pgp & (pgpmail::FLAG_ENCRYPTED | pgpmail::FLAG_CONFIDENTIAL) != 0,
+            },
+        }
+    }
+}
+
+/// Run the rules on every new message, in the rules' order: every matching rule that does not move the message, then the FIRST matching rule that does (`mailrules::plan`).
+/// `run` performs the action of a rule on a thread. A failed action leaves the message where it is (it still counts as new mail for notifications and the badge) and is
+/// reported with the rule's name; the other rules and messages carry on. A thread that a rule already moved is not moved again by the rules of a second message of it.
+fn apply_rules(rules: &[Rule], msgs: &[RuleInput], run: &mut dyn FnMut(&Rule, &str) -> R<()>) -> RuleOutcome {
     let mut out = RuleOutcome { moved: Default::default(), moved_to: vec![], errors: vec![] };
-    for (tid, from, to, subject) in msgs {
-        for r in rules {
-            if !rule_matches(r, from, to, subject) {
+    let compiled: Vec<mailrules::Compiled> = rules.iter().map(mailrules::Compiled::new).collect();
+    for m in msgs {
+        let tid = &m.tid;
+        for r in mailrules::plan(&compiled, &mailrules::Prepared::new(&m.mail)) {
+            let moves = mailrules::is_move(&r.action);
+            if moves && out.moved.contains(tid) {
                 continue;
             }
             match run(r, tid) {
                 Ok(()) => {
-                    startup::line("filters", &format!("filter “{}” ({}) matched a new message: done", r.name, r.action));
-                    if matches!(r.action.as_str(), "archive" | "trash" | "junk" | "move") {
+                    startup::line("rules", &format!("rule “{}” ({}) matched a new message: done", r.name, r.action));
+                    if moves {
                         out.moved.insert(tid.clone());
                         let dst = if r.action == "move" { r.arg.clone().unwrap_or_default() } else { r.action.clone() };
                         out.moved_to.push((tid.clone(), dst));
                     }
                 }
-                Err(e) => out.errors.push(if r.name.trim().is_empty() {
-                    format!("A filter couldn’t run on new mail: {e}")
-                } else {
-                    format!("Filter “{}” couldn’t run on new mail: {e}", r.name.trim())
-                }),
+                Err(e) => out.errors.push((r.name.trim().to_string(), e)),
             }
         }
     }
     out
 }
 
-/// Reasons rules failed during syncs, waiting to be told to the person; a reason is told once per run.
-static RULE_ERRORS: Mutex<Vec<String>> = Mutex::new(Vec::new());
-static RULE_ERRORS_TOLD: Mutex<Vec<String>> = Mutex::new(Vec::new());
+/// Reasons rules failed during syncs (rule name, reason), waiting to be told to the person; a reason is told once per run.
+static RULE_ERRORS: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+static RULE_ERRORS_TOLD: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
 
-fn note_rule_error(why: String) {
+fn note_rule_error(name: String, why: String) {
+    let key = (name, why);
     let told = RULE_ERRORS_TOLD.lock().unwrap_or_else(|p| p.into_inner());
     let mut waiting = RULE_ERRORS.lock().unwrap_or_else(|p| p.into_inner());
-    if !told.contains(&why) && !waiting.contains(&why) {
-        waiting.push(why);
+    if !told.contains(&key) && !waiting.contains(&key) {
+        waiting.push(key);
     }
 }
 
 /// The reasons to tell the person now (each reason once per run); they are marked as told.
-fn take_rule_errors_to_tell() -> Vec<String> {
+fn take_rule_errors_to_tell() -> Vec<(String, String)> {
     let mut told = RULE_ERRORS_TOLD.lock().unwrap_or_else(|p| p.into_inner());
     let mut out = vec![];
-    for why in std::mem::take(&mut *RULE_ERRORS.lock().unwrap_or_else(|p| p.into_inner())) {
-        if !told.contains(&why) {
-            told.push(why.clone());
-            out.push(why);
+    for key in std::mem::take(&mut *RULE_ERRORS.lock().unwrap_or_else(|p| p.into_inner())) {
+        if !told.contains(&key) {
+            told.push(key.clone());
+            out.push(key);
         }
     }
     out
@@ -1347,8 +1332,9 @@ fn run_sync_inner(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<SyncRe
     if let Some(removed) = r.pruned {
         let _ = app.emit_to("main", "mail-pruned", serde_json::json!({ "accountId": account_id, "removed": removed }));
     }
-    for why in take_rule_errors_to_tell() {
-        let _ = app.emit_to("main", "filter-failed", why);
+    for (name, error) in take_rule_errors_to_tell() {
+        // the text is built in the UI language by the window (`rule-failed`)
+        let _ = app.emit_to("main", "rule-failed", serde_json::json!({ "name": name, "error": error }));
     }
     backfill_start(app, db, account_id);
     shell::notify_new(app, db, &r.new_inbox);
@@ -3766,39 +3752,18 @@ fn unblock(state: tauri::State<AppState>, email: String) -> R<()> {
 
 #[tauri::command]
 fn list_rules(state: tauri::State<AppState>) -> R<Vec<Rule>> {
-    let c = lock(&state.db);
-    let mut st = c
-        .prepare("SELECT id,name,field,op,value,action,arg,enabled,account_id FROM rules ORDER BY rowid")
-        .map_err(err)?;
-    let rows = st
-        .query_map([], |r| {
-            Ok(Rule {
-                id: r.get(0)?,
-                name: r.get(1)?,
-                field: r.get(2)?,
-                op: r.get(3)?,
-                value: r.get(4)?,
-                action: r.get(5)?,
-                arg: r.get(6)?,
-                enabled: r.get::<_, i64>(7)? != 0,
-                account_id: r.get(8)?,
-            })
-        })
-        .map_err(err)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(err)?;
-    Ok(rows)
+    mailrules::list(&lock(&state.db))
 }
 
 #[tauri::command]
 fn save_rule(state: tauri::State<AppState>, rule: Rule) -> R<()> {
-    lock(&state.db)
-        .execute(
-            "INSERT OR REPLACE INTO rules(id,name,field,op,value,action,arg,enabled,account_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
-            params![rule.id, rule.name, rule.field, rule.op, rule.value, rule.action, rule.arg, rule.enabled as i64, rule.account_id],
-        )
-        .map_err(err)?;
-    Ok(())
+    mailrules::save(&lock(&state.db), &rule)
+}
+
+/// Move a rule one place up or down among the rules of its mailbox scope (the list the person sees).
+#[tauri::command]
+fn move_rule(state: tauri::State<AppState>, id: String, down: bool) -> R<()> {
+    mailrules::move_in_list(&lock(&state.db), &id, down)
 }
 
 #[tauri::command]
@@ -6652,6 +6617,7 @@ pub fn run() {
             list_rules,
             save_rule,
             delete_rule,
+            move_rule,
             get_raw,
             reply_headers,
             save_attachments,
@@ -6849,58 +6815,118 @@ pub fn run() {
 #[cfg(test)]
 mod filter_tests {
     use super::*;
+    use mailrules::Cond;
 
     fn rule(name: &str, field: &str, value: &str, action: &str) -> Rule {
-        Rule { id: name.into(), name: name.into(), field: field.into(), op: "contains".into(), value: value.into(), action: action.into(), arg: None, enabled: true, account_id: None }
+        Rule {
+            id: name.into(), name: name.into(), field: field.into(), op: "contains".into(), value: value.into(), action: action.into(), arg: None, enabled: true, account_id: None,
+            conditions: vec![Cond { field: field.into(), op: "contains".into(), values: vec![value.into()] }], position: 0,
+        }
     }
 
-    fn msg(tid: &str, subject: &str) -> (String, String, String, String) {
-        (tid.into(), "peer@example.com".into(), "me@example.com".into(), subject.into())
+    fn msg(tid: &str, subject: &str) -> RuleInput {
+        RuleInput {
+            tid: tid.into(),
+            mail: mailrules::MailIn { from_name: String::new(), from_email: "peer@example.com".into(), to: vec!["me@example.com".into()], subject: subject.into(), body: String::new(), encrypted: false },
+        }
     }
 
     // (QA BUG-10 through the real action code, an account without an Archive folder: foldermove_tests.rs, against a fake server.)
 
-    /// QA BUG-M8 / BUG-10: a filter whose target folder is missing leaves the message in the Inbox (it still counts as new mail) and says why.
+    /// QA BUG-M8 / BUG-10: a rule whose target folder is missing leaves the message in the Inbox (it still counts as new mail) and says why, with the rule's name.
     #[test]
-    fn a_filter_that_cannot_run_leaves_the_message_and_reports_once_per_message() {
+    fn a_rule_that_cannot_run_leaves_the_message_and_reports_once_per_message() {
         let rules = vec![rule("QA-M8", "subject", "qa-m8", "archive")];
         let msgs = vec![msg("t1", "QA-M8 first"), msg("t2", "something else"), msg("t3", "qa-m8 second")];
         let out = apply_rules(&rules, &msgs, &mut |_, _| Err("no 'archive' folder on this account".to_string()));
         assert!(out.moved.is_empty(), "nothing moved, so nothing is hidden from the notifications");
-        assert_eq!(out.errors, vec!["Filter “QA-M8” couldn’t run on new mail: no 'archive' folder on this account".to_string(); 2]);
-        // a filter without a name
+        assert_eq!(out.errors, vec![("QA-M8".to_string(), "no 'archive' folder on this account".to_string()); 2]);
+        // a rule without a name
         let out = apply_rules(&[rule("", "subject", "qa", "archive")], &msgs[..1], &mut |_, _| Err("boom".into()));
-        assert_eq!(out.errors, vec!["A filter couldn’t run on new mail: boom".to_string()]);
+        assert_eq!(out.errors, vec![(String::new(), "boom".to_string())]);
     }
 
+    /// A rule that fails does not stop the others: the ones that do not move run first, the first move after them.
     #[test]
-    fn a_filter_that_works_moves_and_one_that_fails_does_not_stop_the_others() {
+    fn a_rule_that_works_moves_and_one_that_fails_does_not_stop_the_others() {
         let rules = vec![rule("A", "subject", "news", "archive"), rule("B", "subject", "news", "read")];
         let mut calls = vec![];
         let out = apply_rules(&rules, &[msg("t1", "News today")], &mut |r, t| {
             calls.push(format!("{}:{t}", r.name));
             if r.name == "A" { Err("server said no".into()) } else { Ok(()) }
         });
-        assert_eq!(calls, ["A:t1", "B:t1"]);
+        assert_eq!(calls, ["B:t1", "A:t1"]);
         assert!(out.moved.is_empty(), "B marks read, A failed: the message stays in the Inbox");
         assert_eq!(out.errors.len(), 1);
         let out = apply_rules(&rules[..1], &[msg("t1", "News today")], &mut |_, _| Ok(()));
         assert!(out.moved.contains("t1") && out.errors.is_empty());
     }
 
-    /// The toast comes once per filter and error text per run; the log line is written every time.
+    /// Bug fix: the second move rule of a message did nothing but still counted as "moved to" its folder (the new-mail marker went to the wrong folder).
+    #[test]
+    fn only_the_first_move_counts_and_a_thread_is_moved_once() {
+        let mut second = rule("B", "subject", "news", "move");
+        second.arg = Some("f:Other".into());
+        let rules = vec![rule("A", "subject", "news", "archive"), second];
+        let mut calls = vec![];
+        let out = apply_rules(&rules, &[msg("t1", "News today"), msg("t1", "News again")], &mut |r, t| {
+            calls.push(format!("{}:{t}", r.name));
+            Ok(())
+        });
+        assert_eq!(calls, ["A:t1"], "B is never tried, and the second message of the thread is not moved again");
+        assert_eq!(out.moved_to, vec![("t1".to_string(), "archive".to_string())]);
+    }
+
+    /// Fix: mail the person (or Undo) put back into the Inbox got a new UID there, and the next sync ruled it again.
+    #[test]
+    fn app_moved_mail_back_to_inbox_is_not_ruled_again() {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch("CREATE TABLE blocked(email TEXT PRIMARY KEY);").unwrap();
+        let mut tally = newmail::Tally::default();
+        assert!(eligible_for_rules(&c, "acc-rules-t1", "a@b.c", Some("<fresh@x>"), &tally));
+        assert!(eligible_for_rules(&c, "acc-rules-t1", "a@b.c", None, &tally), "no Message-ID: nothing to look up");
+        newmail::note_moved("acc-rules-t1", "<back@x>");
+        assert!(!eligible_for_rules(&c, "acc-rules-t1", "a@b.c", Some("<back@x>"), &tally), "the app moved it");
+        assert!(eligible_for_rules(&c, "acc-rules-other", "a@b.c", Some("<back@x>"), &tally), "another mailbox's memory is not shared");
+        tally.removed("<gone@x>");
+        assert!(!eligible_for_rules(&c, "acc-rules-t1", "a@b.c", Some("<gone@x>"), &tally), "it left another folder in this sync");
+    }
+
+    /// Fix: the Inbox hides mail of blocked senders, but rules still acted on it.
+    #[test]
+    fn blocked_sender_is_not_ruled() {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch("CREATE TABLE blocked(email TEXT PRIMARY KEY); INSERT INTO blocked(email) VALUES('evil@x.test');").unwrap();
+        let tally = newmail::Tally::default();
+        assert!(!eligible_for_rules(&c, "acc-rules-t2", "evil@x.test", Some("<m@x>"), &tally));
+        assert!(!eligible_for_rules(&c, "acc-rules-t2", "Evil@X.test", Some("<m@x>"), &tally), "case does not matter");
+        assert!(eligible_for_rules(&c, "acc-rules-t2", "nice@x.test", Some("<m@x>"), &tally));
+    }
+
+    /// The sync is wired to it (the sync cannot run against the small fake server, see newmail.rs).
+    #[test]
+    fn the_sync_asks_before_a_message_goes_to_the_rules() {
+        let src = crate::test_guard::non_test_code(include_str!("lib.rs"));
+        let sync = &src[src.find("fn sync_impl(").unwrap()..src.find("/// What running the rules over new mail came to").unwrap()];
+        assert!(sync.contains("if eligible_for_rules(&c, account_id, &p.from_email, p.message_id.as_deref(), &tally) {"), "{sync}");
+        assert!(sync.contains("to_rule.push(RuleInput::of(tid, p));"));
+    }
+
+    /// The toast comes once per rule and error text per run; the log line is written every time.
     #[test]
     fn rule_errors_are_told_once_per_run() {
         RULE_ERRORS.lock().unwrap().clear();
         RULE_ERRORS_TOLD.lock().unwrap().clear();
-        note_rule_error("Filter “X” couldn’t run on new mail: e1".into());
-        note_rule_error("Filter “X” couldn’t run on new mail: e1".into());
+        note_rule_error("X".into(), "e1".into());
+        note_rule_error("X".into(), "e1".into());
         let first = take_rule_errors_to_tell();
-        assert_eq!(first, vec!["Filter “X” couldn’t run on new mail: e1".to_string()]);
-        note_rule_error("Filter “X” couldn’t run on new mail: e1".into());
+        assert_eq!(first, vec![("X".to_string(), "e1".to_string())]);
+        note_rule_error("X".into(), "e1".into());
         assert!(take_rule_errors_to_tell().is_empty(), "already told in this run");
-        note_rule_error("Filter “X” couldn’t run on new mail: e2".into());
+        note_rule_error("X".into(), "e2".into());
         assert_eq!(take_rule_errors_to_tell().len(), 1, "another error text is told");
+        note_rule_error("Y".into(), "e1".into());
+        assert_eq!(take_rule_errors_to_tell().len(), 1, "another rule is told");
     }
 }
 
@@ -7160,7 +7186,7 @@ mod quit_tests {
         }
         let main_only = [
             "confirm-quit", "tray-compose", "open-thread", "notify-reply", "app-shown", "signin-state", "backfill-progress", "action-verify-failed",
-            "action-failed", "moves-committed", "mail-pruned", "outbox-leftover", "outbox-catchup", "filter-failed", "event-reminder", "download-dir-fallback", "frame-caption",
+            "action-failed", "moves-committed", "mail-pruned", "outbox-leftover", "outbox-catchup", "rule-failed", "event-reminder", "download-dir-fallback", "frame-caption",
         ];
         for ev in main_only {
             assert!(!code.contains(&format!("emit(\"{ev}\"")), "{ev} is broadcast");
@@ -7530,7 +7556,7 @@ mod capability_tests {
             "pgp_generate_key", "pgp_import_key", "pgp_import_from_message", "pgp_export_public", "pgp_export_secret", "pgp_delete_key", "pgp_set_verified", "pgp_set_default",
             "pgp_change_passphrase", "pgp_set_expiry", "pgp_lock_all", "pgp_pick_key_file", "pgp_inspect_key",
             // settings, rules, autostart, the lists of the main page
-            "set_setting", "save_rule", "delete_rule", "list_rules", "set_autostart", "get_autostart", "save_template", "delete_template", "save_signature", "delete_signature",
+            "set_setting", "save_rule", "delete_rule", "move_rule", "list_rules", "set_autostart", "get_autostart", "save_template", "delete_template", "save_signature", "delete_signature",
             // updates
             "check_update", "update_download", "update_cancel", "update_discard", "update_defer", "update_note", "update_install", "update_startup_state", "update_startup_ack",
             // quit and the main page's start-up
@@ -7585,7 +7611,7 @@ mod capability_tests {
             ("scheduled", "scheduled-*", &["list_outbox", "outbox_open_for_edit", "outbox_release", "outbox_retry", "outbox_send_now", "cancel_outbox", "outbox_to_draft", "pgp_unlock", "popout_open", "list_accounts"], &[
                 "add_account", "update_account", "remove_account", "set_secret", "set_setting", "pgp_export_secret", "pgp_generate_key", "check_update", "update_download", "list_threads", "get_thread", "get_thread_packed", "calendar_save_event", "send_message",
             ]),
-            ("settings", "settings-*", &["add_account", "update_account", "remove_account", "set_secret", "set_setting", "save_signature", "save_template", "save_rule", "pgp_generate_key", "pgp_export_secret", "check_update", "update_download", "update_defer", "calendar_connect", "calendar_connect_caldav", "calendar_dav_password", "calendar_move_event", "calendar_create_calendar", "calendar_set_color", "get_autostart", "set_autostart"], &[
+            ("settings", "settings-*", &["add_account", "update_account", "remove_account", "set_secret", "set_setting", "save_signature", "save_template", "save_rule", "move_rule", "pgp_generate_key", "pgp_export_secret", "check_update", "update_download", "update_defer", "calendar_connect", "calendar_connect_caldav", "calendar_dav_password", "calendar_move_event", "calendar_create_calendar", "calendar_set_color", "get_autostart", "set_autostart"], &[
                 "list_threads", "get_thread", "get_thread_packed", "get_raw", "calendar_save_event", "calendar_delete_event", "outbox_send_now", "cancel_outbox", "popout_open", "attachment_data",
             ]),
         ];

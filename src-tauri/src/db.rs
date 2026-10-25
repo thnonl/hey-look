@@ -154,6 +154,10 @@ pub fn migrate(conn: &Connection) -> R<()> {
     for t in ["rules", "signatures", "templates"] {
         add_column(conn, &format!("ALTER TABLE {t} ADD COLUMN account_id TEXT"))?;
     }
+    // (1.0.8) rules: several conditions as JSON (NULL = the one condition of field / op / value) and the place in the one ordered list (mailrules.rs)
+    add_column(conn, "ALTER TABLE rules ADD COLUMN conditions TEXT")?;
+    add_column(conn, "ALTER TABLE rules ADD COLUMN position INTEGER")?;
+    crate::mailrules::backfill_positions(conn)?;
     Ok(())
 }
 
