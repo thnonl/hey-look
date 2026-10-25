@@ -54,7 +54,14 @@ const ok = (name, cond, detail = "") => {
   ok("the pixel reader leaves out points that another window covers", ps.includes("WindowFromPoint"));
   const shell = read("src-tauri/src/shell.rs").replace(/\r/g, "");
   const show = shell.slice(shell.indexOf("pub fn show_main"));
-  ok("show_main looks at a window that was hidden or minimized", show.slice(0, show.indexOf("\n}\n")).includes("if was_hidden || was_minimized {"));
+  ok("show_main looks at a window that was hidden or minimized, and at one on screen that no look has found painted", show.slice(0, show.indexOf("\n}\n")).includes("if crate::startup::looks_wanted(was_hidden, was_minimized, crate::startup::paint_confirmed()) {"));
+  // 1.0.8 (owner: the white window after the in-app update to 1.0.7, cured by a tray click): every look reads the screen, a show of a window nobody found painted looks again,
+  // the log keeps the start of its run when it starts over, and the first line says how the process was started
+  ok("every look of a show reads the screen (the looks at 8, 15 and 30 s too)", rs.includes("const LOOKS_MS: [u64; 6] = [300, 1000, 3000, 8000, 15000, 30000];") && rs.includes("const SCREEN_LOOKS: usize = 6;"));
+  ok("a look that found content confirms the paint, a new show clears it", rs.includes("PAINT_CONFIRMED.store(true, Ordering::SeqCst);") && rs.includes("PAINT_CONFIRMED.store(false, Ordering::SeqCst);"));
+  ok("the log that starts over keeps the first lines of the run (also in a release build)", rs.includes("static HEAD: Mutex<Vec<String>>") && rs.includes("started over here: the lines above are the first lines of this run"));
+  const lib = read("src-tauri/src/lib.rs");
+  ok("the first line of the log says how the process was started (arguments, who started it, STARTUPINFO)", lib.includes('startup::line("start", &startup::launch_description());') && read("src-tauri/src/webview_health.rs").includes("GetStartupInfoW"));
 }
 
 // ---- 2. a real debug build -----------------------------------------------------------------------------------------------------------------
@@ -70,7 +77,7 @@ if (!exe) {
   const waitS = Number(arg("wait") ?? 30);
   const PS = path.join(ROOT, "scripts", "lib", "window-pixels.ps1");
   const pixels = (pid, { mode = "screen", save = "" } = {}) => {
-    const args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", PS, "-ProcessId", String(pid), "-Mode", mode];
+    const args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", PS, "-ProcessId", String(pid), "-Mode", mode, "-Raise"]; // (-Raise also puts the QA window above the others, hidden or not: a window that another program covers has no verdict and no cure)
     if (save) args.push("-Save", save);
     const r = spawnSync("powershell", args, { encoding: "utf8", timeout: 30000 });
     try {

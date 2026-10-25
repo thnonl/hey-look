@@ -1,0 +1,3 @@
+node --experimental-strip-types scripts/test-calendar-dblclick.mjs --require-browser
+node --experimental-strip-types scripts/test-event-popover-actions.mjs --require-browser
+node --experimental-strip-types scripts/test-calendar-fold.mjs --quick --require-browser

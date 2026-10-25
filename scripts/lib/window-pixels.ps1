@@ -7,7 +7,7 @@
 #   reads as the colour under it); points that another window covers are left out (WindowFromPoint), so an overlapping window cannot fake
 #   a painted or a blank result. This is the same read the app itself does (startup.rs, `screen_probe`).
 # -Mode print: PrintWindow(PW_RENDERFULLCONTENT), which asks the web view's browser process to render (it does not show what is on screen).
-# -Raise: bring the window to the front first (the QA window of this process).
+# -Raise: bring the window to the front first (the QA window of this process; also put above the other windows without activating it).
 #
 # JSON: found, visible, iconic, cloaked, clientW, clientH, samples, owned, dominantRgb, dominantRatio, distinct, whiteRatio, meanRgb, ms
 param(
@@ -67,7 +67,9 @@ public static class HLPix {
     return found;
   }
 
-  public static void Raise(IntPtr h) { SetForegroundWindow(h); }
+  [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int w, int hh, uint f);
+  // the foreground right is not always there (a window that another program covers stays covered), so the QA window is also put above the others without being activated
+  public static void Raise(IntPtr h) { SetForegroundWindow(h); SetWindowPos(h, (IntPtr)(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010); }
 
   public static Dictionary<string, object> Measure(IntPtr hwnd, bool print, string save) {
     SetProcessDPIAware();

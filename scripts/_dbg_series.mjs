@@ -1,0 +1,16 @@
+import { startHarness, sleep, inputs } from './cdp-harness.mjs';
+const H = await startHarness('dbg', { vitePort0: 5121 });
+const { evaluate, cdp } = H;
+await H.openApp('lang=en&light&calsync=ok&calsyncms=ok', 960, 560);
+await sleep(1500);
+const START = Date.parse('2030-10-15T07:00:00Z')/1000;
+await evaluate(`(() => { const s = window.__store.getState(); s.setPrefs({ calTz: 'Europe/Berlin' }); window.__mockAddEvent('ser1','Weekly sync',${START},${START+3600},{ uid:'ser1@mock', tzid:'Europe/Berlin', rrule:'FREQ=WEEKLY;BYDAY=TU;COUNT=8', exdates: [] }); s.setModule('calendar'); s.setCalView('month'); s.setCalDate({ y: 2030, m: 10, d: 29 }); return 1; })()`);
+await sleep(1500);
+const pos = () => evaluate(`(() => { const e = [...document.querySelectorAll('.month-grid .ev-chip')].filter((x) => x.textContent.includes('Weekly sync'))[2]; e.scrollIntoView({block:'center'}); const r = e.getBoundingClientRect(); return [r.left + Math.min(r.width / 2, 40), r.top + r.height / 2]; })()`);
+const dbl = async ([x, y]) => { for (const n of [1, 2]) { await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: n }); await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: n }); await sleep(40); } };
+const st = () => evaluate(`({ ask: !!document.querySelector('.ask'), modal: !!document.querySelector('.modal'), dlg: window.__store.getState().dialog?.scope ?? null, btns: [...document.querySelectorAll('.modal .btn')].map(b=>b.textContent) })`);
+await dbl(await pos()); await sleep(500); console.log('1', JSON.stringify(await st()));
+await evaluate(`[...document.querySelectorAll('.ask-actions button')][0].click()`); await sleep(500); console.log('2', JSON.stringify(await st()));
+await evaluate(`[...document.querySelectorAll('.modal .btn')].find(b=>b.textContent.trim()==='Cancel').click()`); await sleep(600); console.log('3', JSON.stringify(await st()));
+await dbl(await pos()); await sleep(500); console.log('4', JSON.stringify(await st()));
+await H.shutdown();

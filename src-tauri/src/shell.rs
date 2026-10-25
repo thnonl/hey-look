@@ -58,8 +58,10 @@ pub fn show_main(app: &AppHandle) {
         let _ = w.show();
         let _ = w.set_focus();
         // a window that was hidden or minimized (first show, a tray click after a --minimized start, a second start, a notification) is looked at: is
-        // the web view still running, and does the window show the page (D-057: a white window after a show from the tray)?
-        if was_hidden || was_minimized {
+        // the web view still running, and does the window show the page (D-057: a white window after a show from the tray)? So is a window that is already
+        // on screen while no look has found it painted yet (1.0.8, the white window after an update relaunch: the owner's tray click cured it, and the click is
+        // what asked for these looks)
+        if crate::startup::looks_wanted(was_hidden, was_minimized, crate::startup::paint_confirmed()) {
             crate::startup::verify_painting(app);
         }
         if was_hidden {

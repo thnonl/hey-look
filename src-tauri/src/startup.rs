@@ -117,9 +117,21 @@ pub fn init_log_dir(dir: std::path::PathBuf) {
 }
 
 fn append(dir: &std::path::Path, line: &str) {
-    let pinned = PINNED.lock().unwrap_or_else(|p| p.into_inner()).clone();
-    append_pinned(dir, line, &pinned);
+    let mut keep = HEAD.lock().unwrap_or_else(|p| p.into_inner()).clone();
+    for p in PINNED.lock().unwrap_or_else(|p| p.into_inner()).iter() {
+        if !keep.contains(p) {
+            keep.push(p.clone());
+        }
+    }
+    append_pinned(dir, line, &keep);
 }
+
+/// The first lines this run wrote (how it was started, what it found, the first stages of its window): they stay at the top of `startup.log` when it starts
+/// over at its size cap. 1.0.8: the owner's log of the 1.0.7 update relaunch had started over about 100 s into the run (a log that is only cut when it is
+/// written to had carried the old run's lines to the cap), so every line about how that run began, the one thing the white window needed, was gone.
+static HEAD: Mutex<Vec<String>> = Mutex::new(Vec::new());
+/// How many lines of a run's beginning are kept (a few KB).
+const HEAD_LINES: usize = 30;
 
 /// Appends `line`; a log that has grown past `LOG_CAP` starts over, with the `pinned` lines (those of this run that a reader of the file still needs) at its top.
 fn append_pinned(dir: &std::path::Path, line: &str, pinned: &[String]) {
@@ -127,8 +139,11 @@ fn append_pinned(dir: &std::path::Path, line: &str, pinned: &[String]) {
     if std::fs::metadata(&path).map(|m| m.len() > LOG_CAP).unwrap_or(false) {
         let _ = std::fs::remove_file(&path);
         if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
-            for p in pinned {
+            for p in pinned.iter().filter(|p| p.as_str() != line) {
                 let _ = writeln!(f, "{p}");
+            }
+            if !pinned.is_empty() {
+                let _ = writeln!(f, "[log] the log reached {} KB and started over here: the lines above are the first lines of this run", LOG_CAP / 1024);
             }
         }
     }
@@ -148,6 +163,12 @@ pub fn line(tag: &str, what: &str) {
 
 fn emit(line: String) {
     eprintln!("{line}");
+    {
+        let mut head = HEAD.lock().unwrap_or_else(|p| p.into_inner());
+        if head.len() < HEAD_LINES {
+            head.push(line.clone());
+        }
+    }
     match LOG_DIR.get() {
         Some(dir) => append(dir, &line),
         None => {
@@ -172,6 +193,16 @@ pub fn line_pinned(tag: &str, what: &str) {
     }
 }
 
+/// How this process was started, for the first line of its log: version, process id, program, arguments, the start-up information it was given and who started it
+/// (Windows: the installer's `RunAsUser` after an update, the autostart entry, Explorer, a shell). The white window after the 1.0.7 update relaunch could not
+/// be told from any other start because nothing said how the new process had been started.
+pub fn launch_description() -> String {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default();
+    let relaunch = std::env::var(webview_health::RELAUNCH_ENV).map(|v| format!(", a restart of pid {v}")).unwrap_or_default();
+    format!("Hey Look! {} started: pid {}, program {exe}, arguments {args:?}{}{relaunch}", env!("CARGO_PKG_VERSION"), std::process::id(), webview_health::launcher_text())
+}
+
 /// A window stage (see `line`).
 pub fn stage(_app: Option<&AppHandle>, what: &str) {
     line("window", what);
@@ -185,6 +216,23 @@ pub fn init_clock() {
 /// Whether the page has reported itself at least once (a quit asks a page that is not up for nothing).
 pub fn is_ready() -> bool {
     READY.load(Ordering::SeqCst)
+}
+
+/// A look since the last show found the window painted (more than one colour on the points that are its own). Until then a person who asks for the window
+/// again (tray click, second start, notification) starts the looks again, whether the window is hidden or already on screen: the white window of the 1.0.7
+/// update relaunch was cured by exactly that click, and the app now does the same by itself.
+static PAINT_CONFIRMED: AtomicBool = AtomicBool::new(false);
+
+/// Whether a look has found the shown window painted since it was shown (see `PAINT_CONFIRMED`).
+pub fn paint_confirmed() -> bool {
+    PAINT_CONFIRMED.load(Ordering::SeqCst)
+}
+
+/// Whether a show of the main window starts the looks at its pixels: a window that was hidden or minimized, and one that is on screen while no look has
+/// found it painted yet (the tray click that cured the white window of the 1.0.7 update relaunch). A window that a look found painted costs nothing more. Pure,
+/// for the test.
+pub fn looks_wanted(was_hidden: bool, was_minimized: bool, paint_confirmed: bool) -> bool {
+    was_hidden || was_minimized || !paint_confirmed
 }
 
 /// Whether the page of the current load has reported itself (false again while it is being loaded anew).
@@ -337,9 +385,11 @@ pub struct Look {
 /// check that was meant to find a blank window was making it. So `PrintWindow` stays a diagnostic that is switched on with
 /// `HEYLOOK_PIXEL_CHECK=1`; the default read copies from the SCREEN (`GetDC(NULL)` + `BitBlt`), which is the desktop compositor's output
 /// and sends the browser process nothing.
-const LOOKS_MS: [u64; 5] = [300, 1000, 3000, 8000, 15000];
-/// How many of `LOOKS_MS` read the screen.
-const SCREEN_LOOKS: usize = 3;
+const LOOKS_MS: [u64; 6] = [300, 1000, 3000, 8000, 15000, 30000];
+/// How many of `LOOKS_MS` read the screen. 1.0.8: all of them. The read is a copy of 2560 points from the screen (a few ms) and a look that found "no verdict"
+/// (the window was covered by the installer's own window, by another program, or not on this desktop yet) used to be the last one that read pixels: a window that
+/// was white when it came to the front at 8 s was never looked at again (the tray click that cured it for the owner was the second look the code never made).
+const SCREEN_LOOKS: usize = 6;
 /// After a step of the escalation (it needs an answer sooner).
 const STEP_LOOKS_MS: [u64; 2] = [700, 2000];
 /// A blank window is left alone at the first look (a window that was just shown may need a moment); from this look on it is cured.
@@ -365,6 +415,13 @@ pub fn schedule(in_ladder: bool, print_on: bool) -> Vec<Look> {
 /// step (the look that judges it). Pure, for the test.
 pub fn cure_needed(in_ladder: bool, ms: u64, seen: Paint) -> bool {
     seen == Paint::Blank && (in_ladder || ms >= CURE_FROM_MS)
+}
+
+/// Whether a look that could not judge the window (no verdict: covered, not on screen yet; or the start screen of a page that has not reported itself) asks the web
+/// view once to take up its visibility, position and bounds again. It is the first, flicker-free step of the escalation, and a window nobody can judge never
+/// reaches the ladder: 1.0.8, for the white window that stayed white until a tray click. Once per show, from the look at 1 s on. Pure, for the test.
+pub fn blind_reassert_due(ms: u64, seen: Paint, done: bool) -> bool {
+    !done && ms >= CURE_FROM_MS && matches!(seen, Paint::Unknown | Paint::Starting)
 }
 
 /// Set once the escalation has started: later looks use `STEP_LOOKS_MS`.
@@ -410,10 +467,12 @@ pub fn verify_painting(app: &AppHandle) {
     }
     let app = app.clone();
     let mine = LOOK_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    PAINT_CONFIRMED.store(false, Ordering::SeqCst);
     std::thread::spawn(move || {
         let in_ladder = IN_LADDER.load(Ordering::SeqCst);
         let looks = schedule(in_ladder, pixel_check_enabled());
         let mut at = 0;
+        let mut blind_reasserted = false;
         for look in looks {
             let ms = look.ms;
             std::thread::sleep(Duration::from_millis(ms - at));
@@ -456,6 +515,7 @@ pub fn verify_painting(app: &AppHandle) {
                 Paint::Painted => {
                     let cured = judged_step().map(|s| format!(" (cured by: {s})")).unwrap_or_default();
                     stage(Some(&app), &format!("{line}{cured}"));
+                    PAINT_CONFIRMED.store(true, Ordering::SeqCst);
                     ladder_done();
                 }
                 Paint::Blank => {
@@ -466,7 +526,14 @@ pub fn verify_painting(app: &AppHandle) {
                     }
                 }
                 // the start screen: the page is not up yet, the ready wait deals with it (and the looks of a later show read the page itself)
-                Paint::Unknown | Paint::Starting => stage(Some(&app), &line),
+                Paint::Unknown | Paint::Starting => {
+                    stage(Some(&app), &line);
+                    if blind_reassert_due(ms, seen, blind_reasserted) {
+                        blind_reasserted = true;
+                        stage(Some(&app), "no verdict on the window yet: re-asserting the web view once (visibility, position, bounds)");
+                        webview_health::reassert(&app);
+                    }
+                }
             }
         }
     });
@@ -1286,9 +1353,10 @@ mod tests {
 
     #[test]
     fn a_blank_window_is_left_alone_for_the_first_look_and_cured_from_the_second_and_after_every_step() {
-        // the looks of a show from the tray: 300 ms, 1 s, 3 s read the screen; only a blank window at 1 s or later starts a cure
+        // the looks of a show from the tray: every one of them reads the screen (1.0.8: the looks at 8, 15 and 30 s used to read nothing, so a window that was
+        // covered or not on screen at the first three and white afterwards was never cured); only a blank window at 1 s or later starts a cure
         let looks = schedule(false, false);
-        assert_eq!(looks.iter().map(|l| (l.ms, l.screen)).collect::<Vec<_>>(), [(300, true), (1000, true), (3000, true), (8000, false), (15000, false)]);
+        assert_eq!(looks.iter().map(|l| (l.ms, l.screen)).collect::<Vec<_>>(), [(300, true), (1000, true), (3000, true), (8000, true), (15000, true), (30000, true)]);
         assert!(!cure_needed(false, 300, Paint::Blank), "a window that was just shown may need a moment");
         assert!(cure_needed(false, 1000, Paint::Blank) && cure_needed(false, 3000, Paint::Blank));
         assert!(!cure_needed(false, 1000, Paint::Painted) && !cure_needed(false, 3000, Paint::Unknown), "a painted window costs nothing more");
@@ -1296,8 +1364,19 @@ mod tests {
         assert!(cure_needed(true, 700, Paint::Blank) && !cure_needed(true, 700, Paint::Painted));
         let after = schedule(true, false);
         assert_eq!(after.iter().map(|l| (l.ms, l.screen)).collect::<Vec<_>>(), [(700, true), (2000, true)]);
-        // bounded: the looks of one show are five at most, the steps of the ladder six at most (below)
-        assert!(looks.len() <= 5 && after.len() <= 2);
+        // bounded: the looks of one show are six at most, the steps of the ladder six at most (below)
+        assert!(looks.len() <= 6 && after.len() <= 2);
+        // a look that finds no verdict at 8 s or later still cures a blank window of the next one (no look is "the last that counts")
+        assert!(cure_needed(false, 8000, Paint::Blank) && cure_needed(false, 15000, Paint::Blank) && cure_needed(false, 30000, Paint::Blank));
+    }
+
+    #[test]
+    fn a_window_nobody_can_judge_is_re_asserted_once_from_the_look_at_one_second() {
+        assert!(!blind_reassert_due(300, Paint::Unknown, false), "a window that was just shown may need a moment");
+        assert!(blind_reassert_due(1000, Paint::Unknown, false) && blind_reassert_due(3000, Paint::Starting, false));
+        assert!(!blind_reassert_due(1000, Paint::Unknown, true), "once per show");
+        // a judged window never gets it from here: painted costs nothing, blank goes to the ladder (which starts with the same step)
+        assert!(!blind_reassert_due(1000, Paint::Painted, false) && !blind_reassert_due(1000, Paint::Blank, false));
     }
 
     #[test]
@@ -1569,13 +1648,69 @@ mod tests {
         let show = &show[..show.find("
 }
 ").unwrap()];
-        assert!(show.contains("if was_hidden || was_minimized {") && show.contains("crate::startup::verify_painting(app)"), "{show}");
+        assert!(show.contains("if crate::startup::looks_wanted(was_hidden, was_minimized, crate::startup::paint_confirmed()) {") && show.contains("crate::startup::verify_painting(app)"), "{show}");
         assert!(show.find("w.show()").unwrap() < show.find("verify_painting").unwrap(), "the look follows the show");
         let lib = include_str!("lib.rs");
         let second = &lib[lib.find("a second start was handed to this instance").unwrap()..];
         assert!(second[..300].contains("shell::show_main(app)"), "the second start shows the window through show_main");
         let uses = shell.matches("show_main(").count();
         assert!(uses >= 5, "the tray icon, its menu and the notification buttons use show_main: {uses}");
+    }
+
+    #[test]
+    fn a_show_of_a_window_that_no_look_found_painted_starts_the_looks_whether_it_was_hidden_or_not() {
+        // hidden or minimized: as before
+        assert!(looks_wanted(true, false, true) && looks_wanted(false, true, true) && looks_wanted(true, true, false));
+        // already on screen: a tray click, a second start or a notification on a window that no look has found painted (the 1.0.7 update relaunch, white until the click)
+        assert!(looks_wanted(false, false, false));
+        // already on screen and found painted: nothing to look at
+        assert!(!looks_wanted(false, false, true));
+        // the flag follows the looks: a show clears it, a look that found content sets it, and nothing else does
+        let src = include_str!("startup.rs");
+        let code = &src[..src.find(concat!("#[cfg(test)]", "\nmod tests")).unwrap()];
+        assert_eq!(code.matches("PAINT_CONFIRMED.store(true").count(), 1, "only a look that found content confirms");
+        let verify = &code[code.find("pub fn verify_painting").unwrap()..];
+        assert!(verify.find("PAINT_CONFIRMED.store(false").unwrap() < verify.find("std::thread::spawn").unwrap(), "a new show clears the confirmation before its looks start");
+    }
+
+    #[test]
+    fn the_start_of_a_run_stays_at_the_top_of_a_log_that_starts_over() {
+        let dir = std::env::temp_dir().join(format!("heylook-head-log-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let _ = std::fs::remove_file(dir.join("startup.log"));
+        let head = vec!["[start +0 ms] Hey Look! 9.9.9 started: arguments [\"--minimized\"]".to_string(), "[window +5 ms] window created hidden".to_string()];
+        for l in &head {
+            append_pinned(&dir, l, &head);
+        }
+        for i in 0..800 {
+            append_pinned(&dir, &format!("[filler +{i} ms] {}", "z".repeat(60)), &head);
+        }
+        let text = std::fs::read_to_string(dir.join("startup.log")).unwrap();
+        assert!(text.len() < LOG_CAP as usize + 600, "the log was not cut: {} bytes", text.len());
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(&lines[..2], &[head[0].as_str(), head[1].as_str()], "the first lines of the run are at the top");
+        assert!(lines[2].starts_with("[log] the log reached") && lines[2].contains("started over"), "{}", lines[2]);
+        assert_eq!(text.matches("started: arguments").count(), 1, "once");
+        // a line that is itself one of the head lines (the log is cut while the run is still starting) is not written twice
+        let _ = std::fs::remove_file(dir.join("startup.log"));
+        std::fs::write(dir.join("startup.log"), "x".repeat(LOG_CAP as usize + 10)).unwrap();
+        append_pinned(&dir, &head[1], &head);
+        let text = std::fs::read_to_string(dir.join("startup.log")).unwrap();
+        assert_eq!(text.matches("window created hidden").count(), 1, "{text}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_first_line_of_a_run_says_how_it_was_started() {
+        let d = launch_description();
+        assert!(d.starts_with("Hey Look! ") && d.contains(env!("CARGO_PKG_VERSION")) && d.contains(&format!("pid {}", std::process::id())), "{d}");
+        assert!(d.contains("arguments ["), "{d}");
+        #[cfg(windows)]
+        assert!(d.contains("started by ") && d.contains("start-up information: flags 0x"), "{d}");
+        // it is written first, before anything else of the run
+        let lib = include_str!("lib.rs");
+        let run = &lib[lib.find("startup::init_clock();").unwrap()..];
+        assert!(run[..400].contains("startup::line(\"start\", &startup::launch_description())"), "{}", &run[..400]);
     }
 
     #[test]
