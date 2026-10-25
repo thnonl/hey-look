@@ -277,6 +277,8 @@ static | node --experimental-strip-types scripts/test-focus-counts.mjs
 static | node --experimental-strip-types scripts/test-unsubscribe-mailto.mjs
 # the Focused / Other tab numbers in the real list (W13.12): equal to the bold rows, live on mark read / unread, 99+, gone with a search / Focused Inbox off / another folder, Tab order, 960 x 480 with the list at 300 px in en, de, ru, ja light and dark (one row, no clip, the Filter as its icon, a line of its own for the longest), look and contrast with every accent; stored old preferences start with Count Other on (the full run: `node scripts/test-focus-tabs.mjs --full`)
 ui-c | node scripts/test-focus-tabs.mjs --require-browser
+# 1.0.8: the mailbox name sits on a line of its own above the Focused / Other tabs (or the folder title): gap, no overlap, ellipsis + tooltip for a long name or address, none in all mailboxes / search, hidden under the selection bar, light and dark, list at 300 and 392 px, en de ru vi (the full run: `node scripts/test-list-header-account.mjs --full`)
+ui-c | node scripts/test-list-header-account.mjs --require-browser
 # 1.0.7 D-045: big pictures and attachments of a draft are sent ahead of the save, one request each (draftUpload.ts / draftupload.rs); D-044: the big pictures stay out of the steps that open a draft and the picture-source check does not copy them (pictureDetach.ts, pastedHtml.ts)
 static | node --experimental-strip-types scripts/test-draft-upload.mjs
 static | node --experimental-strip-types scripts/test-picture-detach.mjs

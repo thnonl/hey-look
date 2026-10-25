@@ -303,6 +303,7 @@ export function MessageList({ hidden = false }: { hidden?: boolean } = {}) {
   }, [showTabs, lang, filterText, tabs.focused, tabs.other]);
   const iconFilter = showTabs && filterMode !== "full";
   const colors = new Map(accounts.map((a) => [a.id, accountColor(a, prefs.accent)]));
+  const acct = accountId ? accounts.find((a) => a.id === accountId) : undefined;
   const labels = new Map(accounts.map((a) => [a.id, accountLabel(a).text])); // the display name, else the address
   const mixed = accounts.length > 1 && (!accountId || (searching && searchScope === "all"));
   const firstHere = !!firstSync && (!accountId || accountId === firstSync) && !searching && folder === "inbox";
@@ -399,6 +400,8 @@ export function MessageList({ hidden = false }: { hidden?: boolean } = {}) {
   return (
     <section className="msg-list" aria-label={tr("mail.list.aria")} inert={hidden || undefined} aria-hidden={hidden || undefined}>
       <div className={`ml-head ${multi ? "multi" : ""}`}>
+        {/* the mailbox this list shows, above the tabs / the folder title (1.0.8): clear of the tab underline, one line, cut with an ellipsis (the tooltip has the whole name and the address); none in the all-mailboxes view, and none in a search (its summary line is under the title) */}
+        {!searching && acct && <div className="ml-acct ellipsis" title={accountLabel(acct).tip ?? accountLabel(acct).text}><AcctName account={acct} className="" /></div>}
         <div className={`ml-title ${showTabs && filterMode === "wrap" ? "wrap" : ""}`} ref={titleRef}>
           {showTabs ? (
             <div className="pivots" role="tablist">
@@ -454,9 +457,7 @@ export function MessageList({ hidden = false }: { hidden?: boolean } = {}) {
           <div className="ml-sub">
             {tr("mail.list.summary", { query: search.trim(), scope: scopeNote, n: threads.length })}
           </div>
-        ) : (
-          accountId && <div className="ml-sub ellipsis">{accounts.find((a) => a.id === accountId) ? <AcctName account={accounts.find((a) => a.id === accountId)!} className="" /> : labels.get(accountId)}</div>
-        )}
+        ) : null}
         {pageable && prefs.sortAsc && !searching && (
           <div className="ml-progress" role="status">{pagingStatus}</div>
         )}
