@@ -12,7 +12,8 @@
 //! Nothing is deleted: the entries Edge already saved in the profile stay on disk and are simply never offered.
 //! (The app has no stored-password form: the mailbox passwords go to the system credential store through the backend, not the page.)
 
-/// What the two switches read back as, for one web view.
+/// What the two switches read back as, for one web view. (Only Windows reads them from a web view; other systems build it for the unit tests only.)
+#[cfg(any(windows, test))]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct State {
     /// `IsGeneralAutofillEnabled` of the web view's settings
@@ -23,6 +24,7 @@ pub struct State {
     pub profile: Option<(bool, bool)>,
 }
 
+#[cfg(any(windows, test))]
 impl State {
     /// The one wanted state: everything off.
     pub fn is_off(&self) -> bool {
