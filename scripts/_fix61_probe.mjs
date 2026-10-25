@@ -1,0 +1,11 @@
+import { startHarness, sleep } from './cdp-harness.mjs';
+const H = await startHarness('fix61-probe', { vitePort0: 5190 });
+const { evaluate } = H;
+await H.openApp('lang=en&light&calsync=ok', 1280, 800);
+await evaluate(`window.__store.getState().setModule('calendar'); 1`);
+await sleep(800);
+await evaluate(`(() => { const s = window.__store.getState(); const d = new Date(); s.setCalView('month'); s.setCalDate({ y: d.getFullYear(), m: d.getMonth() + 1, d: d.getDate() }); return 1; })()`);
+await sleep(1200);
+console.log(await evaluate(`new Date().toString().slice(0,24)`));
+console.log(JSON.stringify(await evaluate(`[...document.querySelectorAll('.mday')].map((c) => c.querySelector('.mnum').textContent + (c.classList.contains('other')?'o':'') + (c.classList.contains('today')?'T':'') + ':' + [...c.querySelectorAll('.ev-chip')].map((e) => (e.title || e.textContent).slice(0,12)).join('/') + (c.querySelector('.ev-more')?'+':'')).filter((x) => !x.endsWith(':')).slice(0, 40).join(' | ')`), null, 0));
+await H.shutdown();

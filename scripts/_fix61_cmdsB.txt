@@ -1,0 +1,17 @@
+node --experimental-strip-types scripts/test-calendar-sync.mjs
+node --experimental-strip-types scripts/test-datetime-fields.mjs
+node --experimental-strip-types scripts/test-event-when.mjs
+node --experimental-strip-types scripts/test-meeting-draft.mjs
+node --experimental-strip-types scripts/test-week-hours.mjs
+node --experimental-strip-types scripts/test-calendar-consent.mjs --require-browser
+node --experimental-strip-types scripts/test-calendar-dblclick.mjs --require-browser
+node --experimental-strip-types scripts/test-event-popover-actions.mjs --require-browser
+node scripts/test-calendar-at-signin.mjs --quick --require-browser
+node scripts/test-calendar-fold.mjs --quick --require-browser
+node scripts/test-lazy-views.mjs --require-browser
+node scripts/test-popout-kinds.mjs --require-browser
+node --experimental-strip-types scripts/test-calendar-series.mjs
+node --experimental-strip-types scripts/test-calendar-series-ui.mjs --quick --require-browser
+node --experimental-strip-types scripts/test-caldav-dialog.mjs --quick --require-browser
+node --experimental-strip-types scripts/test-calendar-move.mjs
+node --experimental-strip-types scripts/test-calendar-move-ui.mjs --quick --require-browser

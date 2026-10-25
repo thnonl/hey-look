@@ -1,0 +1,11 @@
+import fs from 'node:fs';
+let p = 'scripts/test-popout.mjs', s = fs.readFileSync(p, 'utf8');
+const a = 'includes("lockedNow.current ? undefined : guardFrame(frame, doc, { search: true })"), "message frame guarded (confidential mail has no menu at all: lockDocument)")';
+if (!s.includes(a)) throw new Error('popout');
+s = s.replace(a, 'includes("lockedNow.current ? guardFrameQuitKey(doc) : guardFrame(frame, doc, { search: true })"), "message frame guarded (confidential mail has no menu at all: lockDocument, and only the Ctrl+Q handler of guardFrameQuitKey, D-112)")');
+fs.writeFileSync(p, s);
+p = 'scripts/test-context-guard.mjs'; s = fs.readFileSync(p, 'utf8');
+const b = '/lockedNow\.current \? undefined : guardFrame\(frame, doc, \{ search: true \}\)/, "the message frame has it (and its selection can be searched for), confidential mail has no menu at all")';
+if (!s.includes(b)) throw new Error('ctx');
+s = s.replace(b, '/lockedNow\.current \? guardFrameQuitKey\(doc\) : guardFrame\(frame, doc, \{ search: true \}\)/, "the message frame has it (and its selection can be searched for), confidential mail has no menu at all (only the Ctrl+Q handler, D-112)")');
+fs.writeFileSync(p, s);

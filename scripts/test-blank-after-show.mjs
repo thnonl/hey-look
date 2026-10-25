@@ -77,7 +77,7 @@ if (!exe) {
   const waitS = Number(arg("wait") ?? 30);
   const PS = path.join(ROOT, "scripts", "lib", "window-pixels.ps1");
   const pixels = (pid, { mode = "screen", save = "" } = {}) => {
-    const args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", PS, "-ProcessId", String(pid), "-Mode", mode];
+    const args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", PS, "-ProcessId", String(pid), "-Mode", mode, "-Raise"]; // (-Raise also puts the QA window above the others, hidden or not: a window that another program covers has no verdict and no cure)
     if (save) args.push("-Save", save);
     const r = spawnSync("powershell", args, { encoding: "utf8", timeout: 30000 });
     try {
