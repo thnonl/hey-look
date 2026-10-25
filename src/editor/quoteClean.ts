@@ -4,8 +4,8 @@
 // align, valign, cellpadding ...) stay. Taken away: scripts, frames, objects, forms and their controls, event handlers, ids, classes, comments and
 // conditional comments, VML / Word markup, hidden text (a newsletter's pre-header), `url()` and every CSS property outside the allow-list, links that are not
 // http / https / mailto / tel, pictures that are not a `data:` raster picture or a web picture (a `cid:` picture that could not be fetched, `file:`, UNC, svg)
-// and tracking pixels (a picture of 3 x 3 px or less). Pictures from the web stay in the HTML (they are shown only by the recipient; the composer never
-// requests them: quoteBlock display). A huge or deeply tangled original is quoted as plain text instead.
+// and tracking pixels (a picture of 3 x 3 px or less). Pictures from the web stay in the HTML as addresses (the composer shows them by the reading pane's rule, from a copy the backend
+// fetched: quoteNode.ts; the recipient's client loads them itself). A huge or deeply tangled original is quoted as plain text instead.
 // Pure (no DOM, one tree reader): a plain Node script gives the same answer as the app (scripts/test-quote.mjs and its stored files).
 
 import { parseHtml, textOf, toHtml, type El, type Nd } from "./pasteTree.ts";

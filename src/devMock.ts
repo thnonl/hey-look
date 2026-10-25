@@ -2114,6 +2114,13 @@ export function installMock() {
         return { name, mime, dataBase64: own ?? (mime.startsWith("image/") ? PIC : mime === "application/pdf" ? MOCK_PDF : btoa(`Mock contents of ${name}\n`)) };
       }
       case "inline_image": return { mime: "image/png", dataBase64: PIC, name: "picture.png" };
+      // the backend fetch of pictures from the web (the reading pane, the quote of a reply): every address answers with the 1 x 1 picture except the ones that contain "unreachable"; `window.__remoteFetchCalls` lists the calls
+      case "fetch_remote_images": {
+        const w = window as unknown as { __remoteFetchCalls?: string[][] };
+        const urls = (a.urls as string[]) ?? [];
+        (w.__remoteFetchCalls ??= []).push(urls);
+        return Object.fromEntries(urls.filter((u) => !u.includes("unreachable")).map((u) => [u, `data:image/png;base64,${PIC}`]));
+      }
       case "save_attachments": return ["C:/Users/Me/Downloads/logo.png"];
       case "attachment_save_as": return "C:/Users/Me/Downloads/logo.png";
       case "attachment_save_all": return { dir: "C:/Users/Me/Downloads", saved: ["C:/Users/Me/Downloads/logo.png", "C:/Users/Me/Downloads/agenda.pdf"], failed: [] };
