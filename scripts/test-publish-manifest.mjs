@@ -47,6 +47,21 @@ for (const [key, p] of Object.entries(manifest.platforms)) {
 const check = spawnSync("node", [gen, "check", join(dir, "latest.json"), "--version", V], { encoding: "utf8" });
 assert.equal(check.status, 0, `check of a good manifest: ${check.stderr}`);
 
+// a long CHANGELOG section (1.0.7: 66 KB) must not push the manifest over its 64 KB limit: the notes are cut at a whole line and point to the release page
+{
+  const line = "- A line of the notes with a multibyte character: Việt Nam, 日本語, Русский, and some more words to fill the line up\n";
+  writeFileSync(join(dir, "long-notes.md"), line.repeat(Math.ceil((80 * 1024) / Buffer.byteLength(line))));
+  const longOut = execFileSync("node", [gen, "generate", "--version", V, "--assets", join(dir, "assets.json"), "--sigs", sigs, "--notes", join(dir, "long-notes.md")], { encoding: "utf8" });
+  assert.ok(Buffer.byteLength(longOut) < 64 * 1024, `the manifest with 80 KB of notes is ${Buffer.byteLength(longOut)} bytes`);
+  const longManifest = JSON.parse(longOut);
+  assert.ok(longManifest.notes.endsWith(`/releases/tag/v${V}`), "the cut notes point to the release page");
+  assert.ok(!longManifest.notes.includes("\uFFFD"), "no half character");
+  assert.ok(longManifest.notes.split("\n").filter((l) => l.startsWith("- ")).every((l) => l === line.trim()), "every kept line is whole");
+  writeFileSync(join(dir, "long.json"), longOut);
+  const longCheck = spawnSync("node", [gen, "check", join(dir, "long.json"), "--version", V], { encoding: "utf8" });
+  assert.equal(longCheck.status, 0, `check of the manifest with cut notes: ${longCheck.stderr}`);
+}
+
 // the final list of the publish job: 13 names + latest.json = 14, accepted
 const finalList = [...names, "latest.json"].join("\n") + "\n";
 const ok = spawnSync("bash", [assetsCheck, V], { input: finalList, encoding: "utf8" });

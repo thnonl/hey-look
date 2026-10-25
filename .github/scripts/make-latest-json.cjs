@@ -76,6 +76,8 @@ function urlProblem(url, version, base) {
   return ok ? null : "url is not .../thnonl/hey-look/releases/download/v<version>/<file>";
 }
 
+const MAX_NOTES_BYTES = 40 * 1024;
+
 function generate(o) {
   const version = o.version;
   if (!version || !o.assets || !o.sigs || !o.notes) throw new Error("generate needs --version --assets --sigs --notes");
@@ -110,7 +112,13 @@ function generate(o) {
     if (!known && a.name !== "latest.json" && a.name !== `HeyLook_${version}_windows_x64_offline.exe`) problem(`unexpected asset: ${a.name}`);
   }
   if (problems.length) return null;
-  const notes = fs.readFileSync(o.notes, "utf8").replace(/^\s+|\s+$/g, "");
+  let notes = fs.readFileSync(o.notes, "utf8").replace(/^\s+|\s+$/g, "");
+  // The notes of a big release can be longer than the manifest may be (check: below 64 KB): the updater dialog shows the first part, the rest stays on the release page.
+  if (Buffer.byteLength(notes) > MAX_NOTES_BYTES) {
+    const head = Buffer.from(notes, "utf8").subarray(0, MAX_NOTES_BYTES).toString("utf8");
+    const cut = head.lastIndexOf("\n"); // a whole line (a half character at the end goes with its line)
+    notes = (cut > 0 ? head.slice(0, cut) : head).replace(/\s+$/, "") + "\n\n… The full list of changes: https://github.com/thnonl/hey-look/releases/tag/v" + version;
+  }
   return { version, notes, pub_date: new Date().toISOString().replace(/\.\d+Z$/, "Z"), platforms };
 }
 
