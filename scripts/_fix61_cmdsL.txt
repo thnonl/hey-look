@@ -1,1 +1,0 @@
-node scripts/test-lazy-views.mjs --require-browser

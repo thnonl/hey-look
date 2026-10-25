@@ -1,1 +1,0 @@
-node scripts/test-calendar-fold.mjs --quick --require-browser

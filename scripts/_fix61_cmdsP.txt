@@ -1,2 +1,0 @@
-node scripts/test-lazy-views.mjs --require-browser
-node --experimental-strip-types scripts/test-calendar-series-ui.mjs --quick --require-browser
