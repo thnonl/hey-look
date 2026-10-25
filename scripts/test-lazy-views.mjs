@@ -57,7 +57,10 @@ async function boot(hash, w = 1280, h = 800) {
   await cdp('Network.enable');
   await fast();
   await cdp('Page.navigate', { url: 'about:blank' });
-  const s = await cdp('Page.addScriptToEvaluateOnNewDocument', { source: 'window.requestIdleCallback = () => 0;' });
+  // (the browser keeps the first 250 resource entries and drops the rest, and the dev server sends every module of the page on its own: the main page alone is
+  // 250 modules now, so the entries of what the press fetches would not be kept, `chunks` of the QA probe would be empty and the test would say the first open fetched
+  // nothing; a bigger buffer, set before the page starts, as for the pop-out windows below)
+  const s = await cdp('Page.addScriptToEvaluateOnNewDocument', { source: 'window.requestIdleCallback = () => 0; try { performance.setResourceTimingBufferSize(5000); } catch (e) { /* the default buffer */ }' });
   await H.openApp(hash, w, h);
   await cdp('Page.removeScriptToEvaluateOnNewDocument', { identifier: s.identifier });
   await calibrate();
