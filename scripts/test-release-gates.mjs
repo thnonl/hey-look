@@ -511,7 +511,9 @@ check("(g) the secrets of the jobs that run in a tag run without variables are t
   assert.ok(up[1].includes("vars.SNAP_PUBLISH == 'true'") && up[1].includes("github.event_name == 'push'"), up[1]);
   const code = storesYml.split("\n").filter((l) => !/^\s*#/.test(l)).join("\n");
   assert.equal((code.match(/secrets\.SNAPCRAFT_STORE_CREDENTIALS/g) ?? []).length, 1);
-  assert.equal((code.match(/vars\.SNAP_PUBLISH/g) ?? []).length, 1);
+  // two reads: the upload step above and the job-level gate of the snap job (a tag run builds the snap only with SNAP_PUBLISH=true, DEC-028)
+  assert.equal((code.match(/vars\.SNAP_PUBLISH/g) ?? []).length, 2);
+  assert.ok(/\n  snap:\n    name: Snap\n    needs: metainfo\n(?:    #.*\n)*    if: \$\{\{ github\.event_name != 'push' \|\| vars\.SNAP_PUBLISH == 'true' \}\}\n/.test(storesYml), "the snap job must be gated by SNAP_PUBLISH on a tag run");
   const evalUp = (snap) => new Function("event", "refType", "snap", `return (${up[1].replace(/github\.event_name/g, "event").replace(/github\.ref_type/g, "refType").replace(/vars\.SNAP_PUBLISH/g, "snap").replace(/ == /g, " === ")});`)("push", "tag", snap);
   assert.equal(evalUp(""), false);
   assert.equal(evalUp(undefined), false);
