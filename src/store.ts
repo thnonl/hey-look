@@ -13,6 +13,7 @@ import { addArrivals, clearByCounts, clearOnOpen, type Arrivals, type NewMap } f
 import { QueuedMoves } from "./queuedMoves";
 import { pushRecent, removeRecent } from "./recentSearches";
 import { Latest } from "./latestOnly";
+import { passVerdict } from "./pagingPass";
 import { StateIntents, type IntentKind } from "./readIntent";
 import { calendarErrorText, CAL_OFFER_DONE } from "./calendarSync";
 import { backendText } from "./backendErrors";
@@ -318,8 +319,10 @@ interface State {
   loading: boolean;
   /** `loadMore` is fetching older mail right now (re-entrancy guard and the "Loading…" footer) */
   loadingMore: boolean;
-  /** the last `loadMore` failed: scrolling stops retrying, the footer button is the retry */
+  /** the last `loadMore` failed or brought no new line: scrolling stops asking, the footer button is the retry */
   moreError: boolean;
+  /** why the last `loadMore` failed (the footer says it next to Retry); null after a success, a stall, and whenever the view changes */
+  moreFail: { error: unknown; account?: string } | null;
   /** "accountId|role" the server has nothing older for; cleared by a sync */
   exhausted: Record<string, true>;
   /** "accountId|role" the "Max emails to download" cap stopped; cleared by a sync and when the cap changes */
@@ -763,7 +766,7 @@ function storeMissingColors(accounts: Account[], accent: string): Account[] {
 /** The open view changed: a running `loadMore` is abandoned (its answer is ignored) and a new one may start. */
 function cancelMore() {
   moreRun++;
-  useStore.setState({ loadingMore: false, moreError: false });
+  useStore.setState({ loadingMore: false, moreError: false, moreFail: null });
 }
 
 export const useStore = create<State>((set, get) => ({
@@ -784,6 +787,7 @@ export const useStore = create<State>((set, get) => ({
   messages: [],
   loading: true,
   loadingMore: false,
+  moreFail: null,
   moreError: false,
   exhausted: {},
   limited: {},
@@ -1019,11 +1023,13 @@ export const useStore = create<State>((set, get) => ({
   clearRecentSearches: () => get().setPrefs({ recentSearches: [] }),
 
   setFocus: async (focus) => {
+    cancelMore(); // the pass that was reading older mail for the other tab is not about this list
     set({ focus, loading: true });
     await get().refresh();
   },
 
   setFilter: async (filter) => {
+    cancelMore();
     set({ filter, loading: true });
     await get().refresh();
   },
@@ -1071,7 +1077,8 @@ export const useStore = create<State>((set, get) => ({
       await Promise.all([foldersP, outboxP]);
     } finally {
       intents.end(tok);
-      set({ loading: false });
+      // (only the last read ends it: an older one that was overtaken must not hide "Loading…" / the skeleton while the newer one still runs)
+      if (listReads.current(run)) set({ loading: false });
     }
   },
 
@@ -1100,7 +1107,7 @@ export const useStore = create<State>((set, get) => ({
       }
     } finally {
       // new mail may have arrived and a failed fetch may work now: scrolling may ask the server for older mail again (except where this very sync pruned at the cap: those stay marked)
-      set({ syncing: false, exhausted: {}, limited: Object.fromEntries([...prunedDuringSync].map((k) => [k, true as const])), moreError: false });
+      set({ syncing: false, exhausted: {}, limited: Object.fromEntries([...prunedDuringSync].map((k) => [k, true as const])), moreError: false, moreFail: null });
       prunedDuringSync.clear();
       await get().refresh();
     }
@@ -1158,8 +1165,9 @@ export const useStore = create<State>((set, get) => ({
     if (manual) set({ exhausted, limited });
     if (pending.length === 0) return;
     const run = ++moreRun;
-    set({ loadingMore: true, moreError: false });
+    set({ loadingMore: true, moreError: false, moreFail: null });
     const alive = () => run === moreRun;
+    const rowsBefore = get().threads.length;
     let added = 0;
     let failing = "";
     try {
@@ -1195,14 +1203,15 @@ export const useStore = create<State>((set, get) => ({
           get().showToast(capped ? limitMessage(get().prefs.maxDownload) : t("errors.toast.noOlder"), undefined, "info");
         }
       }
-      // nothing came back although the server did not say it was done: stop scrolling from asking again and again (the button still can)
-      if (added === 0 && !done) set({ moreError: true });
+      // nothing came back although the server did not say it was done, or mail came back but no new line (a filter, a tab or the Unread view shows a few of
+      // the downloaded mail): stop scrolling from asking again and again (the button still can)
+      if (passVerdict({ added, done, rowsBefore, rowsAfter: get().threads.length }) === "stalled") set({ moreError: true });
     } catch (e) {
       if (!alive()) return;
       // with several mailboxes say which one failed
       const acct = targets.length > 1 ? get().accounts.find((x) => x.id === failing)?.email : undefined;
       get().showToast(() => acct ? t("errors.toast.withAccount", { account: acct, error: friendlyError(e) }) : friendlyError(e), undefined, "error");
-      set({ moreError: true });
+      set({ moreError: true, moreFail: { error: e, account: acct } });
     } finally {
       if (alive()) set({ loadingMore: false });
     }
@@ -1703,6 +1712,7 @@ export const useStore = create<State>((set, get) => ({
     const layoutKeys: (keyof Prefs)[] = ["conversations", "focused", "sortAsc"];
     if (layoutKeys.some((k) => k in patch)) {
       // a different list (order, grouping): the old lines are dropped so the list starts at the top instead of keeping a place that no longer means anything
+      cancelMore();
       set({ threads: [], loading: true });
       void get().refresh();
     }
