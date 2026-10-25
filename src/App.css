@@ -468,10 +468,12 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
 .ml-tools.icon-only .ml-filter-ico { display: block; }
 .ml-tools.icon-only .ml-filter-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .ml-sub { color: var(--muted); font-size: .86em; padding: 2px 0 4px; }
+/* the mailbox above the tabs / the folder title (1.0.8): it used to sit under the tab underline; now the row has its own line, with a gap before the tabs that does not depend on the tab padding */
+.ml-acct { color: var(--muted); font-size: .86em; line-height: 1.3; padding: 0 0 4px; min-width: 0; }
 .ml-bulk { position: absolute; top: 0; left: 0; right: 0; z-index: 2; display: flex; gap: 10px; align-items: center; font-size: .9em; padding: 10px 14px 6px; min-height: 48px; box-sizing: border-box; background: var(--bg); }
 .ml-bulk span { flex: 1; color: var(--muted); }
 /* while messages are checked the selection bar replaces the Focused/Other tabs and Filter: they are hidden (not focusable, not read out) instead of sitting under it */
-.ml-head.multi .ml-title { visibility: hidden; }
+.ml-head.multi .ml-title, .ml-head.multi .ml-acct { visibility: hidden; }
 .pivots { display: flex; gap: 0 18px; flex: none; min-width: 0; max-width: 100%; flex-wrap: wrap; } /* the tabs do not shrink: the Filter gives way, then (--tab-scale, set by MessageList from the measured width) their text; wrap and max-width are the last resort so that nothing can leave the list */
 .pivots button, .ap-pivots > span { background: none; border: 0; border-bottom: 2.5px solid transparent; padding: 5px 0; font-size: 1.1em; color: var(--muted); font-weight: 500; transition: color .12s; white-space: nowrap; }
 .pivots button { font-size: calc(1.1em * var(--tab-scale, 1)); }
