@@ -1,5 +1,37 @@
 # Changelog
 
+## 1.0.9 — 2026-10-26
+
+### Fixed
+
+- Windows: a white rectangle stayed on the desktop after Hey Look! was started with Windows (or in the tray with `--minimized`) until you opened the app from the tray icon. The window of a tray start is made hidden and was never shown, and the Windows compositor still drew it. A tray start now parks that hidden window outside every screen and gives it back its place when it is shown (tray icon, Start menu, a second start, a notification); a look at the screen where the hidden window would be heals such a ghost if one appears, and writes `[ghost …]` lines in `startup.log`
+- Windows: the entry "Start Hey Look! when I sign in to Windows" is kept in the form `"<path>" --minimized` (the path in quotes) and is written again at the start of the app when it differs; an entry of another program, or one that you turned off in Task Manager, is left alone
+- A second start with `--minimized` (for example a second autostart) no longer brings the window up; a second start without it still shows the window
+- After an update you asked for, or a restart you asked for, the window you were using comes back, also when the app had been started with Windows (it used to return to the tray)
+- Windows: a start in the tray checks that the tray icon is really in the notification area, asks Windows to draw it again if it is not, and shows the window when the icon never appears (up to 15 seconds), so the app is never running unseen
+- A test copy of the app has its own start-with-Windows entry; before, turning the switch on or off in a test copy changed the entry of the installed app
+
+### Known limitations
+
+- APT repository, Microsoft Store and Snap Store: not available in this release (download Hey Look! from GitHub or the website; it updates itself)
+- Not tested by the project's QA with real accounts or real hardware; the owner checks these after the release and what he finds goes into the next version:
+  - Google and Microsoft sign-in (mail and calendar) was tested with simulated sign-in servers, not with real Google or Microsoft accounts
+  - Calendar: CalDAV sync was tested against simulated servers, not against real servers (iCloud, Fastmail, Baikal, Nextcloud, Radicale)
+  - Confidential mail: hiding the window from screen capture (Windows Print Screen and Snipping Tool, macOS screenshots and screen recording) was not tested end to end with the real tools
+  - The changes of 1.0.9 were tested on Windows 11 (x64) on real hardware. They were not run on macOS or Linux: the start flag, the autostart plugin and the autostart entry of those systems are unchanged, and the shared changes (a second `--minimized` start, the window after a restart you asked for) were only built there by the release workflow. Windows 10, Intel Macs and macOS 11 and 12 are supported but were not tested
+  - The exact part of Windows (the compositor or the web view) that draws the white rectangle of a hidden window was not identified; the fix was found by experiment on one computer, and if a white rectangle still shows after a start with Windows, `startup.log` in the data folder of the app has `[ghost …]`, `[tray …]` and `[autostart …]` lines that tell what the app saw. A rectangle left by a copy that is already running goes away when that copy is opened from the tray once, or when 1.0.9 is installed
+  - Rules were tested with simulated mail servers, not with real Gmail, Outlook or iCloud mailboxes (Gmail labels in particular)
+- Windows 11 puts the icon of a new app in the hidden-icons flyout of the notification area; to see it in the bar, drag it out or turn it on in Windows Settings > Personalization > Taskbar
+- macOS: each pop-out window you close keeps a small empty system window (about 0.2 MB) until Hey Look! quits
+- macOS: the first time you print, macOS may ask whether Hey Look! may find devices on your local network; the system print window asks it, to find your printers, and Hey Look! uses the local network for nothing else
+- Confidential mail: Linux has no screenshot blocking (the window is hidden from screen capture and recording on Windows and macOS only)
+- Linux: notification buttons need a desktop whose notification service draws them, and the tray icon has no click action (use Open Hey Look! in its menu)
+- Linux: the x86_64 release packages (AppImage, .deb, .rpm) were not installed or tested
+- Calendar: some work or school organisations only let an administrator approve the Microsoft calendar permission
+- Rules: there is no "Mailing list" condition yet; a rule for all mailboxes that moves mail in several mailboxes gives one "moved" notice with Undo per mailbox
+- There is no plain-text-only mode when writing a message
+- Folders can be created but not renamed or deleted in Hey Look!
+
 ## 1.0.8 — 2026-10-25
 
 ### Added
