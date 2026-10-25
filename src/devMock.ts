@@ -843,6 +843,7 @@ const newThreads = (accountId: string) =>
 //   #smallmailbox      the original handful of threads only
 //   #big=3000          threads on the "server" in total (spread over three Gmail-ish mailboxes), default 3000
 //   #local=360         threads per mailbox already downloaded when the app starts (the rest arrives 50 at a time via load_older), default 360
+//   #flaggedat=5,700   only these positions of the first mailbox (newest first) are flagged, nothing else; `#flaggedat=` flags none; `#unreadat=` does the same for unread
 //   #failolder=3       the 3rd load_older call from now on rejects (shows the error toast); `__mockMail.failIn = n` does the same later
 //   #backfill          simulates the background download of 500 Inbox messages (event backfill-progress) for the first mailbox (never beyond the "Max emails to download" cap)
 //                      the cap (setting max_download, Settings > Reading & sync) also makes load_older answer { limited: true } once a mailbox holds that many messages
@@ -915,10 +916,20 @@ function buildBigMailbox(total: number, local: number) {
         accountId: id, unread: rnd() < 0.12 ? 1 : 0, count: rnd() < 0.18 ? 2 + Math.floor(rnd() * 5) : 1, hasAttach: rnd() < 0.15, flagged: rnd() < 0.03, bulk: rnd() < 0.15,
       }));
     }
+    // #flaggedat=5,700 / #unreadat=5: exactly these positions (newest first, first mailbox only) are flagged / unread, nothing else; an empty value (#flaggedat=) means none
+    for (const key of ["flaggedat", "unreadat"] as const) {
+      const m = new RegExp(`(^|&)${key}=([\\d,]*)`).exec(window.location.hash.slice(1));
+      if (!m) continue;
+      const at = new Set(id === "a1" ? m[2].split(",").filter(Boolean).map(Number) : []);
+      list.forEach((row, i) => { Object.assign(row, key === "flaggedat" ? { flagged: at.has(i) } : { unread: at.has(i) ? 1 : 0 }); });
+    }
     serverMail[id] = list;
     mockMail.total[id] = n;
     mockMail.local[id] = Math.min(n, local);
   }
+  // (the handful of fixed conversations of the preview are not part of such a count)
+  if (hashHas("flaggedat")) threads.forEach((x) => { x.flagged = false; });
+  if (hashHas("unreadat")) threads.forEach((x) => { x.unread = 0; });
 }
 /** The mailbox as the app has it on disk right now (what list_threads reads). */
 const localMail = (id: string) => (serverMail[id] ?? []).slice(0, mockMail.local[id] ?? 0);
@@ -1448,7 +1459,7 @@ export function installMock() {
         if (mockQueued.size) { const gone = queuedIds(); list = list.filter((x) => !gone.has(x.threadId)); }
         if (f.focus === "other") list = list.filter((x) => x.bulk);
         else if (f.focus === "focused") list = list.filter((x) => !x.bulk);
-        if (f.unreadOnly) list = list.filter((x) => x.unread);
+        if (f.unreadOnly || f.folder === "unread") list = list.filter((x) => x.unread); // (the Unread view is the Inbox with only the unread)
         if (f.flaggedOnly) list = list.filter((x) => x.flagged);
         // mirror the Rust backend: every free word must appear in subject, snippet or participants
         const ops = q.toLowerCase().split(/\s+/).filter((w) => /^(from|is):\S+/.test(w));

@@ -241,7 +241,7 @@ export function MessageList({ hidden = false }: { hidden?: boolean } = {}) {
   const lang = useLang();
   const {
     threads, folder, accountId, selected, openMail, checked, toggleCheck, setChecked, search, searchScope, setSearchScope,
-    prefs, focus, setFocus, filter, setFilter, accounts, loading, loadMore, loadingMore, exhausted, limited, backfill, firstSync, setDialog, folders, openingDraft,
+    prefs, focus, setFocus, filter, setFilter, accounts, loading, loadMore, loadingMore, moreFail, exhausted, limited, backfill, firstSync, setDialog, folders, openingDraft,
   } = useStore();
   const scrollRef = useRef<HTMLDivElement>(null);
   // (W13.14 A6 / A7) a search, a tab or a filter was asked for and the new rows are not here yet while the old ones are: "Loading…" over the top of the list after 100 ms, no layout shift
@@ -359,6 +359,12 @@ export function MessageList({ hidden = false }: { hidden?: boolean } = {}) {
   }, [pageable, loadMore, loadingMore, reachedEnd, capped, folder, accountId]);
   const pagingStatus = loadingMore ? (
     <span className="muted"><span className="spin" aria-hidden /> {tr("common.loading")}</span>
+  ) : moreFail ? (
+    // the last request for older mail failed: what went wrong, right here, and the way to ask again (the toast said it once; this stays)
+    <>
+      <span className="muted">{moreFail.account ? tr("errors.toast.withAccount", { account: moreFail.account, error: friendlyError(moreFail.error) }) : friendlyError(moreFail.error)}</span>
+      <button className="btn small" onClick={() => void loadMore(true)}>{tr("common.retry")}</button>
+    </>
   ) : capped ? (
     <span className="muted">
       {tx(
