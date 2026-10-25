@@ -118,12 +118,14 @@ try {
 
   // ------------------------------------------------------------------ AC-7.11.3: a twin pair shows once, in all three views
   const TWINS = ['Planning twin', 'Budget twin', 'Offsite title twin'];
-  for (const [v, off] of [['agenda', 0], ['month', 0], ['week', 5]]) {
-    await view(v, off);
+  // (the sample twins are 5 and 6 days ahead; the week view shows 7 days from Monday, so when day 5 is a Sunday the two are in different weeks: look at both then)
+  const split = await evaluate(`new Date(Date.now() + 5 * 864e5).getDay() === 0`);
+  for (const [v, offs] of [['agenda', [0]], ['month', [0]], ['week', split ? [5, 6] : [5]]]) {
+    const findIn = async (t) => { const all = []; for (const off of offs) { await view(v, off); all.push(...(await find(t))); } return all; };
     // (a month cell shows its first events and folds the rest into "+N more": there a meeting must not show twice, and may be missing)
     const most = v === 'month' ? 1 : 1, least = v === 'month' ? 0 : 1;
-    for (const t of TWINS) { const n = (await find(t)).length; ok(n >= least && n <= most, `${v}: "${t}" shows once (${n})`); }
-    const lone = (await find('Only by mail (Outlook)')).length;
+    for (const t of TWINS) { const n = (await findIn(t)).length; ok(n >= least && n <= most, `${v}: "${t}" shows once (${n})`); }
+    const lone = (await findIn('Only by mail (Outlook)')).length;
     ok(lone >= least && lone <= 1, `${v}: an invitation without a twin shows (${lone})`);
   }
   await view('agenda');
