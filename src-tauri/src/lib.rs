@@ -99,6 +99,8 @@ mod startfail;
 mod startup;
 // Windows autostart: the window is made after the desktop is ready (see the top of the file)
 mod startgate;
+// the autostart entry (its form, its own name for a test copy), the second start that must not show the window, the note for a restart a person is looking at, the tray check
+mod autostart;
 mod loadfail;
 mod webview_health;
 mod winproc;
@@ -2402,7 +2404,11 @@ fn set_autostart(app: tauri::AppHandle, enabled: bool) -> R<()> {
         return pkg::set_startup_task(enabled);
     }
     let m = app.autolaunch();
-    if enabled { m.enable() } else { m.disable() }.map_err(err)
+    let done = if enabled { m.enable() } else { m.disable() }.map_err(err);
+    if enabled && done.is_ok() {
+        autostart::ensure_entry(); // (the plugin wrote `<exe> --minimized`; the entry is brought into the quoted form)
+    }
+    done
 }
 
 // ---------- folders ----------
@@ -6479,6 +6485,7 @@ pub fn run() {
     }
     // a start that fails ends in a message the person can read, not in a silent exit (see startfail.rs)
     startfail::install_panic_hook();
+    let package_name = context.package_info().name.clone();
     // a Windows autostart (--minimized) makes its window only when the desktop is ready (startgate.rs); the WebView2 runtime is one of the
     // things it waits for, so a runtime that answers a minute after login is no reason for an error message at login
     let gated = startgate::defer(context.config_mut());
@@ -6492,6 +6499,9 @@ pub fn run() {
     // a restart or an installer relaunch starts this process while the previous run's web view processes are still going away: a web
     // view created now would join them and die with them (see webview_health.rs)
     webview_health::wait_for_previous_run();
+    // the name of this copy's autostart entry (autostart.rs)
+    let entry_name = autostart::entry_name(if update::managed_by() == Some("snap") { update::SNAP_NAME } else { &package_name }, identity::isolated().then(identity::aumid));
+    autostart::set_entry_name(&entry_name);
     let builder = tauri::Builder::default();
     // debug builds only: when the bridge is on, its page side (console buffer, input helpers) goes into every window
     #[cfg(debug_assertions)]
@@ -6516,17 +6526,19 @@ pub fn run() {
     let builder = builder.plugin(autofill::plugin());
     let built = builder
         // a second launch just brings the running instance forward
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            // a second start that is itself a tray start (a second autostart, a relaunch by the installer or the system) is nobody asking for the window
+            if autostart::is_tray_start(&args) {
+                startup::stage(Some(app), "a second --minimized start was handed to this instance: the window stays as it is");
+                return;
+            }
             startup::stage(Some(app), "a second start was handed to this instance: showing the window");
             shell::show_main(app)
         }))
-        // "Open at login": the autostart entry is named after the app ("Hey Look!.desktop" on Linux, kept for the installed .deb and AppImage
-        // entries); in the snap it must be hey-look.desktop, the one name snapd starts (snapcraft.yaml `autostart`)
-        .plugin({
-            let b = tauri_plugin_autostart::Builder::new().args(["--minimized"]); // (macOS: the launch agent, the builder's default)
-            let b = if update::managed_by() == Some("snap") { b.app_name(update::SNAP_NAME) } else { b };
-            b.build()
-        })
+        // "Open at login": the autostart entry always starts in the tray (`--minimized`, autostart.rs; macOS: the launch agent, the builder's default). It is named
+        // after the app ("Hey Look!.desktop" on Linux, kept for the installed .deb and AppImage entries); in the snap it must be hey-look.desktop, the one name
+        // snapd starts (snapcraft.yaml `autostart`); a copy that is not the owner's (a QA build) has a name of its own and never touches the real entry
+        .plugin(tauri_plugin_autostart::Builder::new().args([autostart::TRAY_FLAG]).app_name(entry_name).build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -6540,6 +6552,8 @@ pub fn run() {
             let dir = legacy_names::data_dir(app.handle())?;
             app.manage(legacy_names::DataDir(dir.clone()));
             startup::init_log_dir(dir.clone());
+            // the autostart entry of this copy is looked at (and written in the form `"<exe>" --minimized` when it is this program's), autostart.rs
+            autostart::ensure_entry();
             let conn = db::open(&dir.join("heylook.db"))?;
             let db: Db = Arc::new(Mutex::new(conn));
             // the language of the native texts (tray, notifications) as the UI last mirrored it; English until the first run mirrors it
@@ -6621,8 +6635,14 @@ pub fn run() {
             // started by "launch at login" => stay in the tray (only when there is a tray to come back from). The window is shown
             // when its page has reported itself (not here: see startup.rs), and the page is reloaded if it never does.
             // (the package's startup task passes no argument: Windows says it started the app, pkg.rs)
-            let minimized = std::env::args().any(|a| a == "--minimized") || pkg::started_by_startup_task();
-            let show_at_start = !minimized || !shell::tray_ready();
+            let minimized = std::env::args().any(|a| a == autostart::TRAY_FLAG) || pkg::started_by_startup_task();
+            // a restart that a person was looking at (the app's own after a dead page, the one after an update they asked for) inherits `--minimized` from an
+            // autostarted run: its window comes back (the old run left a note, autostart.rs)
+            let window_wanted = autostart::take_window_wanted(&dir, now());
+            if window_wanted {
+                startup::line("start", "the run before this one was restarted while its window was on screen: the window comes back although this start is a tray start");
+            }
+            let show_at_start = !minimized || !shell::tray_ready() || window_wanted;
             if startgate::is_deferred() {
                 // Windows autostart: the window does not exist yet. A thread waits for the desktop (the tray, the sync and the outbox run meanwhile),
                 // makes the window, does the steps above that need one (frame, theme) and starts the load watch

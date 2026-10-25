@@ -1083,6 +1083,13 @@ pub async fn update_install(app: AppHandle, state: tauri::State<'_, AppState>, u
     let db = state.db.clone();
     let current = app.package_info().version.to_string();
     remember_install(&db, &current, &update.version, draft_saved);
+    // the installer starts the new version with the arguments of this run, `--minimized` of an autostart among them: the person who asked to restart is looking at
+    // the window and gets it back (autostart.rs)
+    if restart && crate::window_shown(&app) {
+        if let Some(dir) = crate::startup::log_dir() {
+            crate::autostart::mark_window_wanted(&dir, crate::now());
+        }
+    }
     crate::flush_pending(&app);
     let u = update.clone().restart_after_install(restart);
     let (result, bytes) = tauri::async_runtime::spawn_blocking(move || (u.install(&bytes), bytes)).await.map_err(|e| short(&e.to_string()))?;
@@ -1099,6 +1106,9 @@ pub async fn update_install(app: AppHandle, state: tauri::State<'_, AppState>, u
             // the package stays ready so that "Try again" installs the same bytes
             *upd.ready.lock().unwrap_or_else(|p| p.into_inner()) = Some((update, bytes));
             forget_install(&db);
+            if let Some(dir) = crate::startup::log_dir() {
+                crate::autostart::clear_window_wanted(&dir);
+            }
             Err(short(&e.to_string()))
         }
     }

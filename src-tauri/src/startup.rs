@@ -591,6 +591,12 @@ fn restart_app_with(app: &AppHandle, why: &str, force: bool) {
     if let Some(m) = &marker {
         let _ = std::fs::write(m, kept.iter().map(|t| t.to_string()).collect::<Vec<_>>().join("\n"));
     }
+    // the new process inherits the arguments of this one, `--minimized` of an autostart among them: a window that is on screen now must come back (autostart.rs)
+    if crate::window_shown(app) {
+        if let Some(dir) = LOG_DIR.get() {
+            crate::autostart::mark_window_wanted(dir, now);
+        }
+    }
     // closing the web view during the restart ends its processes: that is no failure to report
     mark_exiting();
     crate::flush_pending(app);

@@ -300,6 +300,35 @@ pub fn start(app: &AppHandle, show_at_start: bool) {
                 crate::startfail::fail_start("the Microsoft WebView2 Runtime was not found on this computer");
             }
         }
+        // a tray start keeps the window hidden, so the icon is the only way back: it must really be in the notification area (autostart.rs). An icon that
+        // never comes (the shell did not take it at the logon) means the window is shown, not an app nobody can see
+        #[cfg(windows)]
+        let mut show_at_start = show_at_start;
+        #[cfg(windows)]
+        if !show_at_start && !REQUESTED.load(Ordering::SeqCst) {
+            #[cfg(debug_assertions)]
+            if crate::autostart::test_drop_tray_icon() {
+                crate::startup::line("tray", "test: HEYLOOK_TEST_TRAY took the icon out of the notification area behind the icon library's back");
+            }
+            let t0 = Instant::now();
+            let outcome = crate::autostart::tray_confirmed(
+                || crate::shell::tray_icon_present(&app),
+                || {
+                    let found = crate::autostart::ask_tray_again();
+                    crate::startup::line("tray", &format!("the icon is not in the notification area yet: asked it to register again (its window {})", if found { "found" } else { "not found" }));
+                },
+                || t0.elapsed(),
+                std::thread::sleep,
+                || REQUESTED.load(Ordering::SeqCst) || crate::startup::is_exiting(),
+            );
+            match outcome {
+                crate::autostart::TrayOutcome::Present { ms, asked } => crate::startup::line("tray", &format!("the icon is in the notification area after {ms} ms (asked again {asked} times): the window stays hidden")),
+                crate::autostart::TrayOutcome::Absent { ms, asked } => {
+                    crate::startup::line("tray", &format!("the icon is NOT in the notification area after {ms} ms (asked again {asked} times): the window is shown, so the app is not left invisible"));
+                    show_at_start = true;
+                }
+            }
+        }
         let config = app.config().app.windows.first().cloned();
         let made = match config {
             Some(cfg) => tauri::WebviewWindowBuilder::from_config(&app, &cfg).and_then(|b| b.build()).map(|_| ()),

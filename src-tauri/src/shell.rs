@@ -737,6 +737,20 @@ pub fn setup_tray(app: &AppHandle, db: &Db) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Windows: is the tray icon really in the notification area? The icon library reports success when the first `Shell_NotifyIcon` call failed because the shell was
+/// not ready (it waits for `TaskbarCreated`, which does not come when the taskbar was already there), so `tray_ready` alone does not say that a person can see
+/// the icon. `Some(false)`: the shell does not know the icon; `None`: no tray icon, or the answer cannot be asked (counts as present, nothing is guessed). An icon
+/// that Windows 11 keeps in the overflow flyout is known to the shell and counts as present.
+#[cfg(windows)]
+pub fn tray_icon_present(app: &AppHandle) -> Option<bool> {
+    let tray = app.tray_by_id("main")?;
+    match tray.rect() {
+        Ok(Some(_)) => Some(true),
+        Ok(None) => Some(false),
+        Err(_) => None,
+    }
+}
+
 // ---------- toast notifications ----------
 
 /// Register the AppUserModelID so Windows shows our name and icon on toasts (no installer needed).
