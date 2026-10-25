@@ -2436,7 +2436,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hey-look"
-version = "1.0.8"
+version = "1.0.9"
 dependencies = [
  "base64 0.23.1",
  "block2",
