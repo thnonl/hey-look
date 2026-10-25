@@ -240,6 +240,12 @@
   <releases>
     <!-- The version-bump commit of a release adds its entry FIRST (the newest release is the snap's version and the one the release
          workflow checks against the tag). -->
+    <release version="1.0.8" date="2026-10-25">
+      <description>
+        <p>Mail rules (renamed from Filters) with a Create rule dialog, and fixes for the white window after an in-app update, pictures in replies, endless loading with filters, browser autofill over the search box and mail moved into another folder.</p>
+      </description>
+      <url>https://github.com/thnonl/hey-look/releases/tag/v1.0.8</url>
+    </release>
     <release version="1.0.7" date="2026-10-25">
       <description>
         <p>Settings search, calendar series and CalDAV sync, Confidential mail handling, more AI Assistant settings, and many fixes.</p>
