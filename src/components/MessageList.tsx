@@ -8,7 +8,8 @@ import { t } from "../i18n";
 import { accountLabel } from "../accountLabel";
 import { ThreadSummary } from "../api";
 import { gmailSearchUrl, webmailQuery, webmailTargets, WebmailTarget } from "../webmail";
-import { accountColor, folderLabel, Prefs } from "../prefs";
+import { accountColor, folderLabel, folderOwnLabel, Prefs } from "../prefs";
+import { mayPageByItself } from "../pagingPass";
 import { canPageBack, exhaustedKey, friendlyError, useStore } from "../store";
 import { dateGroup, fmtDate, snoozePresets, subjectText } from "../util";
 import { inlineHasDraft, openDraftInWindow, openDraftThread } from "../draftOpen";
@@ -248,8 +249,9 @@ export function MessageList({ hidden = false }: { hidden?: boolean } = {}) {
   const reloading = useDelayedFlag(loading && threads.length > 0);
   const ctxMenu = useRowContextMenu(); // right-click / ContextMenu key on a row (components/ListContextMenu.tsx)
   const searching = search.trim().length > 0;
-  const title = searching ? tr("mail.list.searchResults") : folderLabel(folder);
-  const scopeNote = searching ? (searchScope === "all" ? tr("mail.list.scopeAll") : searchScope === "account" ? tr("mail.list.scopeAccount") : tr("mail.list.scopeFolder", { folder: folderLabel(folder) })) : "";
+  const openName = folderOwnLabel(folder, folders.find((f) => f.key === folder && (!accountId || f.accountId === accountId)));
+  const title = searching ? tr("mail.list.searchResults") : openName;
+  const scopeNote = searching ? (searchScope === "all" ? tr("mail.list.scopeAll") : searchScope === "account" ? tr("mail.list.scopeAccount") : tr("mail.list.scopeFolder", { folder: openName })) : "";
   const showTabs = folder === "inbox" && prefs.focused && !searching;
   /** The search as it is now, in a window of its own; the main window keeps its own (W4.6, REQ-4.6.13). */
   const openSearchWindow = () => {
@@ -354,9 +356,14 @@ export function MessageList({ hidden = false }: { hidden?: boolean } = {}) {
   const viewKey = [folder, accountId, search, searchScope, filter, focus, prefs.sortAsc, prefs.conversations, prefs.focused].join("|");
   // oldest-first: older mail is added at the top, so that is where the list asks for it and where its status is shown
   // re-created when what loadMore would decide changes, so the list asks again (e.g. after "Loading…" ended with the end still in view)
+  // a list that shows part of the downloaded mail (filter, tab, Unread view) asks by itself only once it can be scrolled (see mayPageByItself); until then the footer button is the way
+  const partial = filtered || showTabs;
   const nearMore = useCallback(() => {
-    if (pageable) void loadMore();
-  }, [pageable, loadMore, loadingMore, reachedEnd, capped, folder, accountId]);
+    if (!pageable) return;
+    const el = scrollRef.current;
+    if (el && !mayPageByItself({ partial, sortAsc: prefs.sortAsc, scrollTop: el.scrollTop, fits: el.scrollHeight <= el.clientHeight + 1 })) return;
+    void loadMore();
+  }, [pageable, partial, prefs.sortAsc, loadMore, loadingMore, reachedEnd, capped, folder, accountId]);
   const pagingStatus = loadingMore ? (
     <span className="muted"><span className="spin" aria-hidden /> {tr("common.loading")}</span>
   ) : moreFail ? (

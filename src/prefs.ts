@@ -367,6 +367,15 @@ export function folderLabel(key: string, name?: string): string {
 }
 
 /**
+ * The title of the open folder: a standard one in the language in use, one of the person's own as the server names it (its `label`: the part after the last hierarchy delimiter, so
+ * "QA-1.0.8" stays whole - `folderLabel` alone cuts every name at a "." and a "/" and gave "8").
+ */
+export function folderOwnLabel(key: string, info?: { label?: string; name?: string } | null): string {
+  if (ROLE_LABELS[key]) return t(ROLE_LABELS[key]);
+  return info?.label ?? folderLabel(key, info?.name);
+}
+
+/**
  * The name of a folder in a list of folders (Move to...): a folder of the person under another one is "Parent / Child", so two folders called "2026" in different parents can be told apart.
  * (a folder's own `label` comes from the backend; `folderLabel` is the fallback for data without it)
  */
