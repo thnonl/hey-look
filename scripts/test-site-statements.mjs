@@ -420,21 +420,21 @@ export function findProblems({ rows = REMOVED, read = (f) => fs.readFileSync(f, 
     if (!ledger) fail(`${path.relative(DOCS, f).replace(/\\/g, '/')}: the honest ledger section is missing`);
     else if (/<li\b[^>]*>\s*<\/li>/.test(ledger) || /<ul\b[^>]*>\s*<\/ul>/.test(ledger) || (ledger.match(/<li\b/g) || []).length < 4) fail(`${path.relative(DOCS, f).replace(/\\/g, '/')}: an empty bullet or an empty column in the honest ledger`);
   }
-  // the README and the 1.0.7 section of the CHANGELOG say nothing about mobile apps either (owner decision: no statement, not even "no mobile apps")
+  // the README and the 1.0.8 section of the CHANGELOG say nothing about mobile apps either (owner decision: no statement, not even "no mobile apps")
   {
     const root = path.join(DOCS, '..');
     const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
     const log = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
-    const sect = (/^## 1\.0\.7\b[\s\S]*?(?=^## |(?![\s\S]))/m.exec(log) || [''])[0];
-    for (const [name, text] of [['README.md', readme], ['CHANGELOG.md (1.0.7)', sect]]) if (/\bmobile (apps?|clients?|versions?)\b|\bphone apps?\b|\bsmartphones?\b/i.test(text)) fail(`${name}: says something about mobile apps`);
+    const sect = (/^## 1\.0\.8\b[\s\S]*?(?=^## |(?![\s\S]))/m.exec(log) || [''])[0];
+    for (const [name, text] of [['README.md', readme], ['CHANGELOG.md (1.0.8)', sect]]) if (/\bmobile (apps?|clients?|versions?)\b|\bphone apps?\b|\bsmartphones?\b/i.test(text)) fail(`${name}: says something about mobile apps`);
   }
-  // macOS does have notifications (owner 2026-10-20, DEC-017): README, CONTRIBUTING, the release footer and the 1.0.7 section of the CHANGELOG do not say it has none
+  // macOS does have notifications (owner 2026-10-20, DEC-017): README, CONTRIBUTING, the release footer and the 1.0.8 section of the CHANGELOG do not say it has none
   {
     const root = path.join(DOCS, '..');
     const log = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
-    const sect = (/^## 1\.0\.7\b[\s\S]*?(?=^## |(?![\s\S]))/m.exec(log) || [''])[0];
-    const files = [['README.md', fs.readFileSync(path.join(root, 'README.md'), 'utf8')], ['CONTRIBUTING.md', fs.readFileSync(path.join(root, 'CONTRIBUTING.md'), 'utf8')],
-      ['.github/release-footer.md', fs.readFileSync(path.join(root, '.github', 'release-footer.md'), 'utf8')], ['CHANGELOG.md (1.0.7)', sect]];
+    const sect = (/^## 1\.0\.8\b[\s\S]*?(?=^## |(?![\s\S]))/m.exec(log) || [''])[0];
+    const files =[['README.md', fs.readFileSync(path.join(root, 'README.md'), 'utf8')], ['CONTRIBUTING.md', fs.readFileSync(path.join(root, 'CONTRIBUTING.md'), 'utf8')],
+      ['.github/release-footer.md', fs.readFileSync(path.join(root, '.github', 'release-footer.md'), 'utf8')], ['CHANGELOG.md (1.0.8)', sect]];
     for (const [name, text] of files) if (/cannot show native notifications|native notifications are not available|no native notifications|macOS has no notifications|macOS has no Print/i.test(text)) fail(`${name}: says macOS has no notifications or no Print`);
   }
   return { errors, checks };

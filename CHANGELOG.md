@@ -1,5 +1,47 @@
 # Changelog
 
+## 1.0.8 — 2026-10-25
+
+### Added
+
+- Rules (called Filters until now): right-click a message > "Create rule…" (also in the More menus of the reading pane and the message window, in the command bar and, for all rules, "Manage rules…" in the menu of a mailbox) opens a dialog with the sender, the subject and up to five suggested words from the message already filled in, in all eight languages. A rule can have several conditions (all must match; From, To, Subject, Body, or Subject or body; any of several words), can look in the body of a message (the first 20,000 characters; never for encrypted or Confidential mail), and can move the mail to a folder you pick or make there ("New folder…"), archive it, delete it, send it to Junk, mark it as read, flag it or pin it
+- Rules run in the order of the list in Settings > Rules (Move up, Move down); the first rule that moves a message wins, and the rules that only mark it (read, flag, pin) still run. "Also move the messages already there" in the dialog, and "Run now" in Settings > Rules, apply a rule to the mail that is already in the folder (the newest 5,000 messages): the count is shown first, the move has the Undo time like any move, and "Undo" brings the mail back
+
+### Changed
+
+- "Filters" are called "Rules" in Settings (and in Settings search, where "filter" still finds them), the help text on the website and the README, in all eight languages. Rules you made before keep working
+
+### Fixed
+
+- Windows: after an in-app update the new window could stay white (no taskbar button) until you clicked the tray icon. The cause could not be reproduced, so the safety net was widened: every check of a new window now reads the screen for up to 30 seconds (it stopped after 3 seconds), a window that no check has found painted is checked again whenever it is shown (a click on the tray icon, a second start of the app, a notification) and asked once to redraw, and `startup.log` keeps the start of its run when it is cut at its size limit and its first line says how the process was started. If a white window comes back after an update, the first lines of `startup.log` in the data folder of the app tell how it started and what the checks saw
+- Reply, Reply all and Forward show the pictures of the original message when Settings > Reading > Load remote content is on (a picture could not load there: empty boxes); when it is off they show the same boxes as the reading pane with a "Load content" button. Pictures from the web are still fetched by Hey Look! and never by the window, and the message you send is unchanged
+- The name of the mailbox is on a line of its own above the Focused and Other tabs (it sat too close to the underline of the tabs); it has a tooltip with the full name and address
+- "Loading…" no longer shows for ever under Filter: Flagged or Unread (and in the Unread view, or a Focused or Other tab with few messages) when the older mail that is read has nothing for the filter: the reading stops after a few requests and the end of the list has a "Load older messages" button; when a request fails the list says why, with a Retry button
+- A list of "Saved info" from the browser (earlier searches) no longer opens over the search panel on Windows: the browser's autofill and password saving are off in every window of the app, and every text field says it wants no autocomplete. The entries the browser has already stored are not deleted, they are not offered
+- A message you move (by hand, by drag or by a rule) shows in the folder it was moved to at once: Hey Look! reads that mailbox as soon as the move is done, instead of at the next sync, which could be two minutes later (in the meantime the message was in neither list)
+- Rules and new-mail notifications work after the Inbox was emptied (Archive all, Run now): a sync of an Inbox with no mail on this computer was taken for the first sync and its mail was left alone; the highest message number the app has seen in each folder is remembered now
+- Rules: "To is exactly" matches a message sent to several people when one of them is the address; a message you put back into the Inbox (Undo, Move to Inbox, drag) is not moved again by the rule that moved it out; a second move rule no longer marks the wrong folder as the one with new mail,; a second message of a conversation that was already moved is not moved again; mail from a blocked sender is not ruled
+
+### Known limitations
+
+- APT repository, Microsoft Store and Snap Store: not available in this release (download Hey Look! from GitHub or the website; it updates itself)
+- Not tested by the project's QA with real accounts or real hardware; the owner checks these after the release and what he finds goes into the next version:
+  - Google and Microsoft sign-in (mail and calendar) was tested with simulated sign-in servers, not with real Google or Microsoft accounts
+  - Calendar: CalDAV sync was tested against simulated servers, not against real servers (iCloud, Fastmail, Baikal, Nextcloud, Radicale)
+  - Confidential mail: hiding the window from screen capture (Windows Print Screen and Snipping Tool, macOS screenshots and screen recording) was not tested end to end with the real tools
+  - The changes of 1.0.8 were tested on Windows 11 (x64) only; the last hand tests on a MacBook with Apple silicon and on a KDE desktop in an ARM virtual machine were of 1.0.7. Windows 10, Intel Macs and macOS 11 and 12 are supported but were not tested
+  - The white window after an in-app update (Windows) was not reproduced; whether the new checks cure it can only be seen in a real update, and the first lines of `startup.log` say what happened if it comes back
+  - Rules were tested with simulated mail servers, not with real Gmail, Outlook or iCloud mailboxes (Gmail labels in particular)
+- macOS: each pop-out window you close keeps a small empty system window (about 0.2 MB) until Hey Look! quits
+- macOS: the first time you print, macOS may ask whether Hey Look! may find devices on your local network; the system print window asks it, to find your printers, and Hey Look! uses the local network for nothing else
+- Confidential mail: Linux has no screenshot blocking (the window is hidden from screen capture and recording on Windows and macOS only)
+- Linux: notification buttons need a desktop whose notification service draws them, and the tray icon has no click action (use Open Hey Look! in its menu)
+- Linux: the x86_64 release packages (AppImage, .deb, .rpm) were not installed or tested; the tests ran on an ARM virtual machine
+- Calendar: some work or school organisations only let an administrator approve the Microsoft calendar permission
+- Rules: there is no "Mailing list" condition yet; a rule for all mailboxes that moves mail in several mailboxes gives one "moved" notice with Undo per mailbox
+- There is no plain-text-only mode when writing a message
+- Folders can be created but not renamed or deleted in Hey Look!
+
 ## 1.0.7 — 2026-10-25
 
 ### Added
