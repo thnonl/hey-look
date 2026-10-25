@@ -2,8 +2,10 @@
 // schema. It is one atom node (`quoteBlock`, attributes in quoteBlock.ts) shown read-only with its own formatting in a shadow tree (the app's style sheets
 // cannot reach into it and its own cannot reach out), and written back to the stored / sent HTML exactly as it was cleaned (emailHtml.ts).
 //
-//  - Shown: the original goes through DOMPurify again (a draft that came back from the server is not trusted), pictures from the web are NOT requested
-//    (the composer never loads them; they stay in the sent HTML), links do nothing on a plain click and open the default browser on Ctrl/Cmd+click.
+//  - Shown: the original goes through DOMPurify again (a draft that came back from the server is not trusted), links do nothing on a plain click and open the
+//    default browser on Ctrl/Cmd+click. Pictures from the web follow the reading pane's rule (the account's "Load remote content"): allowed = the backend fetches
+//    them (remoteImages.ts, the cache the reading pane fills too) and the quote draws that data: copy, the webview never contacts the sender's server; not
+//    allowed = a box of the size the mail gave (the reading pane's), a note and "Load content" for this quote. Either way the address stays in the sent HTML.
 //  - Header: the attribution line / forward header, "Edit quoted text" (after a confirmation the original becomes ordinary editable text), Hide / Show,
 //    Remove. A click on the block selects it; Delete / Backspace on the selection removes it (one Undo brings it back).
 //  - Guarded: typing, pasting or Enter while the block is selected go below it instead of replacing it; Backspace / Delete next to it never merge with it;
@@ -16,11 +18,14 @@ import { Node as TipNode, type Editor } from "@tiptap/core";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import type { EditorState } from "@tiptap/pm/state";
 import DOMPurify from "dompurify";
+import { blockedPictureBox } from "../blockedPicture";
 import { setDarkRegion } from "../composePreviewDom";
 import { t } from "../i18n";
 import { checkLinkUrl } from "../linkUrl";
+import { BLOCKED_PICTURE_CSS } from "../mailFrameCss";
 import { openExternal } from "../open";
 import { kbd } from "../platform";
+import { cachedImage, loadRemoteImages } from "../remoteImages";
 import type { BaseFont } from "./emailHtml";
 import { QUOTE_STYLE } from "./quoteBlock";
 import { QUOTE_NODE, quoteGuard } from "./quoteGuard";
@@ -30,6 +35,8 @@ export interface QuoteOptions {
   ask: () => Promise<boolean>;
   /** the default font of the message (the paste cleaner leaves it out of the text it keeps) */
   base: () => BaseFont;
+  /** may pictures from the web be fetched (the account's "Load remote content", as the reading pane asks it)? */
+  remote: () => boolean;
 }
 
 const NAME = QUOTE_NODE;
@@ -41,9 +48,18 @@ const ATTRS = "style dir align href src alt title width height border cellpaddin
 
 let purify: ReturnType<typeof DOMPurify> | null = null;
 let blockedNow = 0;
+let pendingNow: string[] = [];
+/** What the running `displayHtml` may do with a picture from the web: undefined = nothing (its address is taken off); else show the copy the backend fetched, when the cache has it. */
+let webNow: { tried: ReadonlySet<string> } | undefined;
 
-/** The original as it is shown: allow-list again, no picture from the web, no link scheme but http / https / mailto / tel, no `url()` in a style. */
-function displayHtml(html: string): { html: string; blocked: number } {
+const isWeb = (u: string) => /^https?:\/\//i.test(u);
+
+/**
+ * The original as it is shown: allow-list again, no link scheme but http / https / mailto / tel, no `url()` in a style, and no picture from the web but a data: copy of it that the
+ * backend fetched (`web`: the reading pane's rule allows it; `tried`: addresses already asked for in vain). Every other picture loses its address (`data-blocked`; `boxes` draws a box
+ * instead). `blocked` counts the ones the rule keeps back; `pending` lists the web pictures that are not in the cache yet (they are `data-pending`).
+ */
+function displayHtml(html: string, web?: { tried: ReadonlySet<string> }): { html: string; blocked: number; pending: string[] } {
   if (!purify) {
     purify = DOMPurify(window);
     purify.addHook("afterSanitizeAttributes", (node) => {
@@ -52,9 +68,20 @@ function displayHtml(html: string): { html: string; blocked: number } {
       if (tag === "IMG") {
         const src = el.getAttribute("src") ?? "";
         if (!/^data:image\/(?:png|jpeg|gif|webp);base64,/i.test(src)) {
-          if (src) blockedNow++;
-          el.removeAttribute("src"); // (nothing is requested: the alt text shows instead)
-          el.setAttribute("data-blocked", "");
+          const url = src.trim();
+          const copy = webNow && isWeb(url) ? cachedImage(url) : undefined;
+          if (copy) {
+            el.setAttribute("src", copy); // (a data: copy: the webview requests nothing)
+          } else {
+            el.removeAttribute("src"); // (nothing is requested: a box shows instead)
+            el.setAttribute("data-blocked", "");
+            if (!webNow) {
+              if (src) blockedNow++;
+            } else if (isWeb(url) && !webNow.tried.has(url)) {
+              el.setAttribute("data-pending", "");
+              pendingNow.push(url);
+            }
+          }
         }
       }
       if (tag === "A") {
@@ -68,8 +95,39 @@ function displayHtml(html: string): { html: string; blocked: number } {
     });
   }
   blockedNow = 0;
-  const out = purify.sanitize(html, { ALLOWED_TAGS: TAGS, ALLOWED_ATTR: ATTRS, ALLOW_DATA_ATTR: false, ALLOW_ARIA_ATTR: false });
-  return { html: out, blocked: blockedNow };
+  pendingNow = [];
+  webNow = web;
+  try {
+    const out = purify.sanitize(html, { ALLOWED_TAGS: TAGS, ALLOWED_ATTR: ATTRS, ALLOW_DATA_ATTR: false, ALLOW_ARIA_ATTR: false });
+    return { html: out, blocked: blockedNow, pending: pendingNow };
+  } finally {
+    webNow = undefined;
+  }
+}
+
+/** A picture without its address becomes the reading pane's box (blockedPicture.ts): the size the mail gave, an icon and the alt text; nothing for a tracking pixel. Not announced, not clickable. */
+function boxes(scope: ParentNode): void {
+  scope.querySelectorAll("img[data-blocked]").forEach((img) => {
+    const size = blockedPictureBox({ width: img.getAttribute("width"), height: img.getAttribute("height"), style: img.getAttribute("style") });
+    if (size.hidden) return img.remove();
+    const box = document.createElement("span");
+    box.className = "hl-bp";
+    box.setAttribute("aria-hidden", "true");
+    if (img.hasAttribute("data-pending")) box.setAttribute("data-pending", "");
+    box.style.width = size.width;
+    box.style.height = size.height;
+    const ico = document.createElement("span");
+    ico.className = "hl-bp-ico";
+    box.append(ico);
+    const alt = (img.getAttribute("alt") ?? "").trim();
+    if (alt) {
+      const label = document.createElement("span");
+      label.className = "hl-bp-alt";
+      label.textContent = alt;
+      box.append(label);
+    }
+    img.replaceWith(box);
+  });
 }
 
 const SHADOW_CSS = `
@@ -77,7 +135,8 @@ const SHADOW_CSS = `
 .q { font-family: var(--cp-font, Calibri, Carlito, Arial, sans-serif); font-size: var(--cp-size, 11pt); line-height: normal; color: var(--pv-fg, #242424);
   overflow: auto; max-height: 600px; overflow-wrap: anywhere; contain: content; }
 .q img { max-width: 100%; height: auto; }
-.q img[data-blocked] { outline: 1px dashed #9aa0a6; outline-offset: -1px; min-width: 16px; min-height: 16px; color: #6b7280; font-size: 12px; }
+${BLOCKED_PICTURE_CSS}
+.hl-bp[data-pending] { opacity: .6; }
 .q a { color: var(--pv-link, #0f6cbd); cursor: default; }
 .q pre { white-space: pre-wrap; }
 `;
@@ -123,7 +182,7 @@ export const QuoteBlock = TipNode.create<QuoteOptions>({
   atom: true,
   selectable: true,
   draggable: false,
-  addOptions: () => ({ ask: async () => true, base: () => ({ family: "Calibri, Carlito, Arial, sans-serif", size: 11 }) }),
+  addOptions: () => ({ ask: async () => true, base: () => ({ family: "Calibri, Carlito, Arial, sans-serif", size: 11 }), remote: () => false }),
   addAttributes() {
     return {
       kind: { default: "reply", rendered: false, parseHTML: (el: HTMLElement) => (el.getAttribute("data-quote-block") === "forward" ? "forward" : "reply") },
@@ -182,14 +241,36 @@ export const QuoteBlock = TipNode.create<QuoteOptions>({
       };
       const dark = () => Boolean(dom.closest(".cp-pv.pv-dark"));
       const recolour = () => setDarkRegion(scope, dark(), root);
-      const fill = () => {
+      // pictures from the web: shown when the reading pane's rule allows them (`opts.remote()`) or the person pressed "Load content" in this quote; the backend fetches them
+      // (once per address: `tried`) and the quote is drawn again when they are in
+      let loadNow = false;
+      let live = true;
+      const tried = new Set<string>();
+      const fill = (retry = false) => {
         const a = node.attrs as { kind: string; head: string; html: string };
         dom.dataset.kind = a.kind;
         attr.innerHTML = displayHtml(a.head).html;
-        const shown = displayHtml(a.html);
+        const web = loadNow || opts.remote();
+        const shown = displayHtml(a.html, web ? { tried } : undefined);
         scope.innerHTML = a.kind === "forward" ? shown.html : `<blockquote style="${QUOTE_STYLE}">${shown.html}</blockquote>`;
-        note.textContent = shown.blocked ? t("compose.quote.remote") : "";
+        boxes(scope);
+        // (the note and its button are rebuilt with the text of the moment: the language can change while the message is open)
+        note.replaceChildren();
+        if (shown.blocked) {
+          const more = document.createElement("button");
+          more.type = "button";
+          more.className = "link";
+          more.dataset.act = "load";
+          more.textContent = t("reading.body.loadContent");
+          note.append(t("compose.quote.remote"), " ", more);
+        }
         note.hidden = !shown.blocked;
+        if (shown.pending.length) {
+          shown.pending.forEach((u) => tried.add(u));
+          void loadRemoteImages(shown.pending, retry).then(() => {
+            if (live) fill();
+          });
+        }
         labels();
         recolour();
       };
@@ -219,6 +300,10 @@ export const QuoteBlock = TipNode.create<QuoteOptions>({
           if (act === "toggle") {
             collapsed = !collapsed;
             labels();
+          } else if (act === "load") {
+            loadNow = true;
+            tried.clear();
+            fill(true);
           } else if (act === "remove") removeQuote(editor);
           else if (act === "edit") void opts.ask().then((ok) => (ok ? quoteToText(editor, opts.base()) : undefined));
           return;
@@ -237,7 +322,7 @@ export const QuoteBlock = TipNode.create<QuoteOptions>({
       return {
         dom,
         // the header buttons are the block's own (the editor must not turn a click on them into a selection)
-        stopEvent: (e) => Boolean((e.target as HTMLElement | null)?.closest?.(".quote-tools")),
+        stopEvent: (e) => Boolean((e.target as HTMLElement | null)?.closest?.(".quote-tools, .quote-note")),
         ignoreMutation: () => true,
         update(n) {
           if (n.type.name !== NAME) return false;
@@ -247,6 +332,7 @@ export const QuoteBlock = TipNode.create<QuoteOptions>({
           return true;
         },
         destroy() {
+          live = false;
           watch?.disconnect();
           setDarkRegion(scope, false, root);
         },

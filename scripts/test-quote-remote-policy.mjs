@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // ONE remote-picture policy for the quote of a Reply and of a Forward (owner decision 2026-10-18, spec AC-61): a picture from the web STAYS in the sent
-// quote (the composer never requests it; the recipient's client does), a tracking pixel of 3 x 3 px or less is dropped. The v1.0.6 QA round 2 saw a remote pixel
+// quote as its address (the composer shows it by the reading pane's rule from a copy the backend fetched, scripts/test-reply-images.mjs; the recipient's client loads it), a tracking pixel of 3 x 3 px or less is dropped. The v1.0.6 QA round 2 saw a remote pixel
 // kept in a Forward (round 1: the newsletter's picture had no size) and removed in a Reply (round 2: the pixel was `width="1" height="1"`): both are the policy,
 // not an inconsistency: Reply and Forward make their quote with the same two functions (actions.ts `quoteBlockOf` -> editor/quoteClean.ts `quoteOf` and
 // editor/quoteBlock.ts `quoteSentHtml`). This test keeps it that way and writes down exactly when a picture is dropped.

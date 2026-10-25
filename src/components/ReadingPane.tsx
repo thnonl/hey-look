@@ -1,5 +1,6 @@
 import { unsubscribeMailto } from "../unsubscribeMailto";
 import { blockedPictureBox } from "../blockedPicture";
+import { cachedImage, cachedImageCount, hasCachedImage, loadRemoteImages } from "../remoteImages";
 import { frameCsp, frameSandbox } from "../frameSandbox";
 import { openUpdateLink } from "../updates";
 import { guardFrame } from "../contextGuard";
@@ -56,23 +57,6 @@ import { EncCard, importKeyFromMessage, isKeyAttachment, needsCard, SecBadges } 
 import { Avatar, Dropdown } from "./ui";
 import { openReader } from "../popout/openReader";
 import { readerAllowed } from "../popout/readerLogic";
-
-// Remote images already fetched through the backend (url -> data: URI), shared by all messages. Capped by size (the oldest go first): a long session with newsletters would else keep every
-// picture it ever showed.
-const imageCache = new Map<string, string>();
-const IMAGE_CACHE_CHARS = 40_000_000;
-let imageChars = 0;
-function cacheImage(url: string, data: string): void {
-  imageChars -= imageCache.get(url)?.length ?? 0;
-  imageCache.delete(url);
-  imageCache.set(url, data);
-  imageChars += data.length;
-  while (imageChars > IMAGE_CACHE_CHARS && imageCache.size > 1) {
-    const oldest = imageCache.keys().next().value as string;
-    imageChars -= imageCache.get(oldest)?.length ?? 0;
-    imageCache.delete(oldest);
-  }
-}
 
 /**
  * Free height of the reading pane from the top of this frame down (pane viewport minus everything above the frame
@@ -198,10 +182,10 @@ function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string
 }
 
 function inlineImages(html: string): string {
-  if (imageCache.size === 0) return html;
+  if (cachedImageCount() === 0) return html;
   const doc = new DOMParser().parseFromString(html, "text/html");
   doc.querySelectorAll("img[src]").forEach((i) => {
-    const data = imageCache.get(i.getAttribute("src") ?? "");
+    const data = cachedImage(i.getAttribute("src") ?? "");
     if (data) i.setAttribute("src", data);
   });
   return doc.body.innerHTML;
@@ -337,14 +321,12 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   // Fetch remote images in the backend instead of letting the webview contact the sender's servers.
   useEffect(() => {
     if (!allowed || !m.html) return;
-    const missing = remoteImageUrls(clean.html).filter((u) => !imageCache.has(u));
+    const missing = remoteImageUrls(clean.html).filter((u) => !hasCachedImage(u));
     if (missing.length === 0) return;
     let live = true;
-    api.fetchRemoteImages(missing).then((got) => {
-      if (!live) return;
-      Object.entries(got).forEach(([u, d]) => cacheImage(u, d));
-      setVersion((v) => v + 1);
-    }).catch(() => undefined);
+    void loadRemoteImages(missing).then((n) => {
+      if (live && n > 0) setVersion((v) => v + 1);
+    });
     return () => {
       live = false;
     };

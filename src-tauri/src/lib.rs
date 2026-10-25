@@ -7553,6 +7553,11 @@ mod capability_tests {
         for c in ["popout_flush_alive", "popout_flush_dialog", "popout_flush_done", "popout_init", "popout_ready", "popout_request", "thread_meta"] {
             assert!(ok.contains(c), "{c}");
         }
+        // the pictures of a message: the reader window shows them and the compose window shows them in the quote of a Reply / Forward (src/editor/quoteNode.ts, src/remoteImages.ts):
+        // the web ones come from the backend (the webview never contacts the sender's server), the inline ones from the stored message
+        for c in ["fetch_remote_images", "inline_image", "attachment_data"] {
+            assert!(ok.contains(c), "a compose / reader window needs {c} to show the pictures of a message");
+        }
         // no window creates windows, and no page gets more of the window API than the spec lists (REQ-W1, S5)
         let perms: Vec<&str> = pop["permissions"].as_array().unwrap().iter().filter_map(|p| p.as_str()).collect();
         for p in &perms {
