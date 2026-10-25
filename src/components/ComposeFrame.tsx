@@ -67,7 +67,7 @@ export function ComposeFrame({ init, late }: { init: ComposeInit; late: boolean 
             {/* the boxes of the real field, so the row has its height before the message is filled in (D-067): a reply has a recipient (one invisible chip), a forward has none; the input is the one of RecipientField */}
             <div className="chips">
               <GhostChips values={preparing?.rcpt?.to} />
-              <input readOnly tabIndex={-1} aria-label={t("compose.to")} />
+              <input autoComplete="off" readOnly tabIndex={-1} aria-label={t("compose.to")} />
             </div>
           </div>
           {!rows.showCc && (
@@ -76,11 +76,11 @@ export function ComposeFrame({ init, late }: { init: ComposeInit; late: boolean 
           )}
           {rows.showCc && (
             <>
-              <div className="cf-field rcpt"><label>{t("compose.cc")}</label><div className="chips"><GhostChips values={preparing?.rcpt?.cc} />{rows.cc.length > 0 && hiddenChip}<input readOnly tabIndex={-1} aria-label={t("compose.cc")} /></div></div>
-              <div className="cf-field rcpt"><label>{t("compose.bcc")}</label><div className="chips">{rows.bcc.length > 0 && hiddenChip}<input readOnly tabIndex={-1} aria-label={t("compose.bcc")} /></div></div>
+              <div className="cf-field rcpt"><label>{t("compose.cc")}</label><div className="chips"><GhostChips values={preparing?.rcpt?.cc} />{rows.cc.length > 0 && hiddenChip}<input autoComplete="off" readOnly tabIndex={-1} aria-label={t("compose.cc")} /></div></div>
+              <div className="cf-field rcpt"><label>{t("compose.bcc")}</label><div className="chips">{rows.bcc.length > 0 && hiddenChip}<input autoComplete="off" readOnly tabIndex={-1} aria-label={t("compose.bcc")} /></div></div>
             </>
           )}
-          <div className="cf-field cf-subject"><label>{t("compose.subject")}</label><input readOnly tabIndex={-1} value={init.subject ?? ""} aria-label={t("compose.subject")} /></div>
+          <div className="cf-field cf-subject"><label>{t("compose.subject")}</label><input autoComplete="off" readOnly tabIndex={-1} value={init.subject ?? ""} aria-label={t("compose.subject")} /></div>
         </div>
       </div>
       <div className="cp-fmt" inert aria-hidden><span style={{ height: 28 }} /></div>

@@ -2301,6 +2301,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       {aiOpen && (
         <div className="cp-ai">
           <textarea
+            autoComplete="off"
             rows={2}
             autoFocus
             placeholder={init.isReply ? t("compose.ai.placeholderReply") : t("compose.ai.placeholderNew")}
@@ -2341,7 +2342,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
         )}
         <div className="cf-field cf-subject">
           <label>{t("compose.subject")}</label>
-          <input value={subject} onChange={(e) => (setSubject(e.target.value), touch())} placeholder={t("compose.subject.placeholder")} aria-label={t("compose.subject")} />
+          <input autoComplete="off" value={subject} onChange={(e) => (setSubject(e.target.value), touch())} placeholder={t("compose.subject.placeholder")} aria-label={t("compose.subject")} />
           <ImportanceMark level={importance} size={13} label />
         </div>
       </div>

@@ -447,7 +447,7 @@ function NoteDialog({ r, onClose, onSend }: { r: Rsvp; onClose: () => void; onSe
   return (
     <Modal title={t(CHOICE[r].dialog)} onClose={onClose}>
       <label className="muted small" htmlFor="rsvp-note">{t("calendar.invite.noteLabel")}</label>
-      <textarea id="rsvp-note" rows={4} autoFocus value={text} onChange={(e) => setText(e.target.value)} style={{ width: "100%", marginTop: 6 }} />
+      <textarea autoComplete="off" id="rsvp-note" rows={4} autoFocus value={text} onChange={(e) => setText(e.target.value)} style={{ width: "100%", marginTop: 6 }} />
       <div className="row-inline" style={{ justifyContent: "flex-end", marginTop: 12 }}>
         <button className="btn" onClick={onClose}>{t("common.cancel")}</button>
         <button className="btn primary" onClick={() => onSend(text.trim())}>{t("calendar.send")}</button>

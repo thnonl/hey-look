@@ -166,6 +166,7 @@ export function RecipientField({
           );
         })}
         <input
+          autoComplete="off"
           ref={input}
           value={text}
           aria-label={label}

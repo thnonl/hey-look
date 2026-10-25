@@ -588,11 +588,11 @@ function OAuthBlock({ kind, onAppPassword }: { kind: OAuthKind; onAppPassword: (
               <summary>{t("settings.add.advanced")}</summary>
               <div className="form">
                 <label>{t("settings.add.clientId")}</label>
-                <input aria-label={t("settings.add.clientId")} value={cid} onChange={(e) => setCid(e.target.value)} placeholder={cfg.idPlaceholder} />
+                <input autoComplete="off" aria-label={t("settings.add.clientId")} value={cid} onChange={(e) => setCid(e.target.value)} placeholder={cfg.idPlaceholder} />
                 {kind === "google" && (
                   <>
                     <label>{t("settings.add.clientSecret")}</label>
-                    <input aria-label={t("settings.add.clientSecret")} type="password" value={sec} onChange={(e) => setSec(e.target.value)} placeholder={secSaved ? t("settings.add.savedIn", { store: credStore() }) : ""} />
+                    <input autoComplete="off" aria-label={t("settings.add.clientSecret")} type="password" value={sec} onChange={(e) => setSec(e.target.value)} placeholder={secSaved ? t("settings.add.savedIn", { store: credStore() }) : ""} />
                   </>
                 )}
               </div>
@@ -601,12 +601,12 @@ function OAuthBlock({ kind, onAppPassword }: { kind: OAuthKind; onAppPassword: (
           {kind === "microsoft" && (
             <>
               <label>{t("settings.add.tenant")}</label>
-              <input aria-label={t("settings.add.tenant")} value={tenant} onChange={(e) => setTenant(e.target.value)} placeholder="common" />
+              <input autoComplete="off" aria-label={t("settings.add.tenant")} value={tenant} onChange={(e) => setTenant(e.target.value)} placeholder="common" />
               <div className="muted small">{t("settings.add.tenantHint")}</div>
             </>
           )}
           <label>{t("settings.add.displayNameOpt")}</label>
-          <input aria-label={t("settings.add.displayNameOpt")} placeholder={t("settings.add.yourName")} value={name} onChange={(e) => setName(e.target.value)} />
+          <input autoComplete="off" aria-label={t("settings.add.displayNameOpt")} placeholder={t("settings.add.yourName")} value={name} onChange={(e) => setName(e.target.value)} />
           {showCal && (
             <div className="also-cal">
               <label>
@@ -761,7 +761,7 @@ function ImapForm({ initialProvider = "custom" }: { initialProvider?: string }) 
           {PROVIDERS[provider].hint && <div className="notice">{PROVIDERS[provider].hint}</div>}
           <label>{t("settings.add.email")}</label>
           <div className="row-inline">
-            <input aria-label={t("settings.add.email")} placeholder="name@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <input autoComplete="off" aria-label={t("settings.add.email")} placeholder="name@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
             <button className="btn" disabled={detecting || !email.includes("@")} onClick={() => void detect()} title={t("settings.add.detectTitle")}>
               {detecting ? t("settings.add.detecting") : t("settings.add.detect")}
             </button>
@@ -773,17 +773,17 @@ function ImapForm({ initialProvider = "custom" }: { initialProvider?: string }) 
             </div>
           )}
           <label>{t("settings.add.displayName")}</label>
-          <input aria-label={t("settings.add.displayName")} placeholder={t("settings.add.yourName")} value={name} onChange={(e) => setName(e.target.value)} />
+          <input autoComplete="off" aria-label={t("settings.add.displayName")} placeholder={t("settings.add.yourName")} value={name} onChange={(e) => setName(e.target.value)} />
           <label>{t("settings.add.password")}</label>
-          <input aria-label={t("settings.add.password")} type="password" value={pw} onChange={(e) => setPw(e.target.value)} />
+          <input autoComplete="off" aria-label={t("settings.add.password")} type="password" value={pw} onChange={(e) => setPw(e.target.value)} />
           {showAdv && (
             <>
               <label>{t("settings.add.username")}</label>
-              <input aria-label={t("settings.add.username")} placeholder="name@example.com" value={username} onChange={(e) => setUsername(e.target.value)} />
+              <input autoComplete="off" aria-label={t("settings.add.username")} placeholder="name@example.com" value={username} onChange={(e) => setUsername(e.target.value)} />
               <label>{t("settings.add.imapServer")}</label>
               <div className="row-inline">
-                <input aria-label={t("settings.add.imapHost")} placeholder="imap.example.com" value={adv.imapHost} onChange={(e) => setAdv({ ...adv, imapHost: e.target.value })} />
-                <input type="text" inputMode="numeric" aria-label={t("settings.add.imapPort")} placeholder="993" value={portText(adv.imapPort)} onChange={(e) => setAdv({ ...adv, imapPort: portFromText(e.target.value, adv.imapPort) })} />
+                <input autoComplete="off" aria-label={t("settings.add.imapHost")} placeholder="imap.example.com" value={adv.imapHost} onChange={(e) => setAdv({ ...adv, imapHost: e.target.value })} />
+                <input autoComplete="off" type="text" inputMode="numeric" aria-label={t("settings.add.imapPort")} placeholder="993" value={portText(adv.imapPort)} onChange={(e) => setAdv({ ...adv, imapPort: portFromText(e.target.value, adv.imapPort) })} />
                 <select aria-label={t("settings.add.imapSecurity")} value={adv.imapSsl ? "ssl" : "starttls"} onChange={(e) => setAdv({ ...adv, imapSsl: e.target.value === "ssl" })}>
                   {/* i18n-ok: protocol names */}
                   <option value="ssl">SSL/TLS</option><option value="starttls">STARTTLS</option>
@@ -791,8 +791,8 @@ function ImapForm({ initialProvider = "custom" }: { initialProvider?: string }) 
               </div>
               <label>{t("settings.add.smtpServer")}</label>
               <div className="row-inline">
-                <input aria-label={t("settings.add.smtpHost")} placeholder="smtp.example.com" value={adv.smtpHost} onChange={(e) => setAdv({ ...adv, smtpHost: e.target.value })} />
-                <input type="text" inputMode="numeric" aria-label={t("settings.add.smtpPort")} placeholder="465" value={portText(adv.smtpPort)} onChange={(e) => setAdv({ ...adv, smtpPort: portFromText(e.target.value, adv.smtpPort) })} />
+                <input autoComplete="off" aria-label={t("settings.add.smtpHost")} placeholder="smtp.example.com" value={adv.smtpHost} onChange={(e) => setAdv({ ...adv, smtpHost: e.target.value })} />
+                <input autoComplete="off" type="text" inputMode="numeric" aria-label={t("settings.add.smtpPort")} placeholder="465" value={portText(adv.smtpPort)} onChange={(e) => setAdv({ ...adv, smtpPort: portFromText(e.target.value, adv.smtpPort) })} />
                 <select aria-label={t("settings.add.smtpSecurity")} value={adv.smtpSecurity} onChange={(e) => setAdv({ ...adv, smtpSecurity: e.target.value as "ssl" | "starttls" })}>
                   {/* i18n-ok: protocol names */}
                   <option value="ssl">SSL/TLS</option><option value="starttls">STARTTLS</option>
@@ -804,9 +804,9 @@ function ImapForm({ initialProvider = "custom" }: { initialProvider?: string }) 
               {sepSmtp && (
                 <>
                   <label>{t("settings.add.smtpUsername")}</label>
-                  <input aria-label={t("settings.add.smtpUsername")} value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} placeholder={username || email} />
+                  <input autoComplete="off" aria-label={t("settings.add.smtpUsername")} value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} placeholder={username || email} />
                   <label>{t("settings.add.smtpPasswordLabel")}</label>
-                  <input aria-label={t("settings.add.smtpPassword")} type="password" value={smtpPw} onChange={(e) => setSmtpPw(e.target.value)} />
+                  <input autoComplete="off" aria-label={t("settings.add.smtpPassword")} type="password" value={smtpPw} onChange={(e) => setSmtpPw(e.target.value)} />
                 </>
               )}
               <div className="row-inline">
@@ -879,10 +879,10 @@ function ComposingPanel({ scope }: { scope: string | null }) {
         )}
       </OvRow>
       <OvRow id="autoCc" scope={scope} k="autoCc" label={t("settings.composing.autoCc")} hint={t("settings.composing.autoCcHint")}>
-        {(v, set) => <input value={v} onChange={(e) => set(e.target.value)} placeholder="name@example.com" />}
+        {(v, set) => <input autoComplete="off" value={v} onChange={(e) => set(e.target.value)} placeholder="name@example.com" />}
       </OvRow>
       <OvRow id="autoBcc" scope={scope} k="autoBcc" label={t("settings.composing.autoBcc")}>
-        {(v, set) => <input value={v} onChange={(e) => set(e.target.value)} placeholder="name@example.com" />}
+        {(v, set) => <input autoComplete="off" value={v} onChange={(e) => set(e.target.value)} placeholder="name@example.com" />}
       </OvRow>
       <OvRow id="signature" scope={scope} k="signatureId" label={t("settings.composing.signature")} hint={t("settings.composing.signatureHint")}>
         {(v, set) => (
@@ -1063,7 +1063,7 @@ function SignaturesPanel({ scope }: { scope: string | null }) {
       {cur && (
         <div className="form set-card">
           <label>{t("settings.form.name")}</label>
-          <input aria-label={t("settings.form.name")} placeholder={t("settings.sig.namePlaceholder")} value={cur.name} onChange={(e) => setCur({ ...cur, name: e.target.value })} />
+          <input autoComplete="off" aria-label={t("settings.form.name")} placeholder={t("settings.sig.namePlaceholder")} value={cur.name} onChange={(e) => setCur({ ...cur, name: e.target.value })} />
           <label>{t("settings.composing.signature")}</label>
           <RichEditor pictures key={cur.id} label={t("settings.composing.signature")} value={cur.html} onChange={(html) => setCur((c) => (c ? { ...c, html } : c))} placeholder={t("settings.sig.bodyPlaceholder")} />
           <Switch checked={cur.isDefault} onChange={(v) => setCur({ ...cur, isDefault: v })} label={scope ? t("settings.sig.defaultThis") : t("settings.sig.defaultAll")} />
@@ -1105,9 +1105,9 @@ function TemplatesPanel({ scope }: { scope: string | null }) {
       {cur && (
         <div className="form set-card">
           <label>{t("settings.form.name")}</label>
-          <input aria-label={t("settings.form.name")} placeholder={t("settings.tpl.namePlaceholder")} value={cur.name} onChange={(e) => setCur({ ...cur, name: e.target.value })} />
+          <input autoComplete="off" aria-label={t("settings.form.name")} placeholder={t("settings.tpl.namePlaceholder")} value={cur.name} onChange={(e) => setCur({ ...cur, name: e.target.value })} />
           <label>{t("settings.tpl.subjectOpt")}</label>
-          <input aria-label={t("settings.tpl.subjectOpt")} placeholder={t("settings.tpl.subjectPlaceholder")} value={cur.subject} onChange={(e) => setCur({ ...cur, subject: e.target.value })} />
+          <input autoComplete="off" aria-label={t("settings.tpl.subjectOpt")} placeholder={t("settings.tpl.subjectPlaceholder")} value={cur.subject} onChange={(e) => setCur({ ...cur, subject: e.target.value })} />
           <label>{t("settings.tpl.message")}</label>
           <RichEditor pictures key={cur.id} label={t("settings.tpl.message")} value={cur.body} onChange={(body) => setCur((c) => (c ? { ...c, body } : c))} minHeight={180} />
           <div className="row-inline">
@@ -1346,7 +1346,7 @@ function ProfilePanel({ account }: { account: Account }) {
   };
   return (
     <>
-      <Row id="displayName" label={t("settings.add.displayName")} hint={t("settings.profile.displayNameHint")}><input defaultValue={account.displayName} placeholder={t("settings.add.yourName")} onBlur={(e) => void upd({ displayName: e.target.value })} /></Row>
+      <Row id="displayName" label={t("settings.add.displayName")} hint={t("settings.profile.displayNameHint")}><input autoComplete="off" defaultValue={account.displayName} placeholder={t("settings.add.yourName")} onBlur={(e) => void upd({ displayName: e.target.value })} /></Row>
       <Row label={t("settings.profile.replyTo")} hint={t("settings.profile.replyToHint")} id="replyTo">
         <input key={account.id} type="text" inputMode="email" autoComplete="off" spellCheck={false} defaultValue={account.replyTo ?? ""} aria-invalid={replyErr ? true : undefined} aria-describedby={replyErr ? "set-replyTo-err" : undefined} onChange={() => setReplyErr(null)} onBlur={(e) => void saveReplyTo(e.target.value)} />
         {replyErr && <div className="field-err" id="set-replyTo-err" role="alert">{replyErr}</div>}
@@ -2125,7 +2125,7 @@ function AiTab() {
       <div style={{ margin: "4px 0 8px" }}><button className="link" onClick={() => void openUpdateLink(siteUrl("help.html#ai-report"))}>{t("settings.ai.report")}</button></div>
       <div className="form">
         <label>{t("settings.ai.baseUrl")}</label>
-        <input id="set-aiBaseUrl" aria-label={t("settings.ai.baseUrl")} placeholder="https://api.openai.com/v1" value={v.ai_endpoint} onChange={(e) => edit({ ai_endpoint: e.target.value })} />
+        <input autoComplete="off" id="set-aiBaseUrl" aria-label={t("settings.ai.baseUrl")} placeholder="https://api.openai.com/v1" value={v.ai_endpoint} onChange={(e) => edit({ ai_endpoint: e.target.value })} />
         {/* the link to remove the saved key sits on the label's line: it appears after Save without moving the fields below */}
         <div className="field">
           <div className="field-head">
@@ -2134,7 +2134,7 @@ function AiTab() {
               <button className="link small" onClick={() => void removeKey()}>{t("settings.ai.removeKey")}</button>
             )}
           </div>
-          <input ref={keyRef} id="set-aiKey" aria-label={t("settings.ai.apiKey")} type="password" value={key} onChange={(e) => (setSaveErr(""), setKey(e.target.value))} placeholder={hasKey ? t("settings.add.savedIn", { store: credStore() }) : t("settings.ai.keyOptional")} />
+          <input autoComplete="off" ref={keyRef} id="set-aiKey" aria-label={t("settings.ai.apiKey")} type="password" value={key} onChange={(e) => (setSaveErr(""), setKey(e.target.value))} placeholder={hasKey ? t("settings.add.savedIn", { store: credStore() }) : t("settings.ai.keyOptional")} />
         </div>
         <label>{t("settings.ai.model")}</label>
         {asList ? (
@@ -2145,7 +2145,7 @@ function AiTab() {
             {models.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
         ) : (
-          <input id="set-aiModel" aria-label={t("settings.ai.model")} value={v.ai_model} placeholder={t("settings.ai.modelPlaceholder")} onChange={(e) => edit({ ai_model: e.target.value })} {...modelFocus} />
+          <input autoComplete="off" id="set-aiModel" aria-label={t("settings.ai.model")} value={v.ai_model} placeholder={t("settings.ai.modelPlaceholder")} onChange={(e) => edit({ ai_model: e.target.value })} {...modelFocus} />
         )}
         {/* Advanced (W8.11): between Model and Save, collapsed unless a list URL is saved: what Save stores is above it, and the status slot under Save stays the last thing of the form (opening Advanced pushes Save down, which is expected) */}
         <details className="advanced" open={advOpen} onToggle={(e) => setAdvOpen(e.currentTarget.open)}>
@@ -2246,7 +2246,7 @@ function PgpTab() {
       </div>
       <div className="set-card-head" style={{ marginTop: 18, flexWrap: "wrap" }}>
         <h4 style={{ margin: 0, flex: 1 }}>{t("settings.pgp.others")} <span className="muted small" style={{ fontWeight: 400 }}>· {others.length}</span></h4>
-        <input id="set-pgpOthers" placeholder={t("settings.pgp.searchPlaceholder")} aria-label={t("settings.pgp.searchKeys")} style={{ width: 340, maxWidth: "100%" }} value={q} onChange={(e) => setQ(e.target.value)} />
+        <input autoComplete="off" id="set-pgpOthers" placeholder={t("settings.pgp.searchPlaceholder")} aria-label={t("settings.pgp.searchKeys")} style={{ width: 340, maxWidth: "100%" }} value={q} onChange={(e) => setQ(e.target.value)} />
         <button className="btn small" onClick={() => setDialog({ type: "pgp-import", back: "pgp" })}><Upload size={13} /> {t("settings.pgp.import")}</button>
       </div>
       <div style={{ marginTop: 8 }}>
