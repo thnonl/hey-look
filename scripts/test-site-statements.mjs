@@ -437,7 +437,7 @@ export function findProblems({ rows = REMOVED, read = (f) => fs.readFileSync(f, 
       ['.github/release-footer.md', fs.readFileSync(path.join(root, '.github', 'release-footer.md'), 'utf8')], ['CHANGELOG.md (1.0.8)', sect]];
     for (const [name, text] of files) if (/cannot show native notifications|native notifications are not available|no native notifications|macOS has no notifications|macOS has no Print/i.test(text)) fail(`${name}: says macOS has no notifications or no Print`);
   }
-  // 1.0.8 test statement (owner 2026-10-25): Mac and Linux WebKit checks passed on real machines, so the release footer, README and the 1.0.8 CHANGELOG
+  // 1.0.8 test statement (owner 2026-10-25): Mac and Linux WebKit checks passed on a real Mac and an ARM Linux virtual machine, so the release footer, README and the 1.0.8 CHANGELOG
   // no longer say "Windows 11 only" / "not checked by hand on macOS and Linux"; they say what was checked, and do not claim more than that
   {
     const root = path.join(DOCS, '..');
@@ -447,7 +447,7 @@ export function findProblems({ rows = REMOVED, read = (f) => fs.readFileSync(f, 
     for (const [name, text] of files) {
       checks++;
       if (/Windows 11 \(x64\) only|not checked by hand on macOS and Linux|were of 1\.0\.7/i.test(text)) fail(`${name}: still says 1.0.8 was tested on Windows 11 only`);
-      if (!/tested on Windows 11 \(x64\) on real hardware/.test(text) || !/real Mac and a real Linux machine/.test(text)) fail(`${name}: the 1.0.8 test statement (Windows 11 plus a real Mac and a real Linux machine) is missing`);
+      if (!/tested on Windows 11 \(x64\) on real hardware/.test(text) || !/MacBook Pro with Apple silicon[\s\S]*ARM virtual machine/.test(text)) fail(`${name}: the 1.0.8 test statement (Windows 11 plus a MacBook Pro with Apple silicon and an ARM virtual machine) is missing`);
       if (!/Windows 10, Intel Macs and macOS 11 and 12/.test(text)) fail(`${name}: no longer says Windows 10, Intel Macs and macOS 11 and 12 were not tested`);
       if (/all (versions of )?macOS|every (version of )?macOS|all Linux (distributions|distros)/i.test(text)) fail(`${name}: claims more than was tested (all macOS versions / all Linux distributions)`);
     }
