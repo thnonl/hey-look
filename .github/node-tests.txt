@@ -485,6 +485,7 @@ static | node --experimental-strip-types scripts/test-reply-last.mjs
 static | node --experimental-strip-types scripts/test-compose-start.mjs
 # 1.0.7 WP13f-3 (AC-13.13.16): ten fixtures (reply, reply all with Cc, forward with 3 attachments, encrypted reply, confidential reply, Reply-To note, signature above the quote, no signature on replies, plain-text original, HTML original) - the message handed to the outbox after the in-place fill is equal to the one a fresh mount of the same finished message gives (pictures ids masked)
 ui-e | node scripts/test-reply-golden.mjs --require-browser
+ui-e | node scripts/test-reply-own-account.mjs --require-browser
 ui-e | node scripts/test-reply-images.mjs --require-browser
 # 1.0.7 D-006: the port boxes of Add account are text boxes (a number box adds one on ArrowUp / the mouse wheel: a typed SMTP port 31501 was reported saved as 31502); digits only, empty = no port, over 65535 refused
 static | node --experimental-strip-types scripts/test-port-field.mjs

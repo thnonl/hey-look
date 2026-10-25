@@ -212,7 +212,7 @@ export async function replyTo(m: MessageFull, all: boolean, thread: MessageFull[
   const message = (h: ReplyHeaders, bodyHtml: string): ComposeInit => {
     const now = useStore.getState();
     const mine = new Set(now.accounts.map((a) => a.email.toLowerCase()));
-    const targets = replyTargets({ fromEmail: m.fromEmail, fromName: m.fromName, to: m.to, cc: m.cc, mine, replyTo: h.replyTo, headerFrom: h.from, headerTo: h.to, headerCc: h.cc, all });
+    const targets = replyTargets({ fromEmail: m.fromEmail, fromName: m.fromName, to: m.to, cc: m.cc, mine, mailbox: now.accounts.find((a) => a.id === m.accountId)?.email.toLowerCase(), replyTo: h.replyTo, headerFrom: h.from, headerTo: h.to, headerCc: h.cc, all });
     return {
       accountId: fromAccountFor(now.accounts, m.accountId, now.prefs.defaultAccount),
       to: targets.to.map(cleanHeaderText),

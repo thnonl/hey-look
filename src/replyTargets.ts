@@ -11,6 +11,12 @@ export interface ReplyInput {
   cc: string;
   /** lower-case addresses of the person's own accounts */
   mine: ReadonlySet<string>;
+  /**
+   * The address of the account the message is in (lower case). A message from one of the person's OTHER accounts is received mail in this one (a mail from thnonline@ to
+   * namth@ in namth@'s Inbox is answered to thnonline@); it is "my own message" (answered to its recipients) only when it was sent from this very account. Without it every
+   * account counts as the person (the old rule: a message from any own account is answered to its recipients).
+   */
+  mailbox?: string;
   /** Reply-To of the message as `Name <address>` / `address` (only real addresses; empty when there is none) */
   replyTo: readonly string[];
   /**
@@ -37,7 +43,10 @@ export interface ReplyTargets {
  */
 export function replyTargets(i: ReplyInput): ReplyTargets {
   const own = (r: string) => i.mine.has(addressOf(r).toLowerCase());
-  const fromMe = i.mine.has(i.fromEmail.toLowerCase());
+  const mailbox = i.mailbox?.toLowerCase();
+  // the sending identity: the account the message is in, else any account
+  const isMailbox = (r: string) => (mailbox ? addressOf(r).toLowerCase() === mailbox : own(r));
+  const fromMe = isMailbox(i.fromEmail);
   // W8.6 (owner decision 2026-10-18, 1.0.7 W8.6: keep): a Reply-To address that is one of the person's own accounts is dropped (a list that reflects my mail, or the second mailbox of a profile);
   // when nothing else is left, the answer goes to the sender, with no Reply-To note. scripts/test-reply-targets.mjs pins this: change it only on purpose.
   const asked = fromMe ? [] : i.replyTo.filter((r) => addressOf(r) !== "" && !own(r));
@@ -46,7 +55,12 @@ export function replyTargets(i: ReplyInput): ReplyTargets {
   const origCc = i.headerCc?.length ? i.headerCc : splitRecipients(i.cc);
   const base = fromMe ? origTo : asked.length ? asked : [sender];
   const viaReplyTo = asked.length && !asked.some((r) => recipientKey(r) === i.fromEmail.toLowerCase()) ? { replyTo: asked, from: i.fromEmail } : null;
-  const to = addRecipients([], (i.all ? [...base, ...(fromMe ? [] : [sender]), ...origTo] : base).filter((r) => !own(r)));
+  // (the sender of received mail stays even when it is another account of the person: that answer would else have nobody to go to)
+  const sentByOther = (r: string) => !fromMe && own(r) && recipientKey(r) === i.fromEmail.toLowerCase();
+  const candidates = i.all ? [...base, ...(fromMe ? [] : [sender]), ...origTo] : base;
+  let to = addRecipients([], candidates.filter((r) => !own(r) || sentByOther(r)));
+  // my own message that went to another account of mine only (A's Sent folder, the mail was to B): answered to B, never to nobody
+  if (to.length === 0 && fromMe) to = addRecipients([], candidates.filter((r) => !isMailbox(r)));
   const seen = new Set(to.map(recipientKey));
   const cc = i.all ? addRecipients([], origCc.filter((r) => !own(r) && !seen.has(recipientKey(r)))) : [];
   return { to, cc, viaReplyTo };
