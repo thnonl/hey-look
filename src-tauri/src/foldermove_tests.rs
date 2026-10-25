@@ -412,6 +412,58 @@ fn a_filter_does_not_create_folders_and_keeps_the_old_message() {
     });
 }
 
+/// 1.0.8 (OPEN-2 of the rules QA): after a finished move the local row is gone and the copy in the target folder is read by the next sync of that folder; a move now asks for that sync
+/// at once. Against the fake server: the moved mail is in the target, a read of the target finds it (as that sync does), and the mailboxes asked for are shared.
+#[test]
+fn a_moved_mail_is_found_in_the_target_by_the_sync_that_a_move_asks_for() {
+    test_guard::within(60, || {
+        let (db, acc) = setup("open2-move", r#"{"inbox":"INBOX","sent":"Sent","archive":"Archive"}"#, &[1, 2]);
+        let fake = Fake::start(&[("INBOX", &[1, 2]), ("Sent", &[]), ("Archive", &[])]);
+        for uid in [1u32, 2] {
+            fake.put_message("INBOX", uid, format!("Message-ID: <open2-{uid}@x>
+From: a@b.c
+To: me@example.com
+Subject: moved {uid}
+Date: Sun, 25 Oct 2026 10:00:00 +0000
+
+body {uid}
+").as_bytes());
+        }
+        run(&db, &acc, &fake, 1, "archive", false).unwrap();
+        assert_eq!(local_folder(&db, 1), None, "the local row is gone after the move (1.0.7 did the same)");
+        assert_eq!(fake.uids("Archive").map(|u| u.len()), Some(1));
+        // the sync: the target folder is read from the highest UID the app knows (none here) and the moved mail comes in
+        let known = folderstate::known(folderstate::get(&lock(&db), ACC, "archive").as_ref(), "Archive");
+        let mut s = fake.connect();
+        let ff = mail::fetch_folder(&mut s, "Archive", &known, 0, 0, PAGE).unwrap();
+        let _ = s.logout();
+        assert_eq!(ff.new.len(), 1);
+        assert_eq!(ff.new[0].message_id.as_deref(), Some("<open2-1@x>"));
+    });
+}
+
+#[test]
+fn moves_that_finish_together_share_one_sync_of_a_mailbox() {
+    let mut waiting = std::collections::BTreeSet::new();
+    assert_eq!(claim_after_move(&mut waiting, vec!["a".into(), "b".into()]), vec!["a".to_string(), "b".to_string()]);
+    assert!(claim_after_move(&mut waiting, vec!["a".into()]).is_empty(), "a is waiting already");
+    assert_eq!(claim_after_move(&mut waiting, vec!["a".into(), "c".into()]), vec!["c".to_string()]);
+    waiting.remove("a"); // the sync of a started
+    assert_eq!(claim_after_move(&mut waiting, vec!["a".into()]), vec!["a".to_string()], "a move that finishes during it asks for another");
+}
+
+/// The wiring: a finished move into a folder asks for the sync, and only then (a flag, a delete for good, a failed move do not).
+#[test]
+fn a_finished_move_asks_for_a_sync_of_its_mailbox() {
+    let src = crate::test_guard::non_test_code(include_str!("lib.rs"));
+    let run = &src[src.find("fn run_pending(").unwrap()..src.find("/// The doer of a queued move").unwrap()];
+    assert!(run.contains("\"archive\" | \"trash\" | \"junk\" | \"move\" | \"inbox\" | \"block\""), "{run}");
+    assert!(run.contains("Ok(()) => {
+                moved.extend(threads);
+                to_sync.extend(accounts);"), "only a move that worked");
+    assert!(run.contains("sync_after_move(app, to_sync);"));
+}
+
 /// 1.0.8: a rule with two conditions (the sender AND a word of the body) moves a new mail through the real action code; a mail that meets only one stays.
 #[test]
 fn a_rule_with_two_conditions_moves_a_new_mail() {

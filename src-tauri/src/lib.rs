@@ -1609,12 +1609,50 @@ struct MovesCommitted {
     thread_ids: Vec<String>,
 }
 
+/// Mailboxes with a "read the folders again soon" waiting after a move (see `sync_after_move`).
+static AFTER_MOVE: Mutex<std::collections::BTreeSet<String>> = Mutex::new(std::collections::BTreeSet::new());
+
+/// The mailboxes that are not waiting for a sync yet: they are marked as waiting. A second move that finishes while one is waiting shares its sync.
+fn claim_after_move(waiting: &mut std::collections::BTreeSet<String>, accounts: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = vec![];
+    for a in accounts {
+        if waiting.insert(a.clone()) {
+            out.push(a);
+        }
+    }
+    out
+}
+
+/// (1.0.8, OPEN-2 of the rules QA; the behaviour is the one of 1.0.7) A finished move removes the local rows of the moved mail, and the copy in the target folder reaches this computer with
+/// the next sync of that folder, which was up to the sync interval away (2 minutes, and a push session only watches the Inbox): the mail was in neither folder meanwhile. So a moved mail
+/// starts a sync of its mailbox right away (a second after, so a run of several moves shares one). The copy is moved mail, not new mail (`newmail::note_moved`), and the rules do not look at
+/// it (`eligible_for_rules`), so nothing is notified or ruled again.
+fn sync_after_move(app: &tauri::AppHandle, accounts: Vec<String>) {
+    let fresh = claim_after_move(&mut AFTER_MOVE.lock().unwrap_or_else(|p| p.into_inner()), accounts);
+    if fresh.is_empty() {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+        let db = app.state::<AppState>().db.clone();
+        for a in fresh {
+            // (unmarked before the sync, so a move that finishes during it asks for another one)
+            AFTER_MOVE.lock().unwrap_or_else(|p| p.into_inner()).remove(&a);
+            startup::line("action", &format!("account {a}: reading the folders after a move"));
+            let _ = run_sync(&app, &db, &a);
+        }
+        let _ = app.emit("mail-synced", ());
+    });
+}
+
 fn run_pending(app: &tauri::AppHandle, items: Vec<Pending>, verify_wait: std::time::Duration) {
     if items.is_empty() {
         return;
     }
     let db = app.state::<AppState>().db.clone();
     let mut moved: Vec<String> = vec![];
+    let mut to_sync: Vec<String> = vec![];
     for p in items {
         // never move into a folder that was not checked: a failed check ends the move here
         if let Some(Err(error)) = p.verify.as_ref().and_then(|v| v.wait(verify_wait)) {
@@ -1624,12 +1662,24 @@ fn run_pending(app: &tauri::AppHandle, items: Vec<Pending>, verify_wait: std::ti
         }
         let id = p.id.clone();
         let threads = p.threads.clone();
+        // the mailboxes a finished move puts mail into (a move into a folder, not a flag or a delete for good)
+        let accounts: Vec<String> = if matches!(p.action.as_str(), "archive" | "trash" | "junk" | "move" | "inbox" | "block") {
+            match &p.msgs {
+                Some(m) => m.iter().map(|x| x.account_id.clone()).collect(),
+                None => thread_msgs(&lock(&db), &p.threads).map(|m| m.into_iter().map(|x| x.account_id).collect()).unwrap_or_default(),
+            }
+        } else {
+            vec![]
+        };
         let done = run_queued(&db, p, &mut |m, a, d, s, c| act_on_refs(&db, m, a, d, s, c));
         startup::line("action", &format!("done {}: {}", short_token(&id), match &done { Ok(()) => "ok".to_string(), Err(e) => format!("failed: {}", e.chars().take(160).collect::<String>()) }));
         // (the local rows are changed by now: the threads stop being hidden only here, so no list read in between shows them)
         committing_done(&id);
         match done {
-            Ok(()) => moved.extend(threads),
+            Ok(()) => {
+                moved.extend(threads);
+                to_sync.extend(accounts);
+            }
             // the id says which queued move this was: the app puts the mail, the selection and the next mail's unread state back (autoAdvance.ts)
             Err(error) => {
                 let _ = app.emit_to("main", "action-failed", VerifyFailed { id, error });
@@ -1643,6 +1693,11 @@ fn run_pending(app: &tauri::AppHandle, items: Vec<Pending>, verify_wait: std::ti
         let _ = app.emit_to("main", "moves-committed", MovesCommitted { thread_ids: moved });
     }
     let _ = app.emit("mail-synced", ());
+    if !to_sync.is_empty() {
+        to_sync.sort();
+        to_sync.dedup();
+        sync_after_move(app, to_sync);
+    }
 }
 
 /// The doer of a queued move: moves these messages (as `act_on_refs` does). A seam for the tests, which run it against a fake server.

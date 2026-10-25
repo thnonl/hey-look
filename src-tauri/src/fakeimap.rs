@@ -405,10 +405,14 @@ fn serve(c: TcpStream, shared: Arc<Mutex<State>>) {
             } else if let Some(src) = selected.clone() {
                 let want = uid_list(&set);
                 let have: Vec<u32> = st.folders[&src].iter().copied().filter(|u| want.contains(u)).collect();
-                for _ in &have {
+                for u in &have {
                     st.next_uid += 1;
                     let n = st.next_uid;
                     st.folders.get_mut(&dst).unwrap().push(n);
+                    // (the copy carries the text of the message, so a read of the target folder finds it)
+                    if let Some(bytes) = st.messages.get(&(src.clone(), *u)).cloned() {
+                        st.messages.insert((dst.clone(), n), bytes);
+                    }
                 }
                 if mv {
                     st.folders.get_mut(&src).unwrap().retain(|u| !have.contains(u));
