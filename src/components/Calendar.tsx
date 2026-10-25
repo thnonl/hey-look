@@ -1145,7 +1145,7 @@ export function EventDialog({ eventId, init, draft, windowed, scope, occurrenceS
       )}
       <div className="ev-form" aria-busy={!loaded}>
         <label htmlFor="ev-title">{t("calendar.dialog.title")}</label>
-        <input id="ev-title" autoFocus value={title} aria-invalid={!!error && !title.trim()} onChange={(e) => (setTitle(e.target.value), touch())} placeholder={t("calendar.dialog.titlePlaceholder")} />
+        <input autoComplete="off" id="ev-title" autoFocus value={title} aria-invalid={!!error && !title.trim()} onChange={(e) => (setTitle(e.target.value), touch())} placeholder={t("calendar.dialog.titlePlaceholder")} />
 
         <label>{t("calendar.dialog.when")}</label>
         <div className="ev-when">
@@ -1180,7 +1180,7 @@ export function EventDialog({ eventId, init, draft, windowed, scope, occurrenceS
         </div>
 
         <label htmlFor="ev-where">{t("calendar.dialog.where")}</label>
-        <input id="ev-where" value={where} onChange={(e) => (setWhere(e.target.value), touch())} placeholder={t("calendar.dialog.wherePlaceholder")} />
+        <input autoComplete="off" id="ev-where" value={where} onChange={(e) => (setWhere(e.target.value), touch())} placeholder={t("calendar.dialog.wherePlaceholder")} />
 
         <label>{t("calendar.dialog.invite")}</label>
         <div className="ev-invite">
@@ -1225,7 +1225,7 @@ export function EventDialog({ eventId, init, draft, windowed, scope, occurrenceS
         </select>
 
         <label htmlFor="ev-notes">{t("calendar.dialog.notes")}</label>
-        <textarea id="ev-notes" rows={4} value={notes} onChange={(e) => (setNotes(e.target.value), touch())} {...(conf ? copyLock : {})} />
+        <textarea autoComplete="off" id="ev-notes" rows={4} value={notes} onChange={(e) => (setNotes(e.target.value), touch())} {...(conf ? copyLock : {})} />
       </div>
       {error && <div className="field-err" role="alert" style={{ marginTop: 10 }}>{error}</div>}
       <div className="row-inline" style={{ justifyContent: "flex-end", marginTop: 14 }}>

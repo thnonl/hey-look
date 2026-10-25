@@ -136,6 +136,11 @@ export function SearchBox() {
       <div className="search-box" onClick={() => setOpen(true)}>
         <Search size={16} />
         <input
+          // no browser suggestion list over the app's own panel (WebView2 "Saved info", the native history of what was typed in a field): see scripts/test-no-autofill.mjs
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
           id="search-input"
           ref={input}
           aria-label={t("app.search.aria")}

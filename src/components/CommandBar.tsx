@@ -99,6 +99,7 @@ export function CommandBar() {
     <div className="modal-back top" onMouseDown={close}>
       <div className="modal cmd" onMouseDown={(e) => e.stopPropagation()}>
         <input
+          autoComplete="off"
           ref={ref}
           aria-label={t("app.cmd.aria")} placeholder={t("app.cmd.placeholder")}
           value={q}

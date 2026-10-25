@@ -353,6 +353,7 @@ export function ImportKeyDialog({ armored: initial, paste, back }: { armored?: s
         {path && <span className="small mono ellipsis" style={{ maxWidth: "100%" }}>{path}</span>}
       </div>
       <textarea
+        autoComplete="off"
         rows={4}
         className="mono"
         style={{ marginTop: 10, width: "100%" }}

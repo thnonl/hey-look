@@ -143,12 +143,12 @@ function InsertTableDialog({ editor, onClose }: { editor: Editor; onClose: () =>
       <div className="tbl-dialog" onKeyDown={enter}>
         <label className="link-pop-field">
           <span>{t("compose.table.columns")}</span>
-          <input type="number" min={1} max={MAX_COLS} value={cols} autoFocus aria-invalid={shown && !colsOk} onChange={(e) => setCols(e.target.value)} onFocus={(e) => e.target.select()} />
+          <input autoComplete="off" type="number" min={1} max={MAX_COLS} value={cols} autoFocus aria-invalid={shown && !colsOk} onChange={(e) => setCols(e.target.value)} onFocus={(e) => e.target.select()} />
         </label>
         {shown && !colsOk && <div className="link-pop-err" role="alert">{t("compose.table.errColumns")}</div>}
         <label className="link-pop-field">
           <span>{t("compose.table.rows")}</span>
-          <input type="number" min={1} max={MAX_ROWS} value={rows} aria-invalid={shown && !rowsOk} onChange={(e) => setRows(e.target.value)} onFocus={(e) => e.target.select()} />
+          <input autoComplete="off" type="number" min={1} max={MAX_ROWS} value={rows} aria-invalid={shown && !rowsOk} onChange={(e) => setRows(e.target.value)} onFocus={(e) => e.target.select()} />
         </label>
         {shown && !rowsOk && <div className="link-pop-err" role="alert">{t("compose.table.errRows")}</div>}
         <div className="link-pop-btns">

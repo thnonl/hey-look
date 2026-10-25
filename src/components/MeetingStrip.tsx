@@ -54,7 +54,7 @@ export function MeetingStrip({ value, onChange, tz }: { value: MeetingState; onC
         <div className="field-err" role="alert" style={{ gridColumn: "2" }}>{problem}</div>
       )}
       <label htmlFor="mt-where">{t("calendar.dialog.where")}</label>
-      <input id="mt-where" value={value.where} onChange={(e) => set({ where: e.target.value })} placeholder={t("calendar.dialog.wherePlaceholder")} />
+      <input autoComplete="off" id="mt-where" value={value.where} onChange={(e) => set({ where: e.target.value })} placeholder={t("calendar.dialog.wherePlaceholder")} />
     </div>
   );
 }

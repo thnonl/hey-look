@@ -270,7 +270,7 @@ export function usePictureTools({ editor, bodyRef, sizes, onLink, onAttachment, 
         {altOpen && createPortal(
           <div className="popover alt-pop pinned" role="dialog" aria-label={t("compose.pic.altText")} ref={altPopRef}>
             <label className="small muted" htmlFor="alt-text-field">{t("compose.pic.altText")}</label>
-            <textarea id="alt-text-field" value={altText} onChange={(e) => setAltText(e.target.value)} autoFocus placeholder={t("compose.pic.altPlaceholder")} />
+            <textarea autoComplete="off" id="alt-text-field" value={altText} onChange={(e) => setAltText(e.target.value)} autoFocus placeholder={t("compose.pic.altPlaceholder")} />
             <div className="helper">{t("compose.pic.altHelp")}</div>
             <div className="row-inline" style={{ justifyContent: "flex-end", margin: 0 }}>
               <button className="btn small" onClick={() => setAltOpen(false)}>{t("common.cancel")}</button>

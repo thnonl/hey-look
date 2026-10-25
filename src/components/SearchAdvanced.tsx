@@ -68,6 +68,7 @@ export function SearchAdvanced({ q, change, edit, run, close }: SearchAdvancedPr
     <label className="sb-field">
       <span>{label}</span>
       <input
+        autoComplete="off"
         value={getKey(q, key)}
         placeholder={placeholder}
         onChange={(e) => edit(setKey(q, key, e.target.value))}

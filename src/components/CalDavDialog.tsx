@@ -79,7 +79,7 @@ export function CalDavDialog({ account, mode, source, onClose, onDone }: { accou
         {fixed === undefined ? (
           <>
             <label htmlFor="dav-url">{t("settings.calendar.davAddress")}</label>
-            <input id="dav-url" value={url} disabled={busy || again} placeholder="https://cloud.example.com" autoCapitalize="off" autoCorrect="off" spellCheck={false} onChange={(e) => (setUrl(e.target.value), setError(null))} />
+            <input autoComplete="off" id="dav-url" value={url} disabled={busy || again} placeholder="https://cloud.example.com" autoCapitalize="off" autoCorrect="off" spellCheck={false} onChange={(e) => (setUrl(e.target.value), setError(null))} />
           </>
         ) : (
           <>
@@ -89,7 +89,7 @@ export function CalDavDialog({ account, mode, source, onClose, onDone }: { accou
         )}
 
         <label htmlFor="dav-user">{t("settings.calendar.davUsername")}</label>
-        <input id="dav-user" value={user} disabled={busy || again} autoCapitalize="off" autoCorrect="off" spellCheck={false} onChange={(e) => (setUser(e.target.value), setError(null))} />
+        <input autoComplete="off" id="dav-user" value={user} disabled={busy || again} autoCapitalize="off" autoCorrect="off" spellCheck={false} onChange={(e) => (setUser(e.target.value), setError(null))} />
 
         {showPw && (
           <>

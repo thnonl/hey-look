@@ -84,6 +84,11 @@ impl Driver for TauriDriver {
             let (swept, freed, alive) = crate::macwin::sweep_stats();
             v["sweeps"] = serde_json::json!({ "swept": swept, "freed": freed, "alive": alive });
         }
+        // Windows: the WebView2 autofill / password-saving switches of every web view (autofill.rs); all must read off
+        #[cfg(windows)]
+        {
+            v["autofill"] = crate::autofill::report(&self.app);
+        }
         v
     }
 }

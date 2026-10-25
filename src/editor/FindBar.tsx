@@ -83,7 +83,7 @@ export function FindBar({ editor, mode, nonce, onClose }: { editor: Editor; mode
         <button type="button" className="icon-btn find-toggle" title={t("compose.find.replace")} aria-label={t("compose.find.replace")} aria-expanded={showReplace} onClick={() => setShowReplace((v) => !v)}>
           {showReplace ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
         </button>
-        <input ref={findRef} type="text" value={query} onChange={(e) => setQuery(e.target.value)} aria-label={t("compose.find.find")} placeholder={t("compose.find.find")} spellCheck={false} />
+        <input autoComplete="off" ref={findRef} type="text" value={query} onChange={(e) => setQuery(e.target.value)} aria-label={t("compose.find.find")} placeholder={t("compose.find.find")} spellCheck={false} />
         <span className="find-count" role="status" aria-live="polite">{count}</span>
         <button type="button" className="icon-btn" title={t("compose.find.prev")} aria-label={t("compose.find.prev")} disabled={!total} onClick={() => step(-1)}><ChevronUp size={14} aria-hidden="true" /></button>
         <button type="button" className="icon-btn" title={t("compose.find.next")} aria-label={t("compose.find.next")} disabled={!total} onClick={() => step(1)}><ChevronDown size={14} aria-hidden="true" /></button>
@@ -92,7 +92,7 @@ export function FindBar({ editor, mode, nonce, onClose }: { editor: Editor; mode
       </div>
       {showReplace && (
         <div className="find-row">
-          <input ref={replaceRef} type="text" value={replaceWith} onChange={(e) => setReplaceWith(e.target.value)} aria-label={t("compose.find.replaceWith")} placeholder={t("compose.find.replaceWith")} spellCheck={false} />
+          <input autoComplete="off" ref={replaceRef} type="text" value={replaceWith} onChange={(e) => setReplaceWith(e.target.value)} aria-label={t("compose.find.replaceWith")} placeholder={t("compose.find.replaceWith")} spellCheck={false} />
           <button type="button" className="btn small" disabled={!total} onClick={() => setState(replaceCurrent(editor.view, replaceWith))}>{t("compose.find.replace")}</button>
           <button type="button" className="btn small" disabled={!total} onClick={doReplaceAll}>{t("compose.find.replaceAll")}</button>
           <span className="find-count" role="status" aria-live="polite">{note}</span>

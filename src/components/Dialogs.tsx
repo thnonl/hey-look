@@ -49,7 +49,7 @@ export function BulkCleaner() {
   return (
     <Modal title={t("app.sweep.title")} onClose={() => setDialog(null)} wide>
       <div className="muted small">{accountId ? t("app.sweep.intro") : t("app.sweep.introAll")}</div>
-      <input className="sweep-search" aria-label={t("app.sweep.filter")} placeholder={t("app.sweep.filter")} value={q} onChange={(e) => setQ(e.target.value)} />
+      <input autoComplete="off" className="sweep-search" aria-label={t("app.sweep.filter")} placeholder={t("app.sweep.filter")} value={q} onChange={(e) => setQ(e.target.value)} />
       {list === null && <div className="muted">{t("common.loading")}</div>}
       <div className="sweep-list">
         {shown.map((s) => (

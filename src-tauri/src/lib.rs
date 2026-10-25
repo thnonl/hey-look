@@ -1,4 +1,5 @@
 mod ai;
+mod autofill;
 mod attach;
 mod bgcolor;
 mod mailrules;
@@ -6442,6 +6443,9 @@ pub fn run() {
     #[cfg(any(windows, target_os = "macos"))]
     // a frame of the window (the PDF preview has no sandbox here, see src/pdfFrame.ts) can never take the whole window to a website
     let builder = builder.plugin(navguard::plugin());
+    // Windows: no WebView2 "Saved info" dropdown over the app's own panels, no password saving: switched off on every web view when it is made (autofill.rs)
+    #[cfg(windows)]
+    let builder = builder.plugin(autofill::plugin());
     let built = builder
         // a second launch just brings the running instance forward
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
