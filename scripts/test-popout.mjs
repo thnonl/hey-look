@@ -322,6 +322,17 @@ assert.equal(popoutTitle(readerTitleText("", "(no subject)")), "(no subject) –
   // dialogs: Settings, the event dialog and the PGP key dialogs; not the cleaner, not a dialog of the reader
   assert.equal(ok("dialog", { dialog: { type: "settings", tab: "ai" } }).req.tab, "ai");
   assert.equal(ok("dialog", { dialog: { type: "event", init: { summary: "x" } } }).req.type, "event");
+  // (1.0.8) "Create rule…" in a reader window: the dialog opens in the main window, from a source that is checked field by field
+  const ruleSource = { accountId: "a1", folder: "inbox", fromName: "Deals", fromEmail: "deals@shop.example", subject: "Hi", text: "hello", mine: false };
+  assert.deepEqual(ok("dialog", { dialog: { type: "rule", source: ruleSource } }).req, { type: "rule", source: ruleSource });
+  assert.equal(ok("dialog", { dialog: { type: "rule", source: { ...ruleSource, text: "x".repeat(9000) } } }).req.source.text.length, 2000);
+  for (const source of [null, {}, { ...ruleSource, accountId: "" }, { ...ruleSource, subject: 4 }, "x"]) bad("dialog", { dialog: { type: "rule", source } });
+  // (1.0.8) Run now in the Settings window: the main window runs it; only from a settings window, and the rule is checked
+  const draft = { id: "r1", accountId: null, name: "x", conditions: [{ field: "from", op: "equals", values: ["a@b.c"] }], action: "move", arg: "archive", enabled: true };
+  assert.deepEqual(parseRequest("rule-run", { rule: draft, folder: "inbox" }, { from: "settings-main", prefKeys: [] }), { kind: "rule-run", rule: { ...draft, accountId: null }, folder: "inbox" });
+  for (const [payload, from] of [[{ rule: draft, folder: "inbox" }, "reader-a"], [{ rule: draft }, "settings-x"], [{ rule: { ...draft, action: "boom" }, folder: "inbox" }, "settings-x"], [{ rule: { ...draft, conditions: [] }, folder: "inbox" }, "settings-x"], [{ rule: { ...draft, conditions: [{ field: "x", op: "contains", values: ["a"] }] }, folder: "inbox" }, "settings-x"], [{ rule: null, folder: "inbox" }, "settings-x"]]) {
+    assert.ok("error" in parseRequest("rule-run", payload, { from, prefKeys: [] }), JSON.stringify(payload).slice(0, 80));
+  }
   assert.equal(ok("dialog", { dialog: { type: "pgp-key", fingerprint: "ABCD" } }).req.fingerprint, "ABCD");
   assert.equal(ok("dialog", { dialog: { type: "pgp-import", paste: true } }).req.paste, true);
   ok("dialog", { dialog: { type: "pgp-generate" } });
@@ -1049,8 +1060,9 @@ for (const [view, folder] of [["inbox", "inbox"], ["unread", "inbox"], ["pinned"
   // where "open Settings" goes (REQ-4.6.9)
   assert.equal(settingsTarget(true), "window");
   assert.equal(settingsTarget(false), "dialog");
-  assert.deepEqual(refocusOf({ tab: "ai", focus: "aiKey", nonce: 5 }), { tab: "ai", focus: "aiKey" });
-  assert.deepEqual(refocusOf(null), { tab: undefined, focus: undefined });
+  assert.deepEqual(refocusOf({ tab: "ai", focus: "aiKey", nonce: 5 }), { tab: "ai", focus: "aiKey", section: undefined });
+  assert.deepEqual(refocusOf({ tab: "mb:all", section: "filters" }), { tab: "mb:all", focus: undefined, section: "filters" });
+  assert.deepEqual(refocusOf(null), { tab: undefined, focus: undefined, section: undefined });
   // the commands that tell the other windows (REQ-4.6.4): accounts, signatures, templates, rules, PGP keys, the calendar connections
   for (const c of ["add_account", "update_account", "remove_account", "save_signature", "delete_signature", "save_template", "delete_template", "save_rule", "delete_rule", "pgp_generate_key", "pgp_delete_key", "calendar_connect", "calendar_disconnect"]) assert.ok(DATA_CHANGING[c], c);
   assert.equal(DATA_CHANGING.add_account, "accounts");

@@ -1,6 +1,9 @@
 // What the main page accepts from a secondary window (REQ-S4): each kind of request is checked here before anything is done, so a page can
 // ask for these things and nothing else. Pure, so scripts/test-popout.mjs runs it. (src/popout/mainRequests.ts does the work.)
 import { checkedSearchText } from "../selectionSearch.ts";
+import { parseRuleDraft, parseRuleSource } from "../ruleSource.ts";
+import type { RuleSource } from "../ruleSource.ts";
+import type { Rule } from "../api.ts";
 
 /** The envelope the backend sends to the main page (`popout-request`): `from` is stamped by the backend. */
 import { prefsPatchAllowed } from "./windowKinds.ts";
@@ -68,7 +71,7 @@ export interface ComposeNewReq {
 }
 
 /** Dialogs of the main window that a reader may open (REQ-R11): Settings, the event dialog and the PGP key dialogs. */
-export type DialogReq = { type: "settings"; tab?: string; focus?: string } | { type: "event"; init?: Record<string, unknown> } | { type: "pgp-key"; fingerprint: string } | { type: "pgp-generate"; accountId?: string } | { type: "pgp-import"; armored?: string; paste?: boolean };
+export type DialogReq = { type: "settings"; tab?: string; focus?: string } | { type: "rule"; source: RuleSource } | { type: "event"; init?: Record<string, unknown> } | { type: "pgp-key"; fingerprint: string } | { type: "pgp-generate"; accountId?: string } | { type: "pgp-import"; armored?: string; paste?: boolean };
 
 export type Parsed =
   | { kind: "thread-action"; req: ThreadActionReq }
@@ -89,6 +92,8 @@ export type Parsed =
   /** the Settings window changed something the lists of the main window show: read them again, sync (W4.6) */
   | { kind: "refresh" }
   | { kind: "sync" }
+  /** Run now / "Also move the matching messages" in the Settings window (1.0.8): the main window does the moves, with its Undo toast (a Settings window may not queue an action itself) */
+  | { kind: "rule-run"; rule: Rule; folder: string }
   /** Settings > About > Restart now, in the Settings window: the main window runs the restart (it saves the compose windows and its pane first, as today) */
   | { kind: "update-restart" };
 
@@ -122,6 +127,12 @@ export function parseRequest(kind: string, payload: unknown, ctx?: RequestCtx): 
       // the main page is the only writer of the preferences (REQ-W11): a reader may change the mail background and nothing else; the Settings window any key of `Prefs` (REQ-4.6.3)
       if (!prefsPatchAllowed(ctx?.from ?? "", p, ctx?.prefKeys ?? [])) return { error: "prefs: only mailCanvas" };
       return { kind: "prefs", patch: ctx?.from?.startsWith("settings-") ? p : { mailCanvas: p.mailCanvas } };
+    }
+    case "rule-run": {
+      const rule = parseRuleDraft(p.rule);
+      const folder = str(p.folder)?.slice(0, 300);
+      if (!(ctx?.from ?? "").startsWith("settings-") || !rule || !folder) return { error: "rule-run: not a rule to run" };
+      return { kind: "rule-run", rule, folder };
     }
     case "canvas-session":
       // any reader may set or ask for it; it is a view choice of this run and stores nothing (the main page ignores a set while the app theme is dark)
@@ -170,6 +181,10 @@ export function parseRequest(kind: string, payload: unknown, ctx?: RequestCtx): 
       switch (d?.type) {
         case "settings": return { kind: "dialog", req: { type: "settings", tab: str(d.tab), focus: str(d.focus) } };
         case "event": return { kind: "dialog", req: { type: "event", init: isObj(d.init) ? d.init : undefined } };
+        case "rule": {
+          const source = parseRuleSource(d.source);
+          return source ? { kind: "dialog", req: { type: "rule", source } } : { error: "dialog: no message for the rule" };
+        }
         case "pgp-key": return str(d.fingerprint) ? { kind: "dialog", req: { type: "pgp-key", fingerprint: str(d.fingerprint) as string } } : { error: "dialog: no key" };
         case "pgp-generate": return { kind: "dialog", req: { type: "pgp-generate", accountId: str(d.accountId) } };
         case "pgp-import": return { kind: "dialog", req: { type: "pgp-import", armored: str(d.armored), paste: d.paste === true } };

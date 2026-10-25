@@ -208,6 +208,8 @@ export default define({
     "app.cmd.unflag": "Remove flag",
     "app.cmd.pin": "Pin",
     "app.cmd.unpin": "Unpin",
+    "app.cmd.createRule": "Create rule from this message",
+    "app.cmd.manageRules": "Manage rules",
     "app.cmd.switchTo": "Switch to {email}",
     "app.cmd.showAll": "Show all accounts",
 

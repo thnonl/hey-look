@@ -91,10 +91,13 @@ export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
       },
     };
   };
-  // "New folder…" is the last entry of the menu of a mailbox heading; a mailbox that needs a new sign-in cannot make one (W13.10)
+  // "New folder…" and "Manage rules…" are the last entries of the menu of a mailbox heading; a mailbox that needs a new sign-in cannot make a folder (W13.10). Managing rules is local: it works offline.
   const reorder = useAccountReorder(tree, (id) => {
     const again = !!reauth[id];
-    return [{ label: t("mail.folder.new"), disabled: again, hint: again ? t("mail.folder.needsSignIn") : undefined, onClick: () => setDialog({ type: "folder-new", accountId: id, parentKey: null }) }];
+    return [
+      { label: t("mail.folder.new"), disabled: again, hint: again ? t("mail.folder.needsSignIn") : undefined, onClick: () => setDialog({ type: "folder-new", accountId: id, parentKey: null }) },
+      { label: t("mail.acct.manageRules"), onClick: () => setDialog({ type: "settings", tab: `mb:${id}`, section: "filters", nonce: Date.now() }) },
+    ];
   }); // the mailbox groups can be moved (grip, Alt+Up / Alt+Down, menu); see AccountReorder.tsx
   /** the menu of a folder of the person that can have a subfolder: right-click, ContextMenu key or Shift+F10 on its row (the other rows have none, W13.10) */
   const [fmenu, setFmenu] = useState<{ acct: string; key: string; at: { x: number; y: number }; keyboard: boolean; from: HTMLElement | null } | null>(null);

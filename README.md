@@ -15,7 +15,7 @@ The installers are not code-signed with a publisher certificate and the macOS ap
 ## What it does
 
 - Many mailboxes in one place: Google and Microsoft, iCloud, Yahoo and any IMAP/SMTP server, with push for new mail where the server supports it
-- An Outlook-like editor, undo send, send later, snooze, filters, signatures and templates, and a window of its own for writing or reading
+- An Outlook-like editor, undo send, send later, snooze, rules, signatures and templates, and a window of its own for writing or reading
 - A local calendar for invitations, with optional two-way sync with Google Calendar, Outlook / Microsoft 365 and CalDAV calendars (iCloud, Fastmail, Nextcloud and others)
 - OpenPGP encryption and signing, and Confidential mail that cannot be copied or printed (and, on Windows and macOS, not captured on screen)
 - An optional AI Assistant that uses your own endpoint and sends text only when you press a button

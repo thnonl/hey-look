@@ -194,6 +194,8 @@ export default defineLocale<typeof ns.en>({
   "app.cmd.unflag": "取消标记",
   "app.cmd.pin": "置顶",
   "app.cmd.unpin": "取消置顶",
+  "app.cmd.createRule": "从此邮件创建规则",
+  "app.cmd.manageRules": "管理规则",
   "app.cmd.switchTo": "切换到{email}",
   "app.cmd.showAll": "显示所有账户",
   // ---- search box

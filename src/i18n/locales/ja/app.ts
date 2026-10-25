@@ -194,6 +194,8 @@ export default defineLocale<typeof ns.en>({
   "app.cmd.unflag": "フラグを解除",
   "app.cmd.pin": "ピン留め",
   "app.cmd.unpin": "ピン留めを解除",
+  "app.cmd.createRule": "仕分けルールを作成",
+  "app.cmd.manageRules": "仕分けルールを管理",
   "app.cmd.switchTo": "{email}に切り替え",
   "app.cmd.showAll": "すべてのアカウントを表示",
   // ---- search box

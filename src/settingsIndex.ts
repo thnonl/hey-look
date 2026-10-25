@@ -219,9 +219,9 @@ export function buildIndex(ctx: IndexCtx): Entry[] {
   const sec = (k: string) => t(SECTIONS[k]);
   const quiet = [nav.mailboxes];
   add({ id: "pg-mb", tab: "mb:all", kind: "page", label: allAccounts, lead: nav.mailboxes, quiet });
-  const sectionPage = (scope: "all" | IndexAccount, k: string, label: string, hint?: string) =>
+  const sectionPage = (scope: "all" | IndexAccount, k: string, label: string, hint?: string, kw?: Key) =>
     add({
-      id: "sec", tab: scope === "all" ? "mb:all" : `mb:${scope.id}`, section: k, kind: "page", label, hint,
+      id: "sec", tab: scope === "all" ? "mb:all" : `mb:${scope.id}`, section: k, kind: "page", label, hint, kw,
       path: [scope === "all" ? allAccounts : scope.email], quiet,
     });
   const S = (k: string, id: string, label: Key, hint?: Key | { text: string }, extra: Partial<Def> = {}) =>
@@ -244,7 +244,7 @@ export function buildIndex(ctx: IndexCtx): Entry[] {
   S("composing", "miniToolbar", "settings.composing.miniToolbar", "settings.composing.miniToolbarHint");
   sectionPage("all", "signatures", sec("signatures"));
   sectionPage("all", "templates", sec("templates"));
-  sectionPage("all", "filters", sec("filters"), t(filtersIntroKey(ctx.tray)));
+  sectionPage("all", "filters", sec("filters"), t(filtersIntroKey(ctx.tray)), "settings.kw.rules"); // (1.0.8) found by Rules, the old word Filters, "rule" and "filter" in every language
   sectionPage("all", "notifications", sec("notifications"));
   S("notifications", "notifyDesktop", "settings.notify.desktop", undefined, { kw: "settings.kw.desktopNotify" });
   S("notifications", "smartNotify", "settings.notify.smart", "settings.notify.smartHint");

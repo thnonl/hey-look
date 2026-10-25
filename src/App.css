@@ -1725,3 +1725,28 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 .reader-state { margin: auto; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 24px; text-align: center; max-width: 34em; }
 .reader-state p { margin: 0; overflow-wrap: anywhere; }
 .reader-state-actions { display: flex; gap: 8px; }
+
+/* the rule dialog (1.0.8): conditions, suggested words, the folder picker; existing tokens only */
+.rd-form { gap: 4px; }
+.rd-head { font-size: .86em; color: var(--muted); margin-top: 10px; }
+.rd-conds { display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow-y: auto; padding: 2px 2px 2px 0; }
+.rd-item { display: flex; flex-direction: column; gap: 4px; }
+.rd-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.rd-row select { max-width: 11em; min-width: 0; }
+.rd-row input:not([type="checkbox"]) { flex: 1 1 10em; min-width: 0; }
+.rd-on, .rd-check input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; flex: none; }
+.rd-static { white-space: nowrap; padding: 0 4px; }
+.rd-link { align-self: flex-start; margin-left: 24px; font-size: .9em; }
+.rd-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: 24px; }
+.rd-chips-lbl { font-size: .86em; }
+.rd-chips-hint { flex-basis: 100%; }
+.rd-chips .sb-chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rd-do { display: flex; flex-wrap: wrap; gap: 8px; }
+.rd-do select { min-width: 0; max-width: 100%; flex: 1 1 12em; }
+.rd-now { margin-top: 12px; }
+.rd-check { display: flex; align-items: flex-start; gap: 8px; color: var(--fg); font-size: .92em; cursor: pointer; }
+.rd-check input { margin-top: 2px; }
+.rd-actions { justify-content: flex-end; position: sticky; bottom: -16px; background: var(--bg); padding: 10px 0 2px; margin-top: 12px; }
+.rd-actions .btn { display: inline-flex; align-items: center; gap: 6px; }
+.rd-actions .btn[aria-busy="true"] { cursor: progress; }
+.list-row .btn.small { flex: none; white-space: nowrap; }

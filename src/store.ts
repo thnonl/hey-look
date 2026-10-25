@@ -22,6 +22,7 @@ import { AdvanceTracker, startAdvance } from "./autoAdvance";
 import type { Importance } from "./importance";
 import type { MeetingWire } from "./meetingDraft";
 import { accountsOf, canMoveToJunk, JUNK_ACTIONS } from "./junk";
+import type { RuleSource } from "./ruleSource";
 import { addToast, lazyText, refreshed, toastTexts, trimToasts, type Lazy } from "./toastStack";
 import { mayOpenMail, selectionAfterCompose } from "./composeSelection";
 import { leaveCompose as leaveComposePane, nothingToKeep, type ComposeProbe, type SavedDraft } from "./leaveCompose";
@@ -143,7 +144,7 @@ export interface EventInit {
 
 export type Dialog =
   | null
-  | { type: "settings"; tab?: string; focus?: string; nonce?: number }
+  | { type: "settings"; tab?: string; focus?: string; /** a section of a mailbox page: "filters" is Rules */ section?: string; nonce?: number }
   | { type: "cleaner" }
   | { type: "original"; messageId: string }
   | { type: "pgp-generate"; accountId?: string; back?: string }
@@ -151,7 +152,9 @@ export type Dialog =
   | { type: "pgp-key"; fingerprint: string; back?: string }
   | { type: "event"; eventId?: string; init?: EventInit; scope?: "occurrence" | "following" | "series"; occurrenceStart?: number | null }
   /** (W13.10) New folder (`parentKey` null) / New subfolder (the key of the folder it goes under) in a mailbox */
-  | { type: "folder-new"; accountId: string; parentKey: string | null };
+  | { type: "folder-new"; accountId: string; parentKey: string | null }
+  /** (1.0.8) Create rule from a message: the dialog starts with the sender, the subject and suggested words of `source` */
+  | { type: "rule"; source: RuleSource };
 
 /** Why a PGP key has to be unlocked right now (the title of the passphrase prompt). */
 export type UnlockReason = "sign" | "decrypt" | "draft" | "schedule";
@@ -1516,7 +1519,7 @@ export const useStore = create<State>((set, get) => ({
   setDialog: (dialog) => {
     // while the Settings window exists every way of opening Settings (the gear, the command bar, a toast, the links of other windows) brings that window to the front on the asked tab
     if (dialog?.type === "settings" && settingsTarget(settingsWindowOpen()) === "window") {
-      void import("./popout/open").then((m) => m.openPopout("settings", SETTINGS_KEY, { tab: dialog.tab, focus: dialog.focus, nonce: dialog.nonce ?? Date.now() }));
+      void import("./popout/open").then((m) => m.openPopout("settings", SETTINGS_KEY, { tab: dialog.tab, focus: dialog.focus, section: dialog.section, nonce: dialog.nonce ?? Date.now() }));
       return;
     }
     set({ dialog });

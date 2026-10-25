@@ -140,6 +140,7 @@ export default define({
 
     // right-click menu of a list row
     "mail.ctx.copySubject": "Copy subject",
+    "mail.ctx.createRule": "Create rule…",
     "mail.ctx.searchSelection": "Search mail for “{text}”",
     "mail.ctx.copyEmail": "Copy email address",
     "mail.ctx.selectAll": "Select all",
@@ -151,6 +152,7 @@ export default define({
     // reordering the mailboxes (folder pane, Settings)
     "mail.acct.moveUp": "Move up",
     "mail.acct.moveDown": "Move down",
+    "mail.acct.manageRules": "Manage rules…",
     "mail.acct.drag": "Drag to reorder {email}",
     "mail.acct.moved": "{email} moved to position {n} of {total}",
     "mail.acct.cancelled": "Reordering cancelled",

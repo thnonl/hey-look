@@ -134,6 +134,7 @@ export default defineLocale<typeof ns.en>({
 
   // right-click menu of a list row
   "mail.ctx.copySubject": "Copier l’objet",
+  "mail.ctx.createRule": "Créer une règle…",
   "mail.ctx.searchSelection": "Rechercher « {text} » dans les messages",
   "mail.ctx.copyEmail": "Copier l’adresse e-mail",
   "mail.ctx.selectAll": "Tout sélectionner",
@@ -145,6 +146,7 @@ export default defineLocale<typeof ns.en>({
   // reordering the mailboxes (folder pane, Settings)
   "mail.acct.moveUp": "Déplacer vers le haut",
   "mail.acct.moveDown": "Déplacer vers le bas",
+  "mail.acct.manageRules": "Gérer les règles…",
   "mail.acct.drag": "Faire glisser pour réorganiser {email}",
   "mail.acct.moved": "{email} déplacé en position {n} sur {total}",
   "mail.acct.cancelled": "Réorganisation annulée",

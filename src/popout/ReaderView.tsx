@@ -33,6 +33,7 @@ import { aiReady, clearAiProblem, showAiNotSetUp, showAiProblem } from "../aiGui
 import { summaryBody } from "../summaryText";
 import { configureDates, fmtFull, snoozePresets, subjectText } from "../util";
 import { senderOf } from "../rowMenu";
+import { openRuleForThread } from "../ruleOpen";
 import { askMain, cancelRunningTranslations, installReaderBridge, requester } from "./readerBridge";
 import {
   allowedWhenGone, isFlagged, isGone, isUnread, markReadPlan, neighborsOf, readerInit, readerKey, readerTitleText, threadScope, withWanted,
@@ -513,6 +514,7 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
             { label: t("reading.msg.print"), disabled: conf || printing, onClick: printLast },
             { label: t("reading.msg.createEvent"), disabled: !last, onClick: () => last && useStore.getState().setDialog({ type: "event", init: { summary: last.subject.replace(/^((re|fwd?):\s*)+/i, ""), description: conf ? "" : (last.text ?? "").trim().slice(0, 1500) } }) },
             { label: t("reading.msg.copySender"), disabled: !sender, onClick: () => sender && void copyToClipboard(sender).then((ok) => (ok ? useStore.getState().showToast(t("reading.msg.copied")) : useStore.getState().showToast(() => t("mail.ctx.copyFailed"), undefined, "error"))) },
+            { label: t("mail.ctx.createRule"), disabled: !last, onClick: () => openRuleForThread(messages) },
             { divider: true },
             ...TRANSLATE_TO.map((l) => ({ label: t("reading.msg.translateTo", { lang: t(l.key) }), disabled: conf || !last || needsCard(last), title: last && needsCard(last) ? t("reading.ai.unlockThis") : conf ? t("reading.ai.noConfidential") : undefined, onClick: () => last && translateMessage(last, l) })),
           ]}

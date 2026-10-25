@@ -29,6 +29,8 @@ const quiet = () => undefined;
 interface Nav {
   tab?: string;
   focus?: string;
+  /** a section of a mailbox page (Rules = "filters") */
+  section?: MbTab;
   nonce: number;
 }
 
@@ -38,7 +40,7 @@ export default function SettingsView({ init, label }: PopoutViewProps) {
     const r = init && typeof init === "object" ? (init as Record<string, unknown>) : {};
     return { ...refocusOf(r), section: typeof r.section === "string" ? (r.section as MbTab) : undefined };
   }, [init]);
-  const [nav, setNav] = useState<Nav>({ tab: first.tab, focus: first.focus, nonce: 0 });
+  const [nav, setNav] = useState<Nav>({ tab: first.tab, focus: first.focus, section: first.section, nonce: 0 });
   const dialog = useStore((s) => s.dialog);
 
   useEffect(() => {
@@ -62,7 +64,7 @@ export default function SettingsView({ init, label }: PopoutViewProps) {
       // Settings asked for again from inside (a link of a text, a PGP dialog's "back"): this window goes to the tab; the other dialogs open on top of the page
       setDialog: (d) => {
         if (d && d.type === "settings") {
-          setNav({ tab: d.tab, focus: d.focus, nonce: d.nonce ?? Date.now() });
+          setNav({ tab: d.tab, focus: d.focus, section: d.section as MbTab | undefined, nonce: d.nonce ?? Date.now() });
           useStore.setState({ dialog: null });
         } else useStore.setState({ dialog: d });
       },
@@ -95,7 +97,7 @@ export default function SettingsView({ init, label }: PopoutViewProps) {
     const subs = [
       listen("popout-refocus", (e) => {
         const r = refocusOf(e.payload);
-        setNav({ tab: r.tab, focus: r.focus, nonce: Date.now() });
+        setNav({ tab: r.tab, focus: r.focus, section: r.section as MbTab | undefined, nonce: Date.now() });
       }),
       listen<{ what?: string; from?: string }>("data-changed", (e) => {
         if (e.payload?.from !== label && (e.payload?.what === "accounts" || e.payload?.what === "calendar")) void load();
@@ -110,7 +112,7 @@ export default function SettingsView({ init, label }: PopoutViewProps) {
 
   return (
     <div data-popout="settings">
-      <LazySettingsWindowForm initial={nav.tab} focus={nav.focus} nonce={nav.nonce} section={first.section} windowed />
+      <LazySettingsWindowForm initial={nav.tab} focus={nav.focus} nonce={nav.nonce} section={nav.section} windowed />
       {/* the dialogs of Settings open on top of the page, inside this window */}
       {dialog?.type === "pgp-generate" && <LazyGenerateKeyDialog accountId={dialog.accountId} back={dialog.back} />}
       {dialog?.type === "pgp-import" && <LazyImportKeyDialog armored={dialog.armored} paste={dialog.paste} back={dialog.back} />}

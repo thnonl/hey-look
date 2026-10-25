@@ -46,6 +46,9 @@ async function run(env: Envelope): Promise<unknown> {
     case "toast":
       st.showToast(p.text, undefined, p.level); // i18n-ok: made by the event window, in the language in use
       return null;
+    case "rule-run":
+      await (await import("../ruleRun")).runRule(p.rule, p.folder);
+      return null;
     case "refresh":
       void st.refresh();
       return null;

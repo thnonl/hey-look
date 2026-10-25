@@ -393,14 +393,14 @@ fn a_filter_does_not_create_folders_and_keeps_the_old_message() {
         // REQ-52 / AC-66: the filter fails visibly, the message stays; now after a fresh look at the server
         let (db, acc) = setup("f14-filter", NO_ARCHIVE, &[1]);
         let fake = Fake::start(&[("INBOX", &[1])]);
-        let rules = vec![Rule { id: "r".into(), name: "QA-M8".into(), field: "subject".into(), op: "contains".into(), value: "hello".into(), action: "archive".into(), arg: None, enabled: true, account_id: None }];
-        let msgs = vec![("t1".to_string(), "peer@example.com".to_string(), String::new(), "hello".to_string())];
+        let rules = vec![Rule::basic("QA-M8", "subject", "hello", "archive")];
+        let msgs = vec![RuleInput::basic("t1", "peer@example.com", "hello")];
         let out = apply_rules(&rules, &msgs, &mut |r, tid| {
             let uid: u32 = tid[1..].parse().unwrap();
             run(&db, &acc, &fake, uid, &r.action, false)
         });
         assert!(out.moved.is_empty());
-        assert_eq!(out.errors, vec!["Filter “QA-M8” couldn’t run on new mail: no 'archive' folder on this account".to_string()]);
+        assert_eq!(out.errors, vec![("QA-M8".to_string(), "no 'archive' folder on this account".to_string())]);
         assert_eq!(sent(&fake, "CREATE"), 0);
         assert_eq!(fake.uids("INBOX"), Some(vec![1]));
         assert_eq!(local_folder(&db, 1).as_deref(), Some("inbox"));
@@ -409,6 +409,30 @@ fn a_filter_does_not_create_folders_and_keeps_the_old_message() {
         let out = apply_rules(&rules, &msgs, &mut |r, _| run(&db, &acc, &fake, 1, &r.action, false));
         assert!(out.errors.is_empty() && out.moved.contains("t1"), "{:?}", out.errors);
         assert_eq!(fake.uids("Archive").map(|u| u.len()), Some(1));
+    });
+}
+
+/// 1.0.8: a rule with two conditions (the sender AND a word of the body) moves a new mail through the real action code; a mail that meets only one stays.
+#[test]
+fn a_rule_with_two_conditions_moves_a_new_mail() {
+    test_guard::within(60, || {
+        let (db, acc) = setup("rules-two", r#"{"inbox":"INBOX","sent":"Sent","archive":"Archive"}"#, &[1, 2]);
+        let fake = Fake::start(&[("INBOX", &[1, 2]), ("Sent", &[]), ("Archive", &[])]);
+        let mut rule = Rule::basic("Two", "from", "x", "archive");
+        rule.conditions = vec![
+            mailrules::Cond { field: "from".into(), op: "contains".into(), values: vec!["@example.com".into()] },
+            mailrules::Cond { field: "subjectBody".into(), op: "contains".into(), values: vec!["receipt".into(), "hoa don".into()] },
+        ];
+        let mail = |tid: &str, body: &str| RuleInput { tid: tid.into(), mail: mailrules::MailIn { from_email: "peer@example.com".into(), subject: "hello".into(), body: body.into(), ..Default::default() } };
+        let msgs = vec![mail("t1", "Your Hóa đơn is here"), mail("t2", "nothing to see")];
+        let out = apply_rules(&[rule], &msgs, &mut |r, tid| {
+            let uid: u32 = tid[1..].parse().unwrap();
+            run(&db, &acc, &fake, uid, &r.action, false)
+        });
+        assert!(out.errors.is_empty(), "{:?}", out.errors);
+        assert_eq!(out.moved_to, vec![("t1".to_string(), "archive".to_string())]);
+        assert_eq!(fake.uids("Archive").map(|u| u.len()), Some(1));
+        assert_eq!(fake.uids("INBOX"), Some(vec![2]));
     });
 }
 

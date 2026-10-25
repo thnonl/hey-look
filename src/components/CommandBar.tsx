@@ -10,6 +10,7 @@ import { commandsFor } from "../mailControls";
 import { openReader } from "../popout/openReader";
 import { readerAllowed } from "../popout/readerLogic";
 import { useUpdates } from "../updates";
+import { openRuleForThread } from "../ruleOpen";
 
 interface Cmd {
   /** stable name of the command (the English wording): mailControls keeps the commands of the no-account state by it */
@@ -55,6 +56,8 @@ export function CommandBar() {
       { id: "Calendar: Week view", label: t("app.cmd.calWeek"), run: () => (s.setModule("calendar"), s.setCalView("week")) },
       { id: "Calendar: Agenda view", label: t("app.cmd.calAgenda"), run: () => (s.setModule("calendar"), s.setCalView("agenda")) },
       { id: "Open settings", label: t("app.cmd.openSettings"), run: () => s.setDialog({ type: "settings" }) },
+      // (1.0.8) Settings > Mailboxes > Rules: of the mailbox shown, else of All accounts
+      { id: "Manage rules", label: t("app.cmd.manageRules"), run: () => s.setDialog({ type: "settings", tab: s.accountId ? `mb:${s.accountId}` : "mb:all", section: "filters", nonce: Date.now() }) },
       { id: "Check for updates", label: t("app.cmd.checkUpdates"), run: () => useUpdates.getState().openSettingsAbout(true) },
       { id: "Sweep: clean up by sender", label: t("app.cmd.sweep"), run: () => s.setDialog({ type: "cleaner" }) },
       { id: "Theme: light", label: t("app.cmd.themeLight"), run: () => s.setPrefs({ theme: "light" }) },
@@ -71,6 +74,7 @@ export function CommandBar() {
     ];
     if (ids.length)
       list.push(
+        ...(s.messages.length > 0 && s.folder !== "drafts" ? [{ id: "Create rule from this message", label: t("app.cmd.createRule"), run: () => openRuleForThread(s.messages) }] : []),
         { id: "Archive conversation", label: t("app.cmd.archive"), run: () => void s.act(ids, "archive", undefined, () => t("mail.done.archived")) },
         ...(cur && readerAllowed(s.folder, cur.folder) ? [{ id: "Open in new window", label: t("app.cmd.openInWindow"), run: () => void openReader(cur, s.folder) }] : []),
         { id: "Delete conversation", label: t("app.cmd.delete"), run: () => void s.act(ids, "trash", undefined, () => t("mail.done.trashed")) },

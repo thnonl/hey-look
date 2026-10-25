@@ -68,9 +68,9 @@ export function settingsTarget(windowOpen: boolean): "window" | "dialog" {
 }
 
 /** What the Settings window is told when it is asked for again (`popout-refocus`): the tab and the focus target of the dialog that was meant, read defensively. */
-export function refocusOf(raw: unknown): { tab?: string; focus?: string } {
+export function refocusOf(raw: unknown): { tab?: string; focus?: string; section?: string } {
   const r = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
-  return { tab: typeof r.tab === "string" ? r.tab : undefined, focus: typeof r.focus === "string" ? r.focus : undefined };
+  return { tab: typeof r.tab === "string" ? r.tab : undefined, focus: typeof r.focus === "string" ? r.focus : undefined, section: typeof r.section === "string" ? r.section : undefined };
 }
 
 /** A mutation in one window of what other windows show (accounts, signatures ...): the part of the data that changed, sent as `data-changed` (REQ-4.6.4). */
@@ -81,7 +81,7 @@ export const DATA_CHANGING: Readonly<Record<string, DataChange>> = {
   add_account: "accounts", update_account: "accounts", remove_account: "accounts",
   save_signature: "signatures", delete_signature: "signatures",
   save_template: "templates", delete_template: "templates",
-  save_rule: "rules", delete_rule: "rules",
+  save_rule: "rules", delete_rule: "rules", move_rule: "rules",
   pgp_generate_key: "pgp", pgp_import_key: "pgp", pgp_import_from_message: "pgp", pgp_delete_key: "pgp", pgp_set_default: "pgp", pgp_set_verified: "pgp", pgp_set_expiry: "pgp", pgp_change_passphrase: "pgp",
   calendar_connect: "calendar", calendar_disconnect: "calendar", calendar_set_sync: "calendar", calendar_set_visible: "calendar",
 };

@@ -133,6 +133,7 @@ export default defineLocale<typeof ns.en>({
   "mail.folder.subfolders": "{name}的子文件夹",
   // right-click menu of a list row
   "mail.ctx.copySubject": "复制主题",
+  "mail.ctx.createRule": "创建规则…",
   "mail.ctx.searchSelection": "在邮件中搜索“{text}”",
   "mail.ctx.copyEmail": "复制电子邮件地址",
   "mail.ctx.selectAll": "全选",
@@ -143,6 +144,7 @@ export default defineLocale<typeof ns.en>({
   // reordering the mailboxes (folder pane, Settings)
   "mail.acct.moveUp": "上移",
   "mail.acct.moveDown": "下移",
+  "mail.acct.manageRules": "管理规则…",
   "mail.acct.drag": "拖动以调整{email}的顺序",
   "mail.acct.moved": "{email}已移到第{n}位，共{total}位",
   "mail.acct.cancelled": "已取消重新排序",

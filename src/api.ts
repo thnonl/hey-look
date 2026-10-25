@@ -400,16 +400,38 @@ export interface SenderInfo {
   lastDate: number;
 }
 
+/** The fields a rule condition looks at; `any` = sender, recipients or subject; `list` (the mailing list) is not offered yet. */
+export type RuleField = "from" | "to" | "subject" | "body" | "subjectBody" | "any";
+
+/** One condition of a rule: `op` is "contains" or "equals" ("is exactly"; Body and Subject or body only have "contains"); any of `values` matches. */
+export interface RuleCond {
+  field: RuleField;
+  op: "contains" | "equals";
+  values: string[];
+}
+
 export interface Rule {
   id: string;
   accountId?: string | null; // null = all accounts
   name: string;
-  field: "from" | "to" | "subject" | "any";
-  op: "contains" | "equals";
-  value: string;
+  /** the columns of 1.0.7 and older builds: the backend fills them when it saves `conditions`; read `conditions` */
+  field?: string;
+  op?: string;
+  value?: string;
+  /** all of them must match */
+  conditions: RuleCond[];
   action: "archive" | "trash" | "junk" | "read" | "star" | "pin" | "move";
   arg: string | null;
   enabled: boolean;
+  /** the place in the one ordered list the rules run in (set by the backend) */
+  position?: number;
+}
+
+/** The mail of a folder that a rule matches: how many conversations, whether only the newest 5,000 messages were looked at, and (for `ruleTargets`) which, per mailbox. */
+export interface RuleScan {
+  n: number;
+  capped: boolean;
+  groups: { accountId: string; threadIds: string[] }[];
 }
 
 export interface NewMsg {
@@ -743,6 +765,9 @@ export const api = {
   listRules: () => invoke<Rule[]>("list_rules"),
   saveRule: (rule: Rule) => invoke<void>("save_rule", { rule }),
   deleteRule: (id: string) => invoke<void>("delete_rule", { id }),
+  moveRule: (id: string, down: boolean) => invoke<void>("move_rule", { id, down }),
+  ruleCount: (rule: Rule, folder: string) => invoke<RuleScan>("rule_count", { rule, folder }),
+  ruleTargets: (rule: Rule, folder: string) => invoke<RuleScan>("rule_targets", { rule, folder }),
   getRaw: (messageId: string) => invoke<string>("get_raw", { messageId }),
   replyHeaders: (messageId: string) => invoke<ReplyHeaders>("reply_headers", { messageId }),
   saveAttachments: (messageId: string, index?: number) =>

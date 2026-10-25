@@ -34,7 +34,7 @@ import { recoverUnsaved, reshowRecoveryToast } from "./composeRecovery";
 import { composeSwallowsAppKey, inEditable, keyAction, moduleSwitchKey, sidebarToggleKey } from "./composeKeys";
 import { MIN_READER_W, RAIL_W, SPLITTER_W, listHiddenWhileComposing, sidebarLayout } from "./sidebarState";
 import { toggleSidebarNow, useWindowWidth } from "./useSidebar";
-import { installEditorIntent, LazyBulkCleaner, LazyCalendarView, LazyCompose, LazyEventDialog, LazyFolderDialog, LazyGenerateKeyDialog, LazyImportKeyDialog, LazyKeyDetailsDialog, LazySettings, LazyShowOriginal, prefetchEditor, prefetchEditorWhenIdle } from "./lazyViews";
+import { installEditorIntent, LazyBulkCleaner, LazyCalendarView, LazyCompose, LazyEventDialog, LazyFolderDialog, LazyGenerateKeyDialog, LazyImportKeyDialog, LazyKeyDetailsDialog, LazyRuleDialog, LazySettings, LazyShowOriginal, prefetchEditor, prefetchEditorWhenIdle } from "./lazyViews";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
@@ -292,8 +292,11 @@ function App() {
         const n = e.payload.count;
         useStore.getState().showToast(t("app.toast.leftover", { n }), undefined, "success");
       }),
-      // a filter whose action failed on new mail (once per filter and error per run, REQ-52)
-      listen<string>("filter-failed", (e) => useStore.getState().showToast(e.payload, undefined, "error")), // i18n-ok: the text comes from the backend
+      // a rule whose action failed on new mail (once per rule and error per run, REQ-52); the text is made here, in the language of the app
+      listen<{ name: string; error: string }>("rule-failed", (e) => {
+        const { name, error } = e.payload;
+        useStore.getState().showToast(() => (name ? t("settings.rules.failed", { name, error }) : t("settings.rules.failedNoName", { error })), undefined, "error");
+      }),
       listen<{ count: number }>("outbox-catchup", (e) => {
         const st = useStore.getState();
         st.showToast(() => catchupText(e.payload.count), undefined, "success", [
@@ -527,9 +530,10 @@ function App() {
         <Welcome />
       )}
       {/* the big dialogs are parts of their own, loaded when one opens (lazyViews.tsx): the frame of the dialog is there at once */}
-      {dialog?.type === "settings" && <LazySettings initial={dialog.tab} focus={dialog.focus} nonce={dialog.nonce} />}
+      {dialog?.type === "settings" && <LazySettings initial={dialog.tab} focus={dialog.focus} section={dialog.section as React.ComponentProps<typeof LazySettings>["section"]} nonce={dialog.nonce} />}
       {dialog?.type === "cleaner" && <LazyBulkCleaner />}
       {dialog?.type === "folder-new" && <LazyFolderDialog key={`${dialog.accountId}|${dialog.parentKey ?? ""}`} accountId={dialog.accountId} parentKey={dialog.parentKey} />}
+      {dialog?.type === "rule" && <LazyRuleDialog key={`${dialog.source.accountId}|${dialog.source.fromEmail}|${dialog.source.subject}`} source={dialog.source} scope={dialog.source.accountId} onClose={() => useStore.getState().setDialog(null)} />}
       {dialog?.type === "original" && <LazyShowOriginal messageId={dialog.messageId} />}
       {dialog?.type === "pgp-generate" && <LazyGenerateKeyDialog accountId={dialog.accountId} back={dialog.back} />}
       {dialog?.type === "pgp-import" && <LazyImportKeyDialog armored={dialog.armored} paste={dialog.paste} back={dialog.back} />}

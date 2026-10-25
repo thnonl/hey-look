@@ -36,7 +36,7 @@ export interface MenuThread {
 export type RowAction =
   | "openWindow" | "reply" | "replyAll" | "forward"
   | "read" | "flag" | "pin" | "snooze" | "move"
-  | "archive" | "delete" | "junk"
+  | "archive" | "delete" | "junk" | "createRule"
   | "copySender" | "copySubject";
 
 /** Why an entry is off: `many` (it needs exactly one conversation), `mailbox` (the conversations are in several mailboxes), `junk` (no Junk folder), `draft` (a draft is edited, not answered), `confidential` (cannot be forwarded). */
@@ -85,6 +85,7 @@ export function rowMenu(threads: readonly MenuThread[], ctx: { view: string; fol
     { action: "archive" },
     { action: "delete", variant: ctx.view === "trash" ? "permanent" : "trash" },
     { action: "junk", ...(noJunk ? { off: "junk" as Off } : {}) },
+    answer("createRule"), // (1.0.8) one conversation, not a draft: the rule dialog starts from its sender, subject and words
     "-",
     { action: "copySender", ...(one ? {} : { off: "many" as Off }) },
     { action: "copySubject", ...(one ? {} : { off: "many" as Off }) },
