@@ -16,6 +16,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { sleep, startHarness } from './cdp-harness.mjs';
+import { QUOTE_PROBE_JS } from './lib/reply-images-probe.mjs';
 
 const H = await startHarness('test-reply-images', { vitePort0: 5890 });
 const { evaluate } = H;
@@ -39,21 +40,7 @@ const FIXTURES = `(() => {
   return true;
 })()`;
 
-/** The quote block: its pictures (with their state), boxes, the note and the buttons. */
-const QUOTE = `(() => {
-  const host = document.querySelector('.compose-pane .quote-host');
-  const root = host && host.shadowRoot;
-  if (!root) return null;
-  const note = document.querySelector('.compose-pane .quote-note');
-  return JSON.stringify({
-    imgs: [...root.querySelectorAll('img')].map((i) => ({ data: (i.getAttribute('src') || '').startsWith('data:'), w: i.naturalWidth, ok: i.complete && i.naturalWidth > 0 })),
-    boxes: [...root.querySelectorAll('.hl-bp')].map((b) => ({ alt: b.textContent, w: Math.round(b.getBoundingClientRect().width), h: Math.round(b.getBoundingClientRect().height), pending: b.hasAttribute('data-pending') })),
-    note: note && !note.hidden ? note.textContent.replace(/\\s+/g, ' ').trim() : null,
-    load: !!(note && note.querySelector('button[data-act="load"]')),
-    external: [...root.querySelectorAll('[src]')].filter((e) => /^https?:/i.test(e.getAttribute('src'))).length,
-  });
-})()`;
-const quote = async () => JSON.parse(await evaluate(QUOTE));
+const quote = async () => JSON.parse(await evaluate(QUOTE_PROBE_JS));
 const calls = async () => JSON.parse(await evaluate(`JSON.stringify(window.__remoteFetchCalls || [])`));
 const paneReady = `(() => { const p = document.querySelector('.compose-pane'); return !!p && !p.classList.contains('preparing') && !!p.querySelector('.cp-editor .tiptap .quote-block') && !!p.querySelector('.quote-host')?.shadowRoot?.querySelector('.q > *'); })()`;
 
@@ -105,6 +92,7 @@ try {
       const q = await quote();
       assert.equal(q.imgs.length, 0, 'no <img> without an address');
       assert.deepEqual(q.boxes.map((b) => [b.w, b.h]), [[32, 48], [56, 56], [24, 24], [16, 16], [24, 24]], `boxes ${JSON.stringify(q.boxes)}`);
+      assert.ok(q.boxes.every((b) => b.icon), 'every box has the reading pane icon');
       assert.deepEqual(q.boxes.map((b) => b.alt), ['GitHub', '', 'deploy', 'annotations for Pages / deploy', 'apt-live-check']);
       assert.match(q.note ?? '', /Pictures from the web are not loaded/);
       assert.ok(q.load, 'a "Load content" button in the note');
@@ -118,7 +106,7 @@ try {
     await evaluate(`document.querySelector('.compose-pane .quote-note button[data-act="load"]').click(); 1`);
     assert.ok(await waitFor(`(() => { const r = document.querySelector('.compose-pane .quote-host')?.shadowRoot; return !!r && r.querySelectorAll('img').length === 5; })()`, 8000), 'the pictures did not come in');
     const q = await quote();
-    assert.ok(q.imgs.every((i) => i.data && i.ok), `every picture is a loaded data: copy ${JSON.stringify(q.imgs)}`);
+    assert.ok(q.imgs.every((i) => i.data && i.loaded), `every picture is a loaded data: copy ${JSON.stringify(q.imgs)}`);
     assert.equal(q.boxes.length, 0);
     assert.equal(q.note, null, 'no note once they are shown');
     assert.equal(q.external, 0, 'the webview never holds an https address');
@@ -162,7 +150,7 @@ try {
     await answer('ri-mixed', 'Reply');
     const q = await quote();
     assert.equal(q.imgs.length, 1);
-    assert.ok(q.imgs[0].data && q.imgs[0].ok, 'the inline picture');
+    assert.ok(q.imgs[0].data && q.imgs[0].loaded, 'the inline picture');
     assert.equal(q.boxes.length, 2);
     assert.ok(q.load);
   });
@@ -171,7 +159,7 @@ try {
     assert.ok(await waitFor(`document.querySelector('.compose-pane .quote-host')?.shadowRoot?.querySelectorAll('img').length === 2`, 8000), 'the pictures did not come in');
     await sleep(500);
     const q = await quote();
-    assert.ok(q.imgs.every((i) => i.data && i.ok));
+    assert.ok(q.imgs.every((i) => i.data && i.loaded));
     assert.deepEqual(q.boxes.map((b) => [b.alt, b.pending]), [['gone', false]]);
     assert.equal(q.note, null);
     const c = (await calls()).flat().filter((u) => u.includes('unreachable')).length - before;

@@ -13,7 +13,7 @@ export const cachedImage = (url: string): string | undefined => cache.get(url);
 export const hasCachedImage = (url: string): boolean => cache.has(url);
 export const cachedImageCount = (): number => cache.size;
 
-export function cacheImage(url: string, data: string): void {
+function cacheImage(url: string, data: string): void {
   chars -= cache.get(url)?.length ?? 0;
   cache.delete(url);
   cache.set(url, data);

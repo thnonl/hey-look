@@ -255,7 +255,7 @@ export const QuoteBlock = TipNode.create<QuoteOptions>({
         scope.innerHTML = a.kind === "forward" ? shown.html : `<blockquote style="${QUOTE_STYLE}">${shown.html}</blockquote>`;
         boxes(scope);
         // (the note and its button are rebuilt with the text of the moment: the language can change while the message is open)
-        note.replaceChildren();
+        note.textContent = "";
         if (shown.blocked) {
           const more = document.createElement("button");
           more.type = "button";
