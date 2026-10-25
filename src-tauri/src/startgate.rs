@@ -335,6 +335,14 @@ pub fn start(app: &AppHandle, show_at_start: bool) {
             None => Err(tauri::Error::Io(std::io::Error::other("no window in the config"))),
         };
         CREATED.store(true, Ordering::SeqCst);
+        // a tray start's window is parked at once, off every monitor: a window that was never shown is drawn white with its shadow by the compositor although it is
+        // hidden, and the person must never see a frame of it (ghost.rs; tao puts a window made at a place that is on no monitor at the system's default place, so it is
+        // moved right after it is made)
+        #[cfg(windows)]
+        if made.is_ok() && !show_at_start && !REQUESTED.load(Ordering::SeqCst) && crate::ghost::park_at_creation() {
+            let moved = crate::ghost::park(&app);
+            crate::startup::line("ghost", &format!("the window of a tray start is parked off-screen right after it was made ({})", if moved { "moved" } else { "could not be moved" }));
+        }
         if let Err(e) = made {
             crate::startfail::fail_start(&format!("the main window could not be created after the start gate: {e}"));
             return;

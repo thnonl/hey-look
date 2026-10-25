@@ -101,6 +101,8 @@ mod startup;
 mod startgate;
 // the autostart entry (its form, its own name for a test copy), the second start that must not show the window, the note for a restart a person is looking at, the tray check
 mod autostart;
+// a hidden window that the compositor still draws (white, with its shadow): tray starts make their window off-screen and look at it, ghost.rs
+mod ghost;
 mod loadfail;
 mod webview_health;
 mod winproc;
@@ -6679,6 +6681,8 @@ pub fn run() {
                 if shell::close_to_tray(&db) {
                     api.prevent_close();
                     let _ = window.hide();
+                    // (a hidden window is looked at: one that the compositor still draws is moved away, ghost.rs)
+                    ghost::watch_hidden(window.app_handle(), "the window was hidden", &[700, 3000]);
                     linuxview::note_hidden();
                     shell::tray_hint_once(window.app_handle(), &db);
                 } else {

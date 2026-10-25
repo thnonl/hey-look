@@ -1101,6 +1101,8 @@ fn on_guard_event(app: &AppHandle, show_at_start: bool, ev: loadfail::Ev) {
                 stage(Some(app), &format!("window shown, page ready after {waited_ms} ms"));
             } else {
                 stage(Some(app), &format!("page ready after {waited_ms} ms, window stays hidden (tray start)"));
+                // the hidden window is looked at: a ghost of it on the screen is moved away (ghost.rs)
+                crate::ghost::watch_hidden(app, "the tray start", &[700, 2500, 9000]);
             }
         }
         Ev::Watch(Event::NoSignal { attempt, will_reload }) => {

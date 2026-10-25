@@ -54,6 +54,8 @@ pub fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let was_hidden = !w.is_visible().unwrap_or(true);
         let was_minimized = w.is_minimized().unwrap_or(false);
+        // a window that a tray start made off-screen goes to the screen first (ghost.rs)
+        crate::ghost::unpark(app);
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();

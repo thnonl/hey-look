@@ -10,6 +10,7 @@
 //   B  the note of a restart that a person was looking at (fresh: the window comes back; an hour old: it stays hidden).
 //   D  the tray icon taken out of the notification area behind the icon library's back (HEYLOOK_TEST_TRAY=drop): the check finds it missing, asks for it again, the icon
 //      comes back and the window stays hidden; with drop-always (asking does nothing) the check gives up after 15 s and the window is shown, not an invisible app.
+//   E  the ghost (a hidden window that the compositor still draws white): the control run (parking off) sees it, the run with the look heals it; A needs it to stay away.
 //   C  the autostart entry (a throw-away registry key, HEYLOOK_TEST_RUN_KEY, never the Run key Windows runs): an entry of this exe in the old form (path not quoted) or
 //      without the flag is written again as `"<exe>" --minimized`; the right one and the entry of another program are left alone.
 //
@@ -51,6 +52,11 @@ const code = (p) => {
   ok("the entry is looked at at every start and after the switch is turned on, in the Windows registry only", run.includes("autostart::ensure_entry();") && /fn set_autostart[\s\S]{0,600}autostart::ensure_entry\(\)/.test(lib) && auto.includes("pub fn ensure_entry() {}") && cargo.includes('"Win32_System_Registry"'));
   ok("only this program's entry is written; the Task Manager switch (StartupApproved) is not touched", auto.includes("Plan::Other =>") && !/StartupApproved/.test(auto.replace(/\/\/.*$/gm, "")));
   ok("a restart that a person is looking at leaves the note (the app's own restart, the update restart) and takes it back when the installer did not start", code("src-tauri/src/startup.rs").includes("crate::autostart::mark_window_wanted(dir, now)") && /if restart && crate::window_shown\(&app\)/.test(code("src-tauri/src/update.rs")) && code("src-tauri/src/update.rs").includes("clear_window_wanted"));
+  const ghost = code("src-tauri/src/ghost.rs");
+  ok("a tray start parks its window right after it is made (off every monitor), so the compositor's white ghost of a never-shown window is not on a screen", gate.includes("and_then(|b| b.build()).map(|_| ())") && gate.includes("crate::ghost::park(&app)") && gate.indexOf("crate::ghost::park(&app)") > gate.indexOf("WebviewWindowBuilder::from_config") && ghost.includes("pub const PARK_AT: f64 = -10_000.0;"));
+  const showMain = code("src-tauri/src/shell.rs");
+  ok("every show of the main window gives a parked window its place back first", showMain.includes("crate::ghost::unpark(app);") && showMain.indexOf("crate::ghost::unpark(app);") < showMain.indexOf("let _ = w.show();", showMain.indexOf("pub fn show_main")) && showMain.indexOf("pub fn show_main") < showMain.indexOf("crate::ghost::unpark(app);"));
+  ok("a hidden window is looked at (a tray start, and after the close button hid it): white desktop points at its place are a ghost, healed by parking, logged", ghost.includes("pub fn is_ghost(") && ghost.includes("healed by parking the window") && code("src-tauri/src/startup.rs").includes('crate::ghost::watch_hidden(app, "the tray start"') && lib.includes('ghost::watch_hidden(window.app_handle(), "the window was hidden"'));
   ok("no new text: the hint under the switch is the existing one", /settings\.tray\.startsMinimized": "Starts minimized to the tray"/.test(read("src/i18n/ns/settings.ts")) && read("src/components/SettingsDialog.tsx").includes("t(startsMinimizedKey(os))"));
   ok("this test is in the CI list", read(".github/node-tests.txt").includes("node scripts/test-autostart-tray.mjs"));
 }
@@ -112,11 +118,18 @@ if (!exe) {
     started.push(p.pid);
     return p;
   };
+  // the screen without a window of anyone: points of the bare desktop that are pure white (white-desktop.ps1); what a read before the app started had is not counted
+  const whiteDesktop = () => PS("white-desktop.ps1", []);
+  const newWhite = (before, after) => {
+    const had = new Set(before.points ?? []);
+    return (after.points ?? []).filter((p) => !had.has(p)).length;
+  };
   const newDir = (tag) => fs.mkdtempSync(path.join(os.tmpdir(), `hl-autostart-${tag}-`));
 
   // ---- A. a tray start ----
   {
     const dir = newDir("a");
+    const before = whiteDesktop();
     const app = start(dir, ["--minimized"]);
     ok("[A] the start says it is a tray start and the window stays hidden", await waitLog(dir, /window stays hidden \(tray start\)/, 0, 90000), logOf(dir).slice(-600));
     ok("[A] the tray icon is confirmed in the notification area", await waitLog(dir, /\[tray \+\d+ ms\] the icon is in the notification area/, 0, 30000), logOf(dir).slice(-600));
@@ -124,6 +137,12 @@ if (!exe) {
       if (at) await sleep(5000);
       const w = windows(app.pid);
       ok(`[A] ${at / 1000} s after the page is ready: no visible window of the process, no taskbar button, the hidden main window exists`, w.visibleCount === 0 && w.taskbarButtons === 0 && w.mainFound === true && w.mainVisible === false, JSON.stringify(w).slice(0, 400));
+    }
+    ok("[A] the window of the tray start was parked off-screen right after it was made", /\[ghost \+\d+ ms\] the window of a tray start is parked off-screen right after it was made \(moved\)/.test(logOf(dir)) && (windows(app.pid).mainLeft ?? 0) < -5000, JSON.stringify(windows(app.pid)).slice(0, 300));
+    if (!locked) {
+      const after = whiteDesktop();
+      ok(`[A] 10 s after the start nothing new is drawn on the desktop (no white ghost of the hidden window: ${newWhite(before, after)} new white points of ${after.desktop})`, after.locked === false && after.desktop > 100 && newWhite(before, after) === 0, JSON.stringify(after).slice(0, 200));
+      ok("[A] the ghost look of the app finds nothing to see (the window is not where the screen is)", /\[ghost \+\d+ ms\] look \d+ ms after the tray start: no point of the window's place shows the desktop/.test(logOf(dir)), logOf(dir).slice(-500));
     }
     // a second start that is itself a tray start
     const from = logOf(dir).length;
@@ -150,8 +169,38 @@ if (!exe) {
       if (!locked) ok("[A] the app's own look found content", /native check at \d+ ms: .*screen: the window shows content/.test(logOf(dir).slice(from2)), logOf(dir).slice(from2).slice(-500));
     }
     await sleep(locked ? 2500 : 0);
-    ok("[A] the window is visible with a taskbar button", windows(app.pid).mainVisible === true && windows(app.pid).taskbarButtons >= 1);
+    const shown = windows(app.pid);
+    ok("[A] the window is visible with a taskbar button, back on the screen (not parked)", shown.mainVisible === true && shown.taskbarButtons >= 1 && shown.mainLeft > -5000, JSON.stringify(shown).slice(0, 300));
+    ok("[A] the parked window got its place back before the show", /\[ghost \+\d+ ms\] the parked window gets its place back .* before it is shown, in \d+ ms/.test(logOf(dir)), logOf(dir).slice(-500));
     await kill(app);
+  }
+
+  // ---- E. the ghost itself: the control (parking off), and the look that heals it ----
+  if (locked) {
+    console.log("NOTE [E] NOT RUN: the lock screen is up, the desktop cannot be read");
+  } else {
+    for (const [what, mode] of [["control (HEYLOOK_TEST_GHOST=keep: no parking, no healing)", "keep"], ["look (HEYLOOK_TEST_GHOST=look: not parked at creation, the looks heal)", "look"]]) {
+      const dir = newDir("e");
+      const before = whiteDesktop();
+      const app = start(dir, ["--minimized"], { HEYLOOK_TEST_GHOST: mode });
+      ok(`[E ${mode}] the tray start keeps its window hidden`, await waitLog(dir, /window stays hidden \(tray start\)/, 0, 90000), logOf(dir).slice(-500));
+      if (mode === "keep") {
+        await sleep(6000);
+        const after = whiteDesktop();
+        const n = newWhite(before, after);
+        ok(`[E keep] ${what}: the ghost is on the screen (${n} new white points, window hidden: ${windows(app.pid).mainVisible === false}), so the read can see it`, n > 30 && windows(app.pid).mainVisible === false, JSON.stringify(windows(app.pid)).slice(0, 300));
+      } else {
+        ok("[E look] a look of the app finds the ghost", await waitLog(dir, /\[ghost \+\d+ ms\] look \d+ ms after the tray start: GHOST: /, 0, 30000), logOf(dir).slice(-700));
+        ok("[E look] and heals it by parking the window", await waitLog(dir, /\[ghost \+\d+ ms\] healed by parking the window \(moved\): /, 0, 30000), logOf(dir).slice(-700));
+        await sleep(3000);
+        const after = whiteDesktop();
+        ok(`[E look] ${what}: nothing new is drawn after the heal (${newWhite(before, after)} new white points)`, newWhite(before, after) === 0 && (windows(app.pid).mainLeft ?? 0) < -5000, JSON.stringify(windows(app.pid)).slice(0, 300));
+        const from = logOf(dir).length;
+        start(dir, []);
+        ok("[E look] a second start shows the healed window on the screen again", await waitLog(dir, /window shown|native check at/, from, 30000) && windows(app.pid).mainVisible === true && windows(app.pid).mainLeft > -5000, JSON.stringify(windows(app.pid)).slice(0, 300));
+      }
+      await kill(app);
+    }
   }
 
   // ---- B. the note of a restart that a person was looking at ----

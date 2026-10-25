@@ -6,6 +6,7 @@
 # JSON: windows = [{ hwnd, class, title, visible, iconic, exStyle, taskbarButton }], visibleCount (windows of the process that are visible AND not tool windows: the ones a
 #       person sees; the single-instance and event-loop helper windows of the process are visible tool windows of no size and are not counted), taskbarButtons (the same count:
 #       what the taskbar would show), mainFound / mainVisible (the window titled "Hey Look!").
+# mainLeft / mainTop: where the main window is (a tray start parks it far off-screen, left < -5000, until it is shown).
 # A tray start: visibleCount 0, taskbarButtons 0, mainVisible false (mainFound is false while the start gate waits for the desktop and true once the hidden window exists).
 param(
   [Parameter(Mandatory = $true)][int]$ProcessId,
@@ -26,6 +27,8 @@ public static class HLWin {
   [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
   [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
   [DllImport("user32.dll", EntryPoint = "GetWindowLongW")] static extern int GetWindowLong(IntPtr h, int i);
+  [StructLayout(LayoutKind.Sequential)] struct RECT { public int L, T, R, B; }
+  [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
   public static List<Dictionary<string, object>> Of(uint pid) {
     var list = new List<Dictionary<string, object>>();
     EnumWindows((h, l) => {
@@ -38,6 +41,7 @@ public static class HLWin {
       var o = new Dictionary<string, object>();
       o["hwnd"] = h.ToInt64(); o["class"] = c.ToString(); o["title"] = t.ToString();
       o["visible"] = vis; o["iconic"] = IsIconic(h); o["exStyle"] = "0x" + ex.ToString("x");
+      RECT rc; GetWindowRect(h, out rc); o["left"] = rc.L; o["top"] = rc.T; o["right"] = rc.R; o["bottom"] = rc.B;
       o["taskbarButton"] = vis && (ex & 0x80) == 0; // WS_EX_TOOLWINDOW
       list.Add(o);
       return true;
@@ -47,11 +51,14 @@ public static class HLWin {
 }
 '@
 $ws = [HLWin]::Of([uint32]$ProcessId)
+$mainRect = @($ws | Where-Object { $_['title'] -eq $Title -and $_['class'] -eq 'Tauri Window' }) | Select-Object -First 1
 $main = @($ws | Where-Object { $_['title'] -eq $Title -and -not ([string]$_['class']).StartsWith('Tao Thread') })
 [ordered]@{
   windows        = @($ws)
   visibleCount   = @($ws | Where-Object { $_['taskbarButton'] }).Count
   taskbarButtons = @($ws | Where-Object { $_['taskbarButton'] }).Count
   mainFound      = $main.Count -gt 0
+  mainLeft       = if ($mainRect) { $mainRect['left'] } else { $null }
+  mainTop        = if ($mainRect) { $mainRect['top'] } else { $null }
   mainVisible    = @($main | Where-Object { $_['visible'] }).Count -gt 0
 } | ConvertTo-Json -Compress -Depth 4
