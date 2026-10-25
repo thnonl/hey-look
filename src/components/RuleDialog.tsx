@@ -273,7 +273,10 @@ export function RuleDialog({ rule, source, scope = null, onClose, onSaved }: Rul
       return;
     }
     showToast(t("settings.filters.saved"), undefined, "success");
-    const run = applyNow && offerRun && scan !== null && scan !== "loading" && scan !== "error" && scan.n > 0;
+    // (the count may still be loading, or fail: it only decides what the label says; the run asks the backend again, with the rule as saved, so a Save right after a change still moves.
+    // Only a count that was settled at 0 skips it: the person was told that nothing matches.)
+    const settledNone = scan !== null && scan !== "loading" && scan !== "error" && scan.n === 0 && !scan.capped;
+    const run = applyNow && offerRun && !settledNone;
     onSaved?.();
     onClose();
     if (run) void runRule(toSave, srcFolder).catch((e) => useStore.getState().showToast(() => t("errors.toast.failed", { error: friendlyError(e) }), undefined, "error"));

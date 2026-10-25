@@ -131,6 +131,42 @@ fn a_queued_move_whose_folder_was_renumbered_moves_nothing() {
     });
 }
 
+/// 1.0.8 (OPEN-1 of the rules QA): an Inbox whose rows are all gone (everything was moved or archived) is not a first sync. The highest UID seen is remembered, the next sync reads
+/// only what is newer and that mail is new mail (rules, notifications); a renumbered folder replaces the value.
+#[test]
+fn an_emptied_folder_remembers_where_the_sync_stopped() {
+    test_guard::within(60, || {
+        let (db, _acc) = setup("uidv-maxuid", "inbox", &[], Some(1));
+        assert_eq!(folderstate::max_uid(&lock(&db), ACC, "inbox"), 0, "nothing recorded: a first sync");
+        folderstate::note_max_uid(&lock(&db), ACC, "inbox", 4467, false).unwrap();
+        folderstate::note_max_uid(&lock(&db), ACC, "inbox", 100, false).unwrap();
+        assert_eq!(folderstate::max_uid(&lock(&db), ACC, "inbox"), 4467, "it only grows");
+        assert_eq!(folderstate::max_uid(&lock(&db), ACC, "archive"), 0, "per folder");
+        // the server has the old message and a new one: with the remembered value only the new one is read, and it is not a "taste"
+        let fake = server(&[("inbox", "INBOX", &[4466, 4467, 4468])]);
+        let known = folderstate::known(folderstate::get(&lock(&db), ACC, "inbox").as_ref(), "INBOX");
+        let mut s = fake.connect();
+        let ff = mail::fetch_folder(&mut s, "INBOX", &known, folderstate::max_uid(&lock(&db), ACC, "inbox"), 0, PAGE).unwrap();
+        let _ = s.logout();
+        assert_eq!(ff.new.iter().map(|p| p.uid).collect::<Vec<_>>(), vec![4468]);
+        assert!(!ff.reset);
+        // renumbered: the value is replaced (also by a smaller one, also by none)
+        folderstate::note_max_uid(&lock(&db), ACC, "inbox", 3, true).unwrap();
+        assert_eq!(folderstate::max_uid(&lock(&db), ACC, "inbox"), 3);
+        folderstate::note_max_uid(&lock(&db), ACC, "inbox", 0, true).unwrap();
+        assert_eq!(folderstate::max_uid(&lock(&db), ACC, "inbox"), 0);
+    });
+}
+
+/// The sync wires it: the highest UID counts with the local rows, and is recorded after every folder.
+#[test]
+fn the_sync_uses_the_remembered_highest_uid() {
+    let src = crate::test_guard::non_test_code(include_str!("lib.rs"));
+    let sync = &src[src.find("fn sync_impl(").unwrap()..src.find("/// What running the rules over new mail came to").unwrap()];
+    assert!(sync.contains("max_uid.max(seen_max)"), "the empty local folder is not a first sync");
+    assert!(sync.contains("folderstate::note_max_uid("), "recorded after the folder");
+}
+
 #[test]
 fn a_renumbered_folder_is_read_again_and_its_old_rows_are_gone() {
     test_guard::within(60, || {

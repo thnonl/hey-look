@@ -259,7 +259,27 @@ try {
     assert.equal(await evaluate(`${S('threads')}.length`), before, 'Undo: all twelve are back');
   });
 
+  await check('BUG-1 Save right after the folder change (the count is still loading) still moves the 12', async () => {
+    await openApp();
+    await evaluate(`${S('setView')}('inbox', 'a1').then(() => 1)`);
+    await sleep(300);
+    const before = await evaluate(`${S('threads')}.length`);
+    await openRuleFrom('tdeals');
+    // the folder is chosen and Save is pressed 50 ms later: the count that the change restarted (400 ms debounce, then the answer) has not come back
+    await setSelect('select[aria-label="Target folder"]', 'archive');
+    await sleep(50);
+    const state = await evaluate(`(() => { const label = document.querySelector('.rd-now'); const text = label ? label.textContent.trim() : null; document.querySelector('.rd-actions .btn.primary').click(); return text; })()`);
+    assert.ok(state === null || !/\b12\b/.test(state), `the label had no count yet: ${state}`);
+    assert.ok(await waitFor(`!document.querySelector('.rd-form')`), 'the dialog closed');
+    assert.ok(await waitFor(`${S('threads')}.length === ${before - 12}`, 6000), 'the twelve left the list although the count was still loading');
+    const t = await toasts();
+    assert.ok(t.some((x) => /moved 12 messages to Archive/.test(x.text || '') && x.undo), J(t));
+  });
+
   await check('AC-7.2 the count follows the condition (the domain form counts the 3 more from news@shop.example)', async () => {
+    await openApp();
+    await evaluate(`${S('setView')}('inbox', 'a1').then(() => 1)`);
+    await sleep(300);
     await openRuleFrom('tdeals');
     assert.ok(await clickEl('.rd-link'));
     await sleep(900);

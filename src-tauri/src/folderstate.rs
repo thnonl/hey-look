@@ -34,6 +34,25 @@ pub fn set(c: &Connection, account_id: &str, role: &str, name: &str, validity: u
     crate::db::set_setting(c, &key(account_id, role), &format!("{validity}\t{name}"))
 }
 
+fn max_key(account_id: &str, role: &str) -> String {
+    format!("maxuid:{account_id}:{role}")
+}
+
+/// The highest UID a sync has seen in a folder (0: none recorded). It is the "where did I stop" of the folder when its local rows are gone: an Inbox that was emptied by moving or
+/// archiving everything (Inbox zero, Run now of a rule) is NOT a folder that was never synced, so the next sync reads only what is newer than this and the mail that arrived is
+/// new mail (notified, and looked at by the rules). Without it the sync took the empty folder for a first sync and read the newest page as a taste (1.0.8, OPEN-1 of the rules QA).
+pub fn max_uid(c: &Connection, account_id: &str, role: &str) -> u32 {
+    crate::db::get_setting(c, &max_key(account_id, role)).and_then(|v| v.parse().ok()).unwrap_or(0)
+}
+
+/// Record the highest UID seen. `reset`: the folder was renumbered, the old value means nothing and is replaced; otherwise it only grows.
+pub fn note_max_uid(c: &Connection, account_id: &str, role: &str, top: u32, reset: bool) -> R<()> {
+    if reset || top > max_uid(c, account_id, role) {
+        crate::db::set_setting(c, &max_key(account_id, role), &top.to_string())?;
+    }
+    Ok(())
+}
+
 /// What a sync knows about a folder before it asks the server.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Known {

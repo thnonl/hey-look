@@ -1005,14 +1005,16 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
         let Some(name) = map.get(&role) else { continue };
         let (max_uid, min_uid, known): (u32, u32, folderstate::Known) = {
             let c = lock(db);
-            let (max_uid, min_uid) = c
+            let seen_max = folderstate::max_uid(&c, account_id, &role);
+            let (max_uid, min_uid): (u32, u32) = c
                 .query_row(
                     "SELECT COALESCE(MAX(uid),0), COALESCE(MIN(uid),0) FROM messages WHERE account_id=?1 AND folder=?2",
                     params![account_id, role],
                     |r| Ok((r.get(0)?, r.get(1)?)),
                 )
                 .map_err(err)?;
-            (max_uid, min_uid, folderstate::known(folderstate::get(&c, account_id, &role).as_ref(), name))
+            // (no local row left, but the folder was read before: where the sync stopped counts, so what arrived since is new mail and not a "first sync")
+            (max_uid.max(seen_max), min_uid, folderstate::known(folderstate::get(&c, account_id, &role).as_ref(), name))
         };
         // (F-16/F-17) flags of messages an action changes while this fetch runs are not written back: see `flagguard`
         let flags_started = flagguard::GUARD.epoch();
@@ -1101,6 +1103,7 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
         if let Some(v) = ff.validity {
             folderstate::set(&c, account_id, &role, name, v)?;
         }
+        folderstate::note_max_uid(&c, account_id, &role, max_uid.max(ff.new.iter().map(|p| p.uid).max().unwrap_or(0)), ff.reset)?;
         c.execute_batch("COMMIT").map_err(err)?;
     }
     let _ = s.logout();
