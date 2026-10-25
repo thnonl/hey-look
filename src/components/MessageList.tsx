@@ -6,9 +6,9 @@ import { useLang, useT } from "../i18n/react";
 import { tx } from "../i18n/rich";
 import { t } from "../i18n";
 import { accountLabel } from "../accountLabel";
-import { ThreadSummary } from "../api";
+import { FolderInfo, ThreadSummary } from "../api";
 import { gmailSearchUrl, webmailQuery, webmailTargets, WebmailTarget } from "../webmail";
-import { accountColor, folderLabel, Prefs } from "../prefs";
+import { accountColor, folderLabelIn, Prefs } from "../prefs";
 import { canPageBack, exhaustedKey, friendlyError, useStore } from "../store";
 import { dateGroup, fmtDate, snoozePresets, subjectText } from "../util";
 import { inlineHasDraft, openDraftInWindow, openDraftThread } from "../draftOpen";
@@ -74,8 +74,11 @@ export interface ThreadRowProps {
 }
 
 /** One conversation in the list. Pure: the real list and the Appearance preview both render it. */
+const NO_FOLDERS: FolderInfo[] = [];
+
 export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColor, accountLabel, hover, onOpen, onOpenWindow, onToggle, posInSet, setSize, inPreview, opening, reservePreview, onDragStart, onDragEnd }: ThreadRowProps) {
   const tr = useT();
+  const folders = useStore((s) => (showFolder ? s.folders : NO_FOLDERS)); // (the folder list names a folder of a search result)
   const who = t.participants.join(", ");
   const dense = prefs.density === "compact";
   return (
@@ -133,7 +136,7 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
         <div className="ml-mid">
           <span className="subject ellipsis">{subjectText(t.subject)}</span>
           <span className="flags">
-            {showFolder && <span className="where">{folderLabel(t.folder)}</span>}
+            {showFolder && <span className="where">{folderLabelIn(folders, t.folder, t.accountId)}</span>}
             {t.count > 1 && prefs.conversations && <span className="count">{t.count}</span>}
             <ImportanceMark level={t.importance} />
             {t.confidential && <ShieldAlert size={12} aria-label={tr("mail.row.confidential")} />}
@@ -248,8 +251,8 @@ export function MessageList({ hidden = false }: { hidden?: boolean } = {}) {
   const reloading = useDelayedFlag(loading && threads.length > 0);
   const ctxMenu = useRowContextMenu(); // right-click / ContextMenu key on a row (components/ListContextMenu.tsx)
   const searching = search.trim().length > 0;
-  const title = searching ? tr("mail.list.searchResults") : folderLabel(folder);
-  const scopeNote = searching ? (searchScope === "all" ? tr("mail.list.scopeAll") : searchScope === "account" ? tr("mail.list.scopeAccount") : tr("mail.list.scopeFolder", { folder: folderLabel(folder) })) : "";
+  const title = searching ? tr("mail.list.searchResults") : folderLabelIn(folders, folder, accountId);
+  const scopeNote = searching ? (searchScope === "all" ? tr("mail.list.scopeAll") : searchScope === "account" ? tr("mail.list.scopeAccount") : tr("mail.list.scopeFolder", { folder: folderLabelIn(folders, folder, accountId) })) : "";
   const showTabs = folder === "inbox" && prefs.focused && !searching;
   /** The search as it is now, in a window of its own; the main window keeps its own (W4.6, REQ-4.6.13). */
   const openSearchWindow = () => {

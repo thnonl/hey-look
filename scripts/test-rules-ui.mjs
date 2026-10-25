@@ -277,6 +277,30 @@ try {
     assert.ok(t.some((x) => /moved 12 messages to Archive/.test(x.text || '') && x.undo), J(t));
   });
 
+  await check('a folder named QA-1.0.8 is named in full in the list header, the rule list and the folder picker (not cut at a dot)', async () => {
+    await openApp();
+    await evaluate(`window.__mockAddFolder('a1', 'QA-1.0.8'); ${S('refresh')}().then(() => 1)`);
+    await sleep(500);
+    await evaluate(`${S('setView')}('f:QA-1.0.8', 'a1').then(() => 1)`);
+    await sleep(500);
+    assert.equal(await evaluate(`(document.querySelector('.ml-head h2, h2.ellipsis') || {}).textContent`), 'QA-1.0.8', 'the header of the list');
+    await evaluate(`${S('setView')}('inbox', 'a1').then(() => 1)`);
+    await sleep(400);
+    await openRuleFrom('tdeals');
+    const d = await dlg();
+    assert.ok(d.folderOpts.includes('QA-1.0.8'), `the picker: ${J(d.folderOpts)}`);
+    await setSelect('select[aria-label="Target folder"]', 'f:QA-1.0.8');
+    await evaluate(`(() => { const c = document.querySelector('.rd-now input[type=checkbox]'); if (c && c.checked) c.click(); return 1; })()`);
+    await clickEl('.rd-actions .btn.primary');
+    assert.ok(await waitFor(`!document.querySelector('.rd-form')`));
+    await evaluate(`${S('setDialog')}({ type: 'settings', tab: 'mb:a1', section: 'filters', nonce: 5 }); 1`);
+    assert.ok(await waitFor(`!!document.querySelector('.list-row .lr-name')`));
+    await sleep(300);
+    const sub = await evaluate(`[...document.querySelectorAll('.list-row .lr-name .muted')].map((x) => x.textContent)`);
+    assert.ok(sub.some((x) => x.includes('→ QA-1.0.8')), `the rule row: ${J(sub)}`);
+    assert.ok(!sub.some((x) => /→ 8$/.test(x)), `cut at a dot: ${J(sub)}`);
+  });
+
   await check('AC-7.2 the count follows the condition (the domain form counts the 3 more from news@shop.example)', async () => {
     await openApp();
     await evaluate(`${S('setView')}('inbox', 'a1').then(() => 1)`);

@@ -6,7 +6,7 @@ import type { Rule, RuleCond, RuleField } from "../api";
 import type { Key } from "../i18n";
 import { useT } from "../i18n/react";
 import { ruleTargetProblem } from "../junk";
-import { folderLabel, folderTitle } from "../prefs";
+import { folderLabel, folderLabelIn, folderTitle } from "../prefs";
 import { moveChoices } from "../rowMenu";
 import { condWords } from "../ruleText";
 import { runRule, runSourceOk } from "../ruleRun";
@@ -145,14 +145,14 @@ export function RuleDialog({ rule, source, scope = null, onClose, onSaved }: Rul
     if (accountId) {
       return moveChoices(folders, accountId, undefined)
         .filter((f) => f.key !== "inbox")
-        .map((f) => ({ key: f.key, text: `${"— ".repeat(f.depth ?? 0)}${f.key.startsWith("f:") ? f.label ?? folderLabel(f.key, f.name) : folderLabel(f.key)}`, title: folderTitle(f, folders) }));
+        .map((f) => ({ key: f.key, text: `${"— ".repeat(f.depth ?? 0)}${f.key.startsWith("f:") ? folderLabelIn(folders, f.key, f.accountId) : folderLabel(f.key)}`, title: folderTitle(f, folders) }));
     }
     const std = ["archive", "junk", "trash"].filter((k) => k !== "junk" || accountIds.some((a) => folders.some((f) => f.accountId === a && f.key === "junk" && f.listed !== false) || !folders.some((f) => f.accountId === a)));
     return std.map((k) => ({ key: k, text: folderLabel(k), title: folderLabel(k) }));
   }, [accountId, folders, accounts]); // eslint-disable-line react-hooks/exhaustive-deps
   const known = options.some((o) => o.key === folderKey);
   // a rule for All mailboxes that points to a folder of the person keeps it shown; a rule whose folder is gone shows "Choose folder" and says so
-  const keptOption = !!folderKey && !known && !accountId && folderKey.startsWith("f:") ? { key: folderKey, text: folderLabel(folderKey), title: folderLabel(folderKey) } : null;
+  const keptOption = !!folderKey && !known && !accountId && folderKey.startsWith("f:") ? { key: folderKey, text: folderLabelIn(folders, folderKey), title: folderLabelIn(folders, folderKey) } : null;
   const missing = action === "move" && !!folderKey && !known && !keptOption;
   const pickerValue = known || keptOption ? folderKey : "";
   const junkProblem = ruleTargetProblem({ action: "junk", accountId: accountId || null }, folders, accountIds) !== null;
@@ -189,7 +189,7 @@ export function RuleDialog({ rule, source, scope = null, onClose, onSaved }: Rul
 
   const srcName = (() => {
     const f = folders.find((x) => x.key === srcFolder && (source ? x.accountId === source.accountId : true));
-    return f ? folderTitle(f, folders) : folderLabel(srcFolder);
+    return f ? folderTitle(f, folders) : folderLabelIn(folders, srcFolder, source?.accountId);
   })();
   const moves = action !== "read" && action !== "star" && action !== "pin"; // (also before a folder is chosen)
 

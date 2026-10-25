@@ -15,6 +15,7 @@ static | node --experimental-strip-types scripts/test-from-account.mjs
 static | node --experimental-strip-types scripts/test-attach-name.mjs
 # W6.8: the folder name in the save texts (Windows, POSIX, UNC, root)
 static | node --experimental-strip-types scripts/test-folder-name.mjs
+static | node --experimental-strip-types scripts/test-folder-label.mjs
 # W6.14: the link warning cases L1 to L4 and the cases that are not warned
 static | node --experimental-strip-types scripts/test-link-check.mjs
 static | node --experimental-strip-types scripts/test-link-url.mjs

@@ -4,7 +4,7 @@ import { api } from "./api";
 import type { Rule } from "./api";
 import { t } from "./i18n";
 import { accountHasFolder, canMoveToJunk } from "./junk";
-import { folderLabel, folderTitle } from "./prefs";
+import { folderLabelIn, folderTitle } from "./prefs";
 import { inSecondaryWindow } from "./popout/route";
 import { ruleTitle } from "./ruleText";
 import { useStore } from "./store";
@@ -45,7 +45,7 @@ export async function runRule(rule: Rule, folder: string): Promise<number> {
     const name = ruleTitle(rule);
     if (dest !== null) {
       const f = st.folders.find((x) => x.accountId === g.accountId && x.key === dest);
-      const where = () => (f ? folderTitle(f, st.folders) : folderLabel(dest));
+      const where = () => (f ? folderTitle(f, st.folders) : folderLabelIn(st.folders, dest, g.accountId));
       await st.act(g.threadIds, rule.action === "move" ? "move" : rule.action, rule.action === "move" ? dest : undefined, () => t("settings.rules.moved", { name, n, folder: where() }), folder);
     } else {
       await st.act(g.threadIds, rule.action, undefined, () => t("settings.rules.applied", { name, n }), folder);

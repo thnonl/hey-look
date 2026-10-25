@@ -14,7 +14,7 @@ import { calendarDavEligible, calendarErrorCode, calendarStepFailure, calendarSy
 import { CalDavDialog } from "./CalDavDialog";
 import { CalColorChoice } from "./CalColorChoice";
 import { NewCalendarDialog } from "./NewCalendarDialog";
-import { ACCENT_PRESETS, ACCOUNT_PALETTE, accountColor, DEFAULT_PREFS, eff, folderLabel, folderTitle, isOverridden, MAX_DOWNLOAD_PRESETS, NOTIFY_ACTIONS, Overridable, Prefs, staleAccountPrefs, validHex } from "../prefs";
+import { ACCENT_PRESETS, ACCOUNT_PALETTE, accountColor, DEFAULT_PREFS, eff, folderLabel, folderLabelIn, folderTitle, isOverridden, MAX_DOWNLOAD_PRESETS, NOTIFY_ACTIONS, Overridable, Prefs, staleAccountPrefs, validHex } from "../prefs";
 import { aiSettingsSaved } from "../aiGuide";
 import { keyTag, modelsFetchKey, NO_LIST } from "../aiModelsKey";
 import { hostLabel, keyIsSent, originOf, otherServer, resolveModelsUrl } from "../aiModelsUrl";
@@ -1177,7 +1177,7 @@ function FiltersPanel({ scope }: { scope: string | null }) {
             </>
           );
         }}
-        render={(r) => <div className="muted small">{t(ACTION_WORD[r.action])}{r.arg && r.action === "move" ? ` → ${folderLabel(r.arg)}` : ""}</div>}
+        render={(r) => <div className="muted small">{t(ACTION_WORD[r.action])}{r.arg && r.action === "move" ? ` → ${folderLabelIn(folders, r.arg, r.accountId)}` : ""}</div>}
         extra={(r) => {
           const i = own.findIndex((x) => x.id === r.id);
           return (
