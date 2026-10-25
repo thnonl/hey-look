@@ -488,3 +488,7 @@ ui-d | node scripts/test-smtp-port-ui.mjs --require-browser
 ui-d | node scripts/test-quit-key-ui.mjs --require-browser
 # 1.0.7 D-112: every frame that can hold the focus has the Ctrl+Q handler (the frame of a Confidential mail had none: the key did nothing while the person had clicked into the mail); the source guard
 static | node scripts/test-quit-key-frames.mjs
+# 1.0.8: "Filter: Flagged" with one flagged message showed "Loading…" for ever (the passes that read older mail never stopped behind a list that stayed short); the end of a pass (a pass that gave no new line stops the passes), the store / footer guards
+static | node --experimental-strip-types scripts/test-paging-pass.mjs
+# 1.0.8 in the dev preview: 1 flagged of 3000 (all mailboxes, one mailbox), 0 flagged, an older flagged one, more than the window shows, Unread filter / view, quick flips, a failed request with Retry: "Loading…" always ends
+ui-d | node scripts/test-list-filter-loading.mjs --require-browser
