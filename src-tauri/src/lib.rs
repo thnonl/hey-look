@@ -948,6 +948,10 @@ struct SyncResult {
     /// (W6.3) the prune after this sync removed this many local messages, and the mailbox is at or above its cap afterwards (`mail-pruned`)
     #[serde(skip)]
     pruned: Option<u32>,
+    /// (1.0.8, BUG-2 of the move-sync QA) a rule moved mail out of the Inbox during this sync: the copies are in their target folders on the server, but this sync had read those
+    /// folders before the rules ran, so the mailbox is read again soon (`sync_after_move`)
+    #[serde(skip)]
+    rule_moved: bool,
 }
 
 use mailrules::Rule;
@@ -995,7 +999,7 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
     custom.sort();
     roles.extend(custom);
 
-    let mut result = SyncResult { added: 0, new_inbox: vec![], arrivals: vec![], resets: vec![], pruned: None };
+    let mut result = SyncResult { added: 0, new_inbox: vec![], arrivals: vec![], resets: vec![], pruned: None, rule_moved: false };
     // (W13.2) the mail of the person's own mailboxes is not new mail; neither is mail that only moved between folders
     let own = newmail::own_set(db::list_accounts(&lock(db)).unwrap_or_default().iter().map(|a| a.email.as_str()));
     let mut tally = newmail::Tally::default();
@@ -1134,6 +1138,7 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
             startup::line("rules", &format!("rule “{name}” couldn’t run on a new message: {why}"));
             note_rule_error(name.clone(), why.clone());
         }
+        result.rule_moved = !outcome.moved.is_empty();
         result.new_inbox.retain(|n| !outcome.moved.contains(&n.thread_id));
         // (W13.2) a message a filter moved out of the Inbox is new in the folder it went to (a folder of the person's), not in the Inbox
         for (tid, dst) in &outcome.moved_to {
@@ -1329,6 +1334,11 @@ fn run_sync(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<SyncResult> 
 fn run_sync_inner(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<SyncResult> {
     let _guard = SYNC_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let r = sync_impl(db, account_id)?;
+    // (1.0.8) mail a rule moved on arrival shows in its target folder with the next read of that folder: ask for it now, not at the next poll. The follow-up sync finds the copies as
+    // moved mail (`note_moved`): not new, not looked at by the rules, no notification; it asks for no further sync unless a rule moves something new in it.
+    if r.rule_moved {
+        sync_after_move(app, vec![account_id.to_string()]);
+    }
     // (W6.1) every window drops a selection or an open conversation of a folder that was read again, and re-reads its list
     for role in &r.resets {
         let _ = app.emit("folder-reset", serde_json::json!({ "accountId": account_id, "role": role }));

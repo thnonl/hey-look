@@ -442,6 +442,65 @@ body {uid}
     });
 }
 
+/// 1.0.8 (BUG-2 of the move-sync QA): a rule moves a new mail during the sync, after the sync read the folders, so the copy is in the target folder on the server only. The follow-up sync
+/// reads it; the copy is moved mail: not new (no notification), not looked at by the rules again, and the follow-up asks for no sync of its own.
+#[test]
+fn a_mail_moved_by_a_rule_on_arrival_is_read_into_the_target_without_a_second_rule_run_or_a_notification() {
+    test_guard::within(60, || {
+        let (db, acc) = setup("bug2-rule", r#"{"inbox":"INBOX","sent":"Sent","archive":"Archive"}"#, &[1]);
+        let fake = Fake::start(&[("INBOX", &[1]), ("Sent", &[]), ("Archive", &[])]);
+        fake.put_message("INBOX", 1, b"Message-ID: <bug2-1@x>
+From: peer@example.com
+To: me@example.com
+Subject: hello
+Date: Sun, 25 Oct 2026 10:00:00 +0000
+
+body
+");
+        lock(&db).execute("UPDATE messages SET message_id='<bug2-1@x>' WHERE id='m1'", []).unwrap();
+        let rules = vec![Rule::basic("R", "subject", "hello", "archive")];
+        let out = apply_rules(&rules, &[RuleInput::basic("t1", "peer@example.com", "hello")], &mut |r, tid| {
+            let uid: u32 = tid[1..].parse().unwrap();
+            run(&db, &acc, &fake, uid, &r.action, false)
+        });
+        assert!(out.errors.is_empty() && out.moved.contains("t1"), "{:?}", out.errors);
+        // what the sync records for the follow-up
+        assert!(!out.moved.is_empty(), "the sync sets rule_moved from this");
+        assert_eq!(local_folder(&db, 1), None);
+        assert_eq!(fake.uids("Archive").map(|u| u.len()), Some(1), "the copy is on the server only");
+        // the follow-up sync reads the target folder: the copy comes in
+        let mut s = fake.connect();
+        let ff = mail::fetch_folder(&mut s, "Archive", &folderstate::Known::Unknown, 0, 0, PAGE).unwrap();
+        let _ = s.logout();
+        assert_eq!(ff.new.len(), 1);
+        let mid = ff.new[0].message_id.clone();
+        assert_eq!(mid.as_deref(), Some("<bug2-1@x>"));
+        // not new mail (no notification, no marker twice) and never ruled again
+        let own = newmail::own_set(["me@example.com"]);
+        let moved = newmail::was_moved(ACC, mid.as_deref().unwrap());
+        assert!(moved, "the move noted the Message-ID");
+        assert!(!newmail::counts_as_new("archive", false, false, "peer@example.com", &own, moved));
+        let tally = newmail::Tally::default();
+        assert!(!eligible_for_rules(&lock(&db), ACC, "peer@example.com", mid.as_deref(), &tally), "the rules do not look at it again");
+        // (and the Inbox of that follow-up sync has no new mail: the server's Inbox is empty, nothing to rule, no further sync is asked for)
+        assert_eq!(fake.uids("INBOX"), Some(vec![]));
+    });
+}
+
+/// The wiring: the sync tells whether a rule moved mail, and the sync that finished asks for the follow-up.
+#[test]
+fn a_sync_in_which_a_rule_moved_mail_asks_for_the_follow_up_sync() {
+    let src = crate::test_guard::non_test_code(include_str!("lib.rs"));
+    let sync = &src[src.find("fn sync_impl(").unwrap()..src.find("/// What running the rules over new mail came to").unwrap()];
+    assert!(sync.contains("result.rule_moved = !outcome.moved.is_empty();"), "only moves that worked (`outcome.moved`)");
+    let inner = &src[src.find("fn run_sync_inner(").unwrap()..];
+    let inner = &inner[..inner.find("
+}
+").unwrap()];
+    assert!(inner.contains("if r.rule_moved {
+        sync_after_move(app, vec![account_id.to_string()]);"), "{inner}");
+}
+
 #[test]
 fn moves_that_finish_together_share_one_sync_of_a_mailbox() {
     let mut waiting = std::collections::BTreeSet::new();
