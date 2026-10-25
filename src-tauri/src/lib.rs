@@ -1637,27 +1637,86 @@ fn claim_after_move(waiting: &mut std::collections::BTreeSet<String>, accounts: 
     out
 }
 
-/// (1.0.8, OPEN-2 of the rules QA; the behaviour is the one of 1.0.7) A finished move removes the local rows of the moved mail, and the copy in the target folder reaches this computer with
-/// the next sync of that folder, which was up to the sync interval away (2 minutes, and a push session only watches the Inbox): the mail was in neither folder meanwhile. So a moved mail
-/// starts a sync of its mailbox right away (a second after, so a run of several moves shares one). The copy is moved mail, not new mail (`newmail::note_moved`), and the rules do not look at
-/// it (`eligible_for_rules`), so nothing is notified or ruled again.
-fn sync_after_move(app: &tauri::AppHandle, accounts: Vec<String>) {
-    let fresh = claim_after_move(&mut AFTER_MOVE.lock().unwrap_or_else(|p| p.into_inner()), accounts);
-    if fresh.is_empty() {
-        return;
+/// Rounds of the follow-up sync after a move: the pause before each (ms). A server may show the copy in the target folder a moment after the MOVE (Gmail does not, at once, for a
+/// label: the copy was listed only at the next poll, about 2 minutes later), so the mailbox is read again after 1.5 s and, while a moved message is still not in its folder here, again
+/// after 4, 10, 25 and 60 s. A move that finishes meanwhile starts the rounds from the first again.
+const FOLLOW_UP_MS: [u64; 5] = [1500, 4000, 10000, 25000, 60000];
+
+/// Mailboxes whose follow-up rounds are running and that were asked again meanwhile (a move finished): the rounds start over.
+static AFTER_MOVE_AGAIN: Mutex<std::collections::BTreeSet<String>> = Mutex::new(std::collections::BTreeSet::new());
+
+/// How many of these moves (Message-ID, target folder) have no row in their target folder here yet.
+fn moves_missing(c: &Connection, account_id: &str, moves: &[(String, String)]) -> usize {
+    moves
+        .iter()
+        .filter(|(mid, dst)| c.query_row("SELECT 1 FROM messages WHERE account_id=?1 AND message_id=?2 AND folder=?3 LIMIT 1", params![account_id, mid, dst], |_| Ok(())).is_err())
+        .count()
+}
+
+/// What the rounds do after a sync: the pause before the next round (ms), or None when they are done (nothing is missing any more, or the rounds are used up).
+fn next_follow_up(round: usize, missing: usize) -> Option<u64> {
+    if missing == 0 {
+        None
+    } else {
+        FOLLOW_UP_MS.get(round).copied()
     }
-    let app = app.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(1500));
-        let db = app.state::<AppState>().db.clone();
-        for a in fresh {
-            // (unmarked before the sync, so a move that finishes during it asks for another one)
-            AFTER_MOVE.lock().unwrap_or_else(|p| p.into_inner()).remove(&a);
-            startup::line("action", &format!("account {a}: reading the folders after a move"));
-            let _ = run_sync(&app, &db, &a);
+}
+
+/// (1.0.8, OPEN-2 of the rules QA; the behaviour is the one of 1.0.7; rounds: 1.0.9, BUG-4 of the real-account QA) A finished move removes the local rows of the moved mail, and the copy
+/// in the target folder reaches this computer with the next sync of that folder, which was up to the sync interval away (2 minutes, and a push session only watches the Inbox): the mail
+/// was in neither folder meanwhile. So a moved mail starts a sync of its mailbox right away (1.5 s after, so a run of several moves shares one), and more rounds while its copy is not
+/// in the folder yet. The copy is moved mail, not new mail (`newmail::note_moved`), and the rules do not look at it (`eligible_for_rules`), so nothing is notified or ruled again.
+fn sync_after_move(app: &tauri::AppHandle, accounts: Vec<String>) {
+    let (fresh, turned_away): (Vec<String>, Vec<String>) = {
+        let mut waiting = AFTER_MOVE.lock().unwrap_or_else(|p| p.into_inner());
+        let fresh = claim_after_move(&mut waiting, accounts.clone());
+        let away = accounts.into_iter().filter(|a| !fresh.contains(a)).collect();
+        (fresh, away)
+    };
+    // (rounds are running for these: they start over)
+    AFTER_MOVE_AGAIN.lock().unwrap_or_else(|p| p.into_inner()).extend(turned_away);
+    for a in fresh {
+        let app = app.clone();
+        std::thread::spawn(move || follow_up_rounds(&app, &a));
+    }
+}
+
+fn follow_up_rounds(app: &tauri::AppHandle, a: &str) {
+    let db = app.state::<AppState>().db.clone();
+    let mut round = 0usize;
+    let mut pause = FOLLOW_UP_MS[0];
+    loop {
+        // (the pause in short steps: a move that finishes meanwhile starts the rounds over)
+        let mut waited = 0u64;
+        while waited < pause {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            waited += 250;
+            if AFTER_MOVE_AGAIN.lock().unwrap_or_else(|p| p.into_inner()).remove(a) {
+                round = 0;
+                pause = FOLLOW_UP_MS[0];
+                waited = 0;
+            }
         }
+        startup::line("action", &format!("account {a}: reading the folders after a move (round {})", round + 1));
+        let _ = run_sync(app, &db, a);
         let _ = app.emit("mail-synced", ());
-    });
+        let missing = moves_missing(&lock(&db), a, &newmail::recent_moves(a));
+        startup::line("action", &format!("account {a}: {missing} moved message(s) not in their folder yet"));
+        if let Some(next) = next_follow_up(round + 1, missing) {
+            round += 1;
+            pause = next;
+            continue;
+        }
+        // done: unmark, then look once more - a move that finished while the mark was set was turned away and left its mail missing
+        AFTER_MOVE.lock().unwrap_or_else(|p| p.into_inner()).remove(a);
+        let again = missing == 0 && moves_missing(&lock(&db), a, &newmail::recent_moves(a)) > 0
+            || AFTER_MOVE_AGAIN.lock().unwrap_or_else(|p| p.into_inner()).remove(a);
+        if !again || claim_after_move(&mut AFTER_MOVE.lock().unwrap_or_else(|p| p.into_inner()), vec![a.to_string()]).is_empty() {
+            break;
+        }
+        round = 0;
+        pause = FOLLOW_UP_MS[0];
+    }
 }
 
 fn run_pending(app: &tauri::AppHandle, items: Vec<Pending>, verify_wait: std::time::Duration) {
@@ -3500,6 +3559,7 @@ fn act_on_session<T: std::io::Read + std::io::Write>(
                     // (W13.2) the copy in the target folder, which a later sync finds, is moved mail, not new mail
                     if let Ok(Some(mid)) = c.query_row("SELECT message_id FROM messages WHERE id=?1", [&m.id], |r| r.get::<_, Option<String>>(0)) {
                         newmail::note_moved(&acc.id, &mid);
+                        newmail::note_moved_to(&acc.id, &mid, dst);
                     }
                     c.execute("DELETE FROM messages WHERE id=?1", [&m.id]).map_err(err)?;
                 }

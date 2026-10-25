@@ -501,6 +501,53 @@ fn a_sync_in_which_a_rule_moved_mail_asks_for_the_follow_up_sync() {
         sync_after_move(app, vec![account_id.to_string()]);"), "{inner}");
 }
 
+/// 1.0.9 (BUG-4 of the real-account QA): on Gmail the copy of a moved mail was not in the label folder at the first follow-up sync (1.5 s) and was found only at the next poll (about
+/// 2 minutes). The follow-up now has rounds (1.5, 4, 10, 25, 60 s) while a moved message is not in its target folder here.
+#[test]
+fn the_follow_up_has_rounds_until_every_moved_mail_is_in_its_folder() {
+    assert_eq!(FOLLOW_UP_MS[0], 1500, "the first look is 1.5 s after the move");
+    assert_eq!(next_follow_up(1, 0), None, "everything is here: done");
+    assert_eq!(next_follow_up(1, 3), Some(4000));
+    assert_eq!(next_follow_up(2, 1), Some(10000));
+    assert_eq!(next_follow_up(4, 1), Some(60000));
+    assert_eq!(next_follow_up(5, 1), None, "the rounds are used up (about 100 s in all): the poll takes over, no endless loop");
+    assert!(FOLLOW_UP_MS.windows(2).all(|w| w[0] < w[1]), "the pauses grow");
+}
+
+#[test]
+fn a_moved_mail_counts_as_missing_until_a_row_of_its_message_is_in_the_target_folder() {
+    let (db, _acc) = setup("bug4-missing", r#"{"inbox":"INBOX","sent":"Sent","archive":"Archive"}"#, &[1]);
+    let c = lock(&db);
+    let moves = vec![("<a@x>".to_string(), "f:QA-1.0.8".to_string()), ("<b@x>".to_string(), "archive".to_string())];
+    assert_eq!(moves_missing(&c, ACC, &moves), 2);
+    // Gmail: the copy in All Mail (archive) is there, the one in the label is not: only the label counts as missing
+    c.execute("INSERT INTO messages(id,account_id,folder,uid,message_id,thread_id,subject,from_name,from_email,to_addrs,cc_addrs,date,snippet) VALUES('x1',?1,'archive',9,'<a@x>','t9','s','n','a@b.c','','',1,'')", [ACC]).unwrap();
+    assert_eq!(moves_missing(&c, ACC, &moves), 2, "a row of the message in another folder does not count");
+    c.execute("INSERT INTO messages(id,account_id,folder,uid,message_id,thread_id,subject,from_name,from_email,to_addrs,cc_addrs,date,snippet) VALUES('x2',?1,'f:QA-1.0.8',3,'<a@x>','t9','s','n','a@b.c','','',1,'')", [ACC]).unwrap();
+    assert_eq!(moves_missing(&c, ACC, &moves), 1);
+    assert_eq!(moves_missing(&c, "another", &moves), 2, "per mailbox");
+    assert_eq!(moves_missing(&c, ACC, &[]), 0);
+}
+
+#[test]
+fn the_app_remembers_where_it_moved_a_mail_for_a_few_minutes() {
+    newmail::note_moved_to("acc-bug4", "<m1@x>", "f:QA-1.0.8");
+    newmail::note_moved_to("acc-bug4", "", "archive");
+    newmail::note_moved_to("acc-bug4-other", "<m2@x>", "trash");
+    assert_eq!(newmail::recent_moves("acc-bug4"), vec![("<m1@x>".to_string(), "f:QA-1.0.8".to_string())], "no empty Message-ID, only this mailbox");
+}
+
+/// The wiring: every move the app makes records its target (rule moves and the person's own), and the rounds are what a finished move starts.
+#[test]
+fn a_move_records_its_target_and_starts_the_rounds() {
+    let src = crate::test_guard::non_test_code(include_str!("lib.rs"));
+    let act = &src[src.find("fn act_on_session").unwrap()..];
+    assert!(act.contains("newmail::note_moved_to(&acc.id, &mid, dst);"));
+    let f = &src[src.find("fn sync_after_move(").unwrap()..src.find("fn run_pending(").unwrap()];
+    assert!(f.contains("std::thread::spawn(move || follow_up_rounds(&app, &a));"), "{f}");
+    assert!(f.contains("newmail::recent_moves(a)") && f.contains("next_follow_up(round + 1, missing)"));
+}
+
 #[test]
 fn moves_that_finish_together_share_one_sync_of_a_mailbox() {
     let mut waiting = std::collections::BTreeSet::new();
