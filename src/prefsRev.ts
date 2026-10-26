@@ -3,7 +3,7 @@
 // and any read before the backend wrote get the same result. Both must agree: scripts/test-prefs-defaults.mjs and `prefs_rev_1_turns_count_other_on_once`.
 
 /** The favorite id of One Inbox (the Inbox of all accounts). It is always in the list (prefs.ts `withOneInbox`). */
-export const ONE_INBOX = "*|inbox";
+const ONE_INBOX = "*|inbox";
 
 /** A favorites list with One Inbox in it: put at index 0 when missing, left where it is when present. */
 export function withOneInbox(favorites: string[]): string[] {

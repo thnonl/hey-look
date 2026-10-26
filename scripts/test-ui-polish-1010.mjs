@@ -313,6 +313,8 @@ async function r3() {
   await fresh();
   for (const how of ['ContextMenu', 'Shift+F10']) {
     await evaluate(`document.querySelector(${JSON.stringify(head('a3'))}).focus(); 1`);
+    await until(`document.activeElement === document.querySelector(${JSON.stringify(head('a3'))})`);
+    await sleep(150);
     if (how === 'ContextMenu') await press('ContextMenu'); else await shiftF10();
     ok(await until(`!!document.querySelector('.ctx-menu')`), `${how}: the menu opens`);
     eq(await evaluate(`document.activeElement?.querySelector?.('.menu-lbl')?.textContent`), 'Move up', `${how}: the first entry is focused`);
