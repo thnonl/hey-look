@@ -30,3 +30,9 @@ export const trayBadgeLabelKey = (os: Os) => (os === "macos" ? "settings.tray.tr
 
 /** The hint of the start-at-login switch when the system does not lock it. */
 export const startsMinimizedKey = (os: Os) => (os === "macos" ? "settings.tray.startsMinimizedMenuBar" : "settings.tray.startsMinimized");
+
+/** Windows: the start at sign-in shows the window unless "Start in the tray" is on, so the hint "Starts minimized to the tray" under the switch would be wrong there (1.0.10). Mac and Linux keep it. */
+export const startsMinimizedHint = (os: Os) => os !== "windows";
+
+/** The switch "Start in the tray" (Windows only: the entry of the start at sign-in gets `--minimized`, autostart.rs) is offered while the start at sign-in is on and there is a tray. */
+export const startInTrayOffered = (os: Os, tray: boolean, autostartOn: boolean) => os === "windows" && tray && autostartOn;

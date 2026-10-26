@@ -94,6 +94,8 @@ export interface Prefs extends Overridable {
   markReadDelay: number; // seconds, -1 = never auto-mark as read
   undoActionSeconds: number; // Undo window for archive / delete / junk
   sentSound: boolean;
+  /** Windows: the start at sign-in keeps the window in the tray (the entry gets `--minimized`); off = the start at sign-in shows the window. The backend reads it from the saved prefs (autostart.rs). */
+  startInTray: boolean;
   closeToTray: boolean;
   /** open new messages, replies and forwards in a separate window (Shift on the click / key does the opposite); stored only until the compose window exists (WP6b), see popout/entry.ts */
   popoutCompose: boolean;
@@ -185,6 +187,7 @@ export const DEFAULT_PREFS: Prefs = {
   markReadDelay: 0,
   undoActionSeconds: 6,
   sentSound: true,
+  startInTray: false,
   closeToTray: true,
   popoutCompose: false,
   downloadDir: null,

@@ -22,13 +22,32 @@
 //!
 //! macOS and Linux register `--minimized` through the same plugin (a launch agent, an `.desktop` entry); nothing here changes them (the pure parts compile
 //! and are tested everywhere, the registry part is Windows only).
+//!
+//! 1.0.10 (owner decision after the white-window saga): the start at Windows sign-in is a VISIBLE start by default. The entry is `"<exe>"` and the window comes up
+//! like in any start (after the start gate, `startgate.rs`). The tray start of 1.0.9 stays as an opt-in switch, Settings > Notifications > "Start in the tray"
+//! (pref `startInTray`, default off): then the entry is `"<exe>" --minimized` and everything above (gate, tray check, ghost parking) works as in 1.0.9. The entry is
+//! looked after in the form that matches the switch, so an entry of an install from 1.0.0 .. 1.0.9 (`--minimized`) is written again without the flag.
 use std::path::Path;
 use std::sync::OnceLock;
 #[cfg(any(windows, test))]
 use std::time::Duration;
 
-/// The argument of the autostart entry: start in the tray.
+/// The argument of the autostart entry that starts in the tray (the switch "Start in the tray").
 pub const TRAY_FLAG: &str = "--minimized";
+
+/// The pref of the switch "Start in the tray" (`prefs` blob, written by the main page; default off: the start at sign-in shows the window).
+pub const TRAY_PREF: &str = "startInTray";
+
+/// The value of the pref in the `prefs` blob (`shell::prefs`); off when it is not there.
+pub fn start_in_tray(prefs: &serde_json::Value) -> bool {
+    crate::shell::pbool(prefs, TRAY_PREF, false)
+}
+
+/// Does this start stay in the tray? The flag asks for it (an entry of 1.0.0 .. 1.0.9, the switch on, a relaunch that inherits it); the package's startup task has no
+/// argument, so for it the switch decides (`by_startup_task`). Pure.
+pub fn tray_start(has_flag: bool, by_startup_task: bool, prefs: &serde_json::Value) -> bool {
+    has_flag || (by_startup_task && start_in_tray(prefs))
+}
 
 /// Is this a tray start? `args[0]` is the program (as `std::env::args` and the single-instance callback give them).
 pub fn is_tray_start(args: &[String]) -> bool {
@@ -53,10 +72,10 @@ pub fn set_entry_name(name: &str) {
 
 // ---------- the value in the Run key ----------
 
-/// What the entry should say for the exe at `exe`: `"<exe>" --minimized`.
+/// What the entry should say for the exe at `exe`: `"<exe>"` (the window shows at sign-in) or, with the switch "Start in the tray" on, `"<exe>" --minimized`.
 #[cfg(any(windows, test))]
-pub fn expected_value(exe: &str) -> String {
-    format!("\"{exe}\" {TRAY_FLAG}")
+pub fn expected_value(exe: &str, tray: bool) -> String {
+    if tray { format!("\"{exe}\" {TRAY_FLAG}") } else { format!("\"{exe}\"") }
 }
 
 /// The program of a command line as the Run key keeps it: quoted, or (what the plugin wrote until 1.0.8) not quoted at all, with a path that may hold spaces
@@ -94,19 +113,19 @@ pub enum Plan {
     Absent,
     /// This program's entry, in the form written by `expected_value`.
     Current,
-    /// This program's entry, but not in that form (the flag is missing, the path is not quoted ...): write this instead.
+    /// This program's entry, but not in that form (the flag of the old tray start is still there or is missing, the path is not quoted ...): write this instead.
     Rewrite(String),
     /// An entry of that name that starts another program: not ours to change.
     Other,
 }
 
 #[cfg(any(windows, test))]
-pub fn plan(current: Option<&str>, exe: &str) -> Plan {
+pub fn plan(current: Option<&str>, exe: &str, tray: bool) -> Plan {
     let Some(cur) = current else { return Plan::Absent };
     if !same_program(&program_of(cur), exe) {
         return Plan::Other;
     }
-    let want = expected_value(exe);
+    let want = expected_value(exe, tray);
     if cur.trim() == want {
         Plan::Current
     } else {
@@ -114,30 +133,31 @@ pub fn plan(current: Option<&str>, exe: &str) -> Plan {
     }
 }
 
-/// Windows: looks at this copy's entry in the Run key and brings it into the form of `expected_value` when it is this program's. Logged either way (the
-/// next report about a white window at sign-in then says what was registered). Does nothing in the Store package (its startup task has no value).
+/// Windows: looks at this copy's entry in the Run key and brings it into the form of `expected_value` (for the switch `tray`) when it is this program's. Logged
+/// either way (the next report about a window at sign-in then says what was registered). Does nothing in the Store package (its startup task has no value).
 #[cfg(windows)]
-pub fn ensure_entry() {
+pub fn ensure_entry(tray: bool) {
     if crate::pkg::packaged() {
         return;
     }
     let (Some(name), Ok(exe)) = (ENTRY_NAME.get(), std::env::current_exe()) else { return };
     let exe = exe.display().to_string();
     let current = win::read_run_value(name);
-    match plan(current.as_deref(), &exe) {
-        Plan::Absent => crate::startup::line("autostart", &format!("no entry \"{name}\" in the Run key: the app does not start when the person signs in")),
-        Plan::Current => crate::startup::line("autostart", &format!("entry \"{name}\" is {}", current.unwrap_or_default())),
+    let switch = if tray { "Start in the tray: on" } else { "Start in the tray: off" };
+    match plan(current.as_deref(), &exe, tray) {
+        Plan::Absent => crate::startup::line("autostart", &format!("no entry \"{name}\" in the Run key: the app does not start when the person signs in ({switch})")),
+        Plan::Current => crate::startup::line("autostart", &format!("entry \"{name}\" is {} ({switch})", current.unwrap_or_default())),
         Plan::Rewrite(to) => {
             let from = current.unwrap_or_default();
             let wrote = win::write_run_value(name, &to);
-            crate::startup::line("autostart", &format!("entry \"{name}\" was {from}: {} {to}", if wrote { "written again as" } else { "could NOT be written again as" }));
+            crate::startup::line("autostart", &format!("entry \"{name}\" was {from}: {} {to} ({switch})", if wrote { "written again as" } else { "could NOT be written again as" }));
         }
         Plan::Other => crate::startup::line("autostart", &format!("entry \"{name}\" starts another program ({}): left alone", current.unwrap_or_default())),
     }
 }
 
 #[cfg(not(windows))]
-pub fn ensure_entry() {}
+pub fn ensure_entry(_tray: bool) {}
 
 // ---------- a restart that a person is looking at ----------
 
@@ -399,22 +419,56 @@ mod tests {
 
     #[test]
     fn the_entry_is_kept_rewritten_or_left_alone() {
-        let good = format!("\"{EXE}\" --minimized");
-        assert_eq!(expected_value(EXE), good);
-        assert_eq!(plan(None, EXE), Plan::Absent);
-        assert_eq!(plan(Some(&good), EXE), Plan::Current);
-        assert_eq!(plan(Some(&format!("  {good} ")), EXE), Plan::Current, "blanks around it are no reason to write");
-        // the entry of 1.0.0 .. 1.0.8: the same program, the path not quoted
-        assert_eq!(plan(Some(&format!("{EXE} --minimized")), EXE), Plan::Rewrite(good.clone()));
-        // an entry without the flag (a hand-made one, or one of another tool): the flag is added
-        assert_eq!(plan(Some(&format!("\"{EXE}\"")), EXE), Plan::Rewrite(good.clone()));
-        assert_eq!(plan(Some(EXE), EXE), Plan::Rewrite(good.clone()));
-        assert_eq!(plan(Some(&format!("\"{EXE}\" --minimized --other")), EXE), Plan::Rewrite(good.clone()));
-        assert_eq!(plan(Some(&format!("\"{}\" --minimized", EXE.to_uppercase())), EXE), Plan::Rewrite(good), "the spelling of the path is normalised");
-        // an entry that starts another program is not touched (a QA build next to the installed app, a copy in another folder)
-        assert_eq!(plan(Some(&format!("{} --minimized", r"C:\other\hey-look.exe")), EXE), Plan::Other);
-        assert_eq!(plan(Some("explorer.exe shell:AppsFolder\\x"), EXE), Plan::Other);
-        assert_eq!(plan(Some(""), EXE), Plan::Other);
+        // default (the switch "Start in the tray" off): a visible start, no flag
+        let visible = format!("\"{EXE}\"");
+        let tray = format!("\"{EXE}\" --minimized");
+        assert_eq!(expected_value(EXE, false), visible);
+        assert_eq!(expected_value(EXE, true), tray);
+        assert_eq!(plan(None, EXE, false), Plan::Absent);
+        assert_eq!(plan(None, EXE, true), Plan::Absent);
+        assert_eq!(plan(Some(&visible), EXE, false), Plan::Current);
+        assert_eq!(plan(Some(&format!("  {visible} ")), EXE, false), Plan::Current, "blanks around it are no reason to write");
+        assert_eq!(plan(Some(&tray), EXE, true), Plan::Current);
+        // the entry of 1.0.0 .. 1.0.9 (every install has the flag, 1.0.0 .. 1.0.8 also an unquoted path): with the switch off it is written again, visible
+        assert_eq!(plan(Some(&tray), EXE, false), Plan::Rewrite(visible.clone()), "an entry of 1.0.9 becomes the visible start");
+        assert_eq!(plan(Some(&format!("{EXE} --minimized")), EXE, false), Plan::Rewrite(visible.clone()), "so does the unquoted one of 1.0.0 .. 1.0.8");
+        // the switch on: the other way round (and the quoting of an old entry)
+        assert_eq!(plan(Some(&visible), EXE, true), Plan::Rewrite(tray.clone()));
+        assert_eq!(plan(Some(&format!("{EXE} --minimized")), EXE, true), Plan::Rewrite(tray.clone()));
+        assert_eq!(plan(Some(EXE), EXE, true), Plan::Rewrite(tray.clone()));
+        // a hand-made entry of this program that differs (other arguments, the spelling of the path): the form of the switch, as in 1.0.9
+        assert_eq!(plan(Some(&format!("\"{EXE}\" --minimized --other")), EXE, false), Plan::Rewrite(visible.clone()));
+        assert_eq!(plan(Some(&format!("\"{EXE}\" --other")), EXE, true), Plan::Rewrite(tray.clone()));
+        assert_eq!(plan(Some(&format!("\"{}\"", EXE.to_uppercase())), EXE, false), Plan::Rewrite(visible), "the spelling of the path is normalised");
+        // an entry that starts another program is not touched (a QA build next to the installed app, a copy in another folder), whatever the switch says
+        for on in [false, true] {
+            assert_eq!(plan(Some(&format!("{} --minimized", r"C:\other\hey-look.exe")), EXE, on), Plan::Other);
+            assert_eq!(plan(Some("explorer.exe shell:AppsFolder\\x"), EXE, on), Plan::Other);
+            assert_eq!(plan(Some(""), EXE, on), Plan::Other);
+        }
+    }
+
+    #[test]
+    fn the_start_in_the_tray_switch_is_off_until_it_is_turned_on() {
+        let p = |s: &str| serde_json::from_str::<serde_json::Value>(s).unwrap();
+        assert!(!start_in_tray(&serde_json::Value::Null), "no prefs saved yet: off");
+        assert!(!start_in_tray(&p("{}")) && !start_in_tray(&p(r#"{"startInTray":false}"#)));
+        assert!(!start_in_tray(&p(r#"{"startInTray":"yes"}"#)), "only a real true counts");
+        assert!(start_in_tray(&p(r#"{"startInTray":true}"#)));
+        assert_eq!(TRAY_PREF, "startInTray");
+    }
+
+    #[test]
+    fn a_start_stays_in_the_tray_for_the_flag_or_for_the_switch_in_a_start_by_the_package_task() {
+        let off = serde_json::json!({});
+        let on = serde_json::json!({"startInTray": true});
+        // the flag is a request (an old entry that was not rewritten yet, a relaunch with inherited arguments, the switch on)
+        assert!(tray_start(true, false, &off) && tray_start(true, false, &on) && tray_start(true, true, &off));
+        // no flag: a normal start and a visible autostart show the window ...
+        assert!(!tray_start(false, false, &off) && !tray_start(false, false, &on), "the switch is about the entry: a start by hand is no tray start");
+        // ... and the package's startup task (no argument to carry the choice) follows the switch
+        assert!(!tray_start(false, true, &off), "default: the package's start at sign-in shows the window");
+        assert!(tray_start(false, true, &on));
     }
 
     #[test]
@@ -494,27 +548,36 @@ mod tests {
     }
 
     #[test]
-    fn the_plugin_is_built_with_the_flag_and_the_copys_own_name() {
+    fn the_plugin_is_built_with_the_copys_own_name_and_writes_the_flag_on_macos_and_linux_only() {
         let lib = code("lib.rs");
         let run = &lib[lib.find("pub fn run() {").unwrap()..];
         let plugin = &run[run.find("tauri_plugin_autostart::Builder::new()").unwrap()..];
         let plugin = &plugin[..plugin.find(".build()").unwrap()];
-        assert!(plugin.contains(".args([autostart::TRAY_FLAG])") && plugin.contains(".app_name("), "{plugin}");
+        assert!(plugin.contains(".args(entry_args.iter().copied())") && plugin.contains(".app_name("), "{plugin}");
         let before = &run[..run.find("tauri_plugin_autostart::Builder::new()").unwrap()];
+        // Windows: the plugin writes the entry without arguments (a visible start) and `ensure_entry` adds the flag when the switch is on; the launch agent / .desktop
+        // of macOS and Linux keep `--minimized` (the switch is offered on Windows only)
+        assert!(before.contains("let entry_args: &[&str] = if cfg!(windows) { &[] } else { &[autostart::TRAY_FLAG] };"), "{before}");
         assert!(before.contains("autostart::set_entry_name(") && before.contains("autostart::entry_name("), "the name is chosen before the plugin is built");
         assert!(before.contains("identity::isolated()"), "an isolated copy has its own entry");
     }
 
     #[test]
-    fn the_entry_is_looked_after_at_every_start_and_after_the_switch_is_turned_on() {
+    fn the_entry_is_looked_after_at_every_start_after_the_switch_is_turned_on_and_when_the_tray_switch_changes() {
         let lib = code("lib.rs");
         let setup = &lib[lib.find(".setup(|app| {").unwrap()..];
         let setup = &setup[..setup.find(".on_window_event").unwrap()];
-        assert!(setup.contains("autostart::ensure_entry()"), "at every start");
+        assert!(setup.contains("autostart::ensure_entry(autostart::start_in_tray("), "at every start, in the form of the switch");
+        assert!(setup.find("db::open(").unwrap() < setup.find("autostart::ensure_entry(").unwrap(), "the switch is a pref: the database is open first");
         let set = &lib[lib.find("fn set_autostart(").unwrap()..];
         let set = &set[..set.find("\n}\n").unwrap()];
-        assert!(set.find("m.enable()").unwrap() < set.find("autostart::ensure_entry()").unwrap(), "the plugin writes, then the entry is brought into our form: {set}");
-        assert!(set.contains("pkg::packaged()"), "the package has no value to write");
+        assert!(set.find("m.enable()").unwrap() < set.find("autostart::ensure_entry(").unwrap(), "the plugin writes, then the entry is brought into our form: {set}");
+        assert!(set.contains("autostart::start_in_tray(") && set.contains("pkg::packaged()"), "the package has no value to write");
+        // the switch itself: a change of the pref writes the entry again, at once
+        let sett = &lib[lib.find("fn set_setting(").unwrap()..];
+        let sett = &sett[..sett.find("\n}\n").unwrap()];
+        assert!(sett.contains("autostart::start_in_tray(") && sett.contains("autostart::ensure_entry("), "{sett}");
+        assert!(sett.find("db::set_setting(").unwrap() < sett.rfind("autostart::ensure_entry(").unwrap(), "after the pref is saved");
     }
 
     #[test]

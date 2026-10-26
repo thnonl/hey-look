@@ -7,7 +7,7 @@
 import { t, getLang, LANGUAGES } from "./i18n/index.ts";
 import type { Key } from "./i18n/index.ts";
 import { providerName, serviceName } from "./calendarSync.ts";
-import { filtersIntroKey, keepRunningLabelKey, startsMinimizedKey, trayBadgeLabelKey, trayTabTitleKey } from "./trayWords.ts";
+import { filtersIntroKey, keepRunningLabelKey, startsMinimizedHint, startsMinimizedKey, trayBadgeLabelKey, trayTabTitleKey } from "./trayWords.ts";
 
 // ------------------------------------------------------------------------------------------------ folding
 /** One text after `fold`: `s` is the folded text; `from[i]` / `to[i]` are the range of the ORIGINAL text that the folded UTF-16 unit `i` stands for. */
@@ -315,7 +315,9 @@ export function buildIndex(ctx: IndexCtx): Entry[] {
   if (ctx.tray) Y("trayBadge", trayBadgeLabelKey(ctx.os), "settings.tray.trayBadgeHint", { kw: "settings.kw.tray" });
   if (win || mac) Y("taskbarBadge", mac ? "settings.tray.dockBadge" : "settings.tray.taskbarBadge");
   Y("countOther", "settings.tray.countOther", "settings.tray.countOtherHint");
-  Y("autostart", win ? "settings.tray.autostartWindows" : "settings.tray.autostart", ctx.os === "linux" && !ctx.tray ? "settings.tray.startsOpen" : startsMinimizedKey(ctx.os), { kw: ["settings.kw.autostart", "settings.kw.tray"] });
+  Y("autostart", win ? "settings.tray.autostartWindows" : "settings.tray.autostart", ctx.os === "linux" && !ctx.tray ? "settings.tray.startsOpen" : startsMinimizedHint(ctx.os) ? startsMinimizedKey(ctx.os) : undefined, { kw: ["settings.kw.autostart", "settings.kw.tray"] });
+  // (shown only while the start at sign-in is on: a search that lands on this page finds the switch there)
+  if (win && ctx.tray) Y("startInTray", "settings.tray.startInTray", undefined, { kw: ["settings.kw.autostart", "settings.kw.tray"] });
 
   const actionsTitle = t("settings.actions.title");
   add({ id: "pg-actions", tab: "actions", kind: "page", label: actionsTitle, hint: t("settings.actions.intro"), lead: nav.more });
