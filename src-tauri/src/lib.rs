@@ -2460,17 +2460,24 @@ fn get_autostart(app: tauri::AppHandle) -> pkg::AutostartInfo {
 
 #[tauri::command]
 fn set_autostart(app: tauri::AppHandle, state: tauri::State<AppState>, enabled: bool) -> R<()> {
-    use tauri_plugin_autostart::ManagerExt;
     if pkg::packaged() {
         return pkg::set_startup_task(enabled);
     }
-    let m = app.autolaunch();
-    let done = if enabled { m.enable() } else { m.disable() }.map_err(err);
-    if enabled && done.is_ok() {
-        // (the plugin wrote `<exe>` without arguments; the entry is brought into the quoted form of the switch "Start in the tray")
-        autostart::ensure_entry(autostart::start_in_tray(&shell::prefs(&state.db)));
+    // Windows: the entry is written to the current user's Run key by the app itself and read back (the plugin's `enable()` writes the machine-wide key when the app
+    // runs as an administrator and says Ok; autostart.rs `set_entry`); an error comes back with the Windows error text, so the page does not show a switch that is on
+    // without an entry
+    #[cfg(windows)]
+    {
+        let _ = &app;
+        autostart::set_entry(enabled, autostart::start_in_tray(&shell::prefs(&state.db)))
     }
-    done
+    #[cfg(not(windows))]
+    {
+        use tauri_plugin_autostart::ManagerExt;
+        let _ = &state;
+        let m = app.autolaunch();
+        if enabled { m.enable() } else { m.disable() }.map_err(err)
+    }
 }
 
 // ---------- folders ----------

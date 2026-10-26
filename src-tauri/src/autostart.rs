@@ -149,8 +149,8 @@ pub fn ensure_entry(tray: bool) {
         Plan::Current => crate::startup::line("autostart", &format!("entry \"{name}\" is {} ({switch})", current.unwrap_or_default())),
         Plan::Rewrite(to) => {
             let from = current.unwrap_or_default();
-            let wrote = win::write_run_value(name, &to);
-            crate::startup::line("autostart", &format!("entry \"{name}\" was {from}: {} {to} ({switch})", if wrote { "written again as" } else { "could NOT be written again as" }));
+            let wrote = win::write_run_value_checked(name, &to);
+            crate::startup::line("autostart", &format!("entry \"{name}\" was {from}: {} {to} ({switch})", match &wrote { Ok(()) => "written again as".to_string(), Err(e) => format!("could NOT be written again ({e}) as") }));
         }
         Plan::Other => crate::startup::line("autostart", &format!("entry \"{name}\" starts another program ({}): left alone", current.unwrap_or_default())),
     }
@@ -158,6 +158,66 @@ pub fn ensure_entry(tray: bool) {
 
 #[cfg(not(windows))]
 pub fn ensure_entry(_tray: bool) {}
+
+/// The entry as it must be after the switch was turned on, read back from `HKCU\...\Run`: Ok when it is there in the form of the switch, else the words for the error
+/// toast. Pure.
+#[cfg(any(windows, test))]
+pub fn check_written(name: &str, read_back: Option<&str>, exe: &str, tray: bool) -> Result<(), String> {
+    match plan(read_back, exe, tray) {
+        Plan::Current => Ok(()),
+        Plan::Absent => Err(format!("The start at sign-in could not be turned on: the entry \"{name}\" is not in the current user's Run key after it was written.")),
+        Plan::Rewrite(_) => Err(format!("The start at sign-in could not be turned on: the entry \"{name}\" reads {} instead of {}.", read_back.unwrap_or_default(), expected_value(exe, tray))),
+        Plan::Other => Err(format!("The start at sign-in could not be turned on: the entry \"{name}\" starts another program ({}).", read_back.unwrap_or_default())),
+    }
+}
+
+/// After the switch was turned off: Ok when neither the current user's Run key nor the machine-wide one still has an entry of this program, else the words for the
+/// error toast (a machine-wide entry, written when an elevated copy turned the switch on, cannot be removed by a copy that is not elevated). Pure.
+#[cfg(any(windows, test))]
+pub fn check_removed(name: &str, user: Option<&str>, machine: Option<&str>, exe: &str) -> Result<(), String> {
+    if user.is_some_and(|v| same_program(&program_of(v), exe)) {
+        return Err(format!("The start at sign-in could not be turned off: the entry \"{name}\" is still in the current user's Run key."));
+    }
+    if machine.is_some_and(|v| same_program(&program_of(v), exe)) {
+        return Err(format!("The start at sign-in is also registered for all users (\"{name}\" in HKEY_LOCAL_MACHINE\\...\\Run); it can only be removed by running Hey Look! as administrator once and turning the switch off."));
+    }
+    Ok(())
+}
+
+/// Windows: the switch "Start Hey Look! when I sign in". The entry is written to the CURRENT USER's Run key and nowhere else, and it is read back: an error comes
+/// back with the Windows error text, and the page shows the real state of the switch.
+///
+/// Why not the plugin's `enable()`: its `WindowsEnableMode` is `Dynamic`, which tries `HKEY_LOCAL_MACHINE\...\Run` first and falls back to the current user only
+/// when that is refused ("Access is denied"). A copy that runs as an administrator (an elevated start, or a user such as the Windows Sandbox's
+/// `WDAGUtilityAccount` whose token is elevated without a prompt) can write HKLM, so the switch said "on" and `enable()` said Ok while `HKCU\...\Run` stayed empty
+/// (QA 1.0.10, Sandbox: the app's own look at HKCU found "no entry"). An entry for every user is also not what the switch means.
+#[cfg(windows)]
+pub fn set_entry(enabled: bool, tray: bool) -> Result<(), String> {
+    let (Some(name), Ok(exe)) = (ENTRY_NAME.get(), std::env::current_exe()) else { return Err("The start at sign-in cannot be changed: the name of the entry is not known.".into()) };
+    let exe = exe.display().to_string();
+    let log = |what: &str| crate::startup::line("autostart", &format!("the switch was turned {} ({}): {what}", if enabled { "on" } else { "off" }, if tray { "Start in the tray: on" } else { "Start in the tray: off" }));
+    let done = (|| {
+        // an entry of this program in the machine-wide Run key (an older elevated run of the plugin wrote one): it would start the app a second time, or keep it
+        // starting after the switch is off. Removed when this copy is allowed to; otherwise the switch cannot be turned off here (below)
+        let machine = win::read_machine_value(name);
+        let machine_is_ours = machine.as_deref().is_some_and(|v| same_program(&program_of(v), &exe));
+        let machine_removed = if machine_is_ours { win::delete_machine_value(name) } else { Ok(()) };
+        if enabled {
+            win::write_run_value_checked(name, &expected_value(&exe, tray)).map_err(|e| format!("The start at sign-in could not be turned on: Windows refused to write the entry \"{name}\" ({e})."))?;
+            win::approve(name);
+            check_written(name, win::read_run_value(name).as_deref(), &exe, tray)
+        } else {
+            win::delete_run_value(name).map_err(|e| format!("The start at sign-in could not be turned off: Windows refused to remove the entry \"{name}\" ({e})."))?;
+            let leftover = if machine_removed.is_ok() { win::read_machine_value(name) } else { machine };
+            check_removed(name, win::read_run_value(name).as_deref(), leftover.as_deref(), &exe)
+        }
+    })();
+    match &done {
+        Ok(()) => log("the entry was read back and is in the Run key of the current user (or gone)"),
+        Err(e) => log(&format!("could not be done: {e}")),
+    }
+    done
+}
 
 // ---------- a restart that a person is looking at ----------
 
@@ -240,8 +300,8 @@ pub fn tray_confirmed(mut present: impl FnMut() -> Option<bool>, mut ask_again: 
 #[cfg(windows)]
 mod win {
     use windows::core::{w, PCWSTR};
-    use windows::Win32::Foundation::{ERROR_SUCCESS, HWND, LPARAM, WPARAM};
-    use windows::Win32::System::Registry::{RegCloseKey, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_SZ, REG_VALUE_TYPE};
+    use windows::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND, ERROR_SUCCESS, HWND, LPARAM, WPARAM};
+    use windows::Win32::System::Registry::{RegCloseKey, RegCreateKeyExW, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW, HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_BINARY, REG_OPTION_NON_VOLATILE, REG_SZ, REG_VALUE_TYPE};
     use windows::Win32::UI::Shell::{Shell_NotifyIconW, NIM_DELETE, NOTIFYICONDATAW};
     use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetClassNameW, GetWindowThreadProcessId, RegisterWindowMessageW, SendMessageTimeoutW, SMTO_ABORTIFHUNG};
 
@@ -258,9 +318,28 @@ mod win {
 
     /// The string value `name` of `HKCU\...\Run`, if there is one.
     pub fn read_run_value(name: &str) -> Option<String> {
+        read_string(HKEY_CURRENT_USER, &run_key(), name)
+    }
+
+    /// The Task Manager switches of the Run entries (`StartupApproved\Run`); not written when a test key stands in for the Run key.
+    const APPROVED_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
+    /// "Enabled" in `StartupApproved` (what the plugin writes, and Task Manager when the person turns the entry on).
+    const APPROVED_ENABLED: [u8; 12] = [2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+    fn test_key() -> bool {
+        cfg!(debug_assertions) && std::env::var("HEYLOOK_TEST_RUN_KEY").is_ok_and(|k| !k.trim().is_empty())
+    }
+
+    /// The text of a Win32 error for the toast ("Access is denied. (os error 5)").
+    fn os_text(code: u32) -> String {
+        std::io::Error::from_raw_os_error(code as i32).to_string()
+    }
+
+    /// The string value `name` of `root\subkey`, if there is one.
+    fn read_string(root: HKEY, subkey: &[u16], name: &str) -> Option<String> {
         unsafe {
             let mut key = HKEY::default();
-            if RegOpenKeyExW(HKEY_CURRENT_USER, PCWSTR(run_key().as_ptr()), None, KEY_QUERY_VALUE, &mut key) != ERROR_SUCCESS {
+            if RegOpenKeyExW(root, PCWSTR(subkey.as_ptr()), None, KEY_QUERY_VALUE, &mut key) != ERROR_SUCCESS {
                 return None;
             }
             let value = wide(name);
@@ -279,18 +358,79 @@ mod win {
         }
     }
 
-    /// Writes the string value `name` of `HKCU\...\Run` (only that value; the Task Manager switch of the entry is not touched).
-    pub fn write_run_value(name: &str, value: &str) -> bool {
+    /// The value `name` of `HKLM\...\Run` (an entry for every user), if there is one. Never read when a test key stands in for the Run key.
+    pub fn read_machine_value(name: &str) -> Option<String> {
+        if test_key() {
+            return None;
+        }
+        read_string(HKEY_LOCAL_MACHINE, &wide(r"Software\Microsoft\Windows\CurrentVersion\Run"), name)
+    }
+
+    /// Deletes the value `name` of `root\subkey`: Ok when it is gone (or never was), else the Win32 error.
+    fn delete_value(root: HKEY, subkey: &[u16], name: &str) -> Result<(), u32> {
         unsafe {
             let mut key = HKEY::default();
-            if RegOpenKeyExW(HKEY_CURRENT_USER, PCWSTR(run_key().as_ptr()), None, KEY_SET_VALUE, &mut key) != ERROR_SUCCESS {
-                return false;
+            let opened = RegOpenKeyExW(root, PCWSTR(subkey.as_ptr()), None, KEY_SET_VALUE, &mut key);
+            if opened == ERROR_FILE_NOT_FOUND || opened == ERROR_PATH_NOT_FOUND {
+                return Ok(());
+            }
+            if opened != ERROR_SUCCESS {
+                return Err(opened.0);
+            }
+            let n = wide(name);
+            let gone = RegDeleteValueW(key, PCWSTR(n.as_ptr()));
+            let _ = RegCloseKey(key);
+            if gone == ERROR_SUCCESS || gone == ERROR_FILE_NOT_FOUND {
+                Ok(())
+            } else {
+                Err(gone.0)
+            }
+        }
+    }
+
+    /// Deletes this copy's value in `HKCU\...\Run`.
+    pub fn delete_run_value(name: &str) -> Result<(), String> {
+        delete_value(HKEY_CURRENT_USER, &run_key(), name).map_err(os_text)
+    }
+
+    /// Deletes this copy's value in `HKLM\...\Run`. The error is the Win32 text (usually "Access is denied": the app does not run as administrator).
+    pub fn delete_machine_value(name: &str) -> Result<(), String> {
+        if test_key() {
+            return Ok(());
+        }
+        delete_value(HKEY_LOCAL_MACHINE, &wide(r"Software\Microsoft\Windows\CurrentVersion\Run"), name).map_err(os_text)
+    }
+
+    /// Writes the string value `name` of `HKCU\...\Run`, creating the key when it is not there yet; the error carries the Win32 text.
+    pub fn write_run_value_checked(name: &str, value: &str) -> Result<(), String> {
+        unsafe {
+            let mut key = HKEY::default();
+            let opened = RegCreateKeyExW(HKEY_CURRENT_USER, PCWSTR(run_key().as_ptr()), None, PCWSTR::null(), REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, None, &mut key, None);
+            if opened != ERROR_SUCCESS {
+                return Err(os_text(opened.0));
             }
             let (n, v) = (wide(name), wide(value));
             let bytes = std::slice::from_raw_parts(v.as_ptr() as *const u8, v.len() * 2);
-            let ok = RegSetValueExW(key, PCWSTR(n.as_ptr()), None, REG_SZ, Some(bytes)) == ERROR_SUCCESS;
+            let set = RegSetValueExW(key, PCWSTR(n.as_ptr()), None, REG_SZ, Some(bytes));
             let _ = RegCloseKey(key);
-            ok
+            if set == ERROR_SUCCESS { Ok(()) } else { Err(os_text(set.0)) }
+        }
+    }
+
+    /// Turning the switch on in the app also turns the entry on in Task Manager when the person had turned it off there (what the plugin did); only when the
+    /// `StartupApproved` key exists (Windows makes it), and never for a test key. Best effort.
+    pub fn approve(name: &str) {
+        if test_key() {
+            return;
+        }
+        unsafe {
+            let mut key = HKEY::default();
+            if RegOpenKeyExW(HKEY_CURRENT_USER, PCWSTR(wide(APPROVED_KEY).as_ptr()), None, KEY_SET_VALUE, &mut key) != ERROR_SUCCESS {
+                return;
+            }
+            let n = wide(name);
+            let _ = RegSetValueExW(key, PCWSTR(n.as_ptr()), None, REG_BINARY, Some(&APPROVED_ENABLED));
+            let _ = RegCloseKey(key);
         }
     }
 
@@ -571,8 +711,8 @@ mod tests {
         assert!(setup.find("db::open(").unwrap() < setup.find("autostart::ensure_entry(").unwrap(), "the switch is a pref: the database is open first");
         let set = &lib[lib.find("fn set_autostart(").unwrap()..];
         let set = &set[..set.find("\n}\n").unwrap()];
-        assert!(set.find("m.enable()").unwrap() < set.find("autostart::ensure_entry(").unwrap(), "the plugin writes, then the entry is brought into our form: {set}");
-        assert!(set.contains("autostart::start_in_tray(") && set.contains("pkg::packaged()"), "the package has no value to write");
+        assert!(set.contains("autostart::set_entry(enabled, autostart::start_in_tray(") && set.contains("pkg::packaged()"), "Windows writes the entry itself, in the form of the switch; the package has no value to write: {set}");
+        assert!(!set.contains("m.enable()") || set.find("#[cfg(not(windows))]").unwrap() < set.find("m.enable()").unwrap(), "the plugin's enable() (machine-wide key for an administrator) is not used on Windows: {set}");
         // the switch itself: a change of the pref writes the entry again, at once
         let sett = &lib[lib.find("fn set_setting(").unwrap()..];
         let sett = &sett[..sett.find("\n}\n").unwrap()];
@@ -580,6 +720,51 @@ mod tests {
         assert!(sett.find("db::set_setting(").unwrap() < sett.rfind("autostart::ensure_entry(").unwrap(), "after the pref is saved");
     }
 
+
+    #[test]
+    fn a_written_entry_is_read_back_and_a_missing_or_wrong_one_is_an_error_with_words() {
+        let name = "Hey Look!";
+        assert_eq!(check_written(name, Some(&expected_value(EXE, false)), EXE, false), Ok(()));
+        assert_eq!(check_written(name, Some(&expected_value(EXE, true)), EXE, true), Ok(()));
+        // the Sandbox case of QA 1.0.10: Ok from the plugin, nothing in the current user's Run key
+        let e = check_written(name, None, EXE, false).unwrap_err();
+        assert!(e.contains("not in the current user's Run key") && e.contains(name), "{e}");
+        let e = check_written(name, Some(&expected_value(EXE, true)), EXE, false).unwrap_err();
+        assert!(e.contains("reads") && e.contains("--minimized"), "{e}");
+        let e = check_written(name, Some(r"C:\Windows\notepad.exe"), EXE, false).unwrap_err();
+        assert!(e.contains("another program"), "{e}");
+    }
+
+    #[test]
+    fn a_removed_entry_is_gone_from_both_run_keys_or_the_error_says_where_it_is() {
+        let mine = expected_value(EXE, false);
+        assert_eq!(check_removed("Hey Look!", None, None, EXE), Ok(()));
+        assert_eq!(check_removed("Hey Look!", None, Some(r"C:\Windows\notepad.exe"), EXE), Ok(()), "another program's machine-wide value is not ours");
+        assert!(check_removed("Hey Look!", Some(&mine), None, EXE).unwrap_err().contains("still in the current user's Run key"));
+        let e = check_removed("Hey Look!", None, Some(&mine), EXE).unwrap_err();
+        assert!(e.contains("all users") && e.contains("administrator"), "{e}");
+    }
+
+    #[test]
+    fn the_switch_is_written_by_the_app_to_the_current_user_and_read_back_not_left_to_the_plugin_on_windows() {
+        let a = code("autostart.rs");
+        let set = &a[a.find("pub fn set_entry(").unwrap()..];
+        let set = &set[..set.find("\n}\n").unwrap()];
+        assert!(set.contains("win::write_run_value_checked(") && set.contains("win::delete_run_value(") && set.contains("check_written(") && set.contains("check_removed("), "{set}");
+        assert!(set.find("win::write_run_value_checked(").unwrap() < set.find("check_written(").unwrap(), "read back after the write");
+        assert!(set.contains("map_err(|e|") && set.contains("Windows refused"), "the Windows error text goes to the toast");
+        // the registry code creates the key (a Run key that does not exist yet) and names the error
+        let w = &a[a.find("pub fn write_run_value_checked(").unwrap()..];
+        let w = &w[..w.find("\n    }\n").unwrap()];
+        assert!(w.contains("RegCreateKeyExW(HKEY_CURRENT_USER") && w.contains("os_text("), "{w}");
+        assert!(!w.contains("HKEY_LOCAL_MACHINE"), "never the machine-wide key");
+        // the page keeps the switch where it was and shows the error when the call fails
+        let ui = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("src").join("components").join("SettingsDialog.tsx")).unwrap().replace('\r', "");
+        let toggle = &ui[ui.find("const toggleAuto = async").unwrap()..];
+        let toggle = &toggle[..toggle.find("\n  };").unwrap()];
+        assert!(toggle.find("await api.setAutostart(v)").unwrap() < toggle.find("setAutostart((a) => ({ ...a, enabled: v }))").unwrap(), "{toggle}");
+        assert!(toggle.contains("showToast(() => friendlyError(e)") && toggle.contains("api.getAutostart()"), "{toggle}");
+    }
     #[test]
     fn a_second_start_with_the_flag_does_not_bring_the_window_up() {
         let lib = code("lib.rs");

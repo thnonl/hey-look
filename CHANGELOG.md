@@ -12,6 +12,11 @@
 - Windows: Settings > Notifications has a new switch, "Start in the tray", under "Start Hey Look! when I sign in to Windows" (shown while that one is on; off by default; in all eight languages). Turning it on makes the entry `"<path>" --minimized` again: the app starts in the tray icon and the window stays hidden until you open it. Turning it off, or the start-with-Windows switch off, writes the entry at once
 - `startup.log` has `[autostart]` lines that say which entry is registered and whether "Start in the tray" is on, and a `[gate]` line that says when a start is treated as a start at sign-in
 
+### Fixed
+
+- Windows: a start in the tray no longer takes the keyboard focus for a moment while the hidden window is made, so what you are typing at sign-in is not interrupted
+- Windows: turning on "Start Hey Look! when I sign in to Windows" is written to your own user's startup entry and read back. Before, a copy that ran as an administrator wrote the entry for all users, the switch showed "on" and your own entry was missing; now a failure turns the switch back off and shows the Windows error
+
 ## 1.0.9 — 2026-10-26
 
 ### Fixed

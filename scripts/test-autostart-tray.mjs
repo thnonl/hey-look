@@ -19,6 +19,9 @@
 //   C  the autostart entry (a throw-away registry key, HEYLOOK_TEST_RUN_KEY, never the Run key Windows runs): with the switch off an entry of this exe in the old forms (path not
 //      quoted, `--minimized`) is written again as `"<exe>"`; with the switch on (pref in the app's database) as `"<exe>" --minimized`; the right one and the entry of another
 //      program are left alone; turning the switch on or off in a running app writes the entry at once.
+//   G  (inside the C run) the sign-in switch as the page calls it (set_autostart): ON writes the current user's entry in the form of the tray switch and reads it back, OFF removes it;
+//      a Run key that cannot be written is an error that names the entry and carries the Windows text (the Sandbox finding: the plugin's enable() wrote the machine-wide key of an
+//      elevated run and said Ok while the switch showed on with no entry for the user)
 //   F  the visible start at sign-in (a start without the flag, the shell told to be young: HEYLOOK_TEST_SHELL_AGE_S): the log says it is gated and why, the window is made after the
 //      gate, shown and painted with a taskbar button, never parked, no tray check; with an old shell it is no gated start at all.
 //
@@ -60,11 +63,19 @@ const code = (p) => {
   ok("the tray icon is created before the gate waits, and a tray that cannot be created shows the window", run.indexOf("shell::setup_tray(") < run.indexOf("startgate::start(app.handle(), show_at_start)") && run.includes("let show_at_start = !minimized || !shell::tray_ready() || window_wanted;"));
   ok("an icon that the shell does not know is asked for again, and when it never comes the window is shown", gate.includes("autostart::tray_confirmed(") && gate.includes("show_at_start = true") && code("src-tauri/src/shell.rs").includes("pub fn tray_icon_present(") && auto.includes('"tray_icon_app"') && auto.includes('w!("TaskbarCreated")'));
   ok("a second start with the flag does not bring the window up, any other second start does", /autostart::is_tray_start\(&args\)[\s\S]{0,300}return;[\s\S]{0,200}shell::show_main\(app\)/.test(run));
-  ok("the entry is looked at at every start, after the start-at-sign-in switch is turned on and when the tray switch changes, in the Windows registry only", run.includes("autostart::ensure_entry(autostart::start_in_tray(&start_prefs));") && /fn set_autostart[\s\S]{0,900}autostart::ensure_entry\(autostart::start_in_tray\(/.test(lib) && /fn set_setting[\s\S]{0,1500}if now != before \{\s*autostart::ensure_entry\(now\);/.test(lib) && auto.includes("pub fn ensure_entry(_tray: bool) {}") && cargo.includes('"Win32_System_Registry"'));
-  ok("only this program's entry is written; the Task Manager switch (StartupApproved) is not touched", auto.includes("Plan::Other =>") && !/StartupApproved/.test(auto.replace(/\/\/.*$/gm, "")));
+  ok("the entry is looked at at every start, after the start-at-sign-in switch is turned on and when the tray switch changes, in the Windows registry only", run.includes("autostart::ensure_entry(autostart::start_in_tray(&start_prefs));") && /fn set_autostart[\s\S]{0,1200}autostart::set_entry\(enabled, autostart::start_in_tray\(/.test(lib) && /fn set_setting[\s\S]{0,1500}if now != before \{\s*autostart::ensure_entry\(now\);/.test(lib) && auto.includes("pub fn ensure_entry(_tray: bool) {}") && cargo.includes('"Win32_System_Registry"'));
+  {
+    // the looking after (every start, a change of the tray switch) never touches the Task Manager switch; only the person turning the sign-in switch ON in the app turns it on again (what the plugin did)
+    const ensure = auto.slice(auto.indexOf("pub fn ensure_entry(tray: bool)"), auto.indexOf("pub fn ensure_entry(_tray: bool) {}"));
+    ok("only this program's entry is written; the Task Manager switch (StartupApproved) is touched only by turning the sign-in switch ON", auto.includes("Plan::Other =>") && ensure.length > 100 && !/StartupApproved|approve\(/.test(ensure) && auto.includes("win::approve(name);") && (auto.match(/win::approve\(/g) || []).length === 1);
+    // F2 (QA 1.0.10, Windows Sandbox): the plugin's enable() uses the machine-wide Run key when the app runs as an administrator and says Ok; on Windows the app writes the current user's key itself and reads it back
+    const setEntry = auto.slice(auto.indexOf("pub fn set_entry("));
+    ok("on Windows the sign-in switch is written to the current user's Run key by the app and read back; a refusal reaches the page as an error with the Windows text", /win::write_run_value_checked\([\s\S]{0,400}check_written\(/.test(setEntry) && setEntry.includes("Windows refused") && /fn set_autostart[\s\S]{0,1200}#\[cfg\(windows\)\]\s*\{[\s\S]{0,200}autostart::set_entry\(/.test(lib) && /RegCreateKeyExW\(HKEY_CURRENT_USER/.test(auto));
+  }
   ok("a restart that a person is looking at leaves the note (the app's own restart, the update restart) and takes it back when the installer did not start", code("src-tauri/src/startup.rs").includes("crate::autostart::mark_window_wanted(dir, now)") && /if restart && crate::window_shown\(&app\)/.test(code("src-tauri/src/update.rs")) && code("src-tauri/src/update.rs").includes("clear_window_wanted"));
   const ghost = code("src-tauri/src/ghost.rs");
-  ok("a tray start parks its window right after it is made (off every monitor), so the compositor's white ghost of a never-shown window is not on a screen", gate.includes("and_then(|b| b.build()).map(|_| ())") && gate.includes("crate::ghost::park(&app)") && gate.indexOf("crate::ghost::park(&app)") > gate.indexOf("WebviewWindowBuilder::from_config") && ghost.includes("pub const PARK_AT: f64 = -10_000.0;"));
+  ok("a tray start parks its window right after it is made (off every monitor), so the compositor's white ghost of a never-shown window is not on a screen", gate.includes("and_then(|b| b.focused(take_focus).build()).map(|_| ())") && gate.includes("crate::ghost::park(&app)") && gate.indexOf("crate::ghost::park(&app)") > gate.indexOf("WebviewWindowBuilder::from_config") && ghost.includes("pub const PARK_AT: f64 = -10_000.0;"));
+  ok("F1: the window of a tray start is made without the focus (wry moves the web view's focus into a focused window, which made the hidden window the foreground window); a window that is shown at once keeps it", gate.includes("pub fn focus_at_creation(show_at_start: bool, requested: bool) -> bool {\n    show_at_start || requested\n}") && gate.includes("focus_at_creation(show_at_start, REQUESTED.load(Ordering::SeqCst))") && gate.indexOf("focus_at_creation(show_at_start, REQUESTED") > gate.indexOf("autostart::tray_confirmed("));
   const showMain = code("src-tauri/src/shell.rs");
   ok("every show of the main window gives a parked window its place back first", showMain.includes("crate::ghost::unpark(app);") && showMain.indexOf("crate::ghost::unpark(app);") < showMain.indexOf("let _ = w.show();", showMain.indexOf("pub fn show_main")) && showMain.indexOf("pub fn show_main") < showMain.indexOf("crate::ghost::unpark(app);"));
   ok("a hidden window is looked at (a tray start, and after the close button hid it): white desktop points at its place are a ghost, healed by parking, logged", ghost.includes("pub fn is_ghost(") && ghost.includes("healed by parking the window") && code("src-tauri/src/startup.rs").includes('crate::ghost::watch_hidden(app, "the tray start"') && lib.includes('ghost::watch_hidden(window.app_handle(), "the window was hidden"'));
@@ -295,7 +306,7 @@ if (!exe) {
         await setPrefs(dir, { startInTray: on });
         reg("add", hkcu(RUN_KEY), "/v", name, "/t", "REG_SZ", "/d", seed, "/f");
         const from = logOf(dir).length;
-        app = start(dir, on ? ["--minimized"] : []);
+        app = start(dir, ["--minimized"]); // (the entry is looked at before any window: a tray start does the same and keeps the run off the screen of whoever is working)
         ok(`[C] ${what}: the log says what was done`, await waitLog(dir, logRe, from, 60000), logOf(dir).slice(from).slice(0, 600));
         ok(`[C] ${what}: the entry is ${want === seed ? "unchanged" : `written as ${want}`}`, regValue(name) === want, String(regValue(name)));
         await kill(app);
@@ -304,8 +315,8 @@ if (!exe) {
       const ldir = newDir("cl"); // (a folder of its own: the test-bridge.json of a killed run would be stale)
       reg("add", hkcu(RUN_KEY), "/v", name, "/t", "REG_SZ", "/d", visible, "/f");
       const { connection, bridge } = await import("./test-bridge-client.mjs");
-      app = start(ldir, []);
-      ok("[C live] the app is up", await waitLog(ldir, /window shown, page ready/, 0, 90000));
+      app = start(ldir, ["--minimized"]); // (a tray start: the window stays hidden, so the run does not put a window on the screen of whoever is working)
+      ok("[C live] the app is up", await waitLog(ldir, /page ready after \d+ ms, window stays hidden/, 0, 90000));
       const b = bridge(connection(ldir));
       const setPref = (v) => b.evalIn("main", `window.__TAURI_INTERNALS__.invoke("set_setting", { key: "prefs", value: JSON.stringify({ startInTray: ${v} }) }).then(() => "done")`);
       const from = logOf(ldir).length;
@@ -319,6 +330,27 @@ if (!exe) {
       await setPref(true);
       await sleep(800);
       ok("[C live] with no entry (start at sign-in off) the switch writes nothing", regValue(name) === null, String(regValue(name)));
+      // G (F2): the sign-in switch itself (set_autostart, as the page calls it) writes the current user's entry in the form of the tray switch and removes it
+      await setPref(false);
+      await sleep(300);
+      const sw = (on) => b.evalIn("main", `window.__TAURI_INTERNALS__.invoke("set_autostart", { enabled: ${on} }).then(() => "ok", (e) => "ERR " + e)`);
+      ok("[G live] the sign-in switch ON writes the visible entry and reads it back", (await sw(true)) === "ok" && regValue(name) === visible, String(regValue(name)));
+      await setPref(true);
+      await sleep(800);
+      ok("[G live] the tray switch then makes it the tray entry", regValue(name) === tray, String(regValue(name)));
+      ok("[G live] the sign-in switch OFF removes the entry", (await sw(false)) === "ok" && regValue(name) === null, String(regValue(name)));
+      ok("[G live] the sign-in switch ON with the tray switch on writes the tray entry", (await sw(true)) === "ok" && regValue(name) === tray, String(regValue(name)));
+      ok("[G live] the log says the switch was turned on and the entry read back", /the switch was turned on \(Start in the tray: on\): the entry was read back/.test(logOf(ldir)), logOf(ldir).slice(-500));
+      await kill(app);
+      // G: a Run key that cannot be written (here a key name over 255 characters) is an error with the Windows text, not a switch that says on with no entry
+      const edir = newDir("ce");
+      const badKey = String.raw`Software\thnonl\HeyLookTest109\Bad` + process.pid + "\\" + "x".repeat(300);
+      app = start(edir, ["--minimized"], { HEYLOOK_TEST_RUN_KEY: badKey });
+      ok("[G error] the app is up", await waitLog(edir, /page ready after \d+ ms, window stays hidden/, 0, 90000));
+      const be = bridge(connection(edir));
+      const res = await be.evalIn("main", `window.__TAURI_INTERNALS__.invoke("set_autostart", { enabled: true }).then(() => "ok", (e) => "ERR " + e)`);
+      ok("[G error] a refused write is an error that names the entry and carries the Windows text", /^ERR The start at sign-in could not be turned on: Windows refused to write the entry "[^"]+" \(.+\)\.$/.test(String(res)), String(res));
+      ok("[G error] the log says it", /the switch was turned on \(Start in the tray: off\): could not be done/.test(logOf(edir)), logOf(edir).slice(-400));
       await kill(app);
       // the entry of the installed app was never part of this
       const real = reg("query", String.raw`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", name);
