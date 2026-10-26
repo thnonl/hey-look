@@ -3,7 +3,7 @@ import { accountLabel } from "../accountLabel";
 import { newMail } from "../actions";
 import { useLang, useT } from "../i18n/react";
 import { folderVisible } from "../junk";
-import { folderLabel } from "../prefs";
+import { folderLabelIn } from "../prefs";
 import { newEvent } from "../newEvent";
 import { useStore } from "../store";
 import { commandsFor } from "../mailControls";
@@ -68,7 +68,7 @@ export function CommandBar() {
       { id: "Toggle Focused Inbox", label: t("app.cmd.toggleFocused"), run: () => s.setPrefs({ focused: !s.prefs.focused }) },
       ...["inbox", "unread", "starred", "pinned", "snoozed", "scheduled", "sent", "drafts", "archive", "junk", "trash"].filter((f) => folderVisible(s.folders, s.accountId, f)).map((f) => ({
         id: `Go to ${f}`,
-        label: t("app.cmd.goToFolder", { folder: folderLabel(f) }),
+        label: t("app.cmd.goToFolder", { folder: folderLabelIn(s.folders, f, s.accountId) }),
         run: () => void s.setView(f, s.accountId),
       })),
     ];

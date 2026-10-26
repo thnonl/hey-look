@@ -1,6 +1,7 @@
 import { isLang, t } from "./i18n/index.ts";
 import type { Key, LangPref } from "./i18n/index.ts";
 import { pruneOrder } from "./accountOrder";
+import { folderLabel, ROLE_LABELS } from "./folderLabel";
 import { applyPrefsRev, PREFS_REV } from "./prefsRev";
 import { DEFAULT_MAIL_CANVAS, MailCanvas, resolveMailCanvas } from "./mailCanvas";
 import { DEFAULT_HIGHLIGHT, normColor } from "./editor/colors";
@@ -344,27 +345,7 @@ export function staleAccountPrefs(prefs: Prefs, accountIds: string[]): Partial<P
   return out;
 }
 
-/** Dictionary key of the name of each built-in folder (the label itself comes from t(), in the language in use). */
-const ROLE_LABELS: Record<string, Key> = {
-  inbox: "settings.folder.inbox",
-  drafts: "settings.folder.drafts",
-  sent: "settings.folder.sent",
-  archive: "settings.folder.archive",
-  junk: "settings.folder.junk",
-  trash: "settings.folder.trash",
-  starred: "settings.folder.starred",
-  pinned: "settings.folder.pinned",
-  snoozed: "settings.folder.snoozed",
-  scheduled: "settings.folder.scheduled",
-  unread: "settings.folder.unread",
-  all: "settings.folder.all",
-};
-
-export function folderLabel(key: string, name?: string): string {
-  if (ROLE_LABELS[key]) return t(ROLE_LABELS[key]);
-  const n = name ?? key.replace(/^f:/, "");
-  return n.split(/[/.]/).pop() || n;
-}
+export { folderLabel, folderLabelIn } from "./folderLabel";
 
 /**
  * The name of a folder in a list of folders (Move to...): a folder of the person under another one is "Parent / Child", so two folders called "2026" in different parents can be told apart.

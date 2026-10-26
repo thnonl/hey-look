@@ -12,7 +12,7 @@ import { FolderInfo } from "../api";
 import { isContextMenuKey } from "../contextMenu";
 import { collapsedKey, hasChildren, orderTree, visibleTree } from "../folderTree";
 import { getLang } from "../i18n";
-import { accountColor, folderDepth, folderLabel } from "../prefs";
+import { accountColor, folderDepth, folderLabel, folderLabelIn } from "../prefs";
 import { useT } from "../i18n/react";
 import { kbd } from "../platform";
 import { folderVisible } from "../junk";
@@ -267,7 +267,7 @@ export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
   };
   const labelFor = (acct: string | null, key: string) => {
     const info: FolderInfo | undefined = folders.find((f) => f.accountId === acct && f.key === key);
-    const base = folderLabel(key, info?.name);
+    const base = info ? folderLabelIn(folders, key, acct) : folderLabel(key);
     return acct ? `${base} — ${acctName(acct)}` : base;
   };
 
