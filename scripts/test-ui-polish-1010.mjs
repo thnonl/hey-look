@@ -593,9 +593,73 @@ async function r2() {
   eq(await evaluate(`!!${S('prefs.collapsed')}['a1']`), true, 'one account: the press is a normal click');
 }
 
+// ======================================================================== R7 (Mac QA of 8cbca762): Ctrl+click on macOS, right-click on every point of a rail icon
+async function r7() {
+  section = 'R7';
+  // ---- B1: on macOS a Ctrl+click is a right-click; the click that follows it toggles nothing. Windows / Linux: Ctrl+click is a click with a modifier, as before.
+  for (const os of ['macos', 'windows', 'linux']) {
+    await openWith(`light&lang=en&os=${os}`, { prefs: JSON.stringify({ language: 'en', prefsRev: 2 }) });
+    const ctrlClick = async (selector, nth = 0) => {
+      const [x, y] = await centre(selector, nth);
+      await mouse('mouseMoved', x, y);
+      await mouse('mousePressed', x, y, { modifiers: 2 });
+      await mouse('mouseReleased', x, y, { modifiers: 2 });
+      await sleep(200);
+    };
+    const mac = os === 'macos';
+    await ctrlClick(`.fp-group[data-reorder-id="a2"] .fp-head`);
+    eq(await evaluate(`!!${S('prefs.collapsed')}['a2']`), !mac, `${os}: Ctrl+click on a mailbox header ${mac ? 'does not collapse it' : 'collapses it as before'}`);
+    await ctrlClick(`.fp-row[data-key="sent"]:not([data-acct])`);
+    eq(await evaluate(`${S('folder')} === 'sent'`), !mac, `${os}: Ctrl+click on a folder row ${mac ? 'opens nothing' : 'opens it as before'}`);
+    await io.click(`.fp-row[data-key="drafts"]:not([data-acct])`);
+    await sleep(200);
+    await ctrlClick(ONE);
+    eq(await evaluate(`${S('folder')} === 'inbox' && ${S('accountId')} === null`), !mac, `${os}: Ctrl+click on One Inbox ${mac ? 'opens nothing' : 'opens it as before'}`);
+    // a plain click still works everywhere
+    await io.click(`.fp-group[data-reorder-id="a2"] .fp-head`);
+    await sleep(150);
+    eq(await evaluate(`!!${S('prefs.collapsed')}['a2']`), mac, `${os}: a plain click toggles (state flips from the Ctrl+click case)`);
+  }
+
+  // ---- B2: the right-click works on the whole avatar and the whole One Inbox icon (the grip over the avatar's left edge, the badge and the pips included)
+  await fresh('light&lang=en&os=macos', 960, 900);
+  ok(await until(`!!document.querySelector('.is-rail')`), 'icon column');
+  await evaluate(`window.__store.setState({ reauth: { a3: 'again' }, syncErrors: { a4: 'mock: offline' } }); 1`);
+  await sleep(200);
+  const targets = [['avatar', '.is-rail .fp-group[data-reorder-id] .fp-avatar', 5], ['One Inbox', `.is-rail ${ONE}`, 1]];
+  // edges, centre, the badge / pip corner and the corners inside the rounded shape (the 4 px corner pixels of the rounded button are not the icon)
+  const pts = [[0.01, 0.5], [0.99, 0.5], [0.5, 0.01], [0.5, 0.99], [0.5, 0.5], [0.2, 0.2], [0.8, 0.2], [0.2, 0.8], [0.8, 0.8], [0.8, 0.1], [0.03, 0.03 + 0.12], [0.97, 0.15], [0.12, 0.5]];
+  for (const [name, sel, count] of targets) {
+    for (let n = 0; n < count; n++) {
+      const box = await evaluate(`(() => { const e = document.querySelectorAll(${JSON.stringify(sel)})[${n}]; e.scrollIntoView({ block: 'nearest' }); const r = e.getBoundingClientRect(); return { l: r.left, t: r.top, w: r.width, h: r.height }; })()`);
+      const bad = [];
+      for (const [fx, fy] of pts) {
+        const x = box.l + box.w * fx, y = box.t + box.h * fy;
+        // a real right-click with the pointer only passing (no rest long enough for the peek)
+        await mouse('mouseMoved', 700, 400);
+        await until(`document.querySelector('.folder-pane').dataset.sidebar === 'rail' && !document.querySelector('.ctx-menu')`);
+        await mouse('mouseMoved', x, y);
+        await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'right', buttons: 2, clickCount: 1 });
+        await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'right', clickCount: 1 });
+        const opened = await until(`!!document.querySelector('.ctx-menu')`, 400);
+        const side = await evaluate(`document.querySelector('.folder-pane').dataset.sidebar`);
+        await mouse('mouseMoved', 700, 400);
+        if (!opened || side !== 'rail') bad.push([fx, fy, opened, side, await evaluate(`(() => { const t = document.elementFromPoint(${x}, ${y}); return t ? t.tagName + '.' + String(t.getAttribute('class')) : null; })()`)]);
+        // (closed by a press outside: Escape would give the focus back to the icon with the keyboard's focus ring, which opens the peek on purpose)
+        if (opened) { await mouse('mousePressed', 700, 400); await mouse('mouseReleased', 700, 400); }
+        await sleep(60);
+      }
+      ok(bad.length === 0, `${name} ${n}: a right-click opens the menu (and not the peek) at every point: ${JSON.stringify(bad.slice(0, 6))} (${bad.length} of ${pts.length} failed)`);
+    }
+  }
+  // the hit test: every point belongs to the entry (nothing outside it sits over it)
+  const miss = await evaluate(`(() => { const out = []; for (const e of document.querySelectorAll('.is-rail .fp-avatar, .is-rail .fp-row[data-key="inbox"]:not([data-acct])')) { const r = e.getBoundingClientRect(); for (const [fx, fy] of [[0.01, 0.5], [0.99, 0.5], [0.5, 0.01], [0.5, 0.97], [0.5, 0.5], [0.2, 0.2], [0.8, 0.8]]) { const t = document.elementFromPoint(r.left + r.width * fx, r.top + r.height * fy); if (!t || !(e.contains(t) || t.closest('.fp-group, .fp-row') === e.closest('.fp-group, .fp-row'))) out.push([e.className, fx, fy, t && t.className]); } } return out; })()`);
+  ok(miss.length === 0, `every point of an icon is the icon's own or its mailbox's: ${JSON.stringify(miss.slice(0, 4))}`);
+}
+
 // ======================================================================== run
 const only = arg('only');
-const parts = { r4, r1, r6, r3, r5, r2 };
+const parts = { r4, r1, r6, r3, r5, r2, r7 };
 for (const [name, fn] of Object.entries(parts)) {
   if (only && !only.split(',').includes(name)) continue;
   try { await fn(); } catch (e) { failures.push(`[${name}] threw: ${e.stack || e.message}`); console.error(`FAIL [${name}] threw`, e); }

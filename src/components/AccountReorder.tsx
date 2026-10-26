@@ -233,9 +233,12 @@ export function useAccountReorder(containerRef: RefObject<HTMLElement | null>, e
       }
     },
     onContextMenu: (e: React.MouseEvent) => {
-      if (!(e.target as Element).closest("[data-reorder-focus]")) return; // a folder row: the app has nothing to offer there
+      const t = e.target as Element;
+      // (1.0.10) the grip sits over the left edge of the avatar in the icon column (12 px of its 40), and the row around the button has a few pixels of its own: a right-click there is a right-click on the mailbox
+      const from = t.closest<HTMLElement>("[data-reorder-focus]") ?? (t.closest(".reorder-grip, .fp-headrow") ? e.currentTarget.querySelector<HTMLElement>("[data-reorder-focus]") : null);
+      if (!from) return; // a folder row: the app has nothing to offer there
       e.preventDefault();
-      setMenu({ id, at: { x: e.clientX, y: e.clientY }, keyboard: false, from: (e.target as Element).closest<HTMLElement>("[data-reorder-focus]") });
+      setMenu({ id, at: { x: e.clientX, y: e.clientY }, keyboard: false, from });
     },
   });
 

@@ -103,6 +103,8 @@ export function useSidebarPeek(active: boolean, busy: boolean) {
     // the keyboard comes in: the menu opens at once (a click that gives the pane the focus does not, :focus-visible is for the keyboard)
     onFocus: (e: React.FocusEvent) => {
       if (!active || now.current.open) return;
+      // (React sends the focus of a menu that was opened from the pane - a portal outside it - up to the pane too: that is not the keyboard coming in. 1.0.10: a right-click on the grip, which cannot take the focus, opened the menu AND the peek)
+      if (!pane.current?.contains(e.target as Node)) return;
       if ((e.target as Element).matches(":focus-visible")) setOpen(true);
     },
     onBlur: (e: React.FocusEvent) => {

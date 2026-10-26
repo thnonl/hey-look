@@ -4,7 +4,7 @@
 // Run: node --experimental-strip-types scripts/test-context-guard.mjs
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { decideContextMenu, emailAtOffset, fieldKind, INTERACTIVE, isEditableNode, nativeMenuWanted, PLUGIN_HOST, safeLinkHref, SELECT_SCOPE } from "../src/contextPolicy.ts";
+import { decideContextMenu, emailAtOffset, fieldKind, INTERACTIVE, isEditableNode, isMacControlClick, nativeMenuWanted, PLUGIN_HOST, safeLinkHref, SELECT_SCOPE } from "../src/contextPolicy.ts";
 import { isContextMenuKey } from "../src/contextMenu.ts";
 
 const probe = (over = {}) => ({ dev: false, field: "none", locked: false, link: null, email: null, selection: false, onText: false, ...over });
@@ -140,6 +140,12 @@ for (const s of ["[role=dialog]", ".rp-msg", ".summary", ".toast", ".popover", "
 for (const s of ["button", "select", "input", "textarea", "[role=button]", "[role=tab]", "[role=menuitem]", "[role=option]", "[role=treeitem]"]) assert.ok(INTERACTIVE.includes(s), `interactive: ${s}`);
 
 // the wiring
+// (1.0.10) macOS: the click after a Ctrl+click (the right-click) is swallowed; Windows and Linux keep Ctrl+click; other buttons and plain clicks are untouched
+assert.equal(isMacControlClick("macos", { ctrlKey: true, button: 0 }), true);
+assert.equal(isMacControlClick("macos", { ctrlKey: false, button: 0 }), false);
+assert.equal(isMacControlClick("macos", { ctrlKey: true, button: 2 }), false);
+assert.equal(isMacControlClick("windows", { ctrlKey: true, button: 0 }), false);
+assert.equal(isMacControlClick("linux", { ctrlKey: true, button: 0 }), false);
 const read = (f) => readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
 const main = read("src/main.tsx");
 assert.match(main, /import \{ installContextGuard \} from "\.\/contextGuard"/);

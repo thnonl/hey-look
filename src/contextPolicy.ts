@@ -127,3 +127,11 @@ export const PLUGIN_HOST = "object, embed, iframe.pv-pdf";
 
 /** Elements a click on their text means something else than reading it: no text menu on a button's label. */
 export const INTERACTIVE = "button, select, summary, input, textarea, [role=button], [role=tab], [role=menuitem], [role=option], [role=switch], [role=checkbox], [role=radio], [role=treeitem], [role=slider], [draggable=true]";
+
+/**
+ * macOS: Ctrl+click is the right-click (1.0.10). WKWebView sends the `contextmenu` and then still a `click` with `ctrlKey`, which collapsed the mailbox whose menu had
+ * just opened (and would press any button the menu opened on). That click is swallowed. Windows and Linux: Ctrl+click is a click with a modifier, as it always was.
+ */
+export function isMacControlClick(os: string, e: { ctrlKey: boolean; button: number }): boolean {
+  return os === "macos" && e.ctrlKey && e.button === 0;
+}
