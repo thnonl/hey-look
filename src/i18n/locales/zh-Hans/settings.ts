@@ -450,6 +450,7 @@ export default defineLocale<typeof ns.en>({
   "settings.tray.startsOpen": "启动时打开窗口",
   "settings.tray.startsMinimized": "启动时最小化到托盘",
   "settings.tray.startInTray": "在托盘中启动",
+  "settings.tray.startInTrayNeedsSignIn": "请先打开上面的开关。",
   "settings.tray.keepRunningMenuBar": "关闭窗口后在菜单栏中继续运行",
   "settings.tray.trayBadgeMenuBar": "菜单栏图标角标",
   "settings.tray.startsMinimizedMenuBar": "启动时最小化到菜单栏",

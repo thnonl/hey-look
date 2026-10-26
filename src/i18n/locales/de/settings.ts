@@ -450,6 +450,7 @@ export default defineLocale<typeof ns.en>({
   "settings.tray.startsOpen": "Startet mit geöffnetem Fenster",
   "settings.tray.startsMinimized": "Startet minimiert im Infobereich",
   "settings.tray.startInTray": "Im Infobereich starten",
+  "settings.tray.startInTrayNeedsSignIn": "Schalten Sie zuerst den Schalter darüber ein.",
   "settings.tray.keepRunningMenuBar": "In der Menüleiste weiterlaufen, wenn das Fenster geschlossen wird",
   "settings.tray.trayBadgeMenuBar": "Badge am Menüleisten-Symbol",
   "settings.tray.startsMinimizedMenuBar": "Startet minimiert in der Menüleiste",

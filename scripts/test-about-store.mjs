@@ -81,14 +81,16 @@ try {
         ok(!/(?:settings|updates)\.[A-Za-z]+\.[A-Za-z]|\{/.test(t.text), `${tag} ${lock}: no raw key on the page`);
       }
       // ---- 1.0.10: "Start in the tray" under the start-at-sign-in switch (Windows only, while that switch is on); Mac and Linux keep their hint and have no such row
-      for (const [what, hash, os, offered] of [['windows, start at sign-in on', 'autostart=on', 'windows', true], ['windows, off', '', 'windows', false], ['linux, on', 'autostart=on', 'linux', false], ['macos, on', 'autostart=on', 'macos', false]]) {
+      for (const [what, hash, os, offered] of [['windows, start at sign-in on', 'autostart=on', 'windows', true], ['windows, off', '', 'windows', true], ['linux, on', 'autostart=on', 'linux', false], ['macos, on', 'autostart=on', 'macos', false]]) {
         const t = await open(`settings=tray&${hash}&lang=${lang}&os=${os}`, theme, lang, w, h);
         const row = t.rows.find((r) => r.label === d['settings.tray.startInTray']);
         ok(!!row === offered, `${tag} ${what}: the row "${d['settings.tray.startInTray']}" is ${offered ? 'there' : 'not there'}`);
         const auto = t.rows.find((r) => r.label === d[os === 'windows' ? 'settings.tray.autostartWindows' : 'settings.tray.autostart']);
         const wantHint = os === 'windows' ? null : d[os === 'macos' ? 'settings.tray.startsMinimizedMenuBar' : 'settings.tray.startsMinimized'];
         ok(auto && auto.hint === wantHint, `${tag} ${what}: the hint under the start-at-sign-in switch is ${JSON.stringify(wantHint)} (got ${JSON.stringify(auto && auto.hint)})`);
-        if (row) {
+        const on = hash.includes('autostart=on');
+        if (row && !on) ok(row.sw && row.sw.disabled && row.sw.checked === false && row.hint === d['settings.tray.startInTrayNeedsSignIn'] && (!row.hintBox || inside(t, row.hintBox)), `${tag} ${what}: greyed with the hint to turn the switch above on first (${JSON.stringify(row.sw)} ${JSON.stringify(row.hint)})`);
+        if (row && on) {
           ok(row.sw && !row.sw.disabled && row.sw.checked === false && row.hint === null, `${tag} ${what}: the switch is off by default, enabled, no hint (${JSON.stringify(row.sw)})`);
           ok(d['settings.tray.startInTray'].length <= 40, `${tag}: the label is short (${d['settings.tray.startInTray'].length} characters)`);
           await evaluate(`[...document.querySelectorAll('.settings .set-row')].find((r) => r.querySelector('.set-lbl > div')?.textContent.trim() === ${JSON.stringify(d['settings.tray.startInTray'])}).querySelector('input[type="checkbox"]').click(); 1`);

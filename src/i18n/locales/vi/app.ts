@@ -3,7 +3,7 @@ import type ns from "../../ns/app.ts";
 
 export default defineLocale<typeof ns.en>({
   "app.welcome.title": "Chào mừng đến với Hey Look!",
-  "app.welcome.intro": "Ứng dụng thư nhanh và riêng tư. Kết nối một tài khoản để bắt đầu — mọi tính năng đều mở sẵn, không gói đăng ký, không giới hạn.",
+  "app.welcome.intro": "Ứng dụng thư cho máy tính, dùng được với Gmail, Outlook, iCloud, Yahoo và mọi máy chủ IMAP. Kết nối một tài khoản để bắt đầu — mọi tính năng đều mở sẵn, không gói đăng ký, không giới hạn.",
   "app.welcome.google.title": "Đăng nhập bằng Google",
   "app.welcome.google.text": "Gmail và Google Workspace, không lưu mật khẩu",
   "app.welcome.microsoft.title": "Đăng nhập bằng Microsoft",

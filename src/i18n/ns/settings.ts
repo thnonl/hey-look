@@ -449,6 +449,7 @@ export default define({
     "settings.tray.startsOpen": "Starts with the window open",
     "settings.tray.startsMinimized": "Starts minimized to the tray",
     "settings.tray.startInTray": "Start in the tray",
+    "settings.tray.startInTrayNeedsSignIn": "Turn on the switch above first.",
     "settings.tray.keepRunningMenuBar": "Keep running in the menu bar when the window is closed",
     "settings.tray.trayBadgeMenuBar": "Menu bar icon badge",
     "settings.tray.startsMinimizedMenuBar": "Starts minimized to the menu bar",

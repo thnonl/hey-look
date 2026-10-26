@@ -450,6 +450,7 @@ export default defineLocale<typeof ns.en>({
   "settings.tray.startsOpen": "Запускается с открытым окном",
   "settings.tray.startsMinimized": "Запускается свёрнутым в трей",
   "settings.tray.startInTray": "Запускать в трее",
+  "settings.tray.startInTrayNeedsSignIn": "Сначала включите переключатель выше.",
   "settings.tray.keepRunningMenuBar": "Продолжать работу в строке меню при закрытии окна",
   "settings.tray.trayBadgeMenuBar": "Индикатор на значке в строке меню",
   "settings.tray.startsMinimizedMenuBar": "Запускается свёрнутым в строку меню",

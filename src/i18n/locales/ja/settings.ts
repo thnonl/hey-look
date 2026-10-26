@@ -450,6 +450,7 @@ export default defineLocale<typeof ns.en>({
   "settings.tray.startsOpen": "ウィンドウを開いた状態で起動します",
   "settings.tray.startsMinimized": "トレイに最小化した状態で起動します",
   "settings.tray.startInTray": "トレイで起動",
+  "settings.tray.startInTrayNeedsSignIn": "先に上のスイッチをオンにしてください。",
   "settings.tray.keepRunningMenuBar": "ウィンドウを閉じてもメニューバーで実行を続ける",
   "settings.tray.trayBadgeMenuBar": "メニューバーアイコンのバッジ",
   "settings.tray.startsMinimizedMenuBar": "メニューバーに最小化した状態で起動します",

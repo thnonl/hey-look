@@ -450,6 +450,7 @@ export default defineLocale<typeof ns.en>({
   "settings.tray.startsOpen": "Démarre avec la fenêtre ouverte",
   "settings.tray.startsMinimized": "Démarre réduit dans la zone de notification",
   "settings.tray.startInTray": "Démarrer dans la zone de notification",
+  "settings.tray.startInTrayNeedsSignIn": "Activez d’abord l’interrupteur ci-dessus.",
   "settings.tray.keepRunningMenuBar": "Continuer à fonctionner dans la barre des menus à la fermeture de la fenêtre",
   "settings.tray.trayBadgeMenuBar": "Pastille de l’icône de la barre des menus",
   "settings.tray.startsMinimizedMenuBar": "Démarre réduit dans la barre des menus",

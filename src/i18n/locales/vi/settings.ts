@@ -450,6 +450,7 @@ export default defineLocale<typeof ns.en>({
   "settings.tray.startsOpen": "Khởi động với cửa sổ đang mở",
   "settings.tray.startsMinimized": "Khởi động ở dạng thu nhỏ vào khay hệ thống",
   "settings.tray.startInTray": "Khởi động ở khay hệ thống",
+  "settings.tray.startInTrayNeedsSignIn": "Hãy bật công tắc ở trên trước.",
   "settings.tray.keepRunningMenuBar": "Tiếp tục chạy trên thanh menu khi đóng cửa sổ",
   "settings.tray.trayBadgeMenuBar": "Huy hiệu biểu tượng thanh menu",
   "settings.tray.startsMinimizedMenuBar": "Khởi động ở dạng thu nhỏ vào thanh menu",

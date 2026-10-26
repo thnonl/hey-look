@@ -3,7 +3,7 @@ import type ns from "../../ns/app.ts";
 
 export default defineLocale<typeof ns.en>({
   "app.welcome.title": "Hey Look!へようこそ",
-  "app.welcome.intro": "高速で、プライバシーを大切にするメールクライアントです。アカウントを接続して始めましょう。すべての機能が最初から使え、プランも制限もありません。",
+  "app.welcome.intro": "Gmail、Outlook、iCloud、Yahoo、そして任意のIMAPサーバーに対応するデスクトップのメールクライアントです。アカウントを接続して始めましょう。すべての機能が最初から使え、プランも制限もありません。",
   "app.welcome.google.title": "Googleでサインイン",
   "app.welcome.google.text": "GmailとGoogle Workspace用。パスワードは保存されません",
   "app.welcome.microsoft.title": "Microsoftでサインイン",

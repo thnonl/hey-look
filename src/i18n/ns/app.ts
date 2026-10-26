@@ -3,7 +3,7 @@ import { define } from "../types.ts";
 export default define({
   en: {
     "app.welcome.title": "Welcome to Hey Look!",
-    "app.welcome.intro": "A fast, private mail client. Connect an account to get started — everything is unlocked, no plans and no limits.",
+    "app.welcome.intro": "A desktop mail client for Gmail, Outlook, iCloud, Yahoo and any IMAP server. Connect an account to get started — everything is unlocked, no plans and no limits.",
     "app.welcome.google.title": "Sign in with Google",
     "app.welcome.google.text": "Gmail and Google Workspace, no password stored",
     "app.welcome.microsoft.title": "Sign in with Microsoft",

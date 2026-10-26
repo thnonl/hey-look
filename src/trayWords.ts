@@ -34,5 +34,5 @@ export const startsMinimizedKey = (os: Os) => (os === "macos" ? "settings.tray.s
 /** Windows: the start at sign-in shows the window unless "Start in the tray" is on, so the hint "Starts minimized to the tray" under the switch would be wrong there (1.0.10). Mac and Linux keep it. */
 export const startsMinimizedHint = (os: Os) => os !== "windows";
 
-/** The switch "Start in the tray" (Windows only: the entry of the start at sign-in gets `--minimized`, autostart.rs) is offered while the start at sign-in is on and there is a tray. */
-export const startInTrayOffered = (os: Os, tray: boolean, autostartOn: boolean) => os === "windows" && tray && autostartOn;
+/** The row "Start in the tray" (Windows only: the entry of the start at sign-in gets `--minimized`, autostart.rs) is drawn when there is a tray; the switch works while the start at sign-in is on and is greyed with a hint otherwise, so a search hit always has a row to light. */
+export const startInTrayOffered = (os: Os, tray: boolean) => os === "windows" && tray;

@@ -316,7 +316,7 @@ export function buildIndex(ctx: IndexCtx): Entry[] {
   if (win || mac) Y("taskbarBadge", mac ? "settings.tray.dockBadge" : "settings.tray.taskbarBadge");
   Y("countOther", "settings.tray.countOther", "settings.tray.countOtherHint");
   Y("autostart", win ? "settings.tray.autostartWindows" : "settings.tray.autostart", ctx.os === "linux" && !ctx.tray ? "settings.tray.startsOpen" : startsMinimizedHint(ctx.os) ? startsMinimizedKey(ctx.os) : undefined, { kw: ["settings.kw.autostart", "settings.kw.tray"] });
-  // (shown only while the start at sign-in is on: a search that lands on this page finds the switch there)
+  // (the row is always drawn on Windows with a tray; greyed with a hint while the start at sign-in is off)
   if (win && ctx.tray) Y("startInTray", "settings.tray.startInTray", undefined, { kw: ["settings.kw.autostart", "settings.kw.tray"] });
 
   const actionsTitle = t("settings.actions.title");

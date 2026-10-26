@@ -44,7 +44,7 @@ let scale = 1;
 const budget = (base) => Math.min(Math.round(base * scale), HARD_CAP_MS);
 const waitFor = async (js, ms = 8000) => { ms *= Math.max(1, scale); const t0 = Date.now(); while (Date.now() - t0 < ms) { try { if (await evaluate(js)) return true; } catch { /* between two renders */ } await sleep(30); } return false; };
 
-const hashFor = (c) => `lang=${c.lang}&os=${c.os}${c.notray ? '&notray' : ''}${c.os === 'windows' ? '&autostart=on' : ''}`; // (Windows: the switch "Start in the tray" is drawn only while the start at sign-in is on, and its entry is in the index)
+const hashFor = (c) => `lang=${c.lang}&os=${c.os}${c.notray ? '&notray' : ''}`;
 const BOX = '.settings-nav .set-search input';
 const ctrlF = (c) => cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'f', code: 'KeyF', windowsVirtualKeyCode: 70, modifiers: c.os === 'macos' ? 4 : 2 }).then(() => cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'f', code: 'KeyF', modifiers: c.os === 'macos' ? 4 : 2 }));
 const paste = (text) => cdp('Input.insertText', { text });
