@@ -7,8 +7,8 @@ import { t } from "./i18n/index.ts";
 import type { Key } from "./i18n/index.ts";
 
 /**
- * Google has not finished verifying Hey Look!: the consent screen is in production but unverified, so people who are not among the first
- * 100 users see Google's "Google hasn't verified this app" page, and nobody new can sign in once the limit for unverified apps is used up.
+ * Google has not finished verifying Hey Look!: the consent screen is in production but unverified, so people who sign in see Google's
+ * "Google hasn't verified this app" page, and Google may refuse a sign-in.
  * While this is true the Google sign-in shows the hint for that page. The release after Google approves the app sets it to false.
  */
 export const GOOGLE_REVIEW_PENDING = true;
@@ -70,7 +70,7 @@ export interface EndHint {
 }
 
 /**
- * The advice after a sign-in ended without access. Google: it may have blocked it (the limit for unverified apps); a Gmail account can
+ * The advice after a sign-in ended without access. Google: it may have blocked it; a Gmail account can
  * be added with an app password instead, which does not apply to calendar sync. Microsoft: the organization may need to approve the app.
  */
 export function endHint(provider: SignInProvider, purpose: "mail" | "calendar", reason: EndReason): EndHint | null {

@@ -3,7 +3,7 @@ import type ns from "../../ns/signin.ts";
 
 // The wait for the browser while signing in (mail and calendar), what is said when it ends without access, and the "Sign in again"
 // state of a mailbox whose sign-in was rejected. While Google has not verified Hey Look! (GOOGLE_REVIEW_PENDING in src/signIn.ts) a
-// person who is not among the first 100 users sees Google's warning page, and nobody new can sign in once the limit is used up.
+// person who signs in sees Google's warning page, and Google may refuse the sign-in.
 // "Google hasn't verified this app", "Advanced" and "Go to Hey Look! (unsafe)" are the words of Google's own page (which Google shows in the
 // language of the browser), so they stay in English in every language.
 
@@ -15,8 +15,8 @@ export default defineLocale<typeof ns.en>({
   "signin.end.cancelled": "Die Anmeldung bei {provider} wurde abgebrochen.",
   "signin.end.denied": "Die Anmeldung bei {provider} wurde nicht abgeschlossen.",
   "signin.end.generic": "Die Anmeldung bei {provider} wurde nicht abgeschlossen.",
-  "signin.end.google.mail": "Google hat diese Anmeldung möglicherweise blockiert, zum Beispiel weil das Limit für Apps erreicht ist, die Google nicht verifiziert hat. Sie können stattdessen ein Gmail-Konto mit einem App-Passwort hinzufügen.",
-  "signin.end.google.calendar": "Google hat diese Anmeldung möglicherweise blockiert, zum Beispiel weil das Limit für Apps erreicht ist, die Google nicht verifiziert hat. Ihre E-Mails sind davon nicht betroffen.",
+  "signin.end.google.mail": "Google hat diese Anmeldung möglicherweise blockiert. Sie können stattdessen ein Gmail-Konto mit einem App-Passwort hinzufügen.",
+  "signin.end.google.calendar": "Google hat diese Anmeldung möglicherweise blockiert. Ihre E-Mails sind davon nicht betroffen.",
   "signin.end.microsoft": "Wenn Ihre Organisation dieses Konto verwaltet, muss sie Hey Look! möglicherweise zuerst freigeben. Wenden Sie sich an Ihren IT-Administrator.",
   "signin.end.microsoft.blocked": "Möglicherweise muss Ihre Organisation Hey Look! freigeben, bevor sich dieses Konto anmelden kann. Wenden Sie sich an Ihren IT-Administrator und versuchen Sie es dann erneut.",
   "signin.end.appPassword": "Gmail mit App-Passwort hinzufügen",

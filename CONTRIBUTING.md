@@ -18,7 +18,7 @@ Provide it in any of these ways, in this order of priority:
 | `GOOGLE_CLIENT_ID` | OAuth client id |
 | `GOOGLE_CLIENT_SECRET` | OAuth client secret |
 
-Copy `.env.example` to `.env` (it is git-ignored) and fill in the values. The consent screen is *In production* but not yet verified by Google: people see “Google hasn’t verified this app”, and the project is limited to 100 users for its whole life until the verification is done (the app and `docs/help.html#google-review` say so; `GOOGLE_REVIEW_PENDING` in `src/signIn.ts` switches the review texts off after approval). In *Testing* mode Google would expire refresh tokens after 7 days; do not switch the app back to Testing.
+Copy `.env.example` to `.env` (it is git-ignored) and fill in the values. The consent screen is *In production* but not yet verified by Google: people see “Google hasn’t verified this app” until the verification is done (the app and `docs/help.html#google-review` say so; `GOOGLE_REVIEW_PENDING` in `src/signIn.ts` switches the review texts off after approval). In *Testing* mode Google would expire refresh tokens after 7 days; do not switch the app back to Testing.
 
 #### Calendar sync (Google Calendar)
 
