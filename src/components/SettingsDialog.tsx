@@ -1301,7 +1301,7 @@ function TrustedSenders({ global }: { global: boolean }) {
         {global && <div className="muted small">{t("settings.reading.trustedGlobalOn")}</div>}
         {all.length === 0 && <div className="muted">{t("settings.reading.trustedNone")}</div>}
         {all.length > 8 && (
-          <input type="search" className="trusted-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("settings.reading.trustedSearch")} aria-label={t("settings.reading.trustedSearch")} />
+          <input type="search" className="trusted-search" autoComplete="off" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("settings.reading.trustedSearch")} aria-label={t("settings.reading.trustedSearch")} />
         )}
         {shown.map((e) => (
           <div key={e} className="list-row">
