@@ -1,8 +1,10 @@
-// The Store listing import (scripts/store-listing-csv.mjs): the md files + images + the Partner Center export become an import folder, and every wrong
-// input stops it. No browser, no network. Run: node scripts/test-store-listing-csv.mjs
+// The Store listing import (scripts/store-listing-csv.mjs, rules: IMPORT-SPEC.md of the BA): the md files + images + the Partner Center export become an import
+// folder, and every wrong input stops it. No browser, no network. Run: node scripts/test-store-listing-csv.mjs
 //   - the field table equals the real export (scripts/fixtures/store-listing/partner-center-export.csv: BOM, CRLF, 453 rows, 24 empty ones at the end), and reading + writing
 //     it again gives the same bytes
 //   - CSV: commas, quotes and line breaks in a cell survive; the Description keeps its line breaks
+//   - the text rules of the spec (3.3): NFC, tab, zero-width, trailing space, HTML, markdown, URL, braces, raw key, count / note lines; the "S<N>: " caption format; the
+//     revision line; the Product name = the Title of the export; one line fields; the same number of screenshots in every language
 //   - make: only the cells this script owns change (every other row, also Title and the empty rows, is byte for byte the export's); the 8 language columns
 //     are filled from the 8 md files (all 3 caption styles, count notes dropped); image cells are <root>/images/<column>/S<n>.png; the folder checks out
 //   - every failure the brief lists is a failure: unknown Field, changed ID / Type, md of an unknown language, missing section, empty Description, texts over
@@ -16,7 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
 import { fileURLToPath } from "node:url";
-import { CSV_NAME, DEFAULT_DEV_STUDIO, DEFAULT_SHORT_TITLE, LOCALES, LOCALE_COLS, LOGO_ROWS, checkImportFolder, fieldTable, makeImportFolder, parseCsv, parseListingMd, readCsvFile, rebaseFolder, serializeCsv, splitSections, templateProblems } from "./store-listing-csv.mjs";
+import { CSV_NAME, DEFAULT_DEV_STUDIO, DEFAULT_SHORT_TITLE, LOCALES, LOCALE_COLS, LOGO_ROWS, checkImportFolder, fieldTable, makeImportFolder, parseCsv, parseListingMd, readCsvFile, rebaseFolder, serializeCsv, splitSections, templateProblems, textRuleProblems } from "./store-listing-csv.mjs";
 import { listingExtras, storeLogos } from "./lib/msix.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -47,31 +49,34 @@ function png(w, h) {
   return buf;
 }
 
-// ---- md fixtures: the three caption styles and the three note styles of the real files
+// ---- md fixtures: the format of IMPORT-SPEC 3 (revision line, "S<N>: " captions, no count notes), plus sections that are not imported
 const SECTION = (title, body) => `## ${title}\n\n${body}\n\n`;
 function mdFor(loc, o = {}) {
-  const cap = (i, text) => (loc.md === "en" ? `S${i} (scene ${i}, Light): ${text}` : loc.md === "fr" ? `S${i} ${text}` : `S${i}: ${text}`);
   const features = o.features ?? Array.from({ length: 5 }, (_, i) => `Feature ${i + 1} in ${loc.md}, with a comma`);
-  const caps = Array.from({ length: o.shots ?? 8 }, (_, i) => cap(i + 1, `Caption ${i + 1} in ${loc.md}, "quoted"`));
-  const note = loc.md === "fr" ? "Characters: 250" : loc.md === "vi" ? "(205 ký tự)" : "(203 characters; limit 270)";
+  const caps = Array.from({ length: o.shots ?? 8 }, (_, i) => `S${i + 1}: Caption ${i + 1} in ${loc.md}, "quoted"`);
   const parts = {
-    "Product name": "Hey Look!",
-    "Short description": o.short ?? `Short text in ${loc.md}, with a comma.\n\n${note}`,
-    "Description": o.description ?? `First paragraph in ${loc.md}, with "quotes" and a comma.\n\nHeading one\nText under heading one.\n\nHeading two\nMore text.\n\n${note}`,
+    "Product name": o.productName ?? "Hey Look! Mail Client",
+    ...(o.shortTitle ? { "Short title": o.shortTitle } : {}),
+    ...(o.titles ? { "Short title": "Hey Look!", "Sort title": "Hey Look Mail Client", "Voice title": "Hey Look Mail Client" } : {}),
+    "Short description": o.short ?? `Short text in ${loc.md}, with a comma.`,
+    "Description": o.description ?? `First paragraph in ${loc.md}, with "quotes" and a comma.\n\nHeading one\nText under heading one.\n\nHeading two\nMore text.`,
     "Product features": features.join("\n"),
-    "Search terms": (o.terms ?? ["email", "mail client", "IMAP", "OpenPGP", "calendar", "encrypted email", "inbox"]).join("\n") + "\n\n(8 unique words)",
+    "Search terms": (o.terms ?? ["email", "mail client", "IMAP", "OpenPGP", "calendar", "encrypted email", "inbox"]).join("\n"),
     "Copyright and trademark info": "© 2026 thnonl. MIT License.",
     ...(o.dev === null ? {} : { "Developed by": o.dev ?? "thnonl" }),
-    ...(o.shortTitle ? { "Short title": o.shortTitle } : {}),
     "Applicable license terms": "MIT License\n\nCopyright (c) 2026 thnonl",
     "Additional system requirements": "Windows 10 version 1809 or later\nAn email account\nAn internet connection",
-    "What's new in this version": "First submission (1.0.7): leave this field EMPTY.\n\nVersion {version}: {summary of the main changes}.",
+    "What's new in this version": o.whatsNew ?? "",
+    "What's new template (later versions, not imported now)": "Version {version}: {summary of the main changes}. (3 characters)",
     "Screenshot captions": caps.join("\n"),
     "Screenshot scenes": "S1: not imported",
     "Sample mail for screenshots": "| # | sender |\n|---|---|\n| 1 | A |",
+    "Character counts": "| field | count |\n|---|---|\n| Short description | 12 |",
   };
+  Object.assign(parts, o.raw ?? {});
   for (const k of o.drop ?? []) delete parts[k];
-  return `# Hey Look! – Microsoft Store listing – ${loc.md}\n\n` + Object.entries(parts).map(([k, v]) => SECTION(k, v)).join("");
+  const head = `# Hey Look! – Microsoft Store listing – ${loc.md}\n\n` + (o.revision === null ? "" : `Listing revision ${o.revision ?? "1.0.9"} (2026-10-26), first Store submission, app version 1.0.9.\n\n`);
+  return head + Object.entries(parts).map(([k, v]) => SECTION(k, v)).join("");
 }
 function writeMd(dir, o = {}, per = {}) {
   for (const loc of LOCALES) fs.writeFileSync(path.join(dir, `${loc.md}.md`), mdFor(loc, { ...o, ...(per[loc.md] ?? {}) }));
@@ -97,7 +102,7 @@ function writeLogos(dir) {
 const base = () => ({ md: writeMd(tmp("md")), images: writeImages(tmp("img")), logos: writeLogos(tmp("logo")) });
 const make = (over = {}) => {
   const b = base();
-  const out = over.out ?? path.join(tmp("out"), "listing-import");
+  const out = over.out ?? path.join(tmp("out"), "heylook-listing-109");
   const opts = { mdDir: b.md, imagesDir: b.images, logosDir: b.logos, out, templateFile: FIXTURE, bom: "auto", ...over };
   return { b, out, ...makeImportFolder(opts) };
 };
@@ -150,31 +155,71 @@ check("CSV: commas, quotes and line breaks in a cell, CRLF and LF rows", () => {
 });
 
 // ---- the md files
-check("md: sections, count notes, the three caption styles", () => {
+check("md: sections, one line fields, captions, revision", () => {
   const en = LOCALES[0];
-  const { values, errors } = parseListingMd(mdFor(en), "en.md");
+  const { values, productName, errors } = parseListingMd(mdFor(en), "en.md");
   assert.deepEqual(errors, []);
-  assert.equal(values.ShortDescription, "Short text in en, with a comma.", "the (203 characters) note is dropped");
+  assert.equal(productName, "Hey Look! Mail Client");
+  assert.equal(values.ShortDescription, "Short text in en, with a comma.");
   assert.match(values.Description, /^First paragraph in en, with "quotes" and a comma\.\n\nHeading one\nText under heading one\.\n\nHeading two\nMore text\.$/);
   assert.equal(values.Feature5, "Feature 5 in en, with a comma");
   assert.equal(values.SearchTerm7, "inbox");
-  assert.equal(values.SearchTerm8, undefined, "(8 unique words) is a note");
-  assert.equal(values.DesktopScreenshotCaption1, 'Caption 1 in en, "quoted"', "S1 (scene 1, Light): text");
-  assert.equal(parseListingMd(mdFor(LOCALES[2]), "fr.md").values.DesktopScreenshotCaption3, 'Caption 3 in fr, "quoted"', "S3 text");
-  assert.equal(parseListingMd(mdFor(LOCALES[2]), "fr.md").values.ShortDescription, "Short text in fr, with a comma.", "Characters: 250");
-  assert.equal(parseListingMd(mdFor(LOCALES[1]), "vi.md").values.Description.endsWith("More text."), true, "(205 ký tự)");
+  assert.equal(values.SearchTerm8, undefined);
+  assert.equal(values.DesktopScreenshotCaption1, 'Caption 1 in en, "quoted"');
   assert.equal(values.ReleaseNotes, "", "the first submission leaves What's new empty");
+  assert.equal(values.SortTitle, undefined, "Sort title and Voice title are not written without --titles-from-md");
   assert.deepEqual(Object.keys(splitSections(mdFor(en))).slice(0, 3), ["Product name", "Short description", "Description"]);
+  const bad = (o) => parseListingMd(mdFor(en, o), "en.md", o.opts).errors.join("\n");
+  assert.match(bad({ revision: null }), /no line "Listing revision 1\.0\.9"/);
+  assert.match(bad({ revision: "1.0.90" }), /no line "Listing revision 1\.0\.9"/, "1.0.90 is not 1.0.9");
+  assert.equal(bad({ revision: "1.0.10", opts: { revision: "1.0.10" } }), "");
+  assert.equal(bad({ revision: null, opts: { revision: "" } }), "", "no check when no revision is asked for");
+  assert.match(bad({ drop: ["Product name"] }), /the section "## Product name" is missing/);
+  assert.match(bad({ raw: { "Product name": "a\nb" } }), /"## Product name" must be one line/);
+  assert.match(bad({ raw: { "Developed by": "a\nb" } }), /"## Developed by" must be one line/);
+  assert.match(bad({ raw: { "Screenshot captions": "S1: ok\nS2:no space" } }), /caption line not understood \(it must be "S<N>: text"\): S2:no space/);
+  assert.match(bad({ raw: { "Screenshot captions": "S1 (scene): old style" } }), /caption line not understood/);
+  assert.match(bad({ raw: { "Screenshot captions": "S1: a\nS1: b" } }), /caption S1 twice/);
+  assert.match(bad({ raw: { "Screenshot captions": "S31: too many" } }), /caption line not understood/);
+  assert.match(bad({ titles: true, opts: { titlesFromMd: true }, drop: ["Sort title"] }), /"## Sort title" is missing/);
+  const t = parseListingMd(mdFor(en, { titles: true }), "en.md", { titlesFromMd: true }).values;
+  assert.equal(t.SortTitle, "Hey Look Mail Client");
+  assert.equal(t.VoiceTitle, "Hey Look Mail Client");
+  assert.equal(parseListingMd(mdFor(en), "en.md", { sortTitle: "S", voiceTitle: "" }).values.VoiceTitle, "", "an explicit empty VoiceTitle is written (it clears the row)");
+});
+check("text rules of the spec (3.3): every one is an error with the field and the line", () => {
+  const prob = (text, name = "Description") => textRuleProblems("en", name, text).join(" | ");
+  assert.equal(prob("Plain text, with a comma.\n\nAnd a second paragraph (in brackets)."), "");
+  assert.equal(prob("Typographic: … © “ ” « » 「」 full-width：punctuation，ok"), "");
+  assert.equal(prob("the app. For more"), "", "a dot and a space is not a raw key");
+  assert.match(prob("A\u0065\u0301 composed"), /not in Unicode NFC/);
+  assert.match(prob("one\ttwo"), /en: Description, line 1: a tab/);
+  assert.match(prob("one\u200btwo"), /a zero-width character/);
+  assert.match(prob("fine\ntrailing space \nfine"), /line 2: a space at the end of the line/);
+  assert.match(prob("a <b>bold</b> word"), /HTML/);
+  assert.match(prob("see <!-- x -->"), /HTML/);
+  for (const line of ["# heading", "- item", "* item", "> quote", "| a | b |", "so **bold** is", "a [link](x)"]) assert.match(prob(line), /a markdown marker/, line);
+  assert.match(prob("go to https://example.com now"), /a URL/);
+  assert.match(prob("see www.example.com"), /a URL/);
+  assert.match(prob("a {placeholder} here"), /a brace/);
+  assert.match(prob("a } alone"), /a brace/);
+  for (const key of ["settings.about.title", "mail.ctx.createRule", "app.cmd.x", "reading.head.y", "common.ok"]) assert.match(prob(`see ${key} there`), /a raw text key/, key);
+  for (const line of ["(203 characters)", "(8 unique words)", "203 characters", "12 ký tự", "Characters: 250", "Символов: 228", "Caractères : 12", "Zeichen: 5", "字符：8", "文字数: 9", "leave this field empty", "First submission: leave the field blank", "this is EMPTY"]) assert.match(prob(line), /a count or note line/, line);
+  assert.match(prob("line one\nline two with a tab\there\nthree"), /line 2: a tab/, "the line number counts lines of the text");
 });
 
 // ---- make
 check("make: the folder, the cells, the unchanged rows", () => {
   const { out, csv, files, warnings } = make();
-  assert.equal(path.basename(out), "listing-import");
+  assert.equal(path.basename(out), "heylook-listing-109");
   assert.equal(path.basename(csv), CSV_NAME);
   assert.equal(files.length, 1 + 8 * 8 + 6);
-  assert.ok(fs.existsSync(path.join(out, "images", "zh-hans", "S8.png")));
-  assert.ok(fs.existsSync(path.join(out, "images", "store", "store-poster-720x1080.png")));
+  assert.ok(fs.existsSync(path.join(out, "screenshots", "zh-hans", "S8.png")));
+  assert.ok(fs.existsSync(path.join(out, "logos", "store-poster-720x1080.png")));
+  assert.equal(path.basename(csv), "listing.csv");
+  assert.deepEqual(fs.readdirSync(out).sort(), ["listing.csv", "logos", "screenshots"], "one csv, logos, screenshots");
+  assert.equal(fs.readdirSync(path.join(out, "logos")).length, 6);
+  assert.deepEqual(fs.readdirSync(path.join(out, "screenshots")).sort(), [...LOCALE_COLS].sort());
   const raw = fs.readFileSync(csv);
   assert.deepEqual([...raw.subarray(0, 3)], [0xef, 0xbb, 0xbf], "BOM like the export (auto)");
   const { t, get } = cellsOf(csv);
@@ -188,16 +233,17 @@ check("make: the folder, the cells, the unchanged rows", () => {
   assert.equal(get("Feature5", "fr"), "Feature 5 in fr, with a comma");
   assert.equal(get("Feature6", "fr"), "");
   assert.equal(get("SearchTerm2", "vi"), "mail client");
-  assert.equal(get("DesktopScreenshot1", "en-us"), "listing-import/images/en-us/S1.png");
-  assert.equal(get("DesktopScreenshot8", "zh-hans"), "listing-import/images/zh-hans/S8.png");
-  assert.equal(get("DesktopScreenshot9", "zh-hans"), "");
+  assert.equal(get("DesktopScreenshot1", "en-us"), "heylook-listing-109/screenshots/en-us/S1.png");
+  assert.equal(get("DesktopScreenshot8", "zh-hans"), "heylook-listing-109/screenshots/zh-hans/S8.png");
+  assert.equal(get("DesktopScreenshot9", "zh-hans"), "", "the rows after the last caption stay as exported");
+  assert.equal(get("DesktopScreenshotCaption9", "zh-hans"), "");
   assert.equal(get("DesktopScreenshotCaption4", "ja"), 'Caption 4 in ja, "quoted"');
-  assert.equal(get("StoreLogo720x1080", "de"), "listing-import/images/store/store-poster-720x1080.png");
-  assert.equal(get("StoreLogo300x300", "ru"), "listing-import/images/store/store-tile-300x300.png");
-  assert.equal(get("StoreLogo1080x1080", "ja"), "listing-import/images/store/store-box-1080x1080.png");
-  assert.equal(get("StoreLogoOverride150x150", "es"), "listing-import/images/store/store-tile-150x150.png");
-  assert.equal(get("StoreLogoOverride71x71", "es"), "listing-import/images/store/store-tile-71x71.png");
-  assert.equal(get("PromoImage1920x1080", "fr"), "listing-import/images/store/store-hero-1920x1080.png");
+  assert.equal(get("StoreLogo720x1080", "de"), "heylook-listing-109/logos/store-poster-720x1080.png");
+  assert.equal(get("StoreLogo300x300", "ru"), "heylook-listing-109/logos/store-tile-300x300.png");
+  assert.equal(get("StoreLogo1080x1080", "ja"), "heylook-listing-109/logos/store-box-1080x1080.png");
+  assert.equal(get("StoreLogoOverride150x150", "es"), "heylook-listing-109/logos/store-tile-150x150.png");
+  assert.equal(get("StoreLogoOverride71x71", "es"), "heylook-listing-109/logos/store-tile-71x71.png");
+  assert.equal(get("PromoImage1920x1080", "fr"), "heylook-listing-109/logos/store-hero-1920x1080.png");
   assert.equal(get("OverrideLogosForWin10", "ja"), "True", "the small tiles are given: the Store must use them");
   assert.equal(get("ShortTitle", "ru"), DEFAULT_SHORT_TITLE);
   assert.equal(get("DevStudio", "ru"), "thnonl", "the md says something: it wins over the built-in default");
@@ -213,8 +259,9 @@ check("make: the folder, the cells, the unchanged rows", () => {
   // every row but the owned cells is the export's
   const orig = readCsvFile(FIXTURE);
   assert.equal(t.rows.length, orig.rows.length, "every row is kept, also the empty ones");
-  const owned = /^(Description|ShortDescription|ShortTitle|ReleaseNotes|DevStudio|CopyrightTrademarkInformation|AdditionalLicenseTerms|Feature\d+|SearchTerm\d+|MinimumHardwareReq\d+|DesktopScreenshot\d+|DesktopScreenshotCaption\d+|StoreLogo(720x1080|1080x1080|300x300)|StoreLogoOverride(150x150|71x71)|PromoImage1920x1080|OverrideLogosForWin10)$/;
+  const owned = /^(Description|ShortDescription|ShortTitle|ReleaseNotes|DevStudio|CopyrightTrademarkInformation|AdditionalLicenseTerms|Feature\d+|SearchTerm\d+|MinimumHardwareReq\d+|DesktopScreenshot[1-8]|DesktopScreenshotCaption[1-8]|StoreLogo(720x1080|1080x1080|300x300)|StoreLogoOverride(150x150|71x71)|PromoImage1920x1080|OverrideLogosForWin10)$/;
   t.rows.forEach((r, i) => r.forEach((c, j) => { if (!(owned.test(r[0]) && j >= 4)) assert.equal(c, orig.rows[i][j], `row ${r[0]} col ${j}`); }));
+  assert.deepEqual(t.rows.map((r) => r[3]), t.rows.map(() => ""), "the default column is empty in every row");
   assert.deepEqual(warnings, []);
   const chk = checkImportFolder(out, { templateFile: FIXTURE });
   assert.deepEqual(chk.errors, []);
@@ -234,12 +281,12 @@ check("make: root folder name is a parameter and part of every path", () => {
   const out = path.join(tmp("out"), "folder-x");
   const r = make({ out, rootName: "my_folder" });
   const { get } = cellsOf(r.csv);
-  assert.equal(get("DesktopScreenshot1", "en-us"), "my_folder/images/en-us/S1.png");
+  assert.equal(get("DesktopScreenshot1", "en-us"), "my_folder/screenshots/en-us/S1.png");
   assert.match(checkImportFolder(out).errors.join("\n"), /must start with the root folder name "folder-x\/"/, "check wants the folder's own name");
   assert.deepEqual(checkImportFolder(out, { rootName: "my_folder" }).errors, []);
   assert.equal(rebaseFolder(out), 8 * 8 + 8 * 6);
   assert.deepEqual(checkImportFolder(out).errors, []);
-  assert.equal(cellsOf(r.csv).get("StoreLogo300x300", "vi"), "folder-x/images/store/store-tile-300x300.png");
+  assert.equal(cellsOf(r.csv).get("StoreLogo300x300", "vi"), "folder-x/logos/store-tile-300x300.png");
   fails("bad root name", /root folder name/, () => make({ out: path.join(tmp("out"), "ok"), rootName: "a b/c" }));
 });
 check("make: release notes from a file; --no-license-terms / --no-hardware; ShortTitle and DevStudio: option > md > default", () => {
@@ -247,7 +294,7 @@ check("make: release notes from a file; --no-license-terms / --no-hardware; Shor
   const { get } = cellsOf(r.csv);
   assert.equal(get("ReleaseNotes", "en-us"), "Version 1.0.10: fixes.");
   assert.equal(get("ReleaseNotes", "fr"), "");
-  fails("placeholder", /placeholder \{version\}/, () => make({ release: { en: "Version {version}: x" } }));
+  fails("placeholder", /ReleaseNotes, line 1: a brace/, () => make({ release: { en: "Version {version}: x" } }));
   const off = cellsOf(make({ licenseTerms: false, hardware: false }).csv);
   assert.equal(off.get("AdditionalLicenseTerms", "ja"), "");
   assert.equal(off.get("MinimumHardwareReq1", "ja"), "");
@@ -273,12 +320,51 @@ check("the logo rows and the msix image lists agree (names and sizes)", () => {
     assert.deepEqual([m.w, m.h], [row.w, row.h], row.file);
   }
 });
+check("make: Title = Product name (REQ-6), revision (REQ-3), the same screenshots in every language (REQ-9), --texts-only, Sort / Voice title", () => {
+  const go = (o, extra = {}, per = {}) => {
+    const b = { md: writeMd(tmp("md"), o, per), images: writeImages(tmp("img")) };
+    return () => makeImportFolder({ mdDir: b.md, imagesDir: b.images, out: path.join(tmp("o"), "a"), templateFile: FIXTURE, ...extra });
+  };
+  fails("product name", /de\.md: Product name is "Hey Look!", the Store name is "Hey Look! Mail Client"/, go({}, {}, { de: { productName: "Hey Look!" } }));
+  fails("revision", /ja\.md: no line "Listing revision 1\.0\.9"/, go({}, {}, { ja: { revision: null } }));
+  go({ revision: null }, { revision: "" })(); // (the check can be switched off)
+  fails("title of the export", /en-us: the Title of the export is "Hey Look! Mail Client", the md's Product name is "Other"/, go({ productName: "Other" }));
+  // (every md says Other: the Store name check fails first, so use a template whose Title differs instead)
+  const t = fs.readFileSync(FIXTURE, "utf8").replace(/^\uFEFF/, "").replace("\r\nTitle,4,Text,,Hey Look! Mail Client,", "\r\nTitle,4,Text,,Another Name,");
+  const f = path.join(tmp("tpl"), "title.csv"); fs.writeFileSync(f, t);
+  fails("Title cell", /en-us: the Title of the export is "Another Name", the md's Product name is "Hey Look! Mail Client" \(IMPORT-SPEC REQ-6\)/, go({}, { templateFile: f }));
+  fails("different screenshot counts", /different numbers of captions \(.*ja 7.*\)/, go({}, {}, { ja: { shots: 7 } }));
+  // --texts-only: no screenshot rows, no captions, no image files needed
+  const to = (() => { const b = { md: writeMd(tmp("md")) }; return makeImportFolder({ mdDir: b.md, out: path.join(tmp("o"), "a"), templateFile: FIXTURE, textsOnly: true }); })();
+  const c = cellsOf(to.csv);
+  assert.equal(c.get("DesktopScreenshot1", "en-us"), "");
+  assert.equal(c.get("DesktopScreenshotCaption1", "en-us"), "");
+  assert.equal(c.get("Description", "en-us") !== "", true);
+  assert.deepEqual(checkImportFolder(path.dirname(to.csv), { templateFile: FIXTURE }).errors.filter((e) => !/no screenshot/.test(e)), []);
+  // Sort / Voice title: not written by default; --titles-from-md writes both; explicit options write one
+  const def = cellsOf(make().csv);
+  assert.equal(def.get("SortTitle", "en-us"), "");
+  assert.equal(def.get("VoiceTitle", "en-us"), "");
+  const b = { md: writeMd(tmp("md"), { titles: true }), images: writeImages(tmp("img")) };
+  const withTitles = cellsOf(makeImportFolder({ mdDir: b.md, imagesDir: b.images, out: path.join(tmp("o"), "a"), templateFile: FIXTURE, titlesFromMd: true }).csv);
+  assert.equal(withTitles.get("SortTitle", "ja"), "Hey Look Mail Client");
+  assert.equal(withTitles.get("VoiceTitle", "ja"), "Hey Look Mail Client");
+  assert.equal(withTitles.get("ShortTitle", "ja"), "Hey Look!");
+  const one = cellsOf(makeImportFolder({ mdDir: b.md, imagesDir: b.images, out: path.join(tmp("o"), "a"), templateFile: FIXTURE, sortTitle: "Sorted" }).csv);
+  assert.equal(one.get("SortTitle", "ja"), "Sorted");
+  assert.equal(one.get("VoiceTitle", "ja"), "");
+});
+check("make: the report names every length against its limit", () => {
+  const r = make();
+  assert.equal(r.report.length, 8);
+  assert.match(r.report[0], /^en-us\s+Description \d+\/10000, short 31\/1000 \(advice 270\), short title 9\/50, developed by 6\/255, copyright 27\/200, license \d+\/10000, features 5\/20 \(longest 29\/200\), terms 7\/7 \(longest 15\/40, 9\/21 words\), captions 8 \(longest 25\/200\), requirements 3, screenshots 8$/);
+});
 check("make: the md of a text can be cut to a few languages (--locales)", () => {
   const r = make({ locales: ["de", "ja"] });
   const { get } = cellsOf(r.csv);
   assert.equal(get("Description", "de") !== "", true);
   assert.equal(get("Description", "fr"), "");
-  assert.ok(!fs.existsSync(path.join(path.dirname(r.csv), "images", "fr")));
+  assert.ok(!fs.existsSync(path.join(path.dirname(r.csv), "screenshots", "fr")));
 });
 
 // ---- every failure
@@ -310,9 +396,13 @@ check("fail: md problems (unknown language, missing file, missing section, empty
   fails("no caption", /no screenshot caption/, () => makeImportFolder({ mdDir: b5.md, imagesDir: b5.images, out: path.join(tmp("o"), "a"), templateFile: FIXTURE }));
   const b6 = { md: writeMd(tmp("md"), { drop: ["Screenshot captions"] }), images: b.images };
   fails("no captions section", /"## Screenshot captions" is missing/, () => makeImportFolder({ mdDir: b6.md, imagesDir: b6.images, out: path.join(tmp("o"), "a"), templateFile: FIXTURE }));
-  const b7 = { md: writeMd(tmp("md"), {}, { ru: { shots: 8, features: ["x"] } }), images: b.images };
+  const b7 = { md: writeMd(tmp("md")), images: b.images };
   fs.writeFileSync(path.join(b7.md, "ru.md"), mdFor(LOCALES[7]).replace("S3: ", "garbage line\nS3: "));
-  fails("caption line", /caption line not understood/, () => makeImportFolder({ mdDir: b7.md, imagesDir: b7.images, out: path.join(tmp("o"), "a"), templateFile: FIXTURE }));
+  const b8 = { md: writeMd(tmp("md"), {}, { fr: { raw: { Description: "A paragraph.\n\n(203 characters)" } } }), images: b.images };
+  fails("count line in a section", /fr: Description, line 3: a count or note line/, () => makeImportFolder({ mdDir: b8.md, imagesDir: b8.images, out: path.join(tmp("o"), "a"), templateFile: FIXTURE }));
+  const b9 = { md: writeMd(tmp("md"), { raw: { "Short description": "See https://example.com" } }), images: b.images };
+  fails("URL in a section", /en-us: ShortDescription, line 1: a URL/, () => makeImportFolder({ mdDir: b9.md, imagesDir: b9.images, out: path.join(tmp("o"), "a"), templateFile: FIXTURE }));
+  fails("caption line", /caption line not understood \(it must be "S<N>: text"\)/, () => makeImportFolder({ mdDir: b7.md, imagesDir: b7.images, out: path.join(tmp("o"), "a"), templateFile: FIXTURE }));
 });
 check("fail: limits", () => {
   const run = (o, per) => { const b = { md: writeMd(tmp("md"), o, per), images: writeImages(tmp("img")) }; return () => makeImportFolder({ mdDir: b.md, imagesDir: b.images, out: path.join(tmp("o"), "a"), templateFile: FIXTURE }); };
@@ -389,21 +479,28 @@ check("--check: finds what is wrong in a folder", () => {
   const col = (t, c) => t.header.indexOf(c);
   assert.match(set((t) => { row(t, "Description")[col(t, "fr")] = ""; }).errors.join("\n"), /fr: Description is required and empty/);
   assert.match(set((t) => { row(t, "Description")[col(t, "fr")] = "d".repeat(10001); }).errors.join("\n"), /fr: Description is 10001/);
-  assert.match(set((t) => { row(t, "DesktopScreenshot1")[col(t, "es")] = "listing-import/images/es/nope.png"; }).errors.join("\n"), /es: DesktopScreenshot1: image file is missing/);
-  assert.match(set((t) => { row(t, "DesktopScreenshot1")[col(t, "es")] = "other/images/es/S1.png"; }).errors.join("\n"), /must start with the root folder name "listing-import\/"/);
-  assert.match(set((t) => { row(t, "DesktopScreenshot1")[col(t, "es")] = "listing-import\\images\\es\\S1.png"; }).errors.join("\n"), /relative path with \/ and no \.\./);
-  assert.match(set((t) => { row(t, "DesktopScreenshot1")[col(t, "es")] = "listing-import/../x.png"; }).errors.join("\n"), /relative path with \/ and no \.\./);
+  assert.match(set((t) => { row(t, "DesktopScreenshot1")[col(t, "es")] = "heylook-listing-109/screenshots/es/nope.png"; }).errors.join("\n"), /es: DesktopScreenshot1: image file is missing/);
+  assert.match(set((t) => { row(t, "DesktopScreenshot1")[col(t, "es")] = "other/images/es/S1.png"; }).errors.join("\n"), /must start with the root folder name "heylook-listing-109\/"/);
+  assert.match(set((t) => { row(t, "DesktopScreenshot1")[col(t, "es")] = "heylook-listing-109\\screenshots\\es\\S1.png"; }).errors.join("\n"), /relative ASCII path with \/ and no \.\./);
+  assert.match(set((t) => { row(t, "DesktopScreenshot1")[col(t, "es")] = "heylook-listing-109/../x.png"; }).errors.join("\n"), /relative ASCII path with \/ and no \.\./);
   assert.match(set((t) => { for (let i = 1; i <= 8; i++) row(t, `DesktopScreenshot${i}`)[col(t, "ja")] = ""; }).errors.join("\n"), /ja: no screenshot|ja: caption 1 has no DesktopScreenshot1/);
   assert.match(set((t) => { row(t, "Title")[0] = "Titel"; }).errors.join("\n"), /unknown Field "Titel"/);
   assert.match(set((t) => { t.rows.pop(); }).errors.join("\n"), /452 rows, the template has 453/);
-  assert.match(set((t) => { row(t, "MobileScreenshot1")[col(t, "de")] = "listing-import/images/de/S1.png"; }).warnings.join("\n"), /de: MobileScreenshot1 is filled/);
+  assert.match(set((t) => { row(t, "MobileScreenshot1")[col(t, "de")] = "heylook-listing-109/screenshots/de/S1.png"; }).warnings.join("\n"), /de: MobileScreenshot1 is filled/);
   assert.match(set((t) => { row(t, "Feature9")[col(t, "de")] = "gap"; }).warnings.join("\n"), /gap/);
   assert.match(set((t) => { row(t, "DesktopScreenshot1")[col(t, "es")] = "https://developer.microsoft.com/x"; }).warnings.join("\n"), /is a URL \(not checked\)/);
-  assert.match(set((t) => { row(t, "Description")[col(t, "de")] += "\nSee https://example.com"; }).warnings.join("\n"), /de: Description has a URL or HTML/);
+  assert.match(set((t) => { row(t, "Description")[col(t, "de")] += "\nSee https://example.com"; }).errors.join("\n"), /de: Description, line \d+: a URL/);
+  assert.match(set((t) => { row(t, "Feature2")[col(t, "de")] += " "; }).errors.join("\n"), /de: Feature2 starts or ends with a space/);
+  assert.match(set((t) => { row(t, "Title")[col(t, "de")] = "Changed"; }).errors.join("\n"), /row \d+ \(Title\): this row is not written by the import and differs from the export/);
+  assert.match(set((t) => { row(t, "MobileScreenshot1")[col(t, "de")] = ""; row(t, "Trailer1")[col(t, "ru")] = "x"; }).errors.join("\n"), /\(Trailer1\): this row is not written/);
+  assert.match(set((t) => { row(t, "Description")[3] = "shared"; }).errors.join("\n"), /\(Description\): the default column must stay empty/);
+  assert.match(set((t) => { row(t, "DesktopScreenshot8")[col(t, "ja")] = ""; row(t, "DesktopScreenshotCaption8")[col(t, "ja")] = ""; }).errors.join("\n"), /different numbers of screenshots/);
+  assert.match(set((t) => { row(t, "DesktopScreenshotCaption8")[col(t, "ja")] = ""; }).errors.join("\n"), /ja: DesktopScreenshot8 has no caption/);
+  assert.match(set((t) => { row(t, "Description")[col(t, "ja")] = "Count line\n(120 characters)"; }).errors.join("\n"), /ja: Description, line 2: a count or note line/);
   assert.match(set((t) => { row(t, "Feature1")[col(t, "de")] = "a" + String.fromCharCode(10) + "b"; }).errors.join(" "), /de: Feature1 must be one line/);
   assert.match(set((t) => { ovr(t, "StoreLogoOverride71x71", "de", ""); }).errors.join(" "), /de: OverrideLogosForWin10 is True but 1 of the 2 small tiles/);
   assert.match(set((t) => { ovr(t, "OverrideLogosForWin10", "de", "False"); }).warnings.join(" "), /de: the two small tiles are given but OverrideLogosForWin10 is "False"/);
-  assert.match(set((t) => { ovr(t, "PromoImage1920x1080", "de", "listing-import/images/store/store-tile-71x71.png"); }).errors.join(" "), /de: PromoImage1920x1080: .*71x71, PromoImage1920x1080 \(hero art 16:9\) is exactly 1920x1080/);
+  assert.match(set((t) => { ovr(t, "PromoImage1920x1080", "de", "heylook-listing-109/logos/store-tile-71x71.png"); }).errors.join(" "), /de: PromoImage1920x1080: .*71x71, PromoImage1920x1080 \(hero art 16:9\) is exactly 1920x1080/);
   assert.match(set((t) => { ovr(t, "ShortTitle", "de", "s".repeat(51)); }).errors.join(" "), /de: ShortTitle is 51/);
   assert.ok(text().equals(orig));
   // two csv files, no csv, not a folder
@@ -420,13 +517,14 @@ check("--check: finds what is wrong in a folder", () => {
 // ---- the command line
 check("command line: make, --check (exit codes), --rebase", () => {
   const b = base();
-  const out = path.join(tmp("cli"), "listing-import");
+  const out = path.join(tmp("cli"), "heylook-listing-109");
   const run = (...args) => spawnSync(process.execPath, [path.join(HERE, "store-listing-csv.mjs"), ...args], { encoding: "utf8" });
   const r = run("--md", b.md, "--images", b.images, "--logos", b.logos, "--out", out, "--template", FIXTURE, "--dev-studio", "Noamo, thnonl", "--short-title", "Hey Look!");
   assert.equal(r.status, 0, r.stderr + r.stdout);
-  assert.match(r.stdout, /root folder name "listing-import", BOM yes, rows end with CRLF/);
+  assert.match(r.stdout, /root folder name "heylook-listing-109", BOM yes, rows end with CRLF/);
   assert.match(r.stdout, /check of the result ok/);
   assert.match(r.stdout, /the option wins: "Noamo, thnonl"/);
+  assert.match(r.stdout, /report: en-us\s+Description/);
   assert.equal(cellsOf(path.join(out, CSV_NAME)).get("DevStudio", "vi"), "Noamo, thnonl");
   const c = run("--check", out, "--template", FIXTURE);
   assert.equal(c.status, 0, c.stderr + c.stdout);

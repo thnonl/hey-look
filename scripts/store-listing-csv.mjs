@@ -1,32 +1,35 @@
 #!/usr/bin/env node
-// Turns the Microsoft Store listing texts (one md file per language) and the listing images into a Partner Center IMPORT folder: one .csv + an images/
-// folder (Partner Center: "Import listings" > "Import folder"). No dependencies, Node 22+.
+// Turns the Microsoft Store listing texts (one md file per language, E:\hey-mail\reports\v1-0-1\store-listing-109\, rules: its IMPORT-SPEC.md) and the listing images into
+// a Partner Center IMPORT folder: one .csv + the images (Partner Center: "Import listings" > "Import folder"). No dependencies, Node 22+.
 //
 //   make the folder   node scripts/store-listing-csv.mjs --md <md folder> --images <screens folder> --out <import folder> --template <Partner Center export.csv>
 //                       [--logos <folder>[,<folder>]: store-poster-720x1080.png, store-box-1080x1080.png, store-tile-300x300.png (msix-assets.mjs --only store) and
 //                          store-hero-1920x1080.png, store-tile-150x150.png, store-tile-71x71.png (--only listing)]
-//                       [--root-name <name>] [--bom auto|yes|no] [--release-notes <json>] [--no-license-terms] [--no-hardware]
-//                       [--dev-studio "Noamo, thnonl"] [--short-title "Hey Look!"] [--locales en,vi,...]
-//   check a folder    node scripts/store-listing-csv.mjs --check <import folder> [--template <export.csv>] [--root-name <name>] [--locales ...]
+//                       [--root-name <name>] [--bom auto|yes|no] [--release-notes <json>] [--no-license-terms] [--no-hardware] [--texts-only]
+//                       [--dev-studio "Noamo, thnonl"] [--short-title "Hey Look!"] [--titles-from-md | --sort-title <t> --voice-title <t>]
+//                       [--revision 1.0.9] [--locales en,vi,...]
+//   check a folder    node scripts/store-listing-csv.mjs --check <import folder> [--template <export.csv>] [--root-name <name>] [--locales ...] [--strict]
 //   rename the root   node scripts/store-listing-csv.mjs --rebase <import folder>     (the image paths name the folder: use after a copy or rename)
 //   no export yet     --no-template instead of --template writes a BEST-GUESS template (the field list of a real export) and marks the result
 //                     "NOT PROVEN: replace by an export from Partner Center" (a note on the console and a file <out>.NOT-PROVEN.txt next to the folder)
 //
-// Inputs: <md folder>/<lang>.md with the sections "## Short description", "## Description", "## Product features" (one per line), "## Search terms"
-// (one per line), "## Copyright and trademark info", "## Developed by", "## Applicable license terms", "## Additional system requirements",
-// "## What's new in this version", "## Screenshot captions" (S1..S8), and optional "## Short title"; a trailing "(203 characters)" line of a section is a note and dropped.
-// <screens folder>/<locale column>/S1.png ... S8.png (scripts/store-screenshots.mjs makes them), logos from scripts/msix-assets.mjs --only store.
+// Inputs (IMPORT-SPEC.md section 3): <md folder>/<lang>.md with a line "Listing revision 1.0.9" before the first heading and the sections "## Product name" (= the Title of the
+// export), "## Short description", "## Description", "## Product features" / "## Search terms" / "## Additional system requirements" (one per line), "## Copyright and trademark
+// info", "## Applicable license terms", "## What's new in this version", "## Screenshot captions" (lines "S1: text"); "## Developed by" and "## Short title" are read when
+// present (else the options / the defaults of the owner's decision). A count note ("(203 characters)"), HTML, markdown, a URL, braces, a raw key, a tab, a trailing space
+// or a zero-width character in a section is an ERROR (the BA's check runs the same rules). <screens folder>/<language column>/S1.png ... S8.png come from
+// scripts/store-screenshots.mjs.
 //
-// The TEMPLATE is the owner's export from Partner Center. Its Field / ID / Type columns, its header and EVERY row (also the empty ones) are copied
-// unchanged; only the cells of the language columns that this script owns are filled (Description, ShortDescription, ReleaseNotes (empty: first
-// submission), ShortTitle, DevStudio, CopyrightTrademarkInformation, AdditionalLicenseTerms (the MIT text), Feature1..20, SearchTerm1..7, MinimumHardwareReq1..11 (the md's
-// "Additional system requirements"), DesktopScreenshot1..30 + captions and, when logos are given, the six image rows StoreLogo720x1080 / 1080x1080 / 300x300, StoreLogoOverride150x150 /
-// 71x71, PromoImage1920x1080 with OverrideLogosForWin10 = True). Title, VoiceTitle, SortTitle and every other row stay as the export has them. The `default`
-// column stays empty: Microsoft says a blank language cell falls back to it, but nobody has shown that for images, so every language column is filled itself.
+// The TEMPLATE is the owner's export from Partner Center. Its header, its Field / ID / Type cells, the `default` column and EVERY row (also the empty ones) are copied unchanged;
+// only these cells of the 8 language columns are written: Description, ShortDescription, ReleaseNotes (the md section: empty for the first submission), ShortTitle, DevStudio,
+// CopyrightTrademarkInformation, AdditionalLicenseTerms (the MIT text), Feature1..20, SearchTerm1..7, MinimumHardwareReq1..11 (the md's "Additional system requirements"),
+// DesktopScreenshot1..N + captions (N = the captions of the md; the rows after N stay as exported) and, when logos are given, the six image rows StoreLogo720x1080 / 1080x1080 /
+// 300x300, StoreLogoOverride150x150 / 71x71, PromoImage1920x1080 with OverrideLogosForWin10 = True. SortTitle / VoiceTitle only with --titles-from-md (or their own options):
+// the owner decided VoiceTitle stays empty, the spec says "Hey Look Mail Client" (open question O-11). Title and every other row stay as the export has them.
 //
-// It FAILS LOUD (exit 1, nothing written) on: a Field that is not in the table below, an ID or Type that differs from the table, a language column that has
-// no md file / an md file of no known language, a missing section, a missing Description or screenshot, a value over its limit, a missing or wrong image
-// (PNG header and end, size, ratio), a placeholder like {version} left in a text.
+// It FAILS LOUD (exit 1, nothing written) on: a Field that is not in the table below, an ID or Type that differs from the table, a language column that has no md file / an md
+// file of no known language, a wrong revision line, a missing section, a Title of the export that is not the md's Product name, a missing Description or screenshot, a value
+// over its limit, a text rule of the spec, a missing or wrong image (PNG header and end, size, ratio), a different number of screenshots in two languages, a placeholder left in a text.
 //
 // FILE FORMAT (what is written, and why):
 //   Encoding  UTF-8. BOM: `--bom auto` (default) = like the template (the real export has one; without a template: yes). Microsoft says only "UTF-8"; an
@@ -34,11 +37,13 @@
 //             way: if the import is refused without a clear reason, make the folder again with the other --bom value.
 //   Rows      end with the template's line break (the real export: CRLF); a line break inside a cell (the Description) is LF, inside quotes. A cell is
 //             quoted only when it holds a comma, a quote or a line break (RFC 4180, like the export). The last row has no line break, like the export.
-//   Images    cell = <root folder name>/images/<language column>/S1.png (Microsoft: "enter the full path, including the root folder name"), so the
-//             folder must keep the name it was made with (--root-name, default the name of --out); --rebase fixes the paths after a rename.
+//   Folder    <root>/listing.csv, <root>/screenshots/<language column>/S1.png, <root>/logos/<the 6 files>. Image cell = <root folder name>/screenshots/en-us/S1.png
+//             (Microsoft: "enter the full path, including the root folder name"), so the folder must keep the name it was made with (--root-name, default the name of
+//             --out); --rebase fixes the paths after a rename. The same input gives the same bytes (no date, no random order).
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { STORE_DISPLAY_NAME } from "./lib/msix.mjs";
 
 // ---------------------------------------------------------------- the languages
 /** md file name (without .md) -> the language column of the Partner Center export, and the app's language code (= the screenshot language). */
@@ -101,7 +106,7 @@ export const SHOT_MAX = 30; // DesktopScreenshot1..30
 const SHOT = { minW: 1366, minH: 768, maxW: 3840, maxH: 2160, maxBytes: 50e6 };
 
 /** The fields a text must not span lines in. */
-const MULTILINE = new Set(["Description", "ReleaseNotes", "AdditionalLicenseTerms"]);
+const MULTILINE = new Set(["Description", "ShortDescription", "CopyrightTrademarkInformation", "AdditionalLicenseTerms", "ReleaseNotes"]);
 
 /** Limits in UTF-16 units (the stricter way to count). `warn`: above it the text is accepted but reported. */
 export function limitOf(name) {
@@ -201,12 +206,18 @@ export function imageProblems(file, role) {
   return bad;
 }
 
-// ---------------------------------------------------------------- the md files
-const SECTION_NAMES = ["Short description", "Description", "Product features", "Search terms", "Copyright and trademark info", "Applicable license terms", "Additional system requirements", "What's new in this version", "Screenshot captions"];
-/** A note line of the BA: "(203 characters)", "(2114 ký tự)", "(8 unique words)", "(225 characters; limit 270)", "Characters: 250", "Символов: 228". */
-const NOTE_LINE = /^(?:\(\s*\d[^()]*\)|\p{L}[\p{L} ]{0,24}:\s*\d[\d.,]*)$/u;
+// ---------------------------------------------------------------- the md files (IMPORT-SPEC.md section 3)
+const REQUIRED_SECTIONS = ["Product name", "Short description", "Description", "Product features", "Search terms", "Copyright and trademark info", "Applicable license terms", "Additional system requirements", "What's new in this version", "Screenshot captions"];
+/** With --titles-from-md these must be there too. */
+const TITLE_SECTIONS = ["Short title", "Sort title", "Voice title", "Developed by"];
+/** The sections that hold one line. */
+const ONE_LINE_SECTIONS = ["Product name", "Short title", "Sort title", "Voice title", "Developed by"];
+export const DEFAULT_REVISION = "1.0.9";
+const CAPTION_LINE = /^S([1-9]|[12][0-9]|30): (.+)$/;
+/** A count or note line (IMPORT-SPEC 3.3): it belongs to the BA's table, not into a field. */
+const COUNT_LINE = [/^\(\d/, /^\d+ (characters|ký tự)/, /^(Characters|Символов|Caractères|Zeichen|字符|文字数)\s*[:：]/, /unique words/, /leave (this|the) field/, /EMPTY/];
 
-/** The sections of an md file: { "Short description": "text", ... } (every "## " heading; body trimmed, LF). */
+/** The sections of an md file: { "Short description": "text", ... } (every "## " heading; body trimmed, LF; the first of two equal headings wins). */
 export function splitSections(md) {
   const out = {};
   const lines = md.replace(/^﻿/, "").replace(/\r\n?/g, "\n").split("\n");
@@ -219,73 +230,98 @@ export function splitSections(md) {
   flush();
   return out;
 }
+/** The text before the first "## " heading (the title line and the revision line). */
+export const prefaceOf = (md) => md.replace(/^﻿/, "").replace(/\r\n?/g, "\n").split(/^## /m)[0];
+/** The non-empty lines of a section, as written (a trailing space stays visible to the text rules). */
+const linesOf = (section) => section.split("\n").filter((l) => l.trim() !== "");
 
-/** Text of a section without the count note on its last line. */
-function textOf(section) {
-  const lines = section.split(/\n/);
-  while (lines.length && (lines[lines.length - 1].trim() === "" || NOTE_LINE.test(lines[lines.length - 1].trim()))) lines.pop();
-  return lines.join(String.fromCharCode(10)).trim();
+/**
+ * The text rules of IMPORT-SPEC 3.3 for one text (a section of an md file, or a cell of the csv): NFC, no tab / zero-width character / trailing space, no HTML, no markdown
+ * marker, no URL, no braces, no raw key, no count or note line. Returns the problems, each with the field and the line.
+ */
+export function textRuleProblems(label, name, text) {
+  const bad = [];
+  if (text.normalize("NFC") !== text) bad.push(`${label}: ${name} is not in Unicode NFC`);
+  text.split("\n").forEach((line, i) => {
+    const at = `${label}: ${name}, line ${i + 1}`;
+    if (/\t/.test(line)) bad.push(`${at}: a tab`);
+    if (/[​-‍⁠﻿]/.test(line)) bad.push(`${at}: a zero-width character`);
+    if (/[  ]$/.test(line)) bad.push(`${at}: a space at the end of the line`);
+    if (/<[A-Za-z/!][^>]*>/.test(line)) bad.push(`${at}: HTML`);
+    if (/^(#|- |\* |> |\|)/.test(line) || /\*\*/.test(line) || /\]\(/.test(line)) bad.push(`${at}: a markdown marker`);
+    if (/https?:\/\/|www\./i.test(line)) bad.push(`${at}: a URL (Microsoft: no URLs in the listing fields)`);
+    if (/[{}]/.test(line)) bad.push(`${at}: a brace (a placeholder?)`);
+    if (/\b(settings|mail|app|reading|common)\.[a-z]/.test(line)) bad.push(`${at}: a raw text key`);
+    if (COUNT_LINE.some((re) => re.test(line.trim()))) bad.push(`${at}: a count or note line ("${line.trim().slice(0, 40)}")`);
+  });
+  return bad;
 }
-const linesOf = (section) => section.split("\n").map((l) => l.trim()).filter((l) => l && !NOTE_LINE.test(l));
 
-/** The fields of one md file: { values: { FieldName: text }, shots: n of captions, errors: [] }. */
-export function parseListingMd(md, label, { release = "", shortTitle, devStudio } = {}) {
+/**
+ * The fields of one md file: { values: { FieldName: text }, productName, errors, warnings }. Options: `release` (text for ReleaseNotes, else the md's section),
+ * `shortTitle`, `devStudio` (win over the md; the md wins over the built-in default), `revision` (the "Listing revision" line to find, "" = no check), `titlesFromMd`.
+ */
+export function parseListingMd(md, label, { release, shortTitle, devStudio, sortTitle, voiceTitle, revision = DEFAULT_REVISION, titlesFromMd = false } = {}) {
   const errors = [], warnings = [];
+  if (revision && !new RegExp(`^Listing revision ${revision.replace(/\./g, "\\.")}(?![\\d.])`, "m").test(prefaceOf(md))) {
+    errors.push(`${label}: no line "Listing revision ${revision}" before the first "## " heading (IMPORT-SPEC REQ-3)`);
+  }
   const sec = splitSections(md);
-  for (const s of SECTION_NAMES) if (!(s in sec)) errors.push(`${label}: the section "## ${s}" is missing`);
+  const missing = [...REQUIRED_SECTIONS, ...(titlesFromMd ? TITLE_SECTIONS : [])].filter((s) => !(s in sec));
+  for (const s of missing) errors.push(`${label}: the section "## ${s}" is missing`);
   const v = {};
-  if (errors.length) return { values: v, errors, warnings };
-  v.ShortDescription = textOf(sec["Short description"]);
-  v.Description = textOf(sec["Description"]);
-  linesOf(sec["Product features"]).forEach((l, i) => { v[`Feature${i + 1}`] = l; });
-  linesOf(sec["Search terms"]).forEach((l, i) => { v[`SearchTerm${i + 1}`] = l; });
-  v.CopyrightTrademarkInformation = textOf(sec["Copyright and trademark info"]);
-  // owner decision 2026-10-26: Developed by = "Noamo, thnonl", ShortTitle = "Hey Look!" in every language. Order: an explicit option (--dev-studio, --short-title) > the md
-  // ("## Developed by", the optional "## Short title") > the built-in default; an md that says something else than the option is reported.
+  if (missing.length) return { values: v, productName: "", errors, warnings };
+  for (const s of ONE_LINE_SECTIONS) if (s in sec && sec[s].includes("\n")) errors.push(`${label}: the section "## ${s}" must be one line`);
+  const text = (s) => sec[s] ?? "";
+  v.ShortDescription = text("Short description");
+  v.Description = text("Description");
+  linesOf(text("Product features")).forEach((l, i) => { v[`Feature${i + 1}`] = l; });
+  linesOf(text("Search terms")).forEach((l, i) => { v[`SearchTerm${i + 1}`] = l; });
+  v.CopyrightTrademarkInformation = text("Copyright and trademark info");
+  v.AdditionalLicenseTerms = text("Applicable license terms");
+  linesOf(text("Additional system requirements")).forEach((l, i) => { v[`MinimumHardwareReq${i + 1}`] = l; });
+  v.ReleaseNotes = release ?? text("What's new in this version");
+  // owner decisions 2026-10-26: Developed by = "Noamo, thnonl", ShortTitle = "Hey Look!" in every language. Order: an explicit option > the md > the built-in default;
+  // an md that says something else than an explicit option is reported.
   const pick = (what, opt, fromMd, dflt) => {
     if (opt !== undefined && fromMd && fromMd !== opt) warnings.push(`${label}: "${what}" says "${fromMd.slice(0, 60)}", the option wins: "${opt}"`);
     return opt ?? (fromMd || dflt);
   };
-  v.DevStudio = pick("Developed by", devStudio, textOf(sec["Developed by"] ?? ""), DEFAULT_DEV_STUDIO);
-  v.ShortTitle = pick("Short title", shortTitle, textOf(sec["Short title"] ?? ""), DEFAULT_SHORT_TITLE);
-  v.AdditionalLicenseTerms = textOf(sec["Applicable license terms"]);
-  linesOf(sec["Additional system requirements"]).forEach((l, i) => { v[`MinimumHardwareReq${i + 1}`] = l; });
-  v.ReleaseNotes = release; // the md only says "leave EMPTY" for the first submission and gives a template for later ones
-  for (const line of linesOf(sec["Screenshot captions"])) {
-    // "S1: text" | "S1 text" | "S1 (what is shown, Light): text"
-    const m = /^S(\d{1,2})(?:\s*\([^)]*\))?\s*[:：]?\s*(\S.*)$/.exec(line);
-    if (!m) { errors.push(`${label}: caption line not understood: ${line.slice(0, 60)}`); continue; }
-    const n = Number(m[1]);
-    if (v[`DesktopScreenshotCaption${n}`] !== undefined) errors.push(`${label}: caption S${n} twice`);
-    v[`DesktopScreenshotCaption${n}`] = m[2].trim();
+  v.DevStudio = pick("Developed by", devStudio, text("Developed by"), DEFAULT_DEV_STUDIO);
+  v.ShortTitle = pick("Short title", shortTitle, text("Short title"), DEFAULT_SHORT_TITLE);
+  if (titlesFromMd) { v.SortTitle = sortTitle ?? text("Sort title"); v.VoiceTitle = voiceTitle ?? text("Voice title"); }
+  else { if (sortTitle !== undefined) v.SortTitle = sortTitle; if (voiceTitle !== undefined) v.VoiceTitle = voiceTitle; }
+  for (const line of linesOf(text("Screenshot captions"))) {
+    const m = CAPTION_LINE.exec(line);
+    if (!m) { errors.push(`${label}: caption line not understood (it must be "S<N>: text"): ${line.slice(0, 60)}`); continue; }
+    if (v[`DesktopScreenshotCaption${m[1]}`] !== undefined) errors.push(`${label}: caption S${m[1]} twice`);
+    v[`DesktopScreenshotCaption${m[1]}`] = m[2];
   }
-  return { values: v, errors, warnings };
+  return { values: v, productName: text("Product name"), errors, warnings };
 }
 
 // ---------------------------------------------------------------- the checks of the values of one language
-const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f﻿�]/;
-const PLACEHOLDER = /\{[A-Za-z][^{}\n]*\}/;
+const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f�]/;
 
 /**
- * { errors, warnings } for the values of one language column: `v` = { FieldName: text } (empty values may be missing), `opts.skip` = field names that are
- * not written (their limits are not applied). Used for the md texts before writing and for the cells of a folder (--check).
+ * { errors, warnings } for the values of one language column: `v` = { FieldName: text } (empty values may be missing). Used for the md texts before writing and for the
+ * cells of a folder (--check): limits, one line, the text rules, the counts, the 21 words of the search terms, a screenshot for every caption.
  */
 export function validateValues(label, v, opts = {}) {
   const errors = [], warnings = [];
-  const skip = opts.skip ?? new Set();
   const get = (k) => v[k] ?? "";
   if (!get("Description").trim()) errors.push(`${label}: Description is required and empty`);
-  const names = Object.keys(v).filter((k) => get(k) !== "" && !skip.has(k));
+  const names = Object.keys(v).filter((k) => get(k) !== "");
   for (const name of names) {
     const val = get(name);
     const lim = limitOf(name);
     if (lim && val.length > lim.max) errors.push(`${label}: ${name} is ${val.length} characters, the limit is ${lim.max}`);
     else if (lim?.warn && val.length > lim.warn) warnings.push(`${label}: ${name} is ${val.length} characters, Microsoft advises at most ${lim.warn} (the limit is ${lim.max})`);
-    if (CONTROL.test(val)) errors.push(`${label}: ${name} has a control character, a BOM or a replacement character`);
+    if (CONTROL.test(val)) errors.push(`${label}: ${name} has a control character or a replacement character`);
     if (!MULTILINE.has(name) && /[\r\n]/.test(val)) errors.push(`${label}: ${name} must be one line`);
-    if (val !== val.trim()) warnings.push(`${label}: ${name} starts or ends with a space or line break`);
-    if (PLACEHOLDER.test(val) && name === "ReleaseNotes") errors.push(`${label}: ReleaseNotes still has a placeholder ${PLACEHOLDER.exec(val)[0]}`);
-    if (/^(Description|ShortDescription|Feature\d+)$/.test(name) && (/https?:\/\/|www\./i.test(val) || /<\/?[a-z][^>]*>/i.test(val))) warnings.push(`${label}: ${name} has a URL or HTML; Microsoft: no HTML, code or URLs in these fields`);
+    if (/^DesktopScreenshot\d+$/.test(name)) continue; // (a path cell stands as "x" here)
+    if (val !== val.trim()) errors.push(`${label}: ${name} starts or ends with a space or a line break`);
+    errors.push(...textRuleProblems(label, name, val));
   }
   for (const { max, re } of COUNT_LIMITS) {
     const present = Object.keys(v).filter((k) => re.test(k) && get(k) !== "");
@@ -301,8 +337,20 @@ export function validateValues(label, v, opts = {}) {
   const caps = Object.keys(v).filter((k) => /^DesktopScreenshotCaption\d+$/.test(k) && get(k) !== "").map((k) => Number(/\d+$/.exec(k)[0]));
   if (opts.needShots !== false && !shots.length) errors.push(`${label}: no screenshot (Microsoft: at least one is required)`);
   for (const c of caps) if (opts.needShots !== false && !shots.includes(c)) errors.push(`${label}: caption ${c} has no DesktopScreenshot${c}`);
-  for (const s of shots) if (!caps.includes(s)) warnings.push(`${label}: DesktopScreenshot${s} has no caption`);
+  for (const s of shots) if (!caps.includes(s)) errors.push(`${label}: DesktopScreenshot${s} has no caption (IMPORT-SPEC REQ-9: caption N is filled if and only if screenshot N is)`);
   return { errors, warnings };
+}
+
+/** The report of IMPORT-SPEC section 6, one line per language: every length against its limit, and the counts. */
+export function reportLine(col, v) {
+  const get = (k) => v[k] ?? "";
+  const keys = (re) => Object.keys(v).filter((k) => re.test(k) && get(k) !== "");
+  const longest = (re) => Math.max(0, ...keys(re).map((k) => get(k).length));
+  const words = keys(/^SearchTerm\d+$/).reduce((s, k) => s + get(k).split(/\s+/).filter(Boolean).length, 0);
+  return `${col.padEnd(8)} Description ${get("Description").length}/10000, short ${get("ShortDescription").length}/1000 (advice 270), short title ${get("ShortTitle").length}/50, ` +
+    `developed by ${get("DevStudio").length}/255, copyright ${get("CopyrightTrademarkInformation").length}/200, license ${get("AdditionalLicenseTerms").length}/10000, ` +
+    `features ${keys(/^Feature\d+$/).length}/20 (longest ${longest(/^Feature\d+$/)}/200), terms ${keys(/^SearchTerm\d+$/).length}/7 (longest ${longest(/^SearchTerm\d+$/)}/40, ${words}/21 words), ` +
+    `captions ${keys(/^DesktopScreenshotCaption\d+$/).length} (longest ${longest(/^DesktopScreenshotCaption\d+$/)}/200), requirements ${keys(/^MinimumHardwareReq\d+$/).length}, screenshots ${keys(/^DesktopScreenshot\d+$/).length}`;
 }
 
 // ---------------------------------------------------------------- the template
@@ -337,43 +385,49 @@ function parseArgs(argv) {
     const t = argv[i];
     if (!t.startsWith("--")) { a._.push(t); continue; }
     const k = t.slice(2);
-    if (["no-template", "no-license-terms", "no-hardware", "strict"].includes(k)) a[k] = true;
+    if (["no-template", "no-license-terms", "no-hardware", "texts-only", "titles-from-md", "strict"].includes(k)) a[k] = true;
     else { a[k] = argv[++i]; if (a[k] === undefined) throw new Error(`--${k} needs a value`); }
   }
   return a;
 }
 
 const sl = (...p) => p.join("/");
+export const CSV_NAME = "listing.csv";
+export const DIR_SHOTS = "screenshots";
+export const DIR_LOGOS = "logos";
 
-/** Everything `make` needs from the md files of the wanted languages: { byCol: { col: values }, errors, warnings }. */
-export function readAllMd(mdDir, locales, { release = {}, licenseTerms = true, hardware = true, devStudio, shortTitle } = {}) {
+/** Everything `make` needs from the md files of the wanted languages: { byCol, names, errors, warnings }. */
+export function readAllMd(mdDir, locales, { release = {}, licenseTerms = true, hardware = true, devStudio, shortTitle, sortTitle, voiceTitle, revision, titlesFromMd = false } = {}) {
   const errors = [], warnings = [];
-  const byCol = {};
-  let names = [];
-  try { names = fs.readdirSync(mdDir); } catch { errors.push(`md folder not found: ${mdDir}`); return { byCol, errors, warnings }; }
-  for (const f of names) {
+  const byCol = {}, names = {};
+  let files = [];
+  try { files = fs.readdirSync(mdDir); } catch { errors.push(`md folder not found: ${mdDir}`); return { byCol, names, errors, warnings }; }
+  for (const f of files) {
     const m = /^([A-Za-z]{2,3}(?:-[A-Za-z]{2,4})?)\.md$/.exec(f);
     if (m && !LOCALES.some((l) => l.md === m[1])) errors.push(`unknown locale: ${f} (known: ${LOCALES.map((l) => l.md).join(", ")})`);
   }
   for (const loc of locales) {
     const file = path.join(mdDir, `${loc.md}.md`);
     if (!fs.existsSync(file)) { errors.push(`${file}: missing (language ${loc.col})`); continue; }
-    const { values, errors: e, warnings: w } = parseListingMd(fs.readFileSync(file, "utf8"), `${loc.md}.md`, { release: release[loc.md] ?? release[loc.col] ?? "", devStudio, shortTitle });
+    const { values, productName, errors: e, warnings: w } = parseListingMd(fs.readFileSync(file, "utf8"), `${loc.md}.md`, { release: release[loc.md] ?? release[loc.col], devStudio, shortTitle, sortTitle, voiceTitle, revision, titlesFromMd });
     errors.push(...e); warnings.push(...w);
+    if (productName && productName !== STORE_DISPLAY_NAME) errors.push(`${loc.md}.md: Product name is "${productName}", the Store name is "${STORE_DISPLAY_NAME}" (IMPORT-SPEC REQ-6)`);
     byCol[loc.col] = values;
+    names[loc.col] = productName;
   }
   for (const [col, values] of Object.entries(byCol)) {
     if (!licenseTerms) delete values.AdditionalLicenseTerms;
     if (!hardware) for (const k of Object.keys(values)) if (/^MinimumHardwareReq/.test(k)) delete values[k];
-    const r = validateValues(`${col}`, values, { needShots: false });
+    const r = validateValues(col, values, { needShots: false });
     errors.push(...r.errors); warnings.push(...r.warnings);
   }
-  return { byCol, errors, warnings };
+  return { byCol, names, errors, warnings };
 }
 
 /**
- * Makes the import folder. Returns { csv, files, warnings }; throws an Error whose message lists every problem (nothing is written then).
- * opts: { mdDir, imagesDir, logosDir?, out, templateFile? (else best guess), rootName?, bom: "auto"|"yes"|"no", release?, licenseTerms?, hardware?, locales? }
+ * Makes the import folder. Returns { csv, files, warnings, report }; throws an Error whose message lists every problem (nothing is written then).
+ * opts: { mdDir, imagesDir, logosDir?, out, templateFile? (else best guess), rootName?, bom: "auto"|"yes"|"no", release?, licenseTerms?, hardware?, textsOnly?,
+ *         devStudio?, shortTitle?, titlesFromMd?, sortTitle?, voiceTitle?, revision?, locales? }
  */
 export function makeImportFolder(opts) {
   const errors = [], warnings = [];
@@ -392,46 +446,60 @@ export function makeImportFolder(opts) {
   for (const h of colIndex.keys()) if (!knownCols.has(h)) warnings.push(`template column "${h}" is not one of the 8 languages: left unchanged`);
   for (const l of locales) if (!colIndex.has(l.col)) errors.push(`the template has no column "${l.col}" (it has: ${[...colIndex.keys()].join(", ")}); add the language in Partner Center first`);
 
-  const licenseTerms = opts.licenseTerms !== false, hardware = opts.hardware !== false;
-  const md = readAllMd(opts.mdDir, locales, { release: opts.release, licenseTerms, hardware, devStudio: opts.devStudio, shortTitle: opts.shortTitle });
+  const licenseTerms = opts.licenseTerms !== false, hardware = opts.hardware !== false, textsOnly = !!opts.textsOnly;
+  const md = readAllMd(opts.mdDir, locales, { release: opts.release, licenseTerms, hardware, devStudio: opts.devStudio, shortTitle: opts.shortTitle, sortTitle: opts.sortTitle, voiceTitle: opts.voiceTitle, revision: opts.revision, titlesFromMd: opts.titlesFromMd });
   errors.push(...md.errors); warnings.push(...md.warnings);
+  // REQ-6: the Title of the export is the md's Product name (it is not written)
+  const titleRow = tpl.rows.find((r) => r[0] === "Title");
+  for (const l of locales) {
+    const cell = titleRow?.[colIndex.get(l.col)];
+    if (cell === undefined || md.names[l.col] === undefined) continue;
+    if (cell === "") warnings.push(`${l.col}: the Title of the template is empty (the product name "${md.names[l.col]}" comes from the package)`);
+    else if (cell !== md.names[l.col]) errors.push(`${l.col}: the Title of the export is "${cell}", the md's Product name is "${md.names[l.col]}" (IMPORT-SPEC REQ-6)`);
+  }
 
-  // images: screenshots S1..Sn per language (n = the captions), logos once
+  // images: screenshots S1..Sn per language (n = the captions; the same n in every language), logos once
   const imageSrc = {}; // `${col}` -> [{ field, src, rel }]
   const logoSrc = [];
+  const counts = new Map();
   for (const l of locales) {
     const vals = md.byCol[l.col];
     if (!vals) continue;
     const caps = Object.keys(vals).filter((k) => /^DesktopScreenshotCaption\d+$/.test(k)).map((k) => Number(/\d+$/.exec(k)[0])).sort((a, b) => a - b);
     if (caps.some((n, i) => n !== i + 1)) errors.push(`${l.md}.md: the captions are not S1..S${caps.length} without a gap`);
-    if (!caps.length) errors.push(`${l.md}.md: no screenshot caption`);
+    if (!caps.length && !textsOnly) errors.push(`${l.md}.md: no screenshot caption`);
+    counts.set(l.col, caps.length);
     imageSrc[l.col] = [];
+    if (textsOnly) { for (const n of caps) delete vals[`DesktopScreenshotCaption${n}`]; continue; }
     for (const n of caps) {
       const src = path.join(opts.imagesDir, l.col, `S${n}.png`);
       errors.push(...imageProblems(src, "shot"));
-      imageSrc[l.col].push({ field: `DesktopScreenshot${n}`, src, rel: sl("images", l.col, `S${n}.png`) });
+      imageSrc[l.col].push({ field: `DesktopScreenshot${n}`, src, rel: sl(DIR_SHOTS, l.col, `S${n}.png`) });
     }
   }
+  if (new Set(counts.values()).size > 1) errors.push(`the languages have different numbers of captions (${[...counts].map(([c, n]) => `${c} ${n}`).join(", ")}); every language needs the same set (IMPORT-SPEC REQ-9)`);
   if (opts.logosDir) {
     // one folder or several (a list): the poster, box art and tile of the package build (msix-assets.mjs --only store), the hero and the small tiles (--only listing)
     const dirs = (Array.isArray(opts.logosDir) ? opts.logosDir : String(opts.logosDir).split(",")).map((d) => d.trim()).filter(Boolean);
     for (const role of LOGO_ROWS) {
-      const cands = dirs.flatMap((d) => [path.join(d, role.file), path.join(d, "store", role.file)]);
+      const cands = dirs.flatMap((d) => [path.join(d, role.file), path.join(d, DIR_LOGOS, role.file), path.join(d, "store", role.file)]);
       const src = cands.find((c) => fs.existsSync(c));
       if (!src) { errors.push(`logo file ${role.file} not found in ${dirs.join(", ")} (node scripts/msix-assets.mjs --only store|listing --out <folder>)`); continue; }
       errors.push(...imageProblems(src, role));
-      logoSrc.push({ field: role.field, src, rel: sl("images", "store", role.file) });
+      logoSrc.push({ field: role.field, src, rel: sl(DIR_LOGOS, role.file) });
     }
   } else warnings.push("no --logos: the StoreLogo rows stay as the template has them");
 
-  // the rows
-  const owned = new Set(["Description", "ShortDescription", "ReleaseNotes", "DevStudio", "CopyrightTrademarkInformation"]);
+  // the rows this run writes (everything else is the export's, byte for byte)
+  const nShots = Math.max(0, ...counts.values());
+  const owned = new Set(["Description", "ShortDescription", "ReleaseNotes", "DevStudio", "ShortTitle", "CopyrightTrademarkInformation"]);
   for (let n = 1; n <= 20; n++) owned.add(`Feature${n}`);
   for (let n = 1; n <= 7; n++) owned.add(`SearchTerm${n}`);
-  for (let n = 1; n <= SHOT_MAX; n++) { owned.add(`DesktopScreenshot${n}`); owned.add(`DesktopScreenshotCaption${n}`); }
-  owned.add("ShortTitle");
+  if (!textsOnly) for (let n = 1; n <= nShots; n++) { owned.add(`DesktopScreenshot${n}`); owned.add(`DesktopScreenshotCaption${n}`); }
   if (licenseTerms) owned.add("AdditionalLicenseTerms");
   if (hardware) for (let n = 1; n <= 11; n++) owned.add(`MinimumHardwareReq${n}`);
+  if (opts.titlesFromMd || opts.sortTitle !== undefined) owned.add("SortTitle");
+  if (opts.titlesFromMd || opts.voiceTitle !== undefined) owned.add("VoiceTitle");
   if (opts.logosDir) { for (const r of LOGO_ROWS) owned.add(r.field); owned.add(OVERRIDE_ROW); }
   const present = new Set(tpl.rows.map((r) => r[0]));
   for (const f of owned) if (!present.has(f)) errors.push(`the template has no row "${f}"`);
@@ -439,6 +507,7 @@ export function makeImportFolder(opts) {
   if (errors.length) throw new Error(errors.map((e) => `  - ${e}`).join("\n"));
 
   const rows = tpl.rows.map((r) => r.slice());
+  const report = [];
   for (const l of locales) {
     const ci = colIndex.get(l.col);
     const vals = { ...md.byCol[l.col] };
@@ -446,6 +515,7 @@ export function makeImportFolder(opts) {
     for (const lg of logoSrc) vals[lg.field] = sl(rootName, lg.rel);
     if (logoSrc.length) vals[OVERRIDE_ROW] = "True"; // the two small tiles are given, so the Store uses them instead of the images of the package
     for (const r of rows) if (owned.has(r[0])) r[ci] = vals[r[0]] ?? "";
+    report.push(reportLine(l.col, vals));
   }
   const bomWanted = opts.bom === "yes" ? true : opts.bom === "no" ? false : tpl.bom;
   const csvText = serializeCsv([tpl.header, ...rows], tpl.eol, tpl.finalEol);
@@ -464,9 +534,8 @@ export function makeImportFolder(opts) {
     fs.writeFileSync(note, "NOT PROVEN: replace by an export from Partner Center.\r\nThis import folder was made from a best-guess template (the field list of an export seen in 2026-10), not from the export of this product.\r\nRun the script again with --template <your export.csv>.\r\n");
     warnings.push("NOT PROVEN: replace by an export from Partner Center (best-guess template); note written to " + note);
   }
-  return { csv, files, warnings, rootName, bom: bomWanted, eol: tpl.eol };
+  return { csv, files, warnings, report, rootName, bom: bomWanted, eol: tpl.eol };
 }
-export const CSV_NAME = "heylook-store-listing.csv";
 function copyTo(src, dst) {
   fs.mkdirSync(path.dirname(dst), { recursive: true });
   fs.copyFileSync(src, dst);
@@ -474,35 +543,45 @@ function copyTo(src, dst) {
 }
 
 // ---------------------------------------------------------------- check
+/** The rows this tool may write (IMPORT-SPEC section 5): in --check every other row must be the export's. */
+const WRITTEN = /^(Description|ReleaseNotes|ShortTitle|SortTitle|VoiceTitle|ShortDescription|DevStudio|CopyrightTrademarkInformation|AdditionalLicenseTerms|DesktopScreenshot\d+|DesktopScreenshotCaption\d+|StoreLogo720x1080|StoreLogo1080x1080|StoreLogo300x300|OverrideLogosForWin10|StoreLogoOverride150x150|StoreLogoOverride71x71|PromoImage1920x1080|Feature\d+|MinimumHardwareReq\d+|SearchTerm\d+)$/;
+
 /**
- * Checks an import folder as Partner Center will see it. opts: { templateFile?, rootName?, locales? }. Returns { errors, warnings, info }.
- * Rules: one .csv; the header; every Field known with its ID and Type (and equal to the template's rows when given); per language the limits of
- * validateValues; every image path starts with the folder's name, the file exists inside it and has the size of its row; nothing but the
- * 8 languages' columns is filled in the other device families.
+ * Checks an import folder as Partner Center will see it. opts: { templateFile?, rootName?, locales? }. Returns { errors, warnings, info, report }.
+ * Rules: one .csv; the header; every Field known with its ID and Type; the `default` column empty; per language the limits and text rules of validateValues; every image path
+ * starts with the folder's name, the file exists inside it and has the size of its row; the same number of screenshots in every language; with a template: the header,
+ * the row count and every cell outside the rows of this tool are the export's.
  */
 export function checkImportFolder(dir, opts = {}) {
-  const errors = [], warnings = [], info = [];
+  const errors = [], warnings = [], info = [], report = [];
   const root = path.resolve(dir);
   const rootName = opts.rootName ?? path.basename(root);
-  if (!fs.existsSync(root)) return { errors: [`${root}: not a folder`], warnings, info };
+  if (!fs.existsSync(root)) return { errors: [`${root}: not a folder`], warnings, info, report };
   const csvs = fs.readdirSync(root).filter((f) => /\.csv$/i.test(f));
-  if (csvs.length !== 1) return { errors: [`${root}: ${csvs.length} .csv files, Partner Center takes exactly one per folder`], warnings, info };
+  if (csvs.length !== 1) return { errors: [`${root}: ${csvs.length} .csv files, Partner Center takes exactly one per folder`], warnings, info, report };
   let tpl;
-  try { tpl = readCsvFile(path.join(root, csvs[0])); } catch (e) { return { errors: [e.message], warnings, info }; }
+  try { tpl = readCsvFile(path.join(root, csvs[0])); } catch (e) { return { errors: [e.message], warnings, info, report }; }
   info.push(`${csvs[0]}: ${tpl.rows.length} rows, BOM ${tpl.bom ? "yes" : "no"}, rows end with ${tpl.eol === "\r\n" ? "CRLF" : "LF"}`);
   errors.push(...templateProblems(tpl, csvs[0]));
+  tpl.rows.forEach((r, i) => { if (r[3] !== "") errors.push(`row ${i + 2} (${r[0]}): the default column must stay empty`); });
   if (opts.templateFile) {
     const ref = readCsvFile(opts.templateFile);
     errors.push(...templateProblems(ref, path.basename(opts.templateFile)));
     if (ref.header.join("\u0001") !== tpl.header.join("\u0001")) errors.push(`the header differs from the template: [${tpl.header.join(",")}] vs [${ref.header.join(",")}]`);
     if (ref.rows.length !== tpl.rows.length) errors.push(`${tpl.rows.length} rows, the template has ${ref.rows.length} (every row of the export must stay)`);
-    ref.rows.forEach((r, i) => { const o = tpl.rows[i]; if (o && (o[0] !== r[0] || o[1] !== r[1] || o[2] !== r[2])) errors.push(`row ${i + 2}: Field/ID/Type [${o.slice(0, 3).join(" | ")}] differ from the template's [${r.slice(0, 3).join(" | ")}]`); });
+    ref.rows.forEach((r, i) => {
+      const o = tpl.rows[i];
+      if (!o) return;
+      if (o[0] !== r[0] || o[1] !== r[1] || o[2] !== r[2]) errors.push(`row ${i + 2}: Field/ID/Type [${o.slice(0, 3).join(" | ")}] differ from the template's [${r.slice(0, 3).join(" | ")}]`);
+      else if (!WRITTEN.test(r[0]) && o.join("\u0001") !== r.join("\u0001")) errors.push(`row ${i + 2} (${r[0] || "empty row"}): this row is not written by the import and differs from the export`);
+    });
   }
   const wanted = opts.locales ? LOCALES.filter((l) => opts.locales.includes(l.col) || opts.locales.includes(l.md)).map((l) => l.col) : LOCALE_COLS;
   const cols = tpl.header.slice(4);
   for (const c of cols) if (!LOCALE_COLS.includes(c)) warnings.push(`column "${c}" is not one of the 8 languages`);
   for (const c of wanted) if (!cols.includes(c)) errors.push(`no column "${c}"`);
   const used = new Set();
+  const shotCounts = new Map();
   for (const c of wanted) {
     const ci = tpl.header.indexOf(c);
     if (ci < 0) continue;
@@ -521,11 +600,13 @@ export function checkImportFolder(dir, opts = {}) {
     if (flag === "True" && small !== 2) errors.push(`${c}: ${OVERRIDE_ROW} is True but ${small} of the 2 small tiles (150x150, 71x71) are given`);
     if (flag !== "True" && small === 2) warnings.push(`${c}: the two small tiles are given but ${OVERRIDE_ROW} is "${flag}": the Store will not use them`);
     for (const [f] of pathCells) if (/^DesktopScreenshot\d+$/.test(f.name)) v[f.name] = "x";
+    shotCounts.set(c, pathCells.filter(([f]) => /^DesktopScreenshot\d+$/.test(f.name)).length);
     const r = validateValues(c, v, {});
     errors.push(...r.errors); warnings.push(...r.warnings);
+    report.push(reportLine(c, v));
     for (const [f, val] of pathCells) {
       if (/^https?:\/\//i.test(val)) { warnings.push(`${c}: ${f.name} is a URL (not checked)`); continue; }
-      if (/\\|^\/|\.\.|^[A-Za-z]:/.test(val)) { errors.push(`${c}: ${f.name}: "${val}" must be a relative path with / and no ..`); continue; }
+      if (/\\|^\/|\.\.|^[A-Za-z]:|[^\x20-\x7e]/.test(val)) { errors.push(`${c}: ${f.name}: "${val}" must be a relative ASCII path with / and no ..`); continue; }
       const slash = val.indexOf("/");
       if (slash < 0 || val.slice(0, slash) !== rootName) { errors.push(`${c}: ${f.name}: "${val}" must start with the root folder name "${rootName}/" (Microsoft: the full path including the root folder name; node scripts/store-listing-csv.mjs --rebase <folder> fixes it)`); continue; }
       const file = path.join(root, val.slice(slash + 1));
@@ -535,11 +616,12 @@ export function checkImportFolder(dir, opts = {}) {
       errors.push(...imageProblems(file, role).map((m) => `${c}: ${f.name}: ${m}`));
     }
   }
+  if (new Set(shotCounts.values()).size > 1) errors.push(`the languages have different numbers of screenshots (${[...shotCounts].map(([c, n]) => `${c} ${n}`).join(", ")}) (IMPORT-SPEC REQ-9)`);
   const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
   const extra = walk(root).filter((f) => !/\.csv$/i.test(f) && !used.has(path.resolve(f)));
   if (extra.length) warnings.push(`${extra.length} file(s) in the folder that no cell names, e.g. ${path.relative(root, extra[0])}`);
   info.push(`${used.size} image files named by the cells`);
-  return { errors, warnings, info };
+  return { errors, warnings, info, report };
 }
 
 /** Rewrites the root folder name in every image path of the folder's csv to the folder's current name. Returns the number of cells changed. */
@@ -553,7 +635,7 @@ export function rebaseFolder(dir) {
   let n = 0;
   const rows = tpl.rows.map((r) => r.map((c, i) => {
     if (i < 4 || !BY_NAME.has(r[0]) || BY_NAME.get(r[0]).type !== PATH || !c || /^https?:\/\//i.test(c)) return c;
-    const m = /^([^/]+)\/(images\/.*)$/.exec(c);
+    const m = new RegExp(`^([^/]+)/((?:${DIR_SHOTS}|${DIR_LOGOS})/.*)$`).exec(c);
     if (!m || m[1] === name) return c;
     n++;
     return `${name}/${m[2]}`;
@@ -570,7 +652,7 @@ function printReport(r) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const usage = "usage:\n  node scripts/store-listing-csv.mjs --md <dir> --images <dir> --out <dir> (--template <export.csv> | --no-template) [--logos <dir>[,<dir>...]] [--root-name n] [--bom auto|yes|no]\n                                     [--release-notes <json>] [--no-license-terms] [--no-hardware] [--dev-studio <text>] [--short-title <text>] [--locales en-us,vi,...]\n  node scripts/store-listing-csv.mjs --check <folder> [--template <export.csv>] [--root-name n] [--locales ...] [--strict]\n  node scripts/store-listing-csv.mjs --rebase <folder>";
+  const usage = "usage:\n  node scripts/store-listing-csv.mjs --md <dir> --images <dir> --out <dir> (--template <export.csv> | --no-template) [--logos <dir>[,<dir>...]] [--root-name n] [--bom auto|yes|no]\n                                     [--release-notes <json>] [--no-license-terms] [--no-hardware] [--texts-only] [--dev-studio <text>] [--short-title <text>]\n                                     [--titles-from-md | --sort-title <text> --voice-title <text>] [--revision 1.0.9] [--locales en-us,vi,...]\n  node scripts/store-listing-csv.mjs --check <folder> [--template <export.csv>] [--root-name n] [--locales ...] [--strict]\n  node scripts/store-listing-csv.mjs --rebase <folder>";
   let a;
   try { a = parseArgs(process.argv.slice(2)); } catch (e) { console.error(`store-listing-csv: ${e.message}\n${usage}`); process.exit(2); }
   const locales = a.locales ? a.locales.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
@@ -578,16 +660,22 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     if (a.check) {
       const r = checkImportFolder(a.check, { templateFile: a.template, rootName: a["root-name"], locales });
       printReport(r);
+      for (const l of r.report) console.log(`report: ${l}`);
       const bad = r.errors.length || (a.strict && r.warnings.length);
       console.log(`store-listing-csv --check: ${r.errors.length} error(s), ${r.warnings.length} warning(s): ${bad ? "FAILED" : "ok"}`);
       process.exit(bad ? 1 : 0);
     } else if (a.rebase) {
       console.log(`store-listing-csv --rebase: ${rebaseFolder(a.rebase)} path(s) changed`);
-    } else if (a.md && a.images && a.out && (a.template || a["no-template"]) && !(a.template && a["no-template"])) {
+    } else if (a.md && (a.images || a["texts-only"]) && a.out && (a.template || a["no-template"]) && !(a.template && a["no-template"])) {
       if (!["auto", "yes", "no", undefined].includes(a.bom)) throw new Error("--bom is auto, yes or no");
       const release = a["release-notes"] ? JSON.parse(fs.readFileSync(a["release-notes"], "utf8")) : {};
-      const r = makeImportFolder({ mdDir: a.md, imagesDir: a.images, logosDir: a.logos, out: a.out, templateFile: a.template, rootName: a["root-name"], bom: a.bom ?? "auto", release, licenseTerms: !a["no-license-terms"], hardware: !a["no-hardware"], devStudio: a["dev-studio"], shortTitle: a["short-title"], locales });
+      const r = makeImportFolder({
+        mdDir: a.md, imagesDir: a.images, logosDir: a.logos, out: a.out, templateFile: a.template, rootName: a["root-name"], bom: a.bom ?? "auto", release,
+        licenseTerms: !a["no-license-terms"], hardware: !a["no-hardware"], textsOnly: !!a["texts-only"], devStudio: a["dev-studio"], shortTitle: a["short-title"],
+        titlesFromMd: !!a["titles-from-md"], sortTitle: a["sort-title"], voiceTitle: a["voice-title"], revision: a.revision, locales,
+      });
       for (const w of r.warnings) console.log(`warning: ${w}`);
+      for (const l of r.report) console.log(`report: ${l}`);
       console.log(`store-listing-csv: wrote ${r.csv} and ${r.files.length - 1} image file(s); root folder name "${r.rootName}", BOM ${r.bom ? "yes" : "no"}, rows end with ${r.eol === "\r\n" ? "CRLF" : "LF"}`);
       const c = checkImportFolder(a.out, { templateFile: a.template, rootName: r.rootName, locales });
       printReport({ ...c, info: [] });
