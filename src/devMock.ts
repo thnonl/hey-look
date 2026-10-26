@@ -844,6 +844,7 @@ const newThreads = (accountId: string) =>
 //   #big=3000          threads on the "server" in total (spread over three Gmail-ish mailboxes), default 3000
 //   #local=360         threads per mailbox already downloaded when the app starts (the rest arrives 50 at a time via load_older), default 360
 //   #flaggedat=5,700   only these positions of the first mailbox (newest first) are flagged, nothing else; `#flaggedat=` flags none; `#unreadat=` does the same for unread
+//   #olderdelay=5000   every load_older answers after that many ms (default 400; the real servers take seconds)
 //   #failolder=3       the 3rd load_older call from now on rejects (shows the error toast); `__mockMail.failIn = n` does the same later
 //   #backfill          simulates the background download of 500 Inbox messages (event backfill-progress) for the first mailbox (never beyond the "Max emails to download" cap)
 //                      the cap (setting max_download, Settings > Reading & sync) also makes load_older answer { limited: true } once a mailbox holds that many messages
@@ -1414,7 +1415,9 @@ export function installMock() {
         // the Inbox rows carry the numbers of the Focused / Other tabs (W13.12), counted from the mock mail so a mock action changes them;
         // `#tabcounts=<focused>,<other>` forces fixed numbers (on the first mailbox) for layout checks, for example `#tabcounts=150,1234`
         const forced = /(^|&)tabcounts=(\d+),(\d+)/.exec(window.location.hash.slice(1));
-        return rows.map((f) => {
+        // `#dotfolder`: a folder of the person whose name has dots in it, as the backend labels it (the list header must not cut it at the dots)
+        const shown = hashHas("dotfolder") ? [...rows, { accountId: "a1", key: "f:QA-1.0.8", name: "QA-1.0.8", label: "QA-1.0.8", unread: 0, total: 2, depth: 0, listed: true }] : rows;
+        return shown.map((f) => {
           if (f.key !== "inbox") return f;
           if (forced) return { ...f, unreadFocused: f.accountId === "a1" ? Number(forced[2]) : 0, unreadOther: f.accountId === "a1" ? Number(forced[3]) : 0 };
           const gone = queuedIds();
@@ -1798,7 +1801,7 @@ export function installMock() {
         const id = String(a.accountId);
         const limit = Math.min(50, Number(a.limit ?? 50));
         mockMail.calls.push({ accountId: id, role: String(a.role), limit, at: Date.now() });
-        return later(400, () => {
+        return later(hashNum("olderdelay", 400), () => {
           if (mockMail.failIn > 0 && --mockMail.failIn === 0) throw "IMAP_FETCH: could not read older messages: connection timed out (mock failure)";
           const have = mockMail.local[id], total = mockMail.total[id];
           if (a.role !== "inbox" || have === undefined) return { added: 0, exhausted: true, limited: false };

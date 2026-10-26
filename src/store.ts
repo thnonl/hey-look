@@ -13,7 +13,7 @@ import { addArrivals, clearByCounts, clearOnOpen, type Arrivals, type NewMap } f
 import { QueuedMoves } from "./queuedMoves";
 import { pushRecent, removeRecent } from "./recentSearches";
 import { Latest } from "./latestOnly";
-import { passVerdict } from "./pagingPass";
+import { LOAD_OLDER_DEADLINE_MS, passVerdict, withDeadline } from "./pagingPass";
 import { StateIntents, type IntentKind } from "./readIntent";
 import { calendarErrorText, CAL_OFFER_DONE } from "./calendarSync";
 import { backendText } from "./backendErrors";
@@ -1179,7 +1179,7 @@ export const useStore = create<State>((set, get) => ({
         if (!alive()) return;
         const id = nextMailbox(active, get().threads);
         failing = id;
-        const r = await api.loadOlder(id, role, 50);
+        const r = await withDeadline(api.loadOlder(id, role, 50), LOAD_OLDER_DEADLINE_MS);
         if (!alive()) return;
         added += r.added;
         if (r.exhausted) {

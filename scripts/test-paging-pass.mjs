@@ -4,7 +4,7 @@
 // Run: node --experimental-strip-types scripts/test-paging-pass.mjs
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { passVerdict } from "../src/pagingPass.ts";
+import { mayPageByItself, passVerdict, withDeadline } from "../src/pagingPass.ts";
 
 const v = (added, done, rowsBefore, rowsAfter) => passVerdict({ added, done, rowsBefore, rowsAfter });
 
@@ -24,9 +24,31 @@ assert.equal(v(0, false, 10, 10), "stalled");
 // the list grew from something else (a sync) while nothing was stored: still nothing came of the passes
 assert.equal(v(0, false, 10, 12), "stalled");
 
+// ---- the end of a list asks by itself only where that makes sense (QA 1.0.8: the Unread view of six mailboxes, two rows, "Loading…" for 40 s and more)
+const may = (partial, sortAsc, scrollTop, fits) => mayPageByItself({ partial, sortAsc, scrollTop, fits });
+assert.equal(may(false, false, 0, true), false, "a whole folder that fits in the window (QA-1.0.8 with 2 mails): the button, no request");
+assert.equal(may(false, false, 0, false), true, "a folder longer than the window asks as before");
+assert.equal(may(true, false, 0, true), false, "a short filtered list: the button, no request");
+assert.equal(may(true, true, 0, true), false, "oldest first: same");
+assert.equal(may(true, false, 0, false), false, "a filtered list that can scroll but was not scrolled: not yet");
+assert.equal(may(true, false, 120, false), true, "scrolled (newest first): it asks as the end comes near");
+assert.equal(may(true, true, 0, false), true, "oldest first: older mail is at the top, a list that can scroll asks");
+
+// ---- a request that never answers ends the wait
+{
+  const never = new Promise(() => {});
+  await assert.rejects(withDeadline(never, 30), /timed out/);
+  assert.equal(await withDeadline(Promise.resolve(7), 1000), 7);
+  await assert.rejects(withDeadline(Promise.reject(new Error("boom")), 1000), /boom/);
+  const late = new Promise((r) => setTimeout(() => r("late"), 80));
+  await assert.rejects(withDeadline(late, 20), /timed out/);
+  await late; // the late answer is dropped, nothing is thrown
+}
+
 // ---- the store
 const store = readFileSync(new URL("../src/store.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const more = store.slice(store.indexOf("loadMore: async"), store.indexOf("onBackfill: (p)"));
+assert.ok(more.includes("withDeadline(api.loadOlder(id, role, 50), LOAD_OLDER_DEADLINE_MS)"), "no request is waited for for ever");
 assert.match(more, /const rowsBefore = get\(\)\.threads\.length;/, "the pass notes how many lines the list had");
 assert.match(more, /passVerdict\(\{ added, done, rowsBefore, rowsAfter: get\(\)\.threads\.length \}\) === "stalled"\) set\(\{ moreError: true \}\)/, "a stalled pass stops the passes");
 assert.match(more, /set\(\{ moreError: true, moreFail: \{ error: e, account: acct \} \}\)/, "a failure keeps its reason for the footer");
@@ -48,6 +70,9 @@ const status = list.slice(list.indexOf("const pagingStatus"), list.indexOf("cons
 assert.ok(status.indexOf("loadingMore ?") >= 0 && status.indexOf("moreFail ?") > status.indexOf("loadingMore ?") && status.indexOf("moreFail ?") < status.indexOf("capped ?"), "pagingStatus: loading, then the failure, then the cap / end / button");
 assert.match(status, /common\.retry/, "the failure has Retry");
 assert.match(status, /onClick=\{\(\) => void loadMore\(true\)\}>\{tr\("common\.retry"\)/, "Retry asks again");
+// the end of the list asks through the rule, and "partial" is a filter, a tab or the Unread view
+assert.ok(list.includes("const partial = filtered || showTabs;"), "partial: a filter, a tab or the Unread view");
+assert.ok(/fits: el\.scrollHeight <= el\.clientHeight \+ 1 \}\)\) return;\s+void loadMore\(\);/.test(list), "the end of the list asks through the rule");
 // an empty filtered list is the empty state, never the paging footer: the footer needs a row
 assert.match(list, /const pageable = canPageBack\(folder, searching\) && threads\.length > 0;/);
 
