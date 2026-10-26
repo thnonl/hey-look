@@ -22,7 +22,7 @@
 //   F  the visible start at sign-in (a start without the flag, the shell told to be young: HEYLOOK_TEST_SHELL_AGE_S): the log says it is gated and why, the window is made after the
 //      gate, shown and painted with a taskbar button, never parked, no tray check; with an old shell it is no gated start at all.
 //
-//   node scripts/test-autostart-tray.mjs [--exe=<debug hey-look.exe>]
+//   node scripts/test-autostart-tray.mjs [--exe=<debug hey-look.exe>] [--only=A,C,F]
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -77,6 +77,9 @@ const code = (p) => {
 // ---- 2. a real debug build ---------------------------------------------------------------------------------------------------------------------
 const arg = (n) => process.argv.find((a) => a.startsWith(`--${n}=`))?.slice(n.length + 3);
 const exe = arg("exe");
+/** `--only=C,F`: run these parts of the real-app run only (the E part reads the bare desktop and needs a screen that is mostly free; the others do not). */
+const only = arg("only")?.split(",").map((x) => x.trim().toUpperCase());
+const want = (k) => !only || only.includes(k);
 if (!exe) {
   console.log("SKIPPED the real-app part (pass --exe=<path of a DEBUG build with its own identifier>; Windows only)");
 } else if (process.platform !== "win32") {
@@ -115,6 +118,8 @@ if (!exe) {
   process.on("exit", () => started.forEach((p) => spawnSync("taskkill", ["/PID", String(p), "/T", "/F"], { stdio: "ignore" })));
   const kill = async (p) => {
     spawnSync("taskkill", ["/PID", String(p.pid), "/T", "/F"], { stdio: "ignore" });
+    // (an app that restarted itself after a blank page is a new process: the kit exe is stopped by name, never the installed app's hey-look.exe)
+    if (path.basename(exe).toLowerCase() !== "hey-look.exe") spawnSync("taskkill", ["/IM", path.basename(exe), "/T", "/F"], { stdio: "ignore" });
     await sleep(1500);
   };
   const RUN_KEY = String.raw`Software\thnonl\HeyLookTest109\Run` + process.pid; // (a key of its own per run: the test leaves no value that the next run would find)
@@ -140,7 +145,7 @@ if (!exe) {
   const newDir = (tag) => fs.mkdtempSync(path.join(os.tmpdir(), `hl-autostart-${tag}-`));
 
   // ---- A. a tray start ----
-  {
+  if (want("A")) {
     const dir = newDir("a");
     const before = whiteDesktop();
     const app = start(dir, ["--minimized"]);
@@ -189,7 +194,9 @@ if (!exe) {
   }
 
   // ---- E. the ghost itself: the control (parking off), and the look that heals it ----
-  if (locked) {
+  if (!want("E")) {
+    console.log("NOTE [E] not selected (--only)");
+  } else if (locked) {
     console.log("NOTE [E] NOT RUN: the lock screen is up, the desktop cannot be read");
   } else {
     for (const [what, mode] of [["control (HEYLOOK_TEST_GHOST=keep: no parking, no healing)", "keep"], ["look (HEYLOOK_TEST_GHOST=look: not parked at creation, the looks heal)", "look"]]) {
@@ -217,7 +224,7 @@ if (!exe) {
   }
 
   // ---- B. the note of a restart that a person was looking at ----
-  for (const [what, age, shown] of [["fresh", 5, true], ["an hour old", 3600, false]]) {
+  for (const [what, age, shown] of want("B") ? [["fresh", 5, true], ["an hour old", 3600, false]] : []) {
     const dir = newDir("b");
     fs.writeFileSync(path.join(dir, "show-after-restart.txt"), String(Math.floor(Date.now() / 1000) - age));
     const app = start(dir, ["--minimized"]);
@@ -234,7 +241,7 @@ if (!exe) {
   }
 
   // ---- D. a tray icon the shell does not know ----
-  {
+  if (want("D")) {
     const dir = newDir("d1");
     const app = start(dir, ["--minimized"], { HEYLOOK_TEST_TRAY: "drop" });
     ok("[D] the icon is taken out of the notification area (test seam)", await waitLog(dir, /took the icon out of the notification area/, 0, 90000), logOf(dir).slice(-600));
@@ -262,7 +269,7 @@ if (!exe) {
   };
 
   // ---- C. the autostart entry ----
-  {
+  if (want("C")) {
     const dir = newDir("c");
     let app = start(dir, ["--minimized"]);
     ok("[C] with no entry the log says so (and the state of the switch)", await waitLog(dir, /\[autostart \+\d+ ms\] no entry "[^"]+" in the Run key.*\(Start in the tray: off\)/, 0, 60000), logOf(dir).slice(0, 600));
@@ -294,17 +301,17 @@ if (!exe) {
         await kill(app);
       }
       // the switch turned on and off in a RUNNING app writes the entry at once (set_setting of the prefs blob, as the page does it)
-      await setPrefs(dir, { startInTray: false });
+      const ldir = newDir("cl"); // (a folder of its own: the test-bridge.json of a killed run would be stale)
       reg("add", hkcu(RUN_KEY), "/v", name, "/t", "REG_SZ", "/d", visible, "/f");
       const { connection, bridge } = await import("./test-bridge-client.mjs");
-      app = start(dir, []);
-      ok("[C live] the app is up", await waitLog(dir, /window shown, page ready/, 0, 90000));
-      const b = bridge(connection(dir));
+      app = start(ldir, []);
+      ok("[C live] the app is up", await waitLog(ldir, /window shown, page ready/, 0, 90000));
+      const b = bridge(connection(ldir));
       const setPref = (v) => b.evalIn("main", `window.__TAURI_INTERNALS__.invoke("set_setting", { key: "prefs", value: JSON.stringify({ startInTray: ${v} }) }).then(() => "done")`);
-      const from = logOf(dir).length;
+      const from = logOf(ldir).length;
       await setPref(true);
       await sleep(800);
-      ok("[C live] the switch ON writes the tray entry at once", regValue(name) === tray && /was .*: written again as .*--minimized \(Start in the tray: on\)/.test(logOf(dir).slice(from)), `${regValue(name)} | ${logOf(dir).slice(from).slice(-300)}`);
+      ok("[C live] the switch ON writes the tray entry at once", regValue(name) === tray && /was .*: written again as .*--minimized \(Start in the tray: on\)/.test(logOf(ldir).slice(from)), `${regValue(name)} | ${logOf(ldir).slice(from).slice(-300)}`);
       await setPref(false);
       await sleep(800);
       ok("[C live] the switch OFF writes the visible entry at once", regValue(name) === visible, String(regValue(name)));
@@ -320,14 +327,14 @@ if (!exe) {
   }
 
   // ---- F. the visible start at sign-in ----
-  for (const [what, env, gated] of [["the shell is young (20 s)", { HEYLOOK_TEST_SHELL_AGE_S: "20" }, true], ["no taskbar yet", { HEYLOOK_TEST_SHELL_AGE_S: "none" }, true], ["the shell is old (a start by hand)", { HEYLOOK_TEST_SHELL_AGE_S: "86400" }, false]]) {
+  for (const [what, env, gated] of !want("F") ? [] : [["the shell is young (20 s)", { HEYLOOK_TEST_SHELL_AGE_S: "20" }, true], ["no taskbar yet", { HEYLOOK_TEST_SHELL_AGE_S: "none" }, true], ["the shell is old (a start by hand)", { HEYLOOK_TEST_SHELL_AGE_S: "86400" }, false]]) {
     const dir = newDir("f");
     const before = locked ? null : whiteDesktop();
     const app = start(dir, [], env);
     ok(`[F ${what}] the window is shown (a visible start)`, await waitLog(dir, /window shown, page ready/, 0, 90000) && /window created hidden \(show at start: true\)/.test(logOf(dir)), logOf(dir).slice(-800));
     const log = logOf(dir);
     if (gated) {
-      ok(`[F ${what}] the log says the start is gated and why`, /\[gate\] this is a start at sign-in \((the desktop shell began 20 s ago|the taskbar window does not exist yet)\): the main window is made after the start gate/.test(log), log.slice(0, 900));
+      ok(`[F ${what}] the log says the start is gated and why`, /\[gate \+\d+ ms\] this is a start at sign-in \((the desktop shell began 20 s ago|the taskbar window does not exist yet)\): the main window is made after the start gate/.test(log), log.slice(0, 900));
       ok(`[F ${what}] the gates were read and the window made after them`, /\[gate \+\d+ ms\] start gate: the window waits for the desktop/.test(log) && /all gates open after \d+ ms: making the window/.test(log) && /window made after the start gate/.test(log), log.slice(0, 1500));
     } else {
       ok(`[F ${what}] no gate: a normal start, the window of the config`, !/start gate: the window waits/.test(log) && !/this is a start at sign-in/.test(log), log.slice(0, 900));
