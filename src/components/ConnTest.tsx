@@ -21,7 +21,7 @@ function useProduct(): string {
   useEffect(() => {
     void getVersion().then(setVersion).catch(() => undefined);
   }, []);
-  return `Hey Look! ${version}, ${OS_NAME[osNow()] ?? osNow()}`.replace("!  ", "! ");
+  return `Hey Look!${version ? ` ${version}` : ""}, ${OS_NAME[osNow()] ?? osNow()}`;
 }
 
 interface Props {

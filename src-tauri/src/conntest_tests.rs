@@ -700,7 +700,6 @@ fn conntest_it_internet() {
     if std::env::var("HL_CT_NET").is_err() {
         return;
     }
-    use std::net::ToSocketAddrs;
     let go = |host: &str, port: u16, ssl: bool, insecure: bool, secs: u64| {
         let mut a = account(port, ssl, 1, "ssl");
         a.imap_host = host.into();
