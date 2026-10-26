@@ -9,6 +9,7 @@ import { extractSignature, fillSignatureHtml, normalizeHtml, SIG_MARK } from "./
 import { ACCOUNT_PALETTE, accountColor, pickAccountColor } from "./prefs";
 import { setSimulatedWindow } from "./winframe";
 import { parseReplyTo } from "./replyTo";
+import { mockAccountCheckError, mockTestConnection } from "./devMockConn";
 import { nameInlinePicture } from "./editor/messageBody";
 import type { LangPref } from "./i18n";
 import { packThread } from "./threadPack";
@@ -1512,7 +1513,9 @@ export function installMock() {
       }
       case "add_account": {
         const inp = a.input as { email: string; displayName: string; imapHost: string; smtpHost: string };
-        if (a.passwordValue === "wrong") return later(900, () => { throw new Error("AUTH: login failed: invalid credentials"); });
+        // a refused sign-in comes as the coded error of the backend (ACCOUNT_CHECK|part=imap|kind=auth|...), which the form draws like a test result
+        const refused = mockAccountCheckError(a);
+        if (refused) return later(900, () => { throw new Error(refused); });
         // a locked system keyring: the password "locked" answers with the timeout after 2.5 s, "hang" does not answer within a minute (Cancel ends the wait)
         if (a.passwordValue === "locked") return later(2500, () => { throw new Error("KEYRING_TIMEOUT: Your system keyring is locked or not answering. Unlock it (Passwords and Keys / KWallet) and try again."); });
         if (a.passwordValue === "hang") return later(60000, () => { throw new Error("ADD_CANCELLED: Adding the account was cancelled."); });
@@ -1526,6 +1529,8 @@ export function installMock() {
         return later(1200, () => mockNewAccount(g ? `new.user${newSeq + 1}@gmail.com` : `new.user${newSeq + 1}@outlook.com`, String(a.displayName || "New User"), g ? "oauth_google" : "oauth_microsoft", g ? "imap.gmail.com" : "outlook.office365.com", g ? "smtp.gmail.com" : "smtp.office365.com"));
       }
       case "cancel_add_account": return null;
+      case "test_connection": return mockTestConnection(a);
+      case "cancel_test_connection": return null;
       case "oauth_cancel": oauthCancel?.(); oauthCancel = null; return null;
       case "reauth_account": {
         const acc = accounts.find((x) => x.id === a.accountId);

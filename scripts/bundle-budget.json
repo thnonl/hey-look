@@ -9,7 +9,7 @@
     "reason": "B2, the final budget of spec-107-wp9 section 2.1 (from the WP9d merge). Measured at WP9d: 872,788 B."
   },
   "langChunkGzip": {
-    "bytes": 55000,
+    "bytes": 60000,
     "reason": "B3. One chunk per non-English language (dictionary + date-fns locale, src/i18n/lang-<code>.ts). Measured at WP9c: 40.7 to 49.5 KB gzip (ru the largest); 55 KB leaves room for the texts the later work packages add."
   },
   "lazyChunkGzip": {
@@ -118,6 +118,14 @@
     { "date": "2026-10-24", "branch": "feature/v107-wp9d", "field": "initialJsRaw", "old": 1699399, "new": 1300000, "reason": "WP9d lowered to the final budget: measured 872,788 B (was 1,597,637 B)." },
     { "date": "2026-10-24", "branch": "feature/v107-wp9d", "field": "cssGzip", "old": 26005, "new": 26000, "reason": "WP9d lowered to the final budget: measured 24,074 B (+ the loading look and the dialog hand-off, 62 B)." },
     { "date": "2026-10-24", "branch": "feature/v107-wp9d", "field": "mustBeLazy", "old": null, "new": "13 modules", "reason": "B6 final list: Compose, RichEditor, LinkPopover, RecipientField, SettingsDialog, Updates, Calendar (views and event dialog), PgpDialogs, Dialogs, ComposeView, ReaderView, prosemirror-*, @tiptap/*." },
-    { "date": "2026-10-24", "branch": "feature/v107-wp5", "field": "mustBeLazy", "old": "13 modules", "new": "+ pdfView.tsx, pdfjs-dist", "reason": "WP5a (W5.1, DEC-015 item 4): PDF.js and its viewer are a lazy chunk of their own (130,296 B gzip, below B4 = 170,000 B: no named exception); the initial JS grew by the loader, the header slot and two texts only." }
+    { "date": "2026-10-24", "branch": "feature/v107-wp5", "field": "mustBeLazy", "old": "13 modules", "new": "+ pdfView.tsx, pdfjs-dist", "reason": "WP5a (W5.1, DEC-015 item 4): PDF.js and its viewer are a lazy chunk of their own (130,296 B gzip, below B4 = 170,000 B: no named exception); the initial JS grew by the loader, the header slot and two texts only." },
+    {
+      "date": "2026-10-27",
+      "branch": "feature/v1010-test-connection",
+      "field": "langChunkGzip",
+      "old": 55000,
+      "new": 60000,
+      "reason": "1.0.10 Test connection adds 91 texts (about 2.8 KB gzip of Russian text, the largest language): ru measured 56,901 B against 55,000 B (it was about 54.2 KB before). 60,000 B leaves room for the texts of the other 1.0.10 features and of 1.0.11; the next raise should come with a split of the dictionary."
+    }
   ]
 }

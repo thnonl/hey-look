@@ -37,5 +37,6 @@
   "compose.link.bubble",
   "compose.emoji.smileys",
   "compose.insert.symbol",
-  "settings.calendar.calName"
+  "settings.calendar.calName",
+  "settings.test.details"
 ]

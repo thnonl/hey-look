@@ -931,6 +931,26 @@ button.ov-tag:hover { background: color-mix(in srgb, var(--accent), transparent 
 .signin-slot { min-height: 9em; overflow-wrap: anywhere; }
 .set-status { min-height: 7.5em; overflow-wrap: anywhere; }
 .signin-slot > .notice, .set-status > .notice { margin-bottom: 0; }
+/* Add account > other account > Test connection: the button row, a hint under a server row, the red border of a field "Show field" pointed at (or a host that is not a name), and the result block under the card */
+.signin-slot.conn-slot { min-height: 11em; } /* the manual form holds the lines of a refused Add account (summary, the sentence with its hint and Show field, "Not checked", Details): measured at 138 px in English and German, scripts/test-settings-layout.mjs */
+.conn-btns { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.form > label:not(.switch) + .conn-group { margin-top: 0; }
+.conn-group > .row-inline { margin-top: 0; }
+.form input[aria-invalid="true"], .form select[aria-invalid="true"] { border-color: var(--danger); }
+.conn-pre { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; margin-top: 4px; }
+.conn-pre > svg { flex: none; color: var(--warn); align-self: center; }
+.conn-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.conn-part { margin-top: 8px; }
+.conn-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; }
+.conn-line > .spin, .conn-line > .conn-ic { align-self: center; flex: none; }
+.conn-text { flex: 1 1 14em; min-width: 0; }
+.conn-part.stale .conn-text, .conn-part.notChecked .conn-text { color: var(--muted); }
+.conn-ic.good { color: var(--good); }
+.conn-ic.bad { color: var(--danger); }
+.conn-ic.warn { color: var(--warn); }
+.conn-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 6px 0 0 20px; }
+.conn-details { margin-top: 8px; }
+.conn-details-text { margin: 6px 0; padding: 6px 8px; max-height: 12em; overflow: auto; font: .84em/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; white-space: pre-wrap; overflow-wrap: anywhere; border-radius: var(--r-sm); background: rgba(128, 128, 128, .12); background: color-mix(in srgb, var(--fg), transparent 94%); }
 /* Add account > Google / Microsoft: "Also sync my calendar" is a native checkbox (accent-color falls back to the system blue where a WebKit lacks it) with its hint under the label */
 .form .also-cal label { display: flex; align-items: flex-start; gap: 8px; font-size: .92em; color: var(--fg); cursor: pointer; }
 .form .also-cal input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; margin: 2px 0 0; flex: none; }

@@ -17,6 +17,7 @@ import { LOAD_OLDER_DEADLINE_MS, passVerdict, withDeadline } from "./pagingPass"
 import { StateIntents, type IntentKind } from "./readIntent";
 import { calendarErrorText, CAL_OFFER_DONE } from "./calendarSync";
 import { backendText } from "./backendErrors";
+import { accountCheckText } from "./connHints";
 import { needsSignIn } from "./signIn";
 import type { Jobs } from "./translateJobs";
 import { AdvanceTracker, startAdvance } from "./autoAdvance";
@@ -244,6 +245,9 @@ export function friendlyError(e: unknown): string {
   // backend errors are "CODE: human text" (or "CODE|name=value: text"); a few PGP ones carry data instead ("PGP_MISSING_KEYS:a@b.c,d@e.f")
   if (/^PGP_LOCKED:/.test(raw)) return t("errors.pgp.locked");
   if (/^PGP_MISSING_KEYS:/.test(raw)) return t("errors.pgp.missingKeys", { list: raw.slice("PGP_MISSING_KEYS:".length).split(",").join(", ") });
+  // a refused part of Add account: the same words as the lines of "Test connection" (src/connHints.ts)
+  const checked = accountCheckText(raw);
+  if (checked) return checked;
   const coded = backendText(raw);
   if (coded) return coded;
   raw = raw.replace(/^[A-Z][A-Z0-9_]+(?:\|[A-Za-z]\w*=[^|:]*)*:\s+/, "");
