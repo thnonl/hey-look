@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // 1.0.10 UI polish in the dev preview (src/devMock.ts has five mailboxes a1..a5 and PGP mail), driven over CDP:
-//   R4  One Inbox (`*|inbox`) is always in Favorites: the star is a filled, aria-disabled button that does nothing; Settings > All accounts > Folders has the Inbox
+//   R4  One Inbox (`*|inbox`) is always in Favorites: its row has NO star (owner decision after the QA: it cannot leave Favorites, so nothing to click); Settings > All accounts > Folders has the Inbox
 //       switch on and disabled; setPrefs puts it back; stored favorites without it are read with it (rev 1 and rev 2); the stars of other rows still work
 //   R1  a click, Enter or Space on the open conversation's row reloads nothing (no fetch, same `messages`, no removed card or iframe); another row opens as before;
 //       a failed open is retried by the next click
@@ -62,23 +62,17 @@ const favRows = () => evaluate(`[...document.querySelectorAll('.fp-tree .fp-grou
 async function r4() {
   section = 'R4';
   await fresh();
-  const star = `${ONE} .fp-star`;
-  const st = await evaluate(`(() => { const b = document.querySelector(${JSON.stringify(star)}); return { on: b.classList.contains('on'), aria: b.getAttribute('aria-disabled'), dis: b.disabled, title: b.title, label: b.getAttribute('aria-label'), cursor: getComputedStyle(b).cursor, filled: b.querySelector('svg').getAttribute('fill'), shown: getComputedStyle(b).display }; })()`);
-  ok(st.on && st.aria === 'true' && st.dis === false, `the One Inbox star is on and aria-disabled, not disabled: ${JSON.stringify(st)}`);
-  eq([st.title, st.label], ['The Inbox of all accounts always stays in Favorites', 'The Inbox of all accounts always stays in Favorites'], 'tooltip and name');
-  ok(st.cursor === 'default' && st.filled === 'currentColor' && st.shown !== 'none', `cursor default, filled, shown: ${JSON.stringify(st)}`);
-  await io.shot('r4-star-light');
-  // three clicks: the row stays, the list does not open from the star
-  const before = await evaluate(S('view?.key ?? null'));
-  for (let i = 0; i < 3; i++) await io.click(star);
-  await sleep(150);
-  eq((await favRows()).slice(0, 3), ['*|inbox', '*|sent', '*|drafts'], 'favorites after 3 clicks');
-  ok(!(await evaluate(`document.querySelector(${JSON.stringify(ONE)}).classList.contains('active')`)) || before !== undefined, 'the star click did not open the row');
-  // keyboard: Tab order keeps it, Enter and Space do nothing
-  await evaluate(`document.querySelector(${JSON.stringify(star)}).focus(); 1`);
-  ok(await evaluate(`document.activeElement === document.querySelector(${JSON.stringify(star)})`), 'the locked star can be focused');
-  await press('Enter'); await press('Space'); await sleep(150);
-  eq((await favRows()).slice(0, 3), ['*|inbox', '*|sent', '*|drafts'], 'favorites after Enter and Space');
+  // One Inbox has no star at all (and no tooltip); the place of the star stays, so the count at the right is where it was
+  eq(await evaluate(`document.querySelectorAll(${JSON.stringify(ONE + ' .fp-star')}).length`), 0, 'the One Inbox row has no star button');
+  const lay = await evaluate(`(() => { const o = document.querySelector(${JSON.stringify(ONE)}), d = document.querySelector('.fp-tree .fp-group:first-child .fp-row[data-key="drafts"]'); const bo = o.querySelector('.fp-badge'), bd = d.querySelector('.fp-badge'); const g = o.querySelector('.fp-star-gap'); return { gap: g && [g.getBoundingClientRect().width, g.getBoundingClientRect().height], badgeO: bo && bo.getBoundingClientRect().right, badgeD: bd && bd.getBoundingClientRect().right, rowO: o.getBoundingClientRect().right, rowD: d.getBoundingClientRect().right, tip: !!document.querySelector('.tip') }; })()`);
+  ok(lay.gap && lay.gap[0] === 24, `the star's place is kept: ${JSON.stringify(lay)}`);
+  ok(lay.badgeO && lay.badgeD && Math.abs(lay.badgeO - lay.badgeD) <= 1 && Math.abs(lay.rowO - lay.rowD) <= 1, `the count of One Inbox ends where the count of Drafts (which has a star) ends: ${JSON.stringify(lay)}`);
+  await io.shot('r4-no-star-light');
+  // clicks and keys on the row's right part do not change the favorites; Tab from the row goes to the next row, there is no star in between
+  await evaluate(`document.querySelector(${JSON.stringify(ONE)}).focus(); 1`);
+  await press('Tab');
+  ok(await evaluate(`document.activeElement.classList.contains('fp-row') && document.activeElement.dataset.key === 'sent'`), 'Tab from One Inbox goes to the next row');
+  eq((await favRows()).slice(0, 3), ['*|inbox', '*|sent', '*|drafts'], 'favorites unchanged');
   // other rows still work: Sent (all accounts) off and on, an account's Inbox on and off
   await io.click(`.fp-tree .fp-group:first-child .fp-row[data-key="sent"] .fp-star`);
   await sleep(150);
@@ -130,11 +124,11 @@ async function r4() {
   eq((await favRows()), ['*|sent', '*|inbox'], 'present: the order stays');
   await openWith('light&lang=en', { prefs: JSON.stringify({ language: 'en', prefsRev: 1, countOtherMail: false }) });
   eq(await evaluate(S('prefs.countOtherMail')), false, 'rev 1: countOtherMail stays false');
-  // one account: the row is shown with a locked star
+  // one account: the row is shown, without a star
   await fresh();
   await evaluate(`window.__store.setState({ accounts: window.__store.getState().accounts.slice(0, 1) }); 1`);
   await sleep(200);
-  ok(await evaluate(`document.querySelector(${JSON.stringify(star)})?.getAttribute('aria-disabled') === 'true'`), 'one account: the Favorites > Inbox row is there with a locked star');
+  ok(await evaluate(`!!document.querySelector(${JSON.stringify(ONE)}) && !document.querySelector(${JSON.stringify(ONE + ' .fp-star')})`), 'one account: the Favorites > Inbox row is there, without a star');
 }
 
 // ======================================================================== R1
@@ -730,76 +724,29 @@ async function r8() {
   await sleep(1000);
   eq(await sideNow(), 'rail', 'still none a second later');
 
-  // ---- P3: the tooltip of the locked star
-  const tipText = 'The Inbox of all accounts always stays in Favorites';
-  for (const [theme, forced] of [['light', false], ['dark', false], ['light', true]]) {
-    await fresh(`${theme}&lang=en`, 1280, 800);
-    await cdp('Emulation.setEmulatedMedia', { features: [{ name: 'forced-colors', value: forced ? 'active' : 'none' }] });
-    const star = `${ONE} .fp-star`;
-    const [sx, sy] = await centre(star);
-    await mouse('mouseMoved', sx, sy);
-    await sleep(200);
-    ok(!(await evaluate(`!!document.querySelector('.tip')`)), `${theme}${forced ? ' forced' : ''}: no tooltip before 400 ms`);
-    ok(await until(`!!document.querySelector('.tip')`, 1500), `${theme}${forced ? ' forced' : ''}: the tooltip shows after the pointer rested`);
-    const t = await evaluate(`(() => { const e = document.querySelector('.tip'), r = e.getBoundingClientRect(), b = document.querySelector(${JSON.stringify(star)}), cs = getComputedStyle(e); return { text: e.textContent, role: e.getAttribute('role'), id: e.id, by: b.getAttribute('aria-describedby'), left: r.left, right: r.right, top: r.top, bottom: r.bottom, w: innerWidth, h: innerHeight, bg: cs.backgroundColor, fg: cs.color, border: cs.borderTopColor, title: b.title, label: b.getAttribute('aria-label'), starRight: b.getBoundingClientRect().right, starBottom: b.getBoundingClientRect().bottom, z: cs.zIndex }; })()`);
-    ok(t.text === tipText && t.role === 'tooltip' && t.by === t.id && t.title === tipText && t.label === tipText, `${theme}: text, role, aria-describedby, title kept: ${JSON.stringify(t)}`);
-    ok(t.left >= 0 && t.right <= t.w && t.top >= 0 && t.bottom <= t.h, `${theme}: the tooltip is inside the window: ${JSON.stringify([t.left, t.right, t.top, t.bottom])}`);
-    ok(Math.abs(t.right - t.starRight) <= 1 && t.top >= t.starBottom, `${theme}: right-aligned under the star`);
-    ok(t.bg !== 'rgba(0, 0, 0, 0)' && t.bg !== t.fg, `${theme}${forced ? ' forced' : ''}: readable colours ${t.bg} on ${t.fg}`);
-    await io.shot(`p3-tooltip-${theme}${forced ? '-forced' : ''}`);
-    await press('Escape');
-    ok(!(await evaluate(`!!document.querySelector('.tip')`)), `${theme}: Escape closes it`);
-    await mouse('mouseMoved', 700, 400);
-    await mouse('mouseMoved', sx, sy);
-    await until(`!!document.querySelector('.tip')`, 1500);
-    await mouse('mouseMoved', 700, 400);
-    ok(await until(`!document.querySelector('.tip')`, 800), `${theme}: it goes with the pointer`);
-    await cdp('Emulation.setEmulatedMedia', { features: [{ name: 'forced-colors', value: 'none' }] });
-  }
-  // the keyboard: Tab from the row to its star shows it at once; Tab on closes it
+  // ---- P3 (dropped): One Inbox has no star, so there is no tooltip anywhere: resting on its row's right part shows nothing, in the full menu and in the peek
   await fresh();
-  await evaluate(`document.querySelector(${JSON.stringify(ONE)}).focus(); 1`);
-  await press('Tab');
-  ok(await until(`!!document.querySelector('.tip')`, 600), 'keyboard focus on the star shows the tooltip');
-  ok(await evaluate(`document.activeElement.classList.contains('fp-star') && document.activeElement.getAttribute('aria-describedby') === document.querySelector('.tip').id`), 'the focused star is described by it');
-  await press('Tab');
-  ok(await until(`!document.querySelector('.tip')`, 600), 'leaving the star closes it');
-  // other stars have none
-  await fresh();
-  await mouse('mouseMoved', ...(await centre(`.fp-row[data-key="sent"]:not([data-acct]) .fp-star`)));
-  await sleep(700);
-  ok(!(await evaluate(`!!document.querySelector('.tip')`)), 'the other stars have no tooltip of their own');
-  // in the peek (the icon column's menu): not clipped
+  const [ox, oy] = await centre(ONE);
+  await mouse('mouseMoved', ox + 80, oy);
+  await sleep(800);
+  ok(!(await evaluate(`!!document.querySelector('.tip, [role=tooltip]')`)), 'no tooltip on the One Inbox row');
   await railOpen('light&lang=en', 960, 700);
   await mouse('mouseMoved', ...(await centre('.is-rail .fp-avatar', 0)));
   await until(`document.querySelector('.folder-pane').dataset.sidebar === 'peek'`, 1500);
-  const [px, py] = await centre(`.folder-pane ${ONE} .fp-star`);
-  await mouse('mouseMoved', px, py);
-  ok(await until(`!!document.querySelector('.tip')`, 1500), 'the tooltip shows in the peek');
-  const pt = await evaluate(`(() => { const r = document.querySelector('.tip').getBoundingClientRect(); return [r.left, r.right, r.top, r.bottom, innerWidth, innerHeight]; })()`);
-  ok(pt[0] >= 0 && pt[1] <= pt[4] && pt[2] >= 0 && pt[3] <= pt[5], `the tooltip in the peek is inside the window: ${JSON.stringify(pt)}`);
-  await io.shot('p3-tooltip-peek');
+  eq(await evaluate(`document.querySelectorAll('.folder-pane ' + ${JSON.stringify(ONE)} + ' .fp-star').length`), 0, 'the peek: no star on One Inbox either');
+  eq(await evaluate(`document.querySelectorAll('.is-rail .fp-star, .folder-pane[data-sidebar=rail] .fp-star').length`), 0, 'the icon column has no stars (as before)');
 }
 
 // ======================================================================== R9 (Windows QA): the star by keyboard, the drop line of a collapsed source
 async function r9() {
   section = 'R9';
-  // W1: Enter and Space on the focused star belong to the star (they bubbled to the row and opened it)
+  // W1: Enter and Space on the focused star of a row belong to the star (they bubbled to the row and opened it)
   await fresh();
   await io.click(`.fp-row[data-key="drafts"]:not([data-acct])`); // some other view is open, so "opens One Inbox" can be seen
   await sleep(300);
   const view = () => evaluate(`${S('folder')} + '|' + ${S('accountId')}`);
   const v0 = await view();
   ok(v0.startsWith('drafts'), `another view is open: ${v0}`);
-  const star = `${ONE} .fp-star`;
-  await evaluate(`document.querySelector(${JSON.stringify(star)}).focus(); 1`);
-  for (const key of ['Enter', 'Space']) {
-    await press(key);
-    await sleep(250);
-    eq(await view(), v0, `${key} on the locked star opens nothing`);
-    eq((await favRows()).slice(0, 3), ['*|inbox', '*|sent', '*|drafts'], `${key} on the locked star changes no favorite`);
-    ok(await evaluate(`document.activeElement === document.querySelector(${JSON.stringify(star)}) && document.activeElement.getAttribute('aria-disabled') === 'true'`), `${key}: the star keeps the focus and aria-disabled`);
-  }
   // the star of another row: Enter / Space toggles the favorite and does not open the row
   const sent = `.fp-tree .fp-group:first-child .fp-row[data-key="sent"] .fp-star`;
   await evaluate(`document.querySelector(${JSON.stringify(sent)}).focus(); 1`);

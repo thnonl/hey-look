@@ -107,7 +107,6 @@ export default defineLocale<typeof ns.en>({
   "mail.pane.quickViews": "Быстрый доступ",
   "mail.pane.addFav": "Добавить в избранное",
   "mail.pane.removeFav": "Удалить из избранного",
-  "mail.pane.favLocked": "Входящие всех учётных записей всегда остаются в разделе «Избранное»",
   "mail.pane.allSettings": "Настройки всех учётных записей…",
   "mail.pane.failedTitle": {
     one: "Не удалось отправить {n} запланированное письмо",

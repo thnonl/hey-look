@@ -1,5 +1,5 @@
 import {
-  AlertTriangle, Archive, CalendarClock, CalendarDays, ChevronDown, ChevronRight, Clock, FileText, Flag, Folder, Inbox, MailOpen, OctagonAlert, PanelLeftClose, PanelLeftOpen, Pin, Send, Trash2,
+  AlertTriangle, Archive, CalendarClock, CalendarDays, ChevronDown, ChevronRight, Clock, FileText, Flag, Folder, Inbox, MailOpen, OctagonAlert, PanelLeftClose, PanelLeftOpen, Pin, Send, Star, Trash2,
 } from "lucide-react";
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { accountLabel } from "../accountLabel";
@@ -22,7 +22,6 @@ import { peekDrag, takeDrag } from "../dragWire";
 import { moveChoices } from "../rowMenu";
 import { hasNew, hasNewMailbox } from "../newMail";
 import { useSidebarPeek } from "../sidebarPeek";
-import { FavStar } from "./Tip";
 import { sidebarControlOpen, toggleSidebar } from "../sidebarState";
 import { sidebarInput, useWindowWidth } from "../useSidebar";
 
@@ -243,7 +242,20 @@ export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
         ) : queued > 0 && key === "scheduled" ? (
           <span className="fp-badge">{queued}</span>
         ) : null}
-        {!rail && <FavStar on={acct === null && key === "inbox" ? true : isFav(acct, key)} locked={acct === null && key === "inbox"} label={acct === null && key === "inbox" ? t("mail.pane.favLocked") : isFav(acct, key) ? t("mail.pane.removeFav") : t("mail.pane.addFav")} onToggle={() => toggleFav(acct, key)} />}
+        {!rail && oneInbox && <span className="fp-star-gap" aria-hidden />}
+        {!rail && !oneInbox && (
+          <button
+            className={`fp-star ${isFav(acct, key) ? "on" : ""}`}
+            title={isFav(acct, key) ? t("mail.pane.removeFav") : t("mail.pane.addFav")}
+            aria-label={isFav(acct, key) ? t("mail.pane.removeFav") : t("mail.pane.addFav")}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleFav(acct, key);
+            }}
+          >
+            <Star size={12} fill={isFav(acct, key) ? "currentColor" : "none"} />
+          </button>
+        )}
       </div>
     );
   };

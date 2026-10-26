@@ -102,7 +102,6 @@ export default defineLocale<typeof ns.en>({
   "mail.pane.quickViews": "Schnellansichten",
   "mail.pane.addFav": "Zu Favoriten hinzufügen",
   "mail.pane.removeFav": "Aus Favoriten entfernen",
-  "mail.pane.favLocked": "Der Posteingang aller Konten bleibt immer in den Favoriten",
   "mail.pane.allSettings": "Einstellungen für alle Konten…",
   "mail.pane.failedTitle": { one: "{n} geplante Nachricht fehlgeschlagen", other: "{n} geplante Nachrichten fehlgeschlagen" },
   "mail.pane.failedBadge": { one: "{n} fehlgeschlagen", other: "{n} fehlgeschlagen" },
