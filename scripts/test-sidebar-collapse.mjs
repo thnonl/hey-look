@@ -6,7 +6,7 @@
 // Per combination it asserts:
 //   auto      the menu is icons below 1100 px and in full from 1100 px, in both directions, at 960, 1099, 1100, 1280 and 1920; list >= 300 px and
 //             reading pane >= 440 px wide, the three columns touch (no gap, no overlap), nothing sticks out of the window
-//   peek      the pointer at rest on the icons (not before ~200 ms) opens the full menu OVER the list and the reading pane, which do not move by a
+//   peek      the pointer at rest on the icons (not before ~500 ms) opens the full menu OVER the list and the reading pane, which do not move by a
 //             pixel; it closes when the pointer leaves, on Escape (the open conversation stays), after a folder was chosen (and does not come back
 //             under the pointer); the keyboard focus coming in (Tab) opens it; a drag held over the icons opens it; the menu of a mailbox keeps it open
 //   choice    the control saves "collapsed" / "expanded"; it survives a reload and a wider / narrower window; "expanded" without room for the panes
@@ -210,11 +210,11 @@ async function runConfig(c) {
   await move(28, 300);
   const tOpen = await until(sideIs('peek'));
   ok(tOpen >= 0, 'the pointer at rest on the icons did not open the menu');
-  { // the peek opens after the pointer RESTED (PEEK_HOVER_MS = 200): read from the page's own stamps, not from how soon a CDP call returned
+  { // the peek opens after the pointer RESTED (PEEK_HOVER_MS = 500): read from the page's own stamps, not from how soon a CDP call returned
     const r = await evaluate(`window.__rec`);
     const opened = r.sides.find(([, s]) => s === 'peek');
     const lastMove = opened ? Math.max(...r.moves.filter((m) => m <= opened[0])) : NaN;
-    ok(!!opened && Number.isFinite(lastMove) && opened[0] - lastMove >= 190, `the menu opened ${opened ? Math.round(opened[0] - lastMove) : '?'} ms after the pointer's last move, before it had rested 200 ms`);
+    ok(!!opened && Number.isFinite(lastMove) && opened[0] - lastMove >= 490, `the menu opened ${opened ? Math.round(opened[0] - lastMove) : '?'} ms after the pointer's last move, before it had rested 500 ms`);
   }
   await settle(); // (the menu slides in)
   const peek = await state();

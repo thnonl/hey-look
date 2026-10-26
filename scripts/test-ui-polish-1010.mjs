@@ -805,9 +805,70 @@ async function r9() {
   await sleep(200);
 }
 
+// ======================================================================== R10 (Windows Sandbox QA, BUG-4): a right-click on an icon right after the pointer arrived from outside the rail
+async function r10() {
+  section = 'R10';
+  const right = async (x, y, wait, windows = false) => {
+    // the pointer arrives from the reading pane / list (one jump), rests ${wait} ms, then a real right-click (Windows: the menu comes with the release)
+    await mouse('mouseMoved', 900, 400);
+    await until(`document.querySelector('.folder-pane').dataset.sidebar === 'rail' && !document.querySelector('.ctx-menu')`, 1500);
+    await sleep(250);
+    await mouse('mouseMoved', x, y);
+    if (wait) await sleep(wait);
+    await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'right', buttons: 2, clickCount: 1 });
+    if (windows) await sleep(40);
+    await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'right', clickCount: 1 });
+    await sleep(150);
+    const opened = await evaluate(`!!document.querySelector('.ctx-menu')`);
+    const side = await evaluate(`document.querySelector('.folder-pane').dataset.sidebar`);
+    const items = opened ? await menuRows() : [];
+    if (opened) { await mouse('mousePressed', 900, 400); await mouse('mouseReleased', 900, 400); await sleep(120); }
+    return { opened, side, n: items.length };
+  };
+  for (const os of ['linux', 'windows']) {
+    await fresh(`light&lang=en&os=${os}`, 960, 900);
+    ok(await until(`!!document.querySelector('.is-rail')`), `${os}: icon column`);
+    const targets = [['avatar', await centre('.is-rail .fp-avatar', 1)], ['One Inbox', await centre(`.is-rail ${ONE}`)]];
+    for (const [name, [x, y]] of targets) {
+      for (const wait of [0, 100, 250, 400]) {
+        const r = await right(x, y, wait, os === 'windows');
+        ok(r.opened && r.side === 'rail' && r.n > 0, `${os}: ${name}: a right-click ${wait} ms after the pointer arrived opens its menu and the peek stays closed (${JSON.stringify(r)})`);
+      }
+    }
+    // the peek still opens for a pointer that rests (the click then belongs to the peek, as designed), not before 500 ms
+    const [x, y] = targets[0][1];
+    await mouse('mouseMoved', 900, 400); await sleep(300);
+    await mouse('mouseMoved', x, y);
+    await sleep(350);
+    eq(await evaluate(`document.querySelector('.folder-pane').dataset.sidebar`), 'rail', `${os}: not open after 350 ms of rest`);
+    ok(await until(`document.querySelector('.folder-pane').dataset.sidebar === 'peek'`, 1500), `${os}: open after the pointer rested`);
+    // a pointer that keeps moving on the icons (more than 3 px at a time) does not open it
+    await mouse('mouseMoved', 900, 400); await until(`document.querySelector('.folder-pane').dataset.sidebar === 'rail'`, 1500); await sleep(300);
+    for (let i = 0; i < 12; i++) { await mouse('mouseMoved', x + (i % 2 ? 6 : -6), y); await sleep(80); }
+    eq(await evaluate(`document.querySelector('.folder-pane').dataset.sidebar`), 'rail', `${os}: a pointer that keeps moving for ~1 s does not open it`);
+  }
+  // BUG-5: a mailbox header clipped by the top of the scrolled list (under the sticky top row) takes its right-click on every visible point, grip included, wide and in the icon column
+  for (const [w, label] of [[1280, 'wide'], [960, 'icon column']]) {
+    await fresh('light&lang=en&os=windows', w, 500);
+    const bad = [];
+    for (const clip of [6, 16]) {
+      const g = await evaluate(`(() => { const sc = document.querySelector('.fp-surface'); const ft = document.querySelector('.fp-top').getBoundingClientRect(); const hr = document.querySelectorAll('.fp-group[data-reorder-id] .fp-headrow')[1]; const r1 = hr.getBoundingClientRect(); sc.scrollTop += Math.round(r1.top - (ft.bottom - ${clip})); const r = hr.getBoundingClientRect(); const q = hr.querySelector('.reorder-grip').getBoundingClientRect(); const b = hr.querySelector('button').getBoundingClientRect(); return { ftb: ft.bottom, top: r.top, bottom: r.bottom, gx: q.left + 5, bx: (b.left + b.right) / 2, br: b.right - 3 }; })()`);
+      for (let y = Math.ceil(Math.max(g.top, g.ftb) + 1); y < g.bottom; y += 6) for (const x of [g.gx, g.bx, g.br]) {
+        await mouse('mouseMoved', x, y);
+        await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'right', buttons: 2, clickCount: 1 });
+        await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'right', clickCount: 1 });
+        await sleep(100);
+        if (!(await evaluate(`!!document.querySelector('.ctx-menu')`))) bad.push([clip, Math.round(x), Math.round(y)]);
+        else { await mouse('mousePressed', 900, 450); await mouse('mouseReleased', 900, 450); await sleep(80); }
+      }
+    }
+    ok(bad.length === 0, `${label}: a header clipped by the top of the list takes its right-click on every visible point: ${JSON.stringify(bad.slice(0, 6))}`);
+  }
+}
+
 // ======================================================================== run
 const only = arg('only');
-const parts = { r4, r1, r6, r3, r5, r2, r7, r8, r9 };
+const parts = { r4, r1, r6, r3, r5, r2, r7, r8, r9, r10 };
 for (const [name, fn] of Object.entries(parts)) {
   if (only && !only.split(',').includes(name)) continue;
   try { await fn(); } catch (e) { failures.push(`[${name}] threw: ${e.stack || e.message}`); console.error(`FAIL [${name}] threw`, e); }

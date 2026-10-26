@@ -7,8 +7,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * mailbox is being dragged or its menu is open (the menu lives outside the pane).
  */
 
-/** Pointer at rest on the icons this long (ms) opens the menu: passing over them on the way somewhere else does not. */
-export const PEEK_HOVER_MS = 200;
+/** Pointer at rest on the icons this long (ms) opens the menu: passing over them on the way somewhere else does not. 1.0.10: 500 (was 200), and a move of more than
+ *  PEEK_MOVE_PX starts the wait again: a person who arrives from the list and right-clicks an icon within half a second used to hit the menu that had opened under the pointer. */
+export const PEEK_HOVER_MS = 500;
+/** A move of the pointer on the icons by more than this many px (from where the wait started) is not rest. */
+const PEEK_MOVE_PX = 3;
 /** A drag held over the icons this long opens it, so a message can be dropped on a folder that is not shown as an icon. */
 const PEEK_DRAG_MS = 350;
 /** The pointer may leave and come back within this time (ms) without the menu closing. */
@@ -20,6 +23,8 @@ export function useSidebarPeek(active: boolean, busy: boolean) {
   const pane = useRef<HTMLElement | null>(null);
   const timer = useRef(0);
   const inside = useRef(false);
+  /** where the pointer was when the wait for rest started */
+  const anchor = useRef({ x: 0, y: 0 });
   /** a press on the icons: the menu does not open under the pointer a moment after a click, until the pointer has left and come back */
   const pressed = useRef(false);
   /** how it was opened: the pointer ("hover", a drag), the keyboard coming in ("key": it stays while the focus is inside), or the control ("pin") */
@@ -120,7 +125,14 @@ export function useSidebarPeek(active: boolean, busy: boolean) {
         stop(); // back in time: it stays
         return;
       }
+      anchor.current = { x: e.clientX, y: e.clientY };
       if (!pressed.current) later(PEEK_HOVER_MS, () => openBy("hover"));
+    },
+    onPointerMove: (e: React.PointerEvent) => {
+      if (e.pointerType === "touch" || !active || now.current.open || pressed.current || !inside.current) return;
+      if (Math.hypot(e.clientX - anchor.current.x, e.clientY - anchor.current.y) <= PEEK_MOVE_PX) return;
+      anchor.current = { x: e.clientX, y: e.clientY };
+      later(PEEK_HOVER_MS, () => openBy("hover")); // still moving: the wait starts again
     },
     onPointerLeave: (e: React.PointerEvent) => {
       if (e.pointerType === "touch") return;
@@ -131,6 +143,11 @@ export function useSidebarPeek(active: boolean, busy: boolean) {
       later(PEEK_LEAVE_MS, close);
     },
     onPointerDown: () => {
+      pressed.current = true;
+      if (!now.current.open) stop();
+    },
+    // a right-click is a press too (a system that sends the menu on the release, or without a pointerdown that reaches here): no menu opens over the icon under the pointer
+    onContextMenu: () => {
       pressed.current = true;
       if (!now.current.open) stop();
     },
