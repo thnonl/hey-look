@@ -38,6 +38,8 @@
     "allow-update-account",
     "allow-remove-account",
     "allow-cancel-add-account",
+    "allow-test-connection",
+    "allow-cancel-test-connection",
     "allow-discover-server",
     "allow-reauth-account",
     "allow-oauth-cancel",

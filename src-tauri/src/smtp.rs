@@ -665,7 +665,7 @@ fn ehlo_name() -> lettre::transport::smtp::extension::ClientId {
 }
 
 /// `timeout`: how long a connection step may take (lettre's own default is a minute); the checks made while an account is added use less.
-fn transport_with(acc: &Account, secret: &str, timeout: Option<std::time::Duration>) -> R<SmtpTransport> {
+pub(crate) fn transport_with(acc: &Account, secret: &str, timeout: Option<std::time::Duration>) -> R<SmtpTransport> {
     let host = acc.smtp_host.as_str();
     let mut b = match acc.smtp_security.as_str() {
         "ssl" => SmtpTransport::relay(host).map_err(err)?.port(acc.smtp_port),
