@@ -21,6 +21,7 @@ import { hostLabel, keyIsSent, originOf, otherServer, resolveModelsUrl } from ".
 import { normalizeSidebar } from "../sidebarState";
 import { folderVisible, ruleTargetProblem } from "../junk";
 import { cutAtWord, friendlyError, useStore } from "../store";
+import { ensureTrustedLoaded, reloadTrusted, removeTrusted, useTrusted } from "../trustedSenders";
 import { credStore, kbd, riskyHint, usePlatform } from "../platform";
 import { portFromText, portText } from "../portField";
 import { LazyRuleDialog } from "../lazyViews";
@@ -1260,6 +1261,69 @@ function NotifyPanel({ scope }: { scope: string | null }) {
   );
 }
 
+/** Senders whose remote content always loads (1.0.10, remote_ok.rs): one list for every mailbox, so it looks the same in each scope. */
+function TrustedSenders({ global }: { global: boolean }) {
+  const t = useT();
+  const confirm = useStore((x) => x.confirm);
+  const showToast = useStore((x) => x.showToast);
+  const list = useTrusted((x) => x.emails);
+  const [added, setAdded] = useState<Record<string, number>>({});
+  const [q, setQ] = useState("");
+  useEffect(() => ensureTrustedLoaded(), []);
+  // the dates come with the list; read again whenever the list changes (another window, the notice above a message)
+  useEffect(() => {
+    let live = true;
+    void api.listRemoteOk().then((rows) => live && setAdded(Object.fromEntries(rows.map((r) => [r.email.toLowerCase(), r.added])))).catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [list]);
+  const all = [...list].sort();
+  const needle = q.trim().toLowerCase();
+  const shown = needle ? all.filter((e) => e.includes(needle)) : all;
+  const day = (ms?: number) => (ms ? new Intl.DateTimeFormat(intlLocale(), { year: "numeric", month: "short", day: "numeric" }).format(new Date(ms)) : "");
+  const fail = (e: unknown) => showToast(() => t("reading.trust.saveFailed", { error: friendlyError(e) }), undefined, "error");
+  const clearAll = async () => {
+    if (!(await confirm({ title: t("settings.reading.trustedRemoveAllTitle"), body: t("settings.reading.trustedRemoveAllBody", { n: all.length }), confirmLabel: t("settings.reading.trustedRemoveAllConfirm"), danger: true }))) return;
+    try {
+      await api.remoteOkClear();
+      await reloadTrusted();
+    } catch (e) {
+      fail(e);
+    }
+  };
+  return (
+    <>
+      <Row id="trusted" label={t("settings.reading.trusted")} hint={t("settings.reading.trustedHint")}>
+        {all.length >= 2 ? <button className="btn small" onClick={() => void clearAll()}>{t("settings.reading.trustedRemoveAll")}</button> : null}
+      </Row>
+      <div className="trusted-list">
+        {global && <div className="muted small">{t("settings.reading.trustedGlobalOn")}</div>}
+        {all.length === 0 && <div className="muted">{t("settings.reading.trustedNone")}</div>}
+        {all.length > 8 && (
+          <input type="search" className="trusted-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("settings.reading.trustedSearch")} aria-label={t("settings.reading.trustedSearch")} />
+        )}
+        {shown.map((e) => (
+          <div key={e} className="list-row">
+            <div className="lr-name">
+              <span className="lr-title" title={e}>{e}</span>
+              <span className="small muted">{t("settings.reading.trustedAdded", { date: day(added[e]) })}</span>
+            </div>
+            <button
+              className="btn small"
+              aria-label={t("settings.reading.trustedRemoveLabel", { email: e })}
+              onClick={() => void removeTrusted(e).catch(fail)}
+            >
+              {t("common.remove")}
+            </button>
+          </div>
+        ))}
+        {all.length > 8 && shown.length === 0 && <div className="muted">{t("settings.reading.trustedNoMatch", { q: q.trim() })}</div>}
+      </div>
+    </>
+  );
+}
+
 function ReadingPanel({ scope }: { scope: string | null }) {
   const t = useT();
   const { prefs, setPrefs } = useStore();
@@ -1270,6 +1334,7 @@ function ReadingPanel({ scope }: { scope: string | null }) {
       <OvRow scope={scope} k="loadRemote" id="loadRemote" label={t("settings.reading.loadRemote")} hint={t("settings.reading.loadRemoteHint")}>
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
+      <TrustedSenders global={eff(prefs, scope, "loadRemote")} />
       <OvRow id="inlineAuto" scope={scope} k="inlineAutoLoadMB" label={t("settings.reading.inlineAuto")} hint={t("settings.reading.inlineAutoHint")}>
         {(v, set) => (
           <select value={v} onChange={(e) => set(Number(e.target.value) as Prefs["inlineAutoLoadMB"])}>

@@ -28,6 +28,7 @@ import { useAppDark } from "../useAppDark";
 import { MAIL_FRAME_CSS, MAIL_FRAME_SPIN_CSS } from "../mailFrameCss";
 import { reapply as reapplyColorScheme, rewriteMailHtml } from "../colorSchemeMedia";
 import { eff } from "../prefs";
+import { addTrusted, canOffer, ensureTrustedLoaded, normSender, noticeState, remoteAllowed, remoteAllowedFor, removeTrusted, useTrusted, type RemoteInput } from "../trustedSenders";
 import { CONFIDENTIAL_FRAME_CSS, lockDocument, useContentProtection } from "../protect";
 import { accountsOf, canMoveToJunk } from "../junk";
 import { friendlyError, useStore } from "../store";
@@ -267,11 +268,52 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   const confirm = useStore((s) => s.confirm);
   const loadRemote = eff(prefs, m.accountId, "loadRemote");
   const [allow, setAllow] = useState(false);
+  // senders whose remote content always loads (1.0.10, trustedSenders.ts): the one rule decides here, in the pop-out, in print and in the quote of a reply
+  const trustedSet = useTrusted((s) => s.emails);
+  const accounts = useStore((s) => s.accounts);
+  const showToast = useStore((s) => s.showToast);
+  useEffect(() => ensureTrustedLoaded(), []);
+  const sender = normSender(m.fromEmail);
+  const rin: RemoteInput = { global: loadRemote, trusted: !!sender && trustedSet.has(sender), folder: m.folder, encrypted: !!m.security?.encrypted, auth: m.auth, allow };
   const [version, setVersion] = useState(0); // bumps when images arrive from the backend
   const [loadedPics, setLoadedPics] = useState<Record<string, string>>({});
   const [picState, setPicState] = useState<Record<string, { status: "loading" | "failed"; error?: string }>>({});
-  const allowed = loadRemote || allow;
+  const allowed = remoteAllowed(rin);
   const clean = useMemo(() => cleanOf(m, allowed), [m, allowed]);
+  // a message the list loads by itself shows the info line only when it has remote content: that is counted on the blocked form (cached, and only for such messages)
+  const probe = allowed && !loadRemote && !allow ? cleanOf(m, false).blocked : clean.blocked;
+  const notice = noticeState(rin, probe > 0, canOffer(m.fromEmail, accounts.map((a) => a.email), rin));
+  const noticeRef = useRef<HTMLDivElement>(null);
+  const [focusLink, setFocusLink] = useState<"add" | "stop" | null>(null);
+  useEffect(() => {
+    // after an add the Stop link has the focus, after a stop the add link (the link that was pressed is gone)
+    if (!focusLink) return;
+    const el = noticeRef.current?.querySelector<HTMLElement>(`[data-trust="${focusLink}"]`);
+    if (el) {
+      el.focus();
+      setFocusLink(null);
+    }
+  }, [focusLink, notice]);
+  const addSender = async () => {
+    try {
+      const r = await addTrusted(m.fromEmail);
+      if (r === "full") return showToast(() => t("reading.trust.full", { max: 1000 }), undefined, "error");
+      if (r === "invalid") return;
+      setFocusLink("stop");
+      showToast(() => t("reading.trust.added", { email: sender ?? m.fromEmail }), () => void removeSender(false), "success");
+    } catch (e) {
+      showToast(() => t("reading.trust.saveFailed", { error: friendlyError(e) }), undefined, "error");
+    }
+  };
+  const removeSender = async (announce: boolean) => {
+    try {
+      await removeTrusted(m.fromEmail);
+      setFocusLink("add");
+      if (announce) showToast(() => t("reading.trust.removed", { email: sender ?? m.fromEmail }), () => void addSender(), "info");
+    } catch (e) {
+      showToast(() => t("reading.trust.saveFailed", { error: friendlyError(e) }), undefined, "error");
+    }
+  };
   const html = useMemo(
     () => {
       hlMark("open:pics:start");
@@ -612,14 +654,32 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
 
   return (
     <>
-      {clean.blocked > 0 && !allowed && (
-        <div className="notice">
-          {t("reading.body.blocked")}{" "}
+      {(notice === "offer" || notice === "plain" || notice === "held" || notice === "heldFailed") && (
+        <div className="notice" ref={noticeRef}>
+          {notice === "heldFailed" ? t("reading.trust.failedCheck") : t("reading.body.blocked")}{" "}
           <button className="link" onClick={() => setAllow(true)}>{t("reading.body.loadContent")}</button>
           {" · "}
+          {notice === "offer" && (
+            <>
+              <button className="link" data-trust="add" title={t("reading.trust.addTitle", { email: sender ?? m.fromEmail })} onClick={() => void addSender()}>{t("reading.trust.add")}</button>
+              {" · "}
+            </>
+          )}
+          {(notice === "held" || notice === "heldFailed") && (
+            <>
+              <button className="link" data-trust="stop" title={t("reading.trust.stopTitle", { email: sender ?? m.fromEmail })} onClick={() => void removeSender(true)}>{t("reading.trust.stop")}</button>
+              {" · "}
+            </>
+          )}
           <button className="link" onClick={() => setDialog({ type: "settings", tab: "mb:all", focus: "loadRemote" })}>
             {t("reading.body.alwaysLoad")}
           </button>
+        </div>
+      )}
+      {notice === "auto" && (
+        <div className="notice info" ref={noticeRef}>
+          {t("reading.trust.loaded")}{" "}
+          <button className="link" data-trust="stop" title={t("reading.trust.stopTitle", { email: sender ?? m.fromEmail })} onClick={() => void removeSender(true)}>{t("reading.trust.stop")}</button>
         </div>
       )}
       {/* no script can run (CSP script-src none; on Chromium the sandbox forbids scripts too); allow-same-origin only lets us read height / hook links */}
@@ -920,7 +980,7 @@ export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boole
             </div>
           )}
           {job && <TranslateBox job={job} />}
-          {!hasFrame(m) ? (needsCard(m) ? <EncCard m={m} /> : null) : <AfterPaint wait={isHeavy(m) && !isCleaned(m, eff(prefs, m.accountId, "loadRemote"))}><MessageBody m={m} frameRef={frameRef} dark={cv.dark} onPictures={(items, index) => setLightbox({ items, index })} /></AfterPaint>}
+          {!hasFrame(m) ? (needsCard(m) ? <EncCard m={m} /> : null) : <AfterPaint wait={isHeavy(m) && !isCleaned(m, remoteAllowedFor(m))}><MessageBody m={m} frameRef={frameRef} dark={cv.dark} onPictures={(items, index) => setLightbox({ items, index })} /></AfterPaint>}
           <AttachmentStrip m={m} />
           {lightbox && (
             <Lightbox

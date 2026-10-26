@@ -3,6 +3,7 @@ import { bodyTextToHtml, parseMailto, type MailtoFields } from "./mailtoLink";
 import { t } from "./i18n";
 import { eff } from "./prefs";
 import { friendlyError, useStore, type ComposeInit } from "./store";
+import { remoteAllowedFor } from "./trustedSenders";
 import { actionTargets } from "./composeSelection";
 import { cleanHeaderText } from "./headerText";
 import { fmtFull, fmtSize } from "./util";
@@ -214,6 +215,7 @@ export async function replyTo(m: MessageFull, all: boolean, thread: MessageFull[
     const mine = new Set(now.accounts.map((a) => a.email.toLowerCase()));
     const targets = replyTargets({ fromEmail: m.fromEmail, fromName: m.fromName, to: m.to, cc: m.cc, mine, mailbox: now.accounts.find((a) => a.id === m.accountId)?.email.toLowerCase(), replyTo: h.replyTo, headerFrom: h.from, headerTo: h.to, headerCc: h.cc, all });
     return {
+      quoteRemote: remoteAllowedFor(m),
       accountId: fromAccountFor(now.accounts, m.accountId, now.prefs.defaultAccount),
       to: targets.to.map(cleanHeaderText),
       cc: targets.cc.map(cleanHeaderText),
@@ -276,6 +278,7 @@ export async function forward(m: MessageFull, thread: MessageFull[] = useStore.g
   const message = (h: ReplyHeaders, files: ForwardFiles | null, bodyHtml: string): ComposeInit => {
     const now = useStore.getState();
     return {
+      quoteRemote: remoteAllowedFor(m),
       accountId: fromAccountFor(now.accounts, m.accountId, now.prefs.defaultAccount),
       references: h.references,
       // sending this flags the message forwarded on its server

@@ -582,13 +582,15 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   const picToolsRef = useRef<PictureTools | null>(null); // (Alt+F10 with a picture selected: the picture toolbar takes the focus, else the formatting bar)
   const pasteNote = useRef(false); // the "pictures from the web are not pasted" notice is shown once per message
   const startContent = useRef<string | null>(null); // the editor's first content, made once (a big quote is not scanned again at every render)
+  const quoteRemoteRef = useRef(init.quoteRemote);
+  quoteRemoteRef.current = init.quoteRemote;
   const editor = useEditor({
     extensions: [
       ...baseExtensions({
         placeholder: () => tNow("compose.editor.placeholder"), showOnlyCurrent: false, getBase: () => baseRef.current, focusToolbar: () => picToolsRef.current?.focus() || barApi.current?.focus(), openStyles: () => barApi.current?.openStyles(), pictures: true,
         openFind: (mode) => openFindRef.current(mode),
         // the quoted original of a reply / forward: a protected block; "Edit quoted text" asks first (editor/quoteNode.ts)
-        quote: { base: () => baseRef.current, remote: () => eff(useStore.getState().prefs, accountRef.current, "loadRemote"), ask: () => confirm({ title: tNow("compose.quote.editTitle"), body: tNow("compose.quote.editBody"), confirmLabel: tNow("compose.quote.editConfirm") }) },
+        quote: { base: () => baseRef.current, remote: () => quoteRemoteRef.current ?? eff(useStore.getState().prefs, accountRef.current, "loadRemote"), ask: () => confirm({ title: tNow("compose.quote.editTitle"), body: tNow("compose.quote.editBody"), confirmLabel: tNow("compose.quote.editConfirm") }) },
       }),
       SignatureBlock({ mount: (el) => setSigHeads((h) => [...h, el]), unmount: (el) => setSigHeads((h) => h.filter((x) => x !== el)) }),
     ],

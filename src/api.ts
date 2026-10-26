@@ -99,6 +99,8 @@ export interface MessageFull {
   invite?: CalInvite | null;
   /** how the sender marked it; a reopened draft starts Compose with it */
   importance?: Importance;
+  /** the sender check of the server (Authentication-Results): "pass", "fail", or nothing when it was not checked */
+  auth?: "pass" | "fail" | null;
 }
 
 export type SigStatus = "valid" | "invalid" | "unknown_key" | "expired_key" | "revoked_key";
@@ -762,6 +764,11 @@ export const api = {
     invoke<number>("sender_action", { accountId, email, action, arg: arg ?? null }),
   listBlocked: () => invoke<string[]>("list_blocked"),
   unblock: (email: string) => invoke<void>("unblock", { email }),
+  /** the senders whose remote content always loads (remote_ok.rs): the list, add ("added" | "already" | "full"), remove, remove all */
+  listRemoteOk: () => invoke<{ email: string; added: number }[]>("list_remote_ok"),
+  remoteOkAdd: (email: string) => invoke<string>("remote_ok_add", { email }),
+  remoteOkRemove: (email: string) => invoke<void>("remote_ok_remove", { email }),
+  remoteOkClear: () => invoke<void>("remote_ok_clear"),
   listRules: () => invoke<Rule[]>("list_rules"),
   saveRule: (rule: Rule) => invoke<void>("save_rule", { rule }),
   deleteRule: (id: string) => invoke<void>("delete_rule", { id }),

@@ -673,6 +673,11 @@ function simulateWindowFrame(): boolean {
 // Kinds: available, uptodate (default), newer, norelease, offline, ratelimited, error, noasset, slow, empty, long.
 // The throttle, the timing rules (launch, window return, retry) and the stored state are Rust only: here every manual call answers, automatic calls answer `disabled` when the switch is off.
 const hashTokens = () => new Map(window.location.hash.slice(1).split("&").filter(Boolean).map((t) => { const [k, v = ""] = t.split("="); return [k, decodeURIComponent(v)] as [string, string]; }));
+/** the list of senders whose remote content always loads: address -> when it was added (`#trusted=a@x.org,b@y.org` starts with some; `window.__mockRemoteOk` for a check) */
+const mockRemoteOk = new Map<string, number>(
+  (hashTokens().get("trusted") ?? "").split(",").filter(Boolean).map((e, i) => [e.toLowerCase(), 1761000000000 + i * 86400000] as [string, number]),
+);
+(window as unknown as { __mockRemoteOk: Map<string, number> }).__mockRemoteOk = mockRemoteOk;
 const UPDATE_SAMPLE_NOTES = [
   "## Highlights", "- Faster search in large mailboxes", "* **Bold** item with `code`", "[a link](https://example.com)", "",
   "### Fixes", "| Area | Fix |", "|---|---|", "| Sync | Fewer retries |", "<img src=x onerror=alert(1)>", "x".repeat(200),
@@ -1580,6 +1585,19 @@ export function installMock() {
       case "rule_count": return later(60, () => mockRuleScan(a.rule as MockRule, String(a.folder), false));
       case "rule_targets": return later(60, () => mockRuleScan(a.rule as MockRule, String(a.folder), true));
       case "list_blocked": return [];
+      // the senders whose remote content always loads (remote_ok.rs): the same rules as the backend (lower case, one list, 1000 at most); every change is announced like the backend does
+      case "list_remote_ok": return [...mockRemoteOk.entries()].map(([email, added]) => ({ email, added })).sort((x, y) => (x.email < y.email ? -1 : 1));
+      case "remote_ok_add": {
+        const e = String(a.email ?? "").trim().toLowerCase();
+        if (!e || e.split("@").length !== 2 || e.startsWith("@") || e.endsWith("@") || e.length > 320) throw "this is not an address the list can take";
+        if (mockRemoteOk.has(e)) return "already";
+        if (mockRemoteOk.size >= 1000) return "full";
+        mockRemoteOk.set(e, Date.now());
+        void emit("remote-ok-changed", null);
+        return "added";
+      }
+      case "remote_ok_remove": mockRemoteOk.delete(String(a.email ?? "").trim().toLowerCase()); void emit("remote-ok-changed", null); return null;
+      case "remote_ok_clear": mockRemoteOk.clear(); void emit("remote-ok-changed", null); return null;
       case "thread_action": {
         // like the backend: the state changes when the server has done it (not at the call), after the IMAP time;
         // `#slowflags` makes that time random (0.2 - 1.4 s) so calls finish out of order; every call is logged for checks

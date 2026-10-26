@@ -1760,3 +1760,10 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 .rd-actions .btn { display: inline-flex; align-items: center; gap: 6px; }
 .rd-actions .btn[aria-busy="true"] { cursor: progress; }
 .list-row .btn.small { flex: none; white-space: nowrap; }
+
+/* the list of senders whose remote content always loads (Settings > Mailboxes > Reading, 1.0.10) */
+.trusted-list { margin: 4px 0 14px; }
+.trusted-list > .muted { margin: 6px 0; }
+.trusted-list .trusted-search { width: 100%; box-sizing: border-box; margin: 6px 0 10px; }
+.trusted-list .list-row { cursor: default; }
+.trusted-list .list-row .btn { flex: none; }
