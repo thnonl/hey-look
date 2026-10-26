@@ -20,7 +20,7 @@
 
 - Windows: a start in the tray no longer takes the keyboard focus for a moment while the hidden window is made, so what you are typing at sign-in is not interrupted
 - Windows: turning on "Start Hey Look! when I sign in to Windows" is written to your own user's startup entry and read back. Before, a copy that ran as an administrator wrote the entry for all users, the switch showed "on" and your own entry was missing; now a failure turns the switch back off and shows the Windows error
-- One Inbox always stays in Favorites: its star is locked, the All accounts > Folders switch is locked on, and a list that lost it gets it back
+- One Inbox always stays in Favorites (and is restored if it was removed); its star is gone
 - Clicking the open message again no longer reloads it: the reading pane, loaded pictures and expanded messages stay
 - The highlight of a found setting in Settings no longer covers the text of the setting
 - macOS: Ctrl+click on a mailbox header no longer also collapses it, and a right-click on the left edge of an avatar in the icon column opens the account menu without opening the sidebar
