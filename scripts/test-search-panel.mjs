@@ -269,6 +269,43 @@ try {
       return { panelW: Math.round(pr.width), boxW: Math.round(br.width), scroll: p.scrollHeight - p.clientHeight, h: Math.round(pr.height), bottom: Math.round(pr.bottom), cut, segInside: seg.right <= pr.right + 0.5 }; })()`);
   };
 
+  await check('BUG-5 (1.0.8) a window that is minimised and restored (or comes back from another program) does not open the panel by itself; a click, a character or "/" still do', async () => {
+    const input = `document.getElementById('search-input')`;
+    // the person had the focus in the box, the panel is closed (Esc in the panel leaves the box focused; here: close it by hand)
+    await evaluate(`(() => { const i = ${input}; i.blur(); window.dispatchEvent(new Event('blur')); return 1; })()`);
+    await sleep(500);
+    await evaluate(`(() => { window.dispatchEvent(new Event('focus')); ${input}.focus(); return 1; })()`); // restore: the window's event, then the field's
+    await sleep(150);
+    assert.equal(await panelOpen(), false, 'the panel opened by itself after the window came back (window event first)');
+    // the other order: the field's event first, then the window's
+    await evaluate(`(() => { const i = ${input}; i.blur(); window.dispatchEvent(new Event('blur')); return 1; })()`);
+    await sleep(500);
+    await evaluate(`(() => { ${input}.focus(); window.dispatchEvent(new Event('focus')); return 1; })()`);
+    await sleep(150);
+    assert.equal(await panelOpen(), false, 'the panel opened by itself after the window came back (field event first)');
+    // a click on the box opens it
+    await evaluate(`(() => { document.querySelector('.search-box').click(); return 1; })()`);
+    assert.ok(await waitFor(`!!document.querySelector('.sb-panel')`), 'a click on the box does not open the panel');
+    // typing opens it again after it was closed with the focus left in the box
+    await key('Escape');
+    assert.ok(await waitFor(`!document.querySelector('.sb-panel')`), 'Esc did not close the panel');
+    await evaluate(`(() => { ${input}.blur(); window.dispatchEvent(new Event('blur')); return 1; })()`);
+    await sleep(500);
+    await evaluate(`(() => { window.dispatchEvent(new Event('focus')); ${input}.focus(); return 1; })()`);
+    await sleep(150);
+    assert.equal(await panelOpen(), false);
+    await typeText('x', 5);
+    assert.ok(await waitFor(`!!document.querySelector('.sb-panel')`), 'typing in the box does not open the panel');
+    await evaluate(`${S('setSearch')}('', false).then(() => 1)`);
+    // 400 ms after the window is back a focus into the box (Tab, "/", a click) opens it as before
+    await evaluate(`(() => { ${input}.blur(); window.dispatchEvent(new Event('blur')); window.dispatchEvent(new Event('focus')); return 1; })()`);
+    await sleep(700);
+    await focusBox();
+    assert.ok(await panelOpen(), 'a focus long after the window came back does not open the panel');
+    await evaluate(`(() => { ${input}.blur(); return 1; })()`);
+    await sleep(100);
+  });
+
   await check('REQ-13.4.5 AC-13.4.6 the width is the width of the box; at 960x560 the simple panel with 5 recent searches needs no scrolling', async () => {
     for (const [w, h] of [[960, 560], [1280, 800]]) {
       await openFresh('lang=en', w, h);

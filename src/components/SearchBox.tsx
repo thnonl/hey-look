@@ -33,6 +33,18 @@ export function SearchBox() {
   /** the keyboard asked to go into the panel while it was still closed */
   const enter = useRef(false);
   useOutside(box, () => setOpen(false), open);
+  /** the window was inactive a moment ago (minimised, another program in front): when it comes back the browser gives the focus back to the field that had it, and that
+   * focus event is not the person opening the box. A click on the box (onClick), a typed character and the "/" key still open the panel. */
+  const away = useRef(false);
+  useEffect(() => {
+    let back: ReturnType<typeof setTimeout> | undefined;
+    const lost = () => (clearTimeout(back), (away.current = true));
+    // (the field's own focus event can come before or after the window's: the flag stays up a moment after the window is back)
+    const found = () => (clearTimeout(back), (back = setTimeout(() => (away.current = false), 400)));
+    window.addEventListener("blur", lost);
+    window.addEventListener("focus", found);
+    return () => (clearTimeout(back), window.removeEventListener("blur", lost), window.removeEventListener("focus", found));
+  }, []);
   useEffect(() => setQ(search), [search]);
 
   const setAdvanced = (on: boolean) => {
@@ -146,8 +158,8 @@ export function SearchBox() {
           aria-label={t("app.search.aria")}
           placeholder={t("app.search.placeholder")}
           value={q}
-          onFocus={() => !quiet.current && setOpen(true)}
-          onChange={(e) => change(e.target.value)}
+          onFocus={() => !quiet.current && !away.current && setOpen(true)}
+          onChange={(e) => (change(e.target.value), setOpen(true))}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               run(q, true);
