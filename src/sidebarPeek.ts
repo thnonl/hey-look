@@ -22,6 +22,10 @@ export function useSidebarPeek(active: boolean, busy: boolean) {
   const inside = useRef(false);
   /** a press on the icons: the menu does not open under the pointer a moment after a click, until the pointer has left and come back */
   const pressed = useRef(false);
+  /** how it was opened: the pointer ("hover", a drag), the keyboard coming in ("key": it stays while the focus is inside), or the control ("pin") */
+  const how = useRef<"hover" | "key" | "pin">("hover");
+  /** when the last Escape was pressed: the focus a menu gives back to its icon on Escape is not the keyboard coming in */
+  const escAt = useRef(-1e9);
   const now = useRef({ open, pinned, busy });
   now.current = { open, pinned, busy };
 
@@ -30,6 +34,10 @@ export function useSidebarPeek(active: boolean, busy: boolean) {
     stop();
     timer.current = window.setTimeout(fn, ms);
   };
+  const openBy = (by: "hover" | "key") => {
+    how.current = by;
+    setOpen(true);
+  };
   const close = useCallback(() => {
     window.clearTimeout(timer.current);
     setOpen(false);
@@ -37,6 +45,7 @@ export function useSidebarPeek(active: boolean, busy: boolean) {
   }, []);
   const pin = useCallback(() => {
     window.clearTimeout(timer.current);
+    how.current = "pin";
     setOpen(true);
     setPinned(true);
   }, []);
@@ -45,12 +54,37 @@ export function useSidebarPeek(active: boolean, busy: boolean) {
     if (!active) close();
   }, [active, close]);
   useEffect(() => () => window.clearTimeout(timer.current), []);
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => {
+      if (e.key === "Escape") escAt.current = performance.now();
+    };
+    window.addEventListener("keydown", k, true);
+    return () => window.removeEventListener("keydown", k, true);
+  }, []);
 
   // a menu or a drag that kept it open has ended and the pointer is elsewhere
   useEffect(() => {
     if (busy || !open || inside.current) return;
-    if (!pane.current?.contains(document.activeElement)) later(PEEK_LEAVE_MS, close);
+    // the focus a menu gave back to its icon keeps the peek open only when the keyboard opened it (1.0.10: a hover peek stayed open after its menu closed)
+    if (how.current !== "key" || !pane.current?.contains(document.activeElement)) later(PEEK_LEAVE_MS, close);
   }, [busy]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // the pointer is the authority for a peek it opened: some engines do not send `pointerleave` when the pointer goes into a frame (the mail) or out of the window, so
+  // while it is open (not pinned, no menu, no drag) the pane is asked now and then whether it is still hovered; the keyboard's peek stays while the focus is inside
+  useEffect(() => {
+    if (!open || pinned) return;
+    const t = window.setInterval(() => {
+      if (now.current.busy || !pane.current) return;
+      if (pane.current.matches(":hover")) {
+        inside.current = true;
+        return;
+      }
+      if (how.current === "key" && pane.current.contains(document.activeElement)) return;
+      inside.current = false;
+      close();
+    }, 250);
+    return () => window.clearInterval(t);
+  }, [open, pinned, close]);
 
   // Escape, and a press anywhere outside, close it (the second one is how a pinned menu goes away)
   useEffect(() => {
@@ -86,7 +120,7 @@ export function useSidebarPeek(active: boolean, busy: boolean) {
         stop(); // back in time: it stays
         return;
       }
-      if (!pressed.current) later(PEEK_HOVER_MS, () => setOpen(true));
+      if (!pressed.current) later(PEEK_HOVER_MS, () => openBy("hover"));
     },
     onPointerLeave: (e: React.PointerEvent) => {
       if (e.pointerType === "touch") return;
@@ -103,7 +137,10 @@ export function useSidebarPeek(active: boolean, busy: boolean) {
     // the keyboard comes in: the menu opens at once (a click that gives the pane the focus does not, :focus-visible is for the keyboard)
     onFocus: (e: React.FocusEvent) => {
       if (!active || now.current.open) return;
-      if ((e.target as Element).matches(":focus-visible")) setOpen(true);
+      // (React sends the focus of a menu that was opened from the pane - a portal outside it - up to the pane too: that is not the keyboard coming in. 1.0.10: a right-click on the grip, which cannot take the focus, opened the menu AND the peek)
+      if (!pane.current?.contains(e.target as Node)) return;
+      if (performance.now() - escAt.current < 400) return; // (a menu closed with Escape gives the focus back to its icon: not the keyboard coming in)
+      if ((e.target as Element).matches(":focus-visible")) openBy("key");
     },
     onBlur: (e: React.FocusEvent) => {
       if (!now.current.open || now.current.busy) return;
@@ -114,7 +151,7 @@ export function useSidebarPeek(active: boolean, busy: boolean) {
     },
     onDragEnter: () => {
       if (!active || now.current.open) return stop();
-      later(PEEK_DRAG_MS, () => setOpen(true));
+      later(PEEK_DRAG_MS, () => openBy("hover"));
     },
     onDragLeave: (e: React.DragEvent) => {
       const to = e.relatedTarget as Node | null;

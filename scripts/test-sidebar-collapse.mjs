@@ -322,6 +322,22 @@ async function runConfig(c) {
   ok((await order()) !== o2, 'dragging a mailbox by its grip in the icon column did not move it');
   await move(700, 400);
   await settle();
+  // (1.0.10) the avatar itself is a handle: the same drag, and the click that follows the release opens no Inbox
+  const o3 = await order();
+  const sel3 = await evaluate(`window.__store.getState().accountId`);
+  const av = await evaluate(`(() => { const g = document.querySelector('.fp-avatar'); g.scrollIntoView({ block: 'nearest' }); const r = g.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; })()`);
+  await move(av[0], av[1]);
+  await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x: av[0], y: av[1], button: 'left', buttons: 1, clickCount: 1 });
+  await move(av[0], av[1] + 30, 1);
+  await move(av[0], av[1] + 100, 1);
+  ok((await until(`!!document.querySelector('.reorder-ghost')`)) >= 0 && (await evaluate(`!!document.querySelector('.reorder-ghost')`)), 'dragging a mailbox by its avatar shows no preview');
+  await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x: av[0], y: av[1] + 100, button: 'left', clickCount: 1 });
+  await until(`window.__store.getState().accounts.map((a) => a.id).join() !== ${JSON.stringify(o3)}`);
+  ok((await order()) !== o3, 'dragging a mailbox by its avatar in the icon column did not move it');
+  await settle();
+  ok((await evaluate(`window.__store.getState().accountId`)) === sel3, 'the drop of an avatar drag opened an Inbox');
+  await move(700, 400);
+  await settle();
 
   // ===== 5. the calendar's icon column =====
   await evaluate(`window.__store.getState().setModule('calendar'); 1`);

@@ -297,12 +297,12 @@ try {
     };
     await openWith({ prefs: JSON.stringify({ language: 'en', countOtherMail: false, listW: 420 }) });
     assert.equal(await evaluate(S('prefs.countOtherMail')), true, 'a stored false without the marker is switched on');
-    assert.equal(await evaluate(S('prefs.prefsRev')), 1);
+    assert.equal(await evaluate(S('prefs.prefsRev')), 2);
     assert.equal(await evaluate(S('prefs.listW')), 420, 'other keys are kept');
     await evaluate(`${S('setPrefs')}({ countOtherMail: false }); 1`);
     await sleep(300);
     const saved = JSON.parse(JSON.parse(await evaluate(`localStorage.getItem('hl-mock-settings')`)).prefs);
-    assert.deepEqual([saved.countOtherMail, saved.prefsRev], [false, 1], 'the choice is saved together with the marker');
+    assert.deepEqual([saved.countOtherMail, saved.prefsRev], [false, 2], 'the choice is saved together with the marker');
     await H.openApp('lang=en&smallmailbox&persist', 1280, 800);
     assert.equal(await evaluate(S('prefs.countOtherMail')), false, 'the next start keeps the choice');
     // a damaged value gives the defaults

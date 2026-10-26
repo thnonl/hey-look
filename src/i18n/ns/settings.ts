@@ -346,6 +346,7 @@ export default define({
     "settings.reading.maxDefault": "{n} (default)",
     "settings.folders.account": "Folders of this account that appear under Favorites.",
     "settings.folders.all": "Folders shown under Favorites for all accounts together.",
+    "settings.folders.inboxAlways": "Always in Favorites",
     "settings.folder.inbox": "Inbox",
     "settings.folder.drafts": "Drafts",
     "settings.folder.sent": "Sent Items",

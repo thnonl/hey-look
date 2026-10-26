@@ -25,7 +25,7 @@ import type { MeetingWire } from "./meetingDraft";
 import { accountsOf, canMoveToJunk, JUNK_ACTIONS } from "./junk";
 import type { RuleSource } from "./ruleSource";
 import { addToast, lazyText, refreshed, toastTexts, trimToasts, type Lazy } from "./toastStack";
-import { mayOpenMail, selectionAfterCompose } from "./composeSelection";
+import { isReopen, mayOpenMail, selectionAfterCompose } from "./composeSelection";
 import { leaveCompose as leaveComposePane, nothingToKeep, type ComposeProbe, type SavedDraft } from "./leaveCompose";
 export { lazyText, type Lazy };
 import { getLang, isReady, loadLanguage, resolveLang, setLangPref, t } from "./i18n";
@@ -33,6 +33,7 @@ import type { Lang } from "./i18n";
 import { fmtNumber } from "./i18n/format";
 import { calTz, CalView, Day, rangeFor, systemTz, today } from "./calendar";
 import { accentText, accountColor, buttonAccent, clampMaxDownload, DEFAULT_PREFS, lightened, mergePrefs, Prefs, readableOn, staleAccountPrefs, topBar, validHex } from "./prefs";
+import { withOneInbox } from "./prefsRev";
 import { systemThemeAttribute } from "./osTheme";
 import type { MailCanvasSession } from "./mailCanvas";
 import { captionColors, gradientT } from "./captionColors";
@@ -519,6 +520,8 @@ let readTimer: ReturnType<typeof setTimeout> | undefined;
 /** The view (folder, mailbox, search, filter ...) the shown list was read for, and the conversation `refresh` held in it (F-12). */
 let listKey = "";
 let heldOpen: string | null = null;
+/** The conversation `select` is reading now (its `getThread` is in flight), so a second click on its row starts no second read (`isReopen`). */
+let readingId: string | null = null;
 /** (OBS-1) Conversations whose move target is being looked up on the server. */
 const preparing = new Set<string>();
 /** The re-reads of the list that are running: only the last one started lays its answer over the list (a stale answer must not bring back a moved message). */
@@ -1239,6 +1242,7 @@ export const useStore = create<State>((set, get) => ({
     const { folder, prefs } = get();
     const tok = intents.begin();
     let messages: MessageFull[];
+    readingId = id;
     hlMark("open:thread:start");
     try {
       messages = intents.messages(id, await api.getThread(id, scopeOf(folder)), tok);
@@ -1250,6 +1254,7 @@ export const useStore = create<State>((set, get) => ({
       }
       return;
     } finally {
+      if (readingId === id) readingId = null;
       intents.end(tok);
     }
     hlMark("open:thread:end");
@@ -1272,6 +1277,9 @@ export const useStore = create<State>((set, get) => ({
   },
 
   openMail: async (id) => {
+    // (1.0.10) a click on the row of the conversation that is already open reloads nothing: no empty pane, no new frames, no new mark as read
+    const now = get();
+    if (isReopen({ selected: now.selected, messages: now.messages, openError: now.openError, composing: !!now.compose }, id, readingId)) return;
     if (get().compose && !(await get().leaveCompose())) return;
     await get().select(id);
   },
@@ -1681,6 +1689,8 @@ export const useStore = create<State>((set, get) => ({
       } else if (get().langLoading) set({ langLoading: null });
     }
     const before = get().prefs;
+    // One Inbox always stays in Favorites (1.0.10): a list without it gets it back at index 0, whichever window or code path wrote it
+    if (patch.favorites) patch = { ...patch, favorites: withOneInbox(patch.favorites) };
     const prefs = { ...before, ...patch };
     // a new cap: mailboxes that were stopped by the old one are asked again
     if ("maxDownload" in patch && patch.maxDownload !== get().prefs.maxDownload) set({ limited: {} });

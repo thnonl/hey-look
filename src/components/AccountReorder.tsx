@@ -16,7 +16,7 @@ import { ContextMenu, CtxItem } from "./ContextMenu";
  * HTML5 drag has no say over the preview, the insertion line, the auto-scroll at the edges or Escape on some engines (WKWebView, WebKitGTK),
  * and a drag of a list entry must never reach Compose's / Pgp's file-drop zones (they show their "drop files here" state on any dragenter).
  *
- *  - Pointer: press the grip at the left of a mailbox and move; a preview follows the pointer, a line shows where it lands, the list scrolls
+ *  - Pointer: press the grip at the left of a mailbox, or (1.0.10) the mailbox's own header / avatar / Settings entry, and move; a preview follows the pointer, a line shows where it lands, the list scrolls
  *    near its edges, Escape cancels, releasing drops it.
  *  - Keyboard: Alt+Up / Alt+Down on the focused mailbox (also in its menu: right-click, ContextMenu key or Shift+F10 -> Move up / Move down).
  *    Every move is announced through a live region ("<address> moved to position 2 of 3").
@@ -45,7 +45,7 @@ const THRESHOLD = 4; // px the pointer has to move before a press on the grip be
 
 /**
  * `containerRef` holds the entries; each entry has `data-reorder-id="<account id>"` and its focus target `data-reorder-focus`.
- * Returns the props to spread on an entry's grip (`grip`), on the entry (`entry`), and `overlay` to render once (preview, line, live region, menu).
+ * Returns the props to spread on an entry's grip (`grip`), on the part of the entry that is a handle too (`row`: the header button, the avatar), on the entry (`entry`), and `overlay` to render once (preview, line, live region, menu).
  * `extraItems` adds entries after Move up / Move down, behind a divider (the side menu adds "New folder…", W13.10).
  */
 export function useAccountReorder(containerRef: RefObject<HTMLElement | null>, extraItems?: (accountId: string) => CtxItem[]) {
@@ -77,7 +77,10 @@ export function useAccountReorder(containerRef: RefObject<HTMLElement | null>, e
     if (from < 0) return null;
     const to = dropIndex(rects.map((r) => (r.top + r.bottom) / 2), from, d.y);
     const others = rects.filter((_, i) => i !== from);
-    const box = (scrollParent(els[0]) ?? containerRef.current)?.getBoundingClientRect();
+    // the box the line spans: the list that scrolls, else the nearest ancestor that has a size (the tree itself is `display: contents`: with everything collapsed nothing scrolls and its own box is empty)
+    let sized: HTMLElement | null = els[0]?.parentElement ?? null;
+    while (sized && sized.getBoundingClientRect().width === 0) sized = sized.parentElement;
+    const box = (scrollParent(els[0]) ?? sized ?? containerRef.current)?.getBoundingClientRect();
     const edge = others.length === 0 ? null : to === 0 ? others[0].top : others[to - 1].bottom;
     return { id: d.id, x: d.x, y: d.y, to, line: edge !== null && box ? { top: edge - 1, left: box.left + 6, width: box.width - 12 } : null };
   }, [containerRef]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -123,6 +126,32 @@ export function useAccountReorder(containerRef: RefObject<HTMLElement | null>, e
     raf.current = requestAnimationFrame(loop);
   }, [measure]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // the pointer handlers, shared by the grip and by the whole entry (`row`); they take the plain fields of a pointer event
+  const onMove = (e: { pointerId: number; clientX: number; clientY: number }) => {
+    const d = drag.current;
+    if (!d || d.pointerId !== e.pointerId) return;
+    d.x = e.clientX;
+    d.y = e.clientY;
+    if (!d.started && Math.hypot(d.x - d.x0, d.y - d.y0) >= THRESHOLD) {
+      d.started = true;
+      document.body.classList.add("reordering");
+      window.addEventListener("keydown", esc, true);
+      raf.current = requestAnimationFrame(loop);
+    }
+    if (d.started) setView(measure());
+  };
+  const onUp = (e: { pointerId: number }) => {
+    const d = drag.current;
+    if (!d || d.pointerId !== e.pointerId) return;
+    const landed = d.started ? measure() : null;
+    stop();
+    if (landed) commit(moveAccountTo(ids, d.id, landed.to), d.id);
+  };
+  const onCancel = () => {
+    if (drag.current?.started) setLive(t("mail.acct.cancelled"));
+    stop();
+  };
+
   const grip = (id: string) => ({
     onPointerDown: (e: React.PointerEvent<HTMLElement>) => {
       if (e.button !== 0 || ids.length < 2) return;
@@ -130,31 +159,66 @@ export function useAccountReorder(containerRef: RefObject<HTMLElement | null>, e
       e.currentTarget.setPointerCapture(e.pointerId);
       drag.current = { id, pointerId: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, started: false };
     },
-    onPointerMove: (e: React.PointerEvent<HTMLElement>) => {
-      const d = drag.current;
-      if (!d || d.pointerId !== e.pointerId) return;
-      d.x = e.clientX;
-      d.y = e.clientY;
-      if (!d.started && Math.hypot(d.x - d.x0, d.y - d.y0) >= THRESHOLD) {
-        d.started = true;
-        document.body.classList.add("reordering");
-        window.addEventListener("keydown", esc, true);
-        raf.current = requestAnimationFrame(loop);
-      }
-      if (d.started) setView(measure());
-    },
-    onPointerUp: (e: React.PointerEvent<HTMLElement>) => {
-      const d = drag.current;
-      if (!d || d.pointerId !== e.pointerId) return;
-      const landed = d.started ? measure() : null;
-      stop();
-      if (landed) commit(moveAccountTo(ids, d.id, landed.to), d.id);
-    },
-    onPointerCancel: () => {
-      if (drag.current?.started) setLive(t("mail.acct.cancelled"));
-      stop();
-    },
+    onPointerMove: onMove,
+    onPointerUp: onUp,
+    onPointerCancel: onCancel,
     onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
+  });
+
+  /**
+   * The whole mailbox entry as a handle (1.0.10): the header button, the avatar of the icon column and a mailbox of the Settings navigation start the same drag as the grip
+   * when the primary button of a mouse or a pen is pressed on them and the pointer moves 4 px. A press that stays under 4 px is the click it always was (collapse, open the
+   * Inbox, open the page); after a drag the click that follows the release is swallowed, whether it dropped or was cancelled with Escape. Not a drag start: another button,
+   * any modifier (Ctrl+click is the right-click of macOS), a press on an interactive child (the warning icon), and touch (a touch drag on the entry scrolls the list; the
+   * grip is its handle). Nothing is prevented on the press, so the focus and the click are the browser's own; the pointer is captured once the drag starts, so the mail frames
+   * under it cannot take its events.
+   */
+  const rowEnd = useRef<(() => void) | null>(null);
+  const row = (id: string) => ({
+    onPointerDown: (e: React.PointerEvent<HTMLElement>) => {
+      if (e.pointerType === "touch" || e.button !== 0 || ids.length < 2 || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+      const el = e.currentTarget;
+      const hit = (e.target as Element).closest('a, input, select, textarea, button, [role="button"]');
+      if (hit && hit !== el) return;
+      rowEnd.current?.();
+      const pid = e.pointerId;
+      drag.current = { id, pointerId: pid, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, started: false };
+      const swallow = (ev: Event) => {
+        ev.stopPropagation();
+        ev.preventDefault();
+      };
+      let swallowing = false;
+      const move = (ev: PointerEvent) => {
+        if (ev.pointerId !== pid) return;
+        onMove(ev);
+        if (!swallowing && drag.current?.started) {
+          swallowing = true;
+          window.addEventListener("click", swallow, true);
+          try {
+            el.setPointerCapture(pid);
+          } catch {
+            /* the pointer is gone: the release below ends it */
+          }
+        }
+      };
+      const end = (ev: PointerEvent) => {
+        if (ev.pointerId !== pid) return;
+        if (ev.type === "pointerup") onUp(ev);
+        else onCancel();
+        finish();
+      };
+      const finish = () => {
+        window.removeEventListener("pointermove", move, true);
+        window.removeEventListener("pointerup", end, true);
+        window.removeEventListener("pointercancel", end, true);
+        if (swallowing) window.setTimeout(() => window.removeEventListener("click", swallow, true), 80); // (the click comes right after the release)
+        rowEnd.current = null;
+      };
+      rowEnd.current = finish;
+      window.addEventListener("pointermove", move, true);
+      window.addEventListener("pointerup", end, true);
+      window.addEventListener("pointercancel", end, true);
+    },
   });
 
   const entry = (id: string) => ({
@@ -172,9 +236,12 @@ export function useAccountReorder(containerRef: RefObject<HTMLElement | null>, e
       }
     },
     onContextMenu: (e: React.MouseEvent) => {
-      if (!(e.target as Element).closest("[data-reorder-focus]")) return; // a folder row: the app has nothing to offer there
+      const t = e.target as Element;
+      // (1.0.10) the grip sits over the left edge of the avatar in the icon column (12 px of its 40), and the row around the button has a few pixels of its own: a right-click there is a right-click on the mailbox
+      const from = t.closest<HTMLElement>("[data-reorder-focus]") ?? (t.closest(".reorder-grip, .fp-headrow") ? e.currentTarget.querySelector<HTMLElement>("[data-reorder-focus]") : null);
+      if (!from) return; // a folder row: the app has nothing to offer there
       e.preventDefault();
-      setMenu({ id, at: { x: e.clientX, y: e.clientY }, keyboard: false, from: (e.target as Element).closest<HTMLElement>("[data-reorder-focus]") });
+      setMenu({ id, at: { x: e.clientX, y: e.clientY }, keyboard: false, from });
     },
   });
 
@@ -187,7 +254,7 @@ export function useAccountReorder(containerRef: RefObject<HTMLElement | null>, e
     containerRef.current?.querySelector<HTMLElement>(`[data-reorder-id="${CSS.escape(id)}"] [data-reorder-focus], [data-reorder-id="${CSS.escape(id)}"][data-reorder-focus]`)?.focus({ preventScroll: false });
   }, [order, containerRef]);
 
-  useEffect(() => stop, [stop]);
+  useEffect(() => () => { rowEnd.current?.(); stop(); }, [stop]);
 
   const dragged = view ? accounts.find((a) => a.id === view.id) : null;
   const mac = osNow() === "macos";
@@ -215,7 +282,7 @@ export function useAccountReorder(containerRef: RefObject<HTMLElement | null>, e
       {menu && <ContextMenu key={menu.id} at={menu.at} items={menuItems(menu.id)} label={label(menu.id)} keyboard={menu.keyboard} returnTo={menu.from} onClose={() => setMenu(null)} />}
     </>
   );
-  return { grip, entry, overlay, dragging: view?.id ?? null, menuOpen: !!menu };
+  return { grip, row, entry, overlay, dragging: view?.id ?? null, menuOpen: !!menu };
 }
 
 /** The grip a mailbox is picked up by (`bind` is what `useAccountReorder().grip(id)` returns). Hidden from assistive technology: Alt+Up / Alt+Down and the menu are the keyboard way. */

@@ -503,3 +503,6 @@ ui-d | node scripts/test-list-filter-loading.mjs --require-browser
 # 1.0.9 (QA 1.0.8): the list header of a folder with dots in its name (QA-1.0.8) said "8"; the title is the folder's own label
 # 1.0.10 Store listing import: the md files + images + the Partner Center export -> an import folder (one csv + images/); every wrong input stops it; --check, --rebase
 static | node scripts/test-store-listing-csv.mjs
+
+# 1.0.10 UI polish (R4 R1 R3 R5 R2): One Inbox always in Favorites (locked star, locked Settings switch, write guard, read rule), no reload on a click on the open mail, Account settings... / All accounts settings... menus, the whole account row drags
+ui-b | node scripts/test-ui-polish-1010.mjs --require-browser

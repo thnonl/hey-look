@@ -347,6 +347,7 @@ export default defineLocale<typeof ns.en>({
   "settings.reading.maxDefault": "{n}（默认）",
   "settings.folders.account": "此账户中显示在“收藏夹”下的文件夹。",
   "settings.folders.all": "所有账户合并后显示在“收藏夹”下的文件夹。",
+  "settings.folders.inboxAlways": "始终在收藏夹中",
   "settings.folder.inbox": "收件箱",
   "settings.folder.drafts": "草稿",
   "settings.folder.sent": "已发送邮件",

@@ -107,6 +107,8 @@ export default defineLocale<typeof ns.en>({
   "mail.pane.quickViews": "Быстрый доступ",
   "mail.pane.addFav": "Добавить в избранное",
   "mail.pane.removeFav": "Удалить из избранного",
+  "mail.pane.favLocked": "Входящие всех учётных записей всегда остаются в разделе «Избранное»",
+  "mail.pane.allSettings": "Настройки всех учётных записей…",
   "mail.pane.failedTitle": {
     one: "Не удалось отправить {n} запланированное письмо",
     few: "Не удалось отправить {n} запланированных письма",
@@ -155,6 +157,7 @@ export default defineLocale<typeof ns.en>({
   "mail.acct.moveUp": "Переместить выше",
   "mail.acct.moveDown": "Переместить ниже",
   "mail.acct.manageRules": "Правила…",
+  "mail.acct.settings": "Настройки учётной записи…",
   "mail.acct.drag": "Перетащите, чтобы изменить порядок: {email}",
   "mail.acct.moved": "{email}: позиция {n} из {total}",
   "mail.acct.cancelled": "Изменение порядка отменено",

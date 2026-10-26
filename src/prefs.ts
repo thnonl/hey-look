@@ -2,7 +2,7 @@ import { isLang, t } from "./i18n/index.ts";
 import type { Key, LangPref } from "./i18n/index.ts";
 import { pruneOrder } from "./accountOrder";
 import { folderLabel, ROLE_LABELS } from "./folderLabel";
-import { applyPrefsRev, PREFS_REV } from "./prefsRev";
+import { applyPrefsRev, PREFS_REV, readFavorites } from "./prefsRev";
 import { DEFAULT_MAIL_CANVAS, MailCanvas, resolveMailCanvas } from "./mailCanvas";
 import { DEFAULT_HIGHLIGHT, normColor } from "./editor/colors";
 import { DEFAULT_FONT_NAME, DEFAULT_FONT_SIZE } from "./editor/fonts";
@@ -315,6 +315,8 @@ export function mergePrefs(raw: string | null): Prefs {
       // English unless the person chose another language (an unknown or older value counts as English)
       language: isLang(p.language) || p.language === "en-XA" ? p.language : "en",
       accountPrefs,
+      // One Inbox is always in Favorites (1.0.10): every read puts it back at index 0 when a stored list lacks it; anything but a list gives the defaults
+      favorites: readFavorites(p.favorites, DEFAULT_PREFS.favorites),
       sidebar: normalizeSidebar(p.sidebar),
       accountOrder: Array.isArray(p.accountOrder) ? p.accountOrder.filter((x): x is string => typeof x === "string") : [],
       supportNudge: normalizeNudge(p.supportNudge),

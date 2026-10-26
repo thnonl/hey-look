@@ -5,7 +5,7 @@
 import { create } from "zustand";
 import { isContextMenuKey, isKeyEcho } from "./contextMenu";
 import { guardFrameQuitKey } from "./quitKey";
-import { decideContextMenu, emailAtOffset, fieldKind, INTERACTIVE, nativeMenuWanted, PLUGIN_HOST, SELECT_SCOPE, safeLinkHref } from "./contextPolicy";
+import { decideContextMenu, emailAtOffset, isMacControlClick, fieldKind, INTERACTIVE, nativeMenuWanted, PLUGIN_HOST, SELECT_SCOPE, safeLinkHref } from "./contextPolicy";
 import { usePlatform } from "./platform";
 import { selectionQuery } from "./selectionSearch";
 
@@ -206,11 +206,19 @@ function handleKey(doc: Document, e: KeyboardEvent, frame?: HTMLIFrameElement, s
 export function installContextGuard(): () => void {
   const onContext = (e: MouseEvent) => handle(document, e);
   const onKey = (e: KeyboardEvent) => handleKey(document, e);
+  // macOS: the click that follows a Ctrl+click (the right-click) is not a click (contextPolicy.ts `isMacControlClick`)
+  const onClick = (e: MouseEvent) => {
+    if (!isMacControlClick(usePlatform.getState().os, e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+  };
   window.addEventListener("contextmenu", onContext, true);
   window.addEventListener("keydown", onKey, true);
+  window.addEventListener("click", onClick, true);
   return () => {
     window.removeEventListener("contextmenu", onContext, true);
     window.removeEventListener("keydown", onKey, true);
+    window.removeEventListener("click", onClick, true);
   };
 }
 

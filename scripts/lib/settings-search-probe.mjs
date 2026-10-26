@@ -2,14 +2,13 @@
 // expression evaluates to a JSON string, so it runs through a CDP `Runtime.evaluate` and through the test bridge's `/eval` alike (scripts/test-bridge.md; WebKit rows in webkit-checks-107.md, section 44).
 //
 //   node scripts/lib/settings-search-probe.mjs                 prints the state probe (the box, the results, the placeholder fit); paste it into /eval or a console
-//   node scripts/lib/settings-search-probe.mjs hit [id]        prints the probe of the lit setting (default: the one that has .set-hit, else #set-<id>)
+//   node scripts/lib/settings-search-probe.mjs hit [id]        prints the probe of the lit setting (default: the one that has .set-hit, else #set-<id>); `hit-toggle` also reads the label without the highlight
 //
 // The state: { box: null | { value, focused, type, role, expanded, activedescendant, placeholder, placeholderPx (the text measured in the box's font at the placeholder's own size), placeholderFontSize ("12px"), roomPx (what the box has for it),
 //   fits, fontFamily, fontSize, height, ring: { outlineStyle, boxShadow, borderColor } (the focus ring of the box), clearVisible, nativeCancel (a WebKit search-field cancel button: must be false) },
 //   nav: { width, scrollTop, scrollWidth, sticky: position of .set-search, top (its top relative to the navigation) }, options: [{ label, place, lines (rendered lines of the label), clamped,
 //   bold (the text of the <b> parts), placeEllipsis (the place line is cut with an ellipsis), width, scrollWidth, active }], none: text of the empty state or null, live: text of the status region }.
-// The lit setting: { id, hit, outline: { style, width, color }, bar (box-shadow), background, animation (name, 'none' under reduced motion), centreOffsetPx (its middle against the middle of the
-//   settings body), scrollTop, focus: { inside, tag, id } }.
+// The lit setting: see `hitProbe` below (it reads the style of the element for a control, of its ::before for everything else, with the label's x and the lit area's edges).
 const oneLine = (t) => t.split('\n').map((l) => l.trim()).join(' '); // (the bridge's /eval takes one line)
 
 export const searchProbe = () => oneLine(`(() => {
@@ -42,13 +41,31 @@ export const searchProbe = () => oneLine(`(() => {
   });
 })()`);
 
-export const hitProbe = (id = '') => oneLine(`(() => {
+/**
+ * The probe of the lit setting. A form control is lit on itself; anything else (a row, a block, a page heading) by its ::before (1.0.10, src/settingsSearch.css), so the
+ * style is read where it lives: `lit` says which. `toggle` (opt-in) takes the class off and puts it back in one task to read the first letter's x without the highlight:
+ * the fade starts again afterwards, so only the tests use it.
+ * { id, hit, lit: 'element' | '::before', outline, bar (box-shadow), background, animation, radius, labelLeft (x of the first letter of the label), labelLeftWithout (toggle only),
+ *   hitLeft / hitRight (the lit area's edges), outLeft / outRight (px between the lit area and the element), ctlRight (right edge of the control), bodyNoHScroll (scrollWidth <= clientWidth),
+ *   gapBarToLabel (px between the bar's right edge, 4 px in, and the first letter), centreOffsetPx, scrollTop, scrollHeight, clientHeight, focus }
+ */
+export const hitProbe = (id = '', toggle = false) => oneLine(`(() => {
   const el = ${JSON.stringify(id)} ? document.getElementById('set-' + ${JSON.stringify(id)}) : document.querySelector('.set-hit');
   const body = document.querySelector('.settings-body');
   if (!el || !body) return JSON.stringify(null);
-  const cs = getComputedStyle(el), r = el.getBoundingClientRect(), b = body.getBoundingClientRect(), a = document.activeElement;
+  const ctl = /^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(el.tagName);
+  const first = () => { const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, { acceptNode: (t) => (t.textContent.trim() && !t.parentElement.closest('select, option, script, style') ? 1 : 3) }); const t = w.nextNode(); if (!t) return null; const i = t.textContent.length - t.textContent.trimStart().length; const rg = document.createRange(); rg.setStart(t, i); rg.setEnd(t, i + 1); return Math.round(rg.getBoundingClientRect().left * 100) / 100; };
+  const labelLeft = first();
+  let labelLeftWithout = null;
+  if (${toggle ? 'true' : 'false'} && el.classList.contains('set-hit')) { el.classList.remove('set-hit'); labelLeftWithout = first(); el.classList.add('set-hit'); }
+  const cs = getComputedStyle(el, ctl ? null : '::before'), r = el.getBoundingClientRect(), b = body.getBoundingClientRect(), a = document.activeElement;
+  const px = (v) => (v === 'auto' || v === '' ? 0 : parseFloat(v) || 0);
+  const outLeft = ctl ? 0 : -px(cs.left), outRight = ctl ? 0 : -px(cs.right);
+  const lastCtl = [...el.querySelectorAll('.set-ctl > *')].pop() || el.querySelector('.set-ctl');
   return JSON.stringify({
-    id: el.id, hit: el.classList.contains('set-hit'), outline: { style: cs.outlineStyle, width: cs.outlineWidth, color: cs.outlineColor }, bar: cs.boxShadow, background: cs.backgroundColor, animation: cs.animationName,
+    id: el.id, hit: el.classList.contains('set-hit'), lit: ctl ? 'element' : '::before', outline: { style: cs.outlineStyle, width: cs.outlineWidth, color: cs.outlineColor, offset: cs.outlineOffset }, bar: cs.boxShadow, background: cs.backgroundColor, animation: cs.animationName, radius: cs.borderTopLeftRadius,
+    labelLeft, labelLeftWithout, hitLeft: Math.round((r.left - outLeft) * 100) / 100, hitRight: Math.round((r.right + outRight) * 100) / 100, outLeft, outRight, ctlRight: lastCtl ? Math.round(lastCtl.getBoundingClientRect().right * 100) / 100 : null,
+    bodyNoHScroll: body.scrollWidth <= body.clientWidth, gapBarToLabel: labelLeft === null ? null : Math.round((labelLeft - (r.left - outLeft + 4)) * 100) / 100,
     centreOffsetPx: Math.round(r.top + r.height / 2 - (b.top + body.clientHeight / 2)), scrollTop: body.scrollTop, scrollHeight: body.scrollHeight, clientHeight: body.clientHeight,
     focus: { inside: el.contains(a), tag: a ? a.tagName : null, id: a ? a.id : null },
   });
@@ -56,5 +73,5 @@ export const hitProbe = (id = '') => oneLine(`(() => {
 
 if (process.argv[1] && process.argv[1].endsWith('settings-search-probe.mjs')) {
   const [cmd, id] = process.argv.slice(2);
-  console.log(cmd === 'hit' ? hitProbe(id || '') : searchProbe());
+  console.log(cmd === 'hit' || cmd === 'hit-toggle' ? hitProbe(id || '', cmd === 'hit-toggle') : searchProbe());
 }

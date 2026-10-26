@@ -25,6 +25,17 @@ export function mayOpenMail(id: string | null, composing: boolean): boolean {
 }
 
 /**
+ * Whether a click on the list row of `id` (`openMail`) opens nothing new (1.0.10): the conversation is the open one, it is loaded or its read is in flight, the last
+ * open of it did not fail, and no message is being written. Then the reading pane is left alone (no fetch, no emptying, no remount of the mail frames, no new
+ * mark as read). A failed open (`openError === id`) is tried again, and with a message being written the click still leaves it first.
+ * `select` itself does not use this: the callers that re-select the same mail on purpose (the signature check after a key import, auto-advance, an encrypted
+ * mail opened to ask for its passphrase) must reload.
+ */
+export function isReopen(s: { selected: string | null; messages: readonly unknown[]; openError: string | null; composing: boolean }, id: string, readingId: string | null): boolean {
+  return !s.composing && s.selected === id && s.openError !== id && (s.messages.length > 0 || readingId === id);
+}
+
+/**
  * The conversation the reading pane returns to when the message being written closes (sent, discarded, saved) and the person did not pick
  * another mail meanwhile: the one that was open when writing began, if it is still in the list.
  */

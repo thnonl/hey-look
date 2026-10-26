@@ -347,6 +347,7 @@ export default defineLocale<typeof ns.en>({
   "settings.reading.maxDefault": "{n}（既定）",
   "settings.folders.account": "このアカウントのフォルダーのうち、お気に入りに表示するものです。",
   "settings.folders.all": "すべてのアカウントをまとめて表示するときに、お気に入りに表示するフォルダーです。",
+  "settings.folders.inboxAlways": "常にお気に入りに表示",
   "settings.folder.inbox": "受信トレイ",
   "settings.folder.drafts": "下書き",
   "settings.folder.sent": "送信済み",

@@ -184,7 +184,7 @@ async function jump(c, entries, e) {
     const el = document.getElementById('set-${e.id}'), body = document.querySelector('.settings-body');
     if (!el) return null;
     const r = el.getBoundingClientRect(), b = body.getBoundingClientRect();
-    const cs = getComputedStyle(el);
+    const cs = getComputedStyle(el, /^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(el.tagName) ? null : '::before'); /* (a row, block or heading is lit by its ::before, a control on itself: src/settingsSearch.css) */
     return {
       hit: el.classList.contains('set-hit'), inBody: body.contains(el), focusIn: el.contains(document.activeElement), tall: r.height >= body.clientHeight,
       dy: Math.abs(r.top + r.height / 2 - (b.top + body.clientHeight / 2)), visible: r.top >= b.top - 1 && r.bottom <= b.bottom + 1 || r.height >= body.clientHeight && r.top <= b.top + 12 && r.bottom > b.top,
@@ -443,7 +443,7 @@ async function deepLink(c) {
   await evaluate(`window.__store.getState().setDialog(null); 1`);
   await settingsOpen('mb:all', `, focus: 'loadRemote'`);
   check(await waitFor(`!!document.getElementById('set-loadRemote')?.classList.contains('set-hit')`, 4000), 'the deep link focus=loadRemote did not light the row with reduced motion');
-  const r = await evaluate(`(() => { const el = document.getElementById('set-loadRemote'); const cs = getComputedStyle(el); return { anim: cs.animationName, outline: cs.outlineStyle, bar: cs.boxShadow !== 'none', focus: el.contains(document.activeElement) }; })()`);
+  const r = await evaluate(`(() => { const el = document.getElementById('set-loadRemote'); const cs = getComputedStyle(el, /^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(el.tagName) ? null : '::before'); return { anim: cs.animationName, outline: cs.outlineStyle, bar: cs.boxShadow !== 'none', focus: el.contains(document.activeElement) }; })()`);
   check(r.anim === 'none' && r.outline === 'solid' && r.bar, `reduced motion: the highlight is static (animation ${r.anim}, outline ${r.outline}, bar ${r.bar})`);
   check(r.focus, 'the deep link moves the focus into the row');
   // the same request again lights it again
@@ -459,7 +459,7 @@ async function deepLink(c) {
   // and with motion: the animation runs
   await settingsOpen('mb:all', `, focus: 'maxDownload', section: undefined`);
   check(await waitFor(`!!document.getElementById('set-maxDownload')?.classList.contains('set-hit')`, 4000), 'the deep link focus=maxDownload did not light the row');
-  const m = await evaluate(`getComputedStyle(document.getElementById('set-maxDownload')).animationName`);
+  const m = await evaluate(`(() => { const el = document.getElementById('set-maxDownload'); return getComputedStyle(el, /^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(el.tagName) ? null : '::before').animationName; })()`);
   check(m === 'set-hit-fade', `with motion the highlight fades out (${m})`);
   void c;
 }

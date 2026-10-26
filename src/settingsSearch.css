@@ -24,11 +24,21 @@
 .set-none { padding: 12px 16px; }
 .set-none-title { font-weight: 650; }
 
-/* the jump to a setting (and the deep link): a fill, a bar on the left (a shape) and an outline that stays in the high-contrast mode where shadows go; no layout change */
-.set-hit { background: var(--accent-soft); box-shadow: inset 4px 0 0 var(--accent); outline: 2px solid var(--accent-text); outline-offset: 2px; border-radius: 6px; }
+/* the jump to a setting (and the deep link): a fill, a bar on the left (a shape) and an outline that stays in the high-contrast mode where shadows go; no layout change.
+   A form control (input, select, textarea, button) is lit on itself: the outline only, as before. Anything else (a row, a block, a page heading) has no padding at the sides,
+   so a fill on the element itself would touch the label and the bar would sit on its first letters (1.0.10): its highlight is the ::before, 10 px wider than the element on the
+   left and on the right (inside the 26 px padding of .settings-body, so nothing scrolls), behind the content, which does not move. The outline sits inside the ::before's edge
+   (offset -2 px), so the fill, the bar and the outline all end 10 px out; the bar is 4 px, so it is 6 px from the first letter. */
+.set-hit:is(input, select, textarea, button) { background: var(--accent-soft); box-shadow: inset 4px 0 0 var(--accent); outline: 2px solid var(--accent-text); outline-offset: 2px; border-radius: 6px; }
+.set-hit:not(input):not(select):not(textarea):not(button) { position: relative; isolation: isolate; }
+.set-hit:not(input):not(select):not(textarea):not(button):focus-visible { outline: 0; } /* (a heading that took the focus: the lit ring is its ring; the focus ring is back when the highlight is gone) */
+.set-hit:not(input):not(select):not(textarea):not(button)::before { content: ""; position: absolute; top: 0; bottom: 0; left: -10px; right: -10px; z-index: -1; pointer-events: none; border-radius: var(--r-md); background: var(--accent-soft); box-shadow: inset 4px 0 0 var(--accent); outline: 2px solid var(--accent-text); outline-offset: -2px; }
 .settings-body input.set-hit, .settings-body input.set-hit:focus, .settings-body select.set-hit, .settings-body select.set-hit:focus, .settings-body textarea.set-hit:focus { outline: 2px solid var(--accent-text); outline-offset: 2px; } /* (a field takes its focus ring away, input:focus) */
+@media (forced-colors: active) {
+  .set-hit:not(input):not(select):not(textarea):not(button)::before { outline: 2px solid Highlight; } /* fill and bar may vanish; the ring stays, 10 px out */
+}
 @media (prefers-reduced-motion: no-preference) {
-  .set-hit { animation: set-hit-fade 2.4s linear forwards; } /* (fades during the last 0.6 s) */
+  .set-hit:is(input, select, textarea, button), .set-hit:not(input):not(select):not(textarea):not(button)::before { animation: set-hit-fade 2.4s linear forwards; } /* (fades during the last 0.6 s) */
 }
 @keyframes set-hit-fade {
   0%, 75% { background: var(--accent-soft); box-shadow: inset 4px 0 0 var(--accent); outline-color: var(--accent-text); }

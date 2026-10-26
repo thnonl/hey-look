@@ -1313,8 +1313,9 @@ function FoldersPanel({ scope }: { scope: string | null }) {
     <>
       <div className="muted small pad">{scope ? t("settings.folders.account") : t("settings.folders.all")}</div>
       {keys.map(({ key, label }) => (
-        <Row key={key} label={label} noSearch /* settings-search: skip – one row per folder, the Folders section itself is registered */>
-          <Switch checked={isFav(`${scope ?? "*"}|${key}`)} onChange={() => toggle(`${scope ?? "*"}|${key}`)} />
+        // One Inbox (the Inbox of all accounts) is always in Favorites: its switch is on and locked
+        <Row key={key} label={label} hint={!scope && key === "inbox" ? t("settings.folders.inboxAlways") : undefined} noSearch /* settings-search: skip – one row per folder, the Folders section itself is registered */>
+          <Switch checked={!scope && key === "inbox" ? true : isFav(`${scope ?? "*"}|${key}`)} disabled={!scope && key === "inbox"} onChange={() => toggle(`${scope ?? "*"}|${key}`)} />
         </Row>
       ))}
     </>
@@ -2497,9 +2498,9 @@ export function Settings({ initial, focus, nonce, section, windowed }: { initial
       </div>
     );
   };
-  const item = (k: string, l: ReactNode, sub = false, movable = false) => (
+  const item = (k: string, l: ReactNode, sub = false, movable = false, drag?: React.HTMLAttributes<HTMLElement>) => (
     <Fragment key={k}>
-      <button data-reorder-focus={movable ? "" : undefined} className={`${tab === k ? "active" : ""} ${sub ? "sub" : ""} ${tab === k && k.startsWith("mb:") ? "has-sub" : ""}`} aria-current={tab === k ? "page" : undefined} onClick={() => setTab(k)}>
+      <button data-reorder-focus={movable ? "" : undefined} {...drag} className={`${tab === k ? "active" : ""} ${sub ? "sub" : ""} ${tab === k && k.startsWith("mb:") ? "has-sub" : ""}`} aria-current={tab === k ? "page" : undefined} onClick={() => setTab(k)}>
         {l}
       </button>
       {tab === k && k.startsWith("mb:") && sections(k)}
@@ -2533,7 +2534,7 @@ export function Settings({ initial, focus, nonce, section, windowed }: { initial
             // the mailboxes can be moved here too (grip, Alt+Up / Alt+Down, menu): AccountReorder.tsx
             <div key={a.id} className={`nav-acct ${reorder.dragging === a.id ? "reorder-src" : ""}`} data-reorder-id={a.id} {...reorder.entry(a.id)}>
               {accounts.length > 1 && <Grip email={a.email} bind={reorder.grip(a.id)} dragging={reorder.dragging === a.id} />}
-              {item(`mb:${a.id}`, <><span className="dot" style={{ background: accountColor(a, prefs.accent) }} />{a.email}</>, true, true)}
+              {item(`mb:${a.id}`, <><span className="dot" style={{ background: accountColor(a, prefs.accent) }} />{a.email}</>, true, true, reorder.row(a.id))}
             </div>
           ))}
           {item("add-account", t("settings.nav.addAccount"), true)}
