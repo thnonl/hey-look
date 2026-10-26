@@ -263,7 +263,6 @@ export const REMOVED = [
       ['en', 'Calendar sync: Google and Microsoft only', ['index.html']],
       ['en', 'Syncing with a Google or Microsoft calendar is optional, per mailbox.', ['index.html']],
       ['en', 'Yes, for the Inbox, on servers that support push (IMAP IDLE), while Hey Look!', ['help.html']],
-      ['en', 'The installers are not code-signed, Google sign-in is limited to 100 people for now, search covers downloaded mail only, and calendar sync covers Google and Microsoft only.', ['help.html']],
       ['en', 'Only what you use: your mail servers, Google or Microsoft sign-in and calendar, the server lookup when you add an account, GitHub for updates, your AI endpoint, images you allow and unsubscribe requests.', ['help.html']],
       ['vi', 'Tùy chọn, đặt riêng cho từng hộp thư: lịch Google hoặc Outlook của bạn hiện cạnh lịch trên máy, và thay đổi đi cả hai chiều.', ['features.html']],
       ['vi', 'macOS không có mục In.', ['features.html']],
@@ -278,7 +277,6 @@ export const REMOVED = [
       ['vi', 'Lịch: chỉ đồng bộ với Google và Microsoft', ['index.html']],
       ['vi', 'Đồng bộ với lịch Google hoặc Microsoft là tùy chọn, đặt riêng cho từng hộp thư.', ['index.html']],
       ['vi', 'Có, với Hộp thư đến, trên máy chủ hỗ trợ push (IMAP IDLE), miễn là Hey Look!', ['help.html']],
-      ['vi', 'Các bộ cài chưa được ký mã, đăng nhập Google hiện giới hạn 100 người, tìm kiếm chỉ trong thư đã tải xuống, và đồng bộ lịch chỉ hỗ trợ Google và Microsoft.', ['help.html']],
       ['vi', 'Chỉ những gì bạn dùng: máy chủ thư của bạn, đăng nhập và lịch của Google hoặc Microsoft, việc dò máy chủ khi bạn thêm tài khoản, GitHub để cập nhật, điểm cuối AI của bạn, ảnh bạn cho phép tải và yêu cầu hủy đăng ký.', ['help.html']],
       ['fr', 'Facultative, boîte aux lettres par boîte aux lettres : vos calendriers Google ou Outlook s’affichent à côté du calendrier local, et les modifications vont dans les deux sens.', ['features.html']],
       ['fr', 'macOS n’a pas de menu Imprimer.', ['features.html']],
@@ -293,7 +291,6 @@ export const REMOVED = [
       ['fr', 'Synchronisation du calendrier : Google et Microsoft uniquement', ['index.html']],
       ['fr', 'La synchronisation avec un calendrier Google ou Microsoft est facultative, boîte aux lettres par boîte aux lettres.', ['index.html']],
       ['fr', 'Oui, pour la boîte de réception, sur les serveurs qui prennent en charge le push (IMAP IDLE), tant que Hey Look!', ['help.html']],
-      ['fr', 'Les programmes d’installation ne sont pas signés numériquement, la connexion Google est limitée à 100 personnes pour l’instant, la recherche ne couvre que le courrier téléchargé, et la synchronisation du calendrier ne couvre que Google et Microsoft.', ['help.html']],
       ['fr', 'Seulement ce que vous utilisez : vos serveurs de messagerie, la connexion et le calendrier Google ou Microsoft, la recherche de serveur quand vous ajoutez un compte, GitHub pour les mises à jour, votre point de terminaison IA, les images que vous autorisez et les demandes de désabonnement.', ['help.html']],
       ['zh', '可选，按邮箱设置：您的Google或Outlook日历会显示在本地日历旁边，两边的更改互相同步。', ['features.html']],
       ['zh', 'macOS没有“打印”菜单。', ['features.html']],
@@ -306,7 +303,6 @@ export const REMOVED = [
       ['zh', '日历同步：仅限Google和Microsoft', ['index.html']],
       ['zh', '与Google或Microsoft日历同步是可选的，按邮箱分别设置。', ['index.html']],
       ['zh', '正在运行，收件箱的新邮件就会立即送达。', ['help.html']],
-      ['zh', '安装程序没有经过代码签名，Google登录目前限100人，搜索只涵盖已下载的邮件，日历同步只支持Google和Microsoft。', ['help.html']],
       ['zh', '只有您用到的部分：您的邮件服务器、Google或Microsoft的登录和日历、添加账户时的服务器查询、用于更新的GitHub、您的AI端点、您允许加载的图片，以及取消订阅请求。', ['help.html']],
       ['es', 'Opcional, por buzón: tus calendarios de Google u Outlook aparecen junto al local, y los cambios van en ambos sentidos.', ['features.html']],
       ['es', 'macOS no tiene Imprimir.', ['features.html']],
@@ -321,7 +317,6 @@ export const REMOVED = [
       ['es', 'Calendario: sincronización solo con Google y Microsoft', ['index.html']],
       ['es', 'La sincronización con un calendario de Google o Microsoft es opcional, por buzón.', ['index.html']],
       ['es', 'Sí, el de la bandeja de entrada, en los servidores compatibles con push (IMAP IDLE), mientras Hey Look!', ['help.html']],
-      ['es', 'Los instaladores no tienen firma de código, el inicio de sesión con Google está limitado por ahora a 100 personas, la búsqueda solo abarca el correo descargado y la sincronización del calendario cubre solo Google y Microsoft.', ['help.html']],
       ['es', 'Solo lo que usas: tus servidores de correo, el inicio de sesión y el calendario de Google o Microsoft, la búsqueda de servidores al añadir una cuenta, GitHub para las actualizaciones, tu punto de conexión de IA, las imágenes que permites y las solicitudes de cancelación de suscripción.', ['help.html']],
       ['ja', 'GoogleまたはOutlookのカレンダーがローカルのカレンダーの隣に表示され、変更は双方向に反映されます。', ['features.html']],
       ['ja', 'macOSでは「印刷」がありません。', ['features.html']],
@@ -337,7 +332,6 @@ export const REMOVED = [
       ['ja', '検索対象はダウンロード済みのメールのみです。', ['index.html']],
       ['ja', 'GoogleまたはMicrosoftのカレンダーとの同期は任意で、メールボックスごとに設定します。', ['index.html']],
       ['ja', 'が起動している間、受信トレイの新着メールがすぐに届きます。', ['help.html']],
-      ['ja', 'インストーラーはコード署名されておらず、Googleでのサインインは当面100人に限定され、検索の対象はダウンロード済みのメールのみで、カレンダー同期の対象はGoogleとMicrosoftのみです。', ['help.html']],
       ['ja', '実際に使うものだけです：お使いのメールサーバー、GoogleまたはMicrosoftのサインインとカレンダー、アカウント追加時のサーバー検索、アップデート用のGitHub、AIエンドポイント、許可した画像、登録解除のリクエスト。', ['help.html']],
       ['de', 'Optional, je Postfach: Ihre Google- oder Outlook-Kalender erscheinen neben dem lokalen, und Änderungen gehen in beide Richtungen.', ['features.html']],
       ['de', 'macOS hat keinen Menüeintrag Drucken.', ['features.html']],
@@ -352,7 +346,6 @@ export const REMOVED = [
       ['de', 'Kalendersynchronisierung: nur Google und Microsoft', ['index.html']],
       ['de', 'Die Synchronisierung mit einem Google- oder Microsoft-Kalender ist optional, je Postfach.', ['index.html']],
       ['de', 'Ja, für den Posteingang, auf Servern mit Push (IMAP IDLE), solange Hey Look!', ['help.html']],
-      ['de', 'Die Installationsprogramme sind nicht codesigniert, die Anmeldung mit Google ist vorerst auf 100 Personen beschränkt, die Suche umfasst nur heruntergeladene E-Mails, und die Kalendersynchronisierung umfasst nur Google und Microsoft.', ['help.html']],
       ['de', 'Nur das, was Sie nutzen: Ihre Mailserver, die Anmeldung und der Kalender von Google oder Microsoft, die Serversuche beim Hinzufügen eines Kontos, GitHub für Updates, Ihr KI-Endpunkt, Bilder, die Sie erlauben, und Abbestell-Anfragen.', ['help.html']],
       ['ru', 'Необязательна и включается для каждого ящика отдельно: календари Google или Outlook появляются рядом с локальным, изменения идут в обе стороны.', ['features.html']],
       ['ru', 'В macOS нет пункта «Печать».', ['features.html']],
@@ -367,7 +360,6 @@ export const REMOVED = [
       ['ru', 'Календарь: синхронизация только с Google и Microsoft', ['index.html']],
       ['ru', 'Синхронизация с календарём Google или Microsoft необязательна и включается отдельно для каждого ящика.', ['index.html']],
       ['ru', 'Да, для папки «Входящие», на серверах с поддержкой push (IMAP IDLE), пока Hey Look!', ['help.html']],
-      ['ru', 'Установщики не подписаны цифровой подписью кода, вход через Google пока ограничен 100 людьми, поиск работает только по загруженной почте, а синхронизация календаря охватывает только Google и Microsoft.', ['help.html']],
       ['ru', 'Только то, чем вы пользуетесь: ваши почтовые серверы, вход и календарь Google или Microsoft, поиск настроек сервера при добавлении учётной записи, GitHub для обновлений, ваша конечная точка ИИ, разрешённые вами изображения и запросы на отписку.', ['help.html']],
     ],
   },
@@ -419,6 +411,24 @@ export function findProblems({ rows = REMOVED, read = (f) => fs.readFileSync(f, 
     const ledger = (/<section class="ledger"[\s\S]*?<\/section>/.exec(read(f)) || [''])[0];
     if (!ledger) fail(`${path.relative(DOCS, f).replace(/\\/g, '/')}: the honest ledger section is missing`);
     else if (/<li\b[^>]*>\s*<\/li>/.test(ledger) || /<ul\b[^>]*>\s*<\/ul>/.test(ledger) || (ledger.match(/<li\b/g) || []).length < 4) fail(`${path.relative(DOCS, f).replace(/\\/g, '/')}: an empty bullet or an empty column in the honest ledger`);
+  }
+  // the Google sign-in has no number of people on any page (owner 2026-10-26: the text about a limit on people is gone from the whole product): no 100 within 80 characters of "Google", in any language, and nothing like it in the README or CONTRIBUTING
+  for (const l of LANGS) {
+    for (const p of PAGES) {
+      const f = path.join(DOCS, l.dir || '', p + '.html');
+      if (!fs.existsSync(f)) continue;
+      checks++;
+      const m = /Google.{0,80}\b100\b|\b100\b.{0,80}Google|Google.{0,80}100[人名位个]|100[人名位个].{0,80}Google/.exec(textOf(f));
+      if (m) fail(`${path.relative(DOCS, f).replace(/\\/g, '/')}: puts a number of people next to Google sign-in: "${m[0].slice(0, 100)}"`);
+    }
+  }
+  {
+    const root = path.join(DOCS, '..');
+    for (const name of ['README.md', 'CONTRIBUTING.md']) {
+      checks++;
+      const text = fs.readFileSync(path.join(root, name), 'utf8');
+      if (/limited to 100|first 100|100 (users|people)|100 test users/i.test(text)) fail(`${name}: puts a number of people on the Google sign-in`);
+    }
   }
   // the README and the 1.0.9 section of the CHANGELOG say nothing about mobile apps either (owner decision: no statement, not even "no mobile apps")
   {
