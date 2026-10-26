@@ -7,3 +7,6 @@ docs/apt/*.gpg binary
 *.wav binary
 # the PDF fixtures of the viewer tests: byte offsets in the cross-reference table, never converted
 scripts/fixtures/pdf/*.pdf binary
+
+# Partner Center export (CRLF rows, BOM, empty rows at the end): kept byte for byte, the test reads the exact bytes
+scripts/fixtures/store-listing/*.csv -text
