@@ -91,16 +91,18 @@ export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
       },
     };
   };
-  // "New folder…" and "Manage rules…" are the last entries of the menu of a mailbox heading; a mailbox that needs a new sign-in cannot make a folder (W13.10). Managing rules is local: it works offline.
+  // "New folder…", "Manage rules…" and "Account settings…" are the last entries of the menu of a mailbox heading; a mailbox that needs a new sign-in cannot make a folder (W13.10). Managing rules is local: it works offline.
   const reorder = useAccountReorder(tree, (id) => {
     const again = !!reauth[id];
     return [
       { label: t("mail.folder.new"), disabled: again, hint: again ? t("mail.folder.needsSignIn") : undefined, onClick: () => setDialog({ type: "folder-new", accountId: id, parentKey: null }) },
       { label: t("mail.acct.manageRules"), onClick: () => setDialog({ type: "settings", tab: `mb:${id}`, section: "filters", nonce: Date.now() }) },
+      // (1.0.10) the mailbox's own settings, on its Profile; local like the rules, so it works for a mailbox that needs a new sign-in or is offline
+      { label: t("mail.acct.settings"), onClick: () => setDialog({ type: "settings", tab: `mb:${id}`, section: "profile", nonce: Date.now() }) },
     ];
   }); // the mailbox groups can be moved (grip, Alt+Up / Alt+Down, menu); see AccountReorder.tsx
   /** the menu of a folder of the person that can have a subfolder: right-click, ContextMenu key or Shift+F10 on its row (the other rows have none, W13.10) */
-  const [fmenu, setFmenu] = useState<{ acct: string; key: string; at: { x: number; y: number }; keyboard: boolean; from: HTMLElement | null } | null>(null);
+  const [fmenu, setFmenu] = useState<{ acct: string | null; key: string; at: { x: number; y: number }; keyboard: boolean; from: HTMLElement | null } | null>(null);
   const peek = useSidebarPeek(folded, reorder.dragging !== null || reorder.menuOpen);
   const rail = folded && !peek.open; // icons only; a peek is the full menu over the panes
   // the control and Ctrl+B / Cmd+B (sidebarState.ts `toggleSidebar`): fold or open the menu in place, or - with no room next to the list - open the overlay pinned or close it
@@ -167,12 +169,14 @@ export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
     const ckey = tree && acct ? collapsedKey(acct, key) : "";
     const expandable = !!tree?.parentOfSome;
     const expanded = expandable && !collapsed(ckey);
-    const hasMenu = !!tree?.info.canNest && !!acct && !reauth[acct];
+    // (1.0.10) One Inbox (Favorites > Inbox of all accounts) has a menu of its own: a way to the settings that act on all accounts together
+    const oneInbox = acct === null && key === "inbox";
+    const hasMenu = oneInbox || (!!tree?.info.canNest && !!acct && !reauth[acct]);
     const openMenu = (e: React.MouseEvent | React.KeyboardEvent, keyboard: boolean) => {
       e.preventDefault();
       const el = e.currentTarget as HTMLElement;
       const r = el.getBoundingClientRect();
-      setFmenu({ acct: acct!, key, at: keyboard ? { x: r.left + Math.min(40, r.width / 2), y: r.bottom - 4 } : { x: (e as React.MouseEvent).clientX, y: (e as React.MouseEvent).clientY }, keyboard, from: el });
+      setFmenu({ acct, key, at: keyboard ? { x: r.left + Math.min(40, r.width / 2), y: r.bottom - 4 } : { x: (e as React.MouseEvent).clientX, y: (e as React.MouseEvent).clientY }, keyboard, from: el });
     };
     // (W13.2) new mail since the person last looked: a dot and a bolder label, and the words in the tooltip / the name for a screen reader
     const fresh = hasNew(newMail, acct, key);
@@ -418,8 +422,12 @@ export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
         <ContextMenu
           key={`${fmenu.acct}|${fmenu.key}`}
           at={fmenu.at}
-          items={[{ label: t("mail.folder.newSub"), onClick: () => setDialog({ type: "folder-new", accountId: fmenu.acct, parentKey: fmenu.key }) }]}
-          label={folders.find((f) => f.accountId === fmenu.acct && f.key === fmenu.key)?.label ?? fmenu.key}
+          items={
+            fmenu.acct === null
+              ? [{ label: t("mail.pane.allSettings"), onClick: () => setDialog({ type: "settings", tab: "mb:all", section: "folders", nonce: Date.now() }) }]
+              : [{ label: t("mail.folder.newSub"), onClick: () => setDialog({ type: "folder-new", accountId: fmenu.acct!, parentKey: fmenu.key }) }]
+          }
+          label={fmenu.acct === null ? labelFor(null, fmenu.key) : (folders.find((f) => f.accountId === fmenu.acct && f.key === fmenu.key)?.label ?? fmenu.key)}
           keyboard={fmenu.keyboard}
           returnTo={fmenu.from}
           onClose={() => setFmenu(null)}

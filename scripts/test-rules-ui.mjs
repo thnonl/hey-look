@@ -358,7 +358,7 @@ try {
     await sleep(300);
     const p = await centre('.fp-group[data-reorder-id="a1"] .fp-head');
     await rightClick(p[0], p[1]);
-    assert.deepEqual((await menu()).map((m) => m.text), ['Move up', 'Move down', 'New folder…', 'Manage rules…']);
+    assert.deepEqual((await menu()).map((m) => m.text), ['Move up', 'Move down', 'New folder…', 'Manage rules…', 'Account settings…']);
     assert.ok(await clickMenu('Manage rules'));
     assert.ok(await waitFor(`!!document.querySelector('.list-row') || !!document.querySelector('.muted.pad')`), 'Settings opened on the rules');
     await sleep(300);

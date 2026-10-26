@@ -149,7 +149,7 @@ try {
   await check('AC-13.10.1 right-click the mailbox heading: Move up, Move down, divider, New folder…; the dialog; Projects is created, shown, focused, toast', async () => {
     const p = await centre(head());
     await rightClick(p[0], p[1]);
-    assert.deepEqual((await menu()).map((m) => m.text), ['Move up', 'Move down', 'New folder…', 'Manage rules…'], '(1.0.8: Manage rules… is the last entry)');
+    assert.deepEqual((await menu()).map((m) => m.text), ['Move up', 'Move down', 'New folder…', 'Manage rules…', 'Account settings…'], '(1.0.8: Manage rules…, 1.0.10: Account settings… is the last entry)');
     assert.equal(await evaluate(`document.querySelectorAll('[role=menu] [role=separator]').length`), 1, 'a divider before it');
     const m = await menu();
     assert.ok(!m[2].disabled);
@@ -409,7 +409,7 @@ try {
         const p = await centre(head());
         await rightClick(p[0], p[1]);
         const m = await evaluate(`[...document.querySelectorAll('[role=menu] [role=menuitem]')].map((e) => ({ text: e.querySelector('.menu-lbl').textContent.trim(), clipped: e.scrollWidth > e.clientWidth + 1 || e.querySelector('.menu-lbl').scrollWidth > e.querySelector('.menu-lbl').clientWidth + 1 }))`);
-        assert.equal(m.length, 4, `${lang} ${theme}: ${JSON.stringify(m)}`); // (Move up, Move down, New folder…, and from 1.0.8 Manage rules…)
+        assert.equal(m.length, 5, `${lang} ${theme}: ${JSON.stringify(m)}`); // (Move up, Move down, New folder…, from 1.0.8 Manage rules…, from 1.0.10 Account settings…)
         assert.ok(!m[2].clipped && !/mail\.folder/.test(m[2].text) && !m[3].clipped && !/mail\.acct/.test(m[3].text), `${lang}: ${JSON.stringify([m[2], m[3]])}`);
         await evaluate(`document.querySelectorAll('[role=menu] [role=menuitem]')[2].click(); 1`);
         assert.ok(await waitFor(`!!document.querySelector('[role=dialog] #fd-name')`));

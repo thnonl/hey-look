@@ -277,9 +277,152 @@ async function r6() {
   ok(!/\.set-row\s*[{,]/.test(css), 'settingsSearch.css has no rule on .set-row itself');
 }
 
+// ======================================================================== R3 + R5
+const menuRows = () => evaluate(`[...document.querySelectorAll('.ctx-menu .menu-row')].map((b) => ({ text: b.querySelector('.menu-lbl')?.textContent, disabled: b.getAttribute('aria-disabled') === 'true' }))`);
+const menuDividers = () => evaluate(`document.querySelectorAll('.ctx-menu .menu-div').length`);
+const settingsShows = (tab, section) => evaluate(`(() => { const d = ${S('dialog')}; return !!d && d.type === 'settings' && d.tab === ${JSON.stringify(tab)} && d.section === ${JSON.stringify(section)}; })()`);
+const closeMenu = async () => { await press('Escape'); await sleep(120); };
+const shiftF10 = async () => {
+  await cdp('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'F10', code: 'F10', windowsVirtualKeyCode: 121, modifiers: 8 });
+  await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'F10', code: 'F10', windowsVirtualKeyCode: 121, modifiers: 8 });
+};
+const MENU = ['Move up', 'Move down', 'New folder…', 'Manage rules…', 'Account settings…'];
+
+async function r3() {
+  section = 'R3';
+  await fresh();
+  const head = (id) => `.fp-group[data-reorder-id="${id}"] .fp-head`;
+  await rightClick(head('a2'));
+  ok(await until(`!!document.querySelector('.ctx-menu')`), 'right-click on the 2nd mailbox opens its menu');
+  eq((await menuRows()).map((r) => r.text), MENU, 'the entries, in order');
+  eq(await menuDividers(), 1, 'one divider (before the extras), none before the new entry');
+  await io.shot('r3-account-menu');
+  await evaluate(`[...document.querySelectorAll('.ctx-menu .menu-row')].pop().click(); 1`);
+  ok(await until(`!!document.querySelector('#set-sec')`), 'Settings opens');
+  ok(await settingsShows('mb:a2', 'profile'), 'on the profile of that mailbox');
+  await sleep(300);
+  const pg = await evaluate(`({ nav: [...document.querySelectorAll('.settings-nav button.active')].map((b) => b.textContent.trim()), focus: document.activeElement?.id, aria: document.activeElement?.getAttribute('aria-label'), text: document.querySelector('.settings-body')?.innerText.slice(0, 600) })`);
+  ok(pg.focus === 'set-sec' && pg.aria === 'Profile' && /Display name/.test(pg.text) && /Reply-to/i.test(pg.text) && /Color/.test(pg.text), `Profile shown, focus in the section: ${JSON.stringify(pg)}`);
+  await io.shot('r3-settings-profile');
+  const email = await evaluate(`${S('accounts')}.find((a) => a.id === 'a2').email`);
+  ok((await evaluate(`document.querySelector('.settings-body').innerText`)).includes(email), `the page is the 2nd mailbox (${email})`);
+  await evaluate(`${S('setDialog')}(null); 1`);
+  await sleep(300);
+
+  // the keyboard: Shift+F10 / ContextMenu key, arrows, Enter; Escape returns to the header
+  await fresh();
+  for (const how of ['ContextMenu', 'Shift+F10']) {
+    await evaluate(`document.querySelector(${JSON.stringify(head('a3'))}).focus(); 1`);
+    if (how === 'ContextMenu') await press('ContextMenu'); else await shiftF10();
+    ok(await until(`!!document.querySelector('.ctx-menu')`), `${how}: the menu opens`);
+    eq(await evaluate(`document.activeElement?.querySelector?.('.menu-lbl')?.textContent`), 'Move up', `${how}: the first entry is focused`);
+    await closeMenu();
+    ok(await until(`document.activeElement === document.querySelector(${JSON.stringify(head('a3'))})`), `${how}: Escape gives the focus back to the header`);
+  }
+  await press('ContextMenu');
+  await until(`!!document.querySelector('.ctx-menu')`);
+  for (let i = 0; i < 4; i++) await press('ArrowDown');
+  eq(await evaluate(`document.activeElement?.querySelector?.('.menu-lbl')?.textContent`), 'Account settings…', 'the arrows reach the new entry');
+  await press('Enter');
+  ok((await until(`!!document.querySelector('#set-sec')`)) && (await settingsShows('mb:a3', 'profile')), 'Enter opens the profile of the 3rd mailbox');
+  await evaluate(`${S('setDialog')}(null); 1`);
+  ok(await until(`document.activeElement === document.querySelector(${JSON.stringify(head('a3'))})`), 'after Settings closes the focus is back on the header');
+
+  // a mailbox that needs a new sign-in: New folder is off, Account settings is on (AC-3.6)
+  await fresh();
+  await evaluate(`window.__store.setState({ reauth: { a2: 'again' } }); 1`);
+  await sleep(150);
+  await rightClick(head('a2'));
+  await until(`!!document.querySelector('.ctx-menu')`);
+  const rr = await menuRows();
+  ok(rr[2].disabled && !rr[4].disabled && rr[4].text === 'Account settings…', `reauth: New folder is off, Account settings is on: ${JSON.stringify(rr)}`);
+  await closeMenu();
+
+  // the icon column: right-click the 3rd avatar (AC-3.2)
+  await fresh('light&lang=en', 960, 700);
+  ok(await until(`!!document.querySelector('.is-rail')`), 'the menu is the icon column at 960 px');
+  await rightClick('.is-rail .fp-avatar', 2);
+  ok(await until(`!!document.querySelector('.ctx-menu')`), 'right-click on an avatar opens the menu');
+  eq((await menuRows()).map((r) => r.text), MENU, 'the rail menu has the same entries');
+  await evaluate(`[...document.querySelectorAll('.ctx-menu .menu-row')].pop().click(); 1`);
+  ok((await until(`!!document.querySelector('#set-sec')`)) && (await settingsShows('mb:a3', 'profile')), 'the 3rd avatar opens the 3rd mailbox profile');
+  await evaluate(`${S('setDialog')}(null); 1`);
+
+  // one account: Move up / down are off, the new entry works (AC-3.7)
+  await fresh();
+  await evaluate(`window.__store.setState({ accounts: window.__store.getState().accounts.slice(0, 1) }); 1`);
+  await sleep(200);
+  await rightClick(head('a1'));
+  await until(`!!document.querySelector('.ctx-menu')`);
+  const one = await menuRows();
+  ok(one[0].disabled && one[1].disabled && !one[4].disabled, `one account: ${JSON.stringify(one)}`);
+  await closeMenu();
+}
+
+async function r5() {
+  section = 'R5';
+  await fresh();
+  await rightClick(ONE);
+  ok(await until(`!!document.querySelector('.ctx-menu')`), 'right-click on One Inbox opens a menu');
+  eq((await menuRows()).map((r) => r.text), ['All accounts settings…'], 'one entry');
+  await io.shot('r5-one-inbox-menu');
+  await evaluate(`document.querySelector('.ctx-menu .menu-row').click(); 1`);
+  ok(await until(`!!document.querySelector('#set-sec')`), 'Settings opens');
+  ok(await settingsShows('mb:all', 'folders'), 'on All accounts > Folders');
+  await sleep(400);
+  const pg = await evaluate(`({ h: document.querySelector('.settings-body h3')?.textContent?.trim(), nav: [...document.querySelectorAll('.settings-nav button.active')].map((b) => b.textContent.trim()), focus: document.activeElement?.id, aria: document.activeElement?.getAttribute('aria-label'), sw: !!document.querySelector('#set-sec input[type=checkbox]:disabled:checked') })`);
+  ok(pg.h === 'All accounts' && pg.nav.includes('Folders') && pg.focus === 'set-sec' && pg.aria === 'Folders' && pg.sw, `All accounts, Folders lit, focus on the section, the locked Inbox switch is there: ${JSON.stringify(pg)}`);
+  await io.shot('r5-settings');
+  await evaluate(`${S('setDialog')}(null); 1`);
+  await sleep(300);
+  // the keyboard: the focused row, ContextMenu key or Shift+F10, Enter; Escape returns to the row
+  await fresh();
+  await evaluate(`document.querySelector(${JSON.stringify(ONE)}).focus(); 1`);
+  await press('ContextMenu');
+  ok(await until(`!!document.querySelector('.ctx-menu')`), 'the ContextMenu key opens the menu on the row');
+  eq(await evaluate(`document.activeElement?.querySelector?.('.menu-lbl')?.textContent`), 'All accounts settings…', 'the entry is focused');
+  await closeMenu();
+  ok(await until(`document.activeElement === document.querySelector(${JSON.stringify(ONE)})`), 'Escape gives the focus back to the row');
+  await shiftF10();
+  ok(await until(`!!document.querySelector('.ctx-menu')`), 'Shift+F10 opens it too');
+  await press('Enter');
+  ok((await until(`!!document.querySelector('#set-sec')`)) && (await settingsShows('mb:all', 'folders')), 'Enter opens All accounts > Folders');
+  await evaluate(`${S('setDialog')}(null); 1`);
+  await sleep(300);
+  // a left click still opens One Inbox
+  await fresh();
+  await io.click(`.fp-row[data-key="sent"]:not([data-acct])`);
+  await sleep(300);
+  await io.click(ONE);
+  ok(await until(`${S('folder')} === 'inbox' && ${S('accountId')} === null`), 'a left click opens One Inbox');
+  // no other row of Favorites or Quick views has a menu
+  for (const sel of [`.fp-row[data-key="sent"]:not([data-acct])`, `.fp-row[data-key="unread"]`, `.fp-row[data-acct="a1"][data-key="inbox"]`]) {
+    await rightClick(sel);
+    await sleep(200);
+    ok(!(await evaluate(`!!document.querySelector('.ctx-menu')`)), `no app menu on ${sel}`);
+    await closeMenu();
+  }
+  // the icon column: the Inbox icon under the first separator (AC-5.2)
+  await fresh('light&lang=en', 960, 700);
+  ok(await until(`!!document.querySelector('.is-rail')`), 'icon column at 960 px');
+  await rightClick(`.is-rail ${ONE}`);
+  ok(await until(`!!document.querySelector('.ctx-menu')`), 'right-click on the Inbox icon opens the menu');
+  eq((await menuRows()).map((r) => r.text), ['All accounts settings…'], 'rail: one entry');
+  await evaluate(`document.querySelector('.ctx-menu .menu-row').click(); 1`);
+  ok((await until(`!!document.querySelector('#set-sec')`)) && (await settingsShows('mb:all', 'folders')), 'rail: opens All accounts > Folders');
+  await evaluate(`${S('setDialog')}(null); 1`);
+  // one account
+  await fresh();
+  await evaluate(`window.__store.setState({ accounts: window.__store.getState().accounts.slice(0, 1) }); 1`);
+  await sleep(200);
+  await rightClick(ONE);
+  ok(await until(`!!document.querySelector('.ctx-menu')`), 'one account: the menu is there too');
+  await closeMenu();
+}
+
 // ======================================================================== run
 const only = arg('only');
-const parts = { r4, r1, r6 };
+const parts = { r4, r1, r6, r3, r5 };
 for (const [name, fn] of Object.entries(parts)) {
   if (only && !only.split(',').includes(name)) continue;
   try { await fn(); } catch (e) { failures.push(`[${name}] threw: ${e.stack || e.message}`); console.error(`FAIL [${name}] threw`, e); }
