@@ -59,6 +59,8 @@ export interface ComposeEndOpts {
 }
 
 export interface ComposeInit {
+  /** a reply / forward: may the pictures of the quoted original load (the reading pane's rule for that message: the setting, the list of senders, its folder and sender check); true = the list of senders (or the setting) allows it; the setting of the account is asked as well */
+  quoteRemote?: boolean;
   accountId?: string;
   to?: string[];
   cc?: string[];

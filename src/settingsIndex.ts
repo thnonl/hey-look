@@ -253,6 +253,7 @@ export function buildIndex(ctx: IndexCtx): Entry[] {
   if (ctx.notifyButtons) S("notifications", "notifyButtons", "settings.notify.buttons", "settings.notify.buttonsHint");
   sectionPage("all", "reading", sec("reading"));
   S("reading", "loadRemote", "settings.reading.loadRemote", "settings.reading.loadRemoteHint", { kw: "settings.kw.loadRemote" });
+  S("reading", "trusted", "settings.reading.trusted", "settings.reading.trustedHint", { kw: "settings.kw.trusted" });
   S("reading", "inlineAuto", "settings.reading.inlineAuto", "settings.reading.inlineAutoHint");
   S("reading", "fetchEvery", "settings.reading.fetchEvery", undefined, { kw: "settings.kw.fetchEvery" });
   S("reading", "push", "settings.reading.push", "settings.reading.pushHint");

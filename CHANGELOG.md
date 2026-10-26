@@ -11,6 +11,7 @@
 
 ### Added
 
+- Senders whose remote content always loads: a third link in the notice above a message whose content is blocked, "Always load remote content from this sender", loads it at once and for every later message from that exact address (not in Junk, not for encrypted messages, not when the sender check failed, never for your own addresses). "Stop loading remote content from this sender" is in the same place, with Undo. The list is in Settings > Mailboxes > Reading, with search, Remove and Remove all; Block sender takes the address off it
 - Windows: Settings > Notifications has a new switch, "Start in the tray", under "Start Hey Look! when I sign in to Windows" (shown while that one is on; off by default; in all eight languages). Turning it on makes the entry `"<path>" --minimized` again: the app starts in the tray icon and the window stays hidden until you open it. Turning it off, or the start-with-Windows switch off, writes the entry at once
 - `startup.log` has `[autostart]` lines that say which entry is registered and whether "Start in the tray" is on, and a `[gate]` line that says when a start is treated as a start at sign-in
 - Account menu has "Account settings…"; One Inbox has a menu with "All accounts settings…"

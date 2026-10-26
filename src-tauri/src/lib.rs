@@ -24,6 +24,7 @@ mod ical_raw;
 mod i18n;
 mod identity;
 mod authres;
+mod remote_ok;
 mod importance;
 mod idle;
 mod legacy_names;
@@ -1797,6 +1798,7 @@ fn run_queued(db: &Db, p: Pending, act: MoveMessages) -> R<()> {
             for m in live.iter().filter(|m| m.role != "sent") {
                 c.execute("INSERT OR IGNORE INTO blocked(email) SELECT DISTINCT from_email FROM messages WHERE id=?1", [&m.id]).map_err(err)?;
             }
+            let _ = remote_ok::forget_blocked(&c); // (a blocked sender is not a trusted one)
         }
         return act(live, "junk", Some("junk"), &p.scope, true);
     }
@@ -3069,13 +3071,20 @@ pub(crate) struct MessageFull {
     invite: Option<calendar::CalInvite>,
     /// how the sender marked it: normal | high | low
     importance: importance::Importance,
+    /// the sender check of the server (`Authentication-Results`, authres.rs): "pass", "fail" or none (not checked, or a message from before the app kept it)
+    auth: Option<String>,
 }
 
 const MESSAGE_COLS: &str = "id,account_id,folder,message_id,subject,from_name,from_email,to_addrs,cc_addrs,date,body_html,body_text,
-                    seen,flagged,attachments,list_unsub,pgp,pgp_raw,ics,importance";
+                    seen,flagged,attachments,list_unsub,pgp,pgp_raw,ics,importance,auth_result";
 /// `MESSAGE_COLS` without the body, the invitation and the kept PGP data (same positions: `row_message` reads both).
 const MESSAGE_COLS_LIGHT: &str = "id,account_id,folder,message_id,subject,from_name,from_email,to_addrs,cc_addrs,date,NULL,NULL,
-                    seen,flagged,attachments,list_unsub,pgp,NULL,NULL,importance";
+                    seen,flagged,attachments,list_unsub,pgp,NULL,NULL,importance,auth_result";
+
+/// `messages.auth_result` as the page gets it: "pass", "fail", or nothing (not checked, an older message, or a value this version does not know).
+fn auth_for_page(v: Option<String>) -> Option<String> {
+    v.filter(|a| a == "pass" || a == "fail")
+}
 
 fn row_message(r: &rusqlite::Row) -> rusqlite::Result<(MessageFull, i64, Option<Vec<u8>>)> {
     let att: String = r.get(14)?;
@@ -3106,6 +3115,7 @@ fn row_message(r: &rusqlite::Row) -> rusqlite::Result<(MessageFull, i64, Option<
             ics: r.get(18)?,
             invite: None,
             importance: importance::Importance::from_db(r.get(19)?),
+            auth: auth_for_page(r.get::<_, Option<String>>(20)?),
         },
         pgp,
         r.get(17)?,
@@ -3461,6 +3471,7 @@ fn action_impl_in(db: &Db, thread_ids: Vec<String>, action: String, arg: Option<
                     )
                     .map_err(err)?;
                 }
+                let _ = remote_ok::forget_blocked(&c); // (a blocked sender is not a trusted one)
             }
             return action_impl_in(db, thread_ids, "junk".into(), None, scope, create_missing);
         }
@@ -3890,6 +3901,39 @@ fn list_blocked(state: tauri::State<AppState>) -> R<Vec<String>> {
         .collect::<Result<Vec<_>, _>>()
         .map_err(err)?;
     Ok(rows)
+}
+
+/// The senders whose remote content always loads (remote_ok.rs).
+#[tauri::command]
+fn list_remote_ok(state: tauri::State<AppState>) -> R<Vec<remote_ok::Entry>> {
+    remote_ok::list(&lock(&state.db)).map_err(err)
+}
+
+/// Adds an address to that list; the answer says whether it is new, was there, or the list is full. Every window is told.
+#[tauri::command]
+fn remote_ok_add(app: tauri::AppHandle, state: tauri::State<AppState>, email: String) -> R<String> {
+    let r = remote_ok::add(&lock(&state.db), &email, chrono::Utc::now().timestamp_millis())?;
+    let _ = app.emit("remote-ok-changed", ());
+    Ok(match r {
+        remote_ok::Added::New => "added",
+        remote_ok::Added::Already => "already",
+        remote_ok::Added::Full => "full",
+    }
+    .to_string())
+}
+
+#[tauri::command]
+fn remote_ok_remove(app: tauri::AppHandle, state: tauri::State<AppState>, email: String) -> R<()> {
+    remote_ok::remove(&lock(&state.db), &email).map_err(err)?;
+    let _ = app.emit("remote-ok-changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+fn remote_ok_clear(app: tauri::AppHandle, state: tauri::State<AppState>) -> R<()> {
+    remote_ok::clear(&lock(&state.db)).map_err(err)?;
+    let _ = app.emit("remote-ok-changed", ());
+    Ok(())
 }
 
 #[tauri::command]
@@ -6845,6 +6889,10 @@ pub fn run() {
             sender_action,
             list_blocked,
             unblock,
+            list_remote_ok,
+            remote_ok_add,
+            remote_ok_remove,
+            remote_ok_clear,
             list_rules,
             save_rule,
             delete_rule,
