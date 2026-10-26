@@ -447,19 +447,20 @@ export function findProblems({ rows = REMOVED, read = (f) => fs.readFileSync(f, 
       ['.github/release-footer.md', fs.readFileSync(path.join(root, '.github', 'release-footer.md'), 'utf8')], ['CHANGELOG.md (1.0.10)', sect]];
     for (const [name, text] of files) if (/cannot show native notifications|native notifications are not available|no native notifications|macOS has no notifications|macOS has no Print/i.test(text)) fail(`${name}: says macOS has no notifications or no Print`);
   }
-  // (stays on the 1.0.9 section until the 1.0.10 QA reports exist: the release-prep commit moves it to 1.0.10 with the new statement)
-  // 1.0.9 test statement (hotfix, Windows start-up code): tested on Windows 11 on real hardware; macOS and Linux were NOT run (their start flag, plugin and entry are unchanged, the shared
-  // changes were only built there). Do not claim a Mac / Linux check here unless its QA report exists; when it does, say it in the three texts and relax the "not run" check below in the same commit.
+  // 1.0.10 test statement: Windows 11 (x64) in Windows Sandbox, an Apple silicon Mac (M1 Pro) and an ARM virtual machine (UTM, Ubuntu, KDE, WebKitGTK 2.52), copies built from the release source (QA reports of
+  // 1.0.10). Do not say more than the QA reports say: no "real hardware" for Windows, no model or version of the Mac or the guest unless a report names it.
   {
     const root = path.join(DOCS, '..');
     const log = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
-    const sect = (/^## 1\.0\.9\b[\s\S]*?(?=^## |(?![\s\S]))/m.exec(log) || [''])[0];
-    const files = [['README.md', fs.readFileSync(path.join(root, 'README.md'), 'utf8')], ['.github/release-footer.md', fs.readFileSync(path.join(root, '.github', 'release-footer.md'), 'utf8')], ['CHANGELOG.md (1.0.9)', sect]];
+    const sect = (/^## 1\.0\.10\b[\s\S]*?(?=^## |(?![\s\S]))/m.exec(log) || [''])[0];
+    const files = [['README.md', fs.readFileSync(path.join(root, 'README.md'), 'utf8')], ['.github/release-footer.md', fs.readFileSync(path.join(root, '.github', 'release-footer.md'), 'utf8')], ['CHANGELOG.md (1.0.10)', sect]];
     for (const [name, text] of files) {
       checks++;
-      if (!/changes of (this release|1\.0\.9) were tested on Windows 11 \(x64\) on real hardware/.test(text)) fail(`${name}: the 1.0.9 test statement (tested on Windows 11 (x64) on real hardware) is missing`);
-      if (!/not run on macOS or Linux/.test(text)) fail(`${name}: no longer says the 1.0.9 changes were not run on macOS or Linux`);
-      if (/MacBook|ARM virtual machine|checked on a Mac|WebKitGTK/i.test(text)) fail(`${name}: claims a Mac / Linux check of 1.0.9 (the WebKit checks were of 1.0.8): update this test together with the statement once the QA report exists`);
+      if (!/changes of 1\.0\.10 were tested on Windows 11 \(x64\) in Windows Sandbox/.test(text)) fail(`${name}: the 1.0.10 test statement (tested on Windows 11 (x64) in Windows Sandbox) is missing`);
+      if (!/on an Apple silicon Mac \(Apple M1 Pro, macOS 27\.0\.1;/.test(text) || !/in an ARM virtual machine \(UTM\) on that Mac \(Ubuntu 24\.04\.5, KDE Plasma 5\.27 on X11, WebKitGTK 2\.52;/.test(text)) fail(`${name}: the Mac and Linux part of the 1.0.10 test statement is missing`);
+      if (!/the downloadable macOS app and the Linux packages \(AppImage, \.deb, \.rpm\) were not installed or tested/i.test(text)) fail(`${name}: no longer says the downloadable macOS app and the Linux packages were not tested`);
+      // (the machines the Mac & Linux QA named are allowed exactly as written above; any other claim about the hardware still fails)
+      if (/on real hardware|MacBook|Intel Mac (was|were) tested|Wayland|x86_64 virtual machine/i.test(text) || /WebKitGTK (?!2\.52)/.test(text)) fail(`${name}: names a machine the 1.0.10 QA reports do not name`);
       if (!/Windows 10, Intel Macs and macOS 11 and 12/.test(text)) fail(`${name}: no longer says Windows 10, Intel Macs and macOS 11 and 12 were not tested`);
       if (/all (versions of )?macOS|every (version of )?macOS|all Linux (distributions|distros)/i.test(text)) fail(`${name}: claims more than was tested (all macOS versions / all Linux distributions)`);
     }
