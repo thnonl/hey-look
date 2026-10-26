@@ -102,7 +102,6 @@ export default defineLocale<typeof ns.en>({
   "mail.pane.quickViews": "Vues rapides",
   "mail.pane.addFav": "Ajouter aux Favoris",
   "mail.pane.removeFav": "Supprimer des Favoris",
-  "mail.pane.favLocked": "La boîte de réception de tous les comptes reste toujours dans les Favoris",
   "mail.pane.allSettings": "Paramètres de tous les comptes…",
   "mail.pane.failedTitle": { one: "{n} message planifié n’a pas pu être envoyé", other: "{n} messages planifiés n’ont pas pu être envoyés" },
   "mail.pane.failedBadge": { one: "{n} échec", other: "{n} échecs" },

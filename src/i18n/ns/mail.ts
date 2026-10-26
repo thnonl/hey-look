@@ -108,7 +108,6 @@ export default define({
     "mail.pane.quickViews": "Quick views",
     "mail.pane.addFav": "Add to Favorites",
     "mail.pane.removeFav": "Remove from Favorites",
-    "mail.pane.favLocked": "The Inbox of all accounts always stays in Favorites",
     "mail.pane.allSettings": "All accounts settings…",
     "mail.pane.failedTitle": { one: "{n} scheduled message failed", other: "{n} scheduled messages failed" },
     "mail.pane.failedBadge": { one: "{n} failed", other: "{n} failed" },

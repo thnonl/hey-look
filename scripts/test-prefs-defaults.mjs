@@ -8,7 +8,7 @@
 //   - the Appearance preview's Inbox number follows the setting.
 // Run: node --experimental-strip-types scripts/test-prefs-defaults.mjs
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import fs, { readFileSync } from "node:fs";
 import { applyPrefsRev, PREFS_REV, readFavorites, withOneInbox } from "../src/prefsRev.ts";
 
 const ROOT = new URL("../", import.meta.url);
@@ -102,11 +102,11 @@ const guard = read("src/store.ts").slice(read("src/store.ts").indexOf("setPrefs:
 assert.match(guard, /if \(patch\.favorites\) patch = \{ \.\.\.patch, favorites: withOneInbox\(patch\.favorites\) \};/, "setPrefs puts One Inbox back before it applies and saves");
 assert.ok(guard.indexOf("withOneInbox") < guard.indexOf("const prefs = { ...before, ...patch }"), "...before the patch is applied");
 const fp = read("src/components/FolderPane.tsx");
-const tip = read("src/components/Tip.tsx");
-assert.match(fp, /locked=\{acct === null && key === "inbox"\}/, "the star of One Inbox is locked");
-assert.match(tip, /aria-disabled=\{locked \? true : undefined\}/, "aria-disabled, not disabled: it stays in the Tab order");
-assert.match(tip, /if \(!locked\) onToggle\(\);/, "a click on the locked star does nothing");
-assert.match(tip, /title=\{label\}/, "the title stays next to the tooltip of Tip.tsx");
+assert.match(fp, /\{!rail && oneInbox && <span className="fp-star-gap" aria-hidden \/>\}/, "One Inbox has no star: the place of one stays");
+assert.match(fp, /\{!rail && !oneInbox && \(\n\s+<button\n\s+className=\{`fp-star/, "every other row has its star");
+assert.ok(!/favLocked|FavStar|Tip\b/.test(fp), "no locked star, no tooltip component");
+assert.ok(!fs.existsSync(new URL("../src/components/Tip.tsx", import.meta.url)), "Tip.tsx is gone");
+assert.match(fp, /\(e\.key === "Enter" \|\| e\.key === " "\) && e\.target === e\.currentTarget/, "the row opens on Enter and Space only for itself, not for the keys of its star");
 const sd = read("src/components/SettingsDialog.tsx");
 assert.match(sd, /disabled=\{!scope && key === "inbox"\}/, "the All accounts Inbox switch is disabled");
 
