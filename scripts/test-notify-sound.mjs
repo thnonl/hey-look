@@ -1,6 +1,6 @@
 // 1.0.7 W13.8 (REQ-13.8.1, 13.8.7, 13.8.8; AC-13.8.8, AC-13.8.10): the new-mail sound, without a browser.
 //   - scripts/gen-notify-sound.mjs makes src-tauri/sounds/new-mail.wav byte for byte (the file is the one the owner approved: 30,914 bytes, SHA-256 below), twice the same;
-//   - the format of the file: WAV, 44.1 kHz, 16-bit, mono, 0.35 s, peak at most -3 dBFS, RMS about -19 dBFS;
+//   - the format of the file: WAV, 44.1 kHz, 16-bit, mono, 0.35 s, peak about -12 dBFS (1.0.10: lowered 9 dB), RMS about -28 dBFS;
 //   - the stored setting is read as the new one (src/notifySound.ts): none -> off, mail / default / im / reminder / sms -> on, an unknown value -> on; mergePrefs applies it to "All accounts" and to
 //     every mailbox's own value; the default is on;
 //   - the old choices and the hint are gone from Settings and from the 8 dictionaries; the three new texts are there (spec-107-wp13 section 3, keys 7 to 9);
@@ -18,7 +18,7 @@ const sha = (b) => createHash("sha256").update(b).digest("hex");
 
 // ---- the file
 const committed = readFileSync(new URL("src-tauri/sounds/new-mail.wav", ROOT));
-assert.equal(APPROVED_SHA256, "13d5defb4accc177aefca80270bbb0fb68b318b657f4e216ec07d6148e6de4ad");
+assert.equal(APPROVED_SHA256, "4a9ccd9b2584dbd52773b9557bcd6c9c1ac56e91fa69fc0c0505b92fb292fa4f");
 assert.equal(committed.length, 30914, "size");
 assert.equal(sha(committed), APPROVED_SHA256, "the committed sound is the approved sample");
 const made = generate();
@@ -39,8 +39,8 @@ assert.equal(committed.readUInt32LE(40), committed.length - 44);
   let peak = 0, sum = 0;
   for (let i = 0; i < n; i++) { const v = committed.readInt16LE(44 + i * 2) / 32768; peak = Math.max(peak, Math.abs(v)); sum += v * v; }
   assert.ok(Math.abs(n / 44100 - 0.35) < 0.001, "0.35 s");
-  assert.ok(20 * Math.log10(peak) <= -3 + 0.05, "peak at most -3 dBFS");
-  assert.ok(Math.abs(10 * Math.log10(sum / n) + 19) < 0.1, "RMS about -19 dBFS");
+  assert.ok(Math.abs(20 * Math.log10(peak) + 12.2) < 0.2 && 20 * Math.log10(peak) < -12, "peak about -12 dBFS (1.0.10)");
+  assert.ok(Math.abs(10 * Math.log10(sum / n) + 28) < 0.1, "RMS about -28 dBFS");
   assert.equal(committed.readInt16LE(committed.length - 2), 0, "ends on silence");
   assert.equal(pop().length, n);
 }
