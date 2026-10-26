@@ -38,10 +38,10 @@ const wait = waitHint("google");
 assert.ok(wait.includes("Google hasn’t verified this app") && wait.includes("Advanced") && wait.includes("Go to Hey Look! (unsafe)") && wait.includes("waiting for Google’s review"), wait);
 for (const reason of ["timeout", "cancelled", "denied", "blocked"]) {
   const mailHint = endHint("google", "mail", reason);
-  assert.ok(/may have blocked/.test(mailHint.text) && /limit for apps Google hasn’t verified/.test(mailHint.text) && /app password/.test(mailHint.text), mailHint.text);
+  assert.ok(/may have blocked/.test(mailHint.text) && !/limit|\b100\b/i.test(mailHint.text) && /app password/.test(mailHint.text), mailHint.text);
   assert.deepEqual([mailHint.appPassword, mailHint.learn], [true, true], "mail: the app password way and the Help link");
   const calHint = endHint("google", "calendar", reason);
-  assert.ok(/may have blocked/.test(calHint.text) && /mail isn’t affected/.test(calHint.text), calHint.text);
+  assert.ok(/may have blocked/.test(calHint.text) && /mail isn’t affected/.test(calHint.text) && !/limit|\b100\b/i.test(calHint.text), calHint.text);
   assert.deepEqual([calHint.appPassword, calHint.learn], [false, true], "calendar sync cannot use an app password");
 }
 // (Google "blocked" used to have no sentence at all: the red notice came out empty)
@@ -73,6 +73,15 @@ for (const lang of ["vi", "fr"]) {
   assert.ok(/CNTT/.test(endHint("microsoft", "mail", "timeout").text) || /informatique/.test(endHint("microsoft", "mail", "timeout").text), `${lang}: ask the IT admin`);
   assert.ok(/CNTT|informatique/.test(statusLine(src, { email: "me@x.test", nowSec: 0, fmtTime: String }).text), `${lang}: calendar blocked names the IT admin`);
   assert.ok(endHint("google", "mail", "timeout").appPassword);
+}
+setLangPref("en");
+
+// ---- no language says anything about a number of people (or a limit of apps) for the Google sign-in: the hint on Google's page and the advice after a refusal
+for (const lang of ["en", "vi", "fr", "de", "es", "ru", "ja", "zh-Hans"]) {
+  setLangPref(lang);
+  const texts = [waitHint("google"), endHint("google", "mail", "denied").text, endHint("google", "calendar", "denied").text];
+  for (const x of texts) assert.ok(x && !/\d/.test(x), `${lang}: a digit in the Google sign-in text: ${x}`);
+  assert.ok(endHint("google", "mail", "denied").appPassword && endHint("google", "mail", "denied").text.length > 20, `${lang}: the advice after a refusal stays`);
 }
 setLangPref("en");
 

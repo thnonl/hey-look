@@ -2,7 +2,7 @@ import { define } from "../types.ts";
 
 // The wait for the browser while signing in (mail and calendar), what is said when it ends without access, and the "Sign in again"
 // state of a mailbox whose sign-in was rejected. While Google has not verified Hey Look! (GOOGLE_REVIEW_PENDING in src/signIn.ts) a
-// person who is not among the first 100 users sees Google's warning page, and nobody new can sign in once the limit is used up.
+// person who signs in sees Google's warning page, and Google may refuse the sign-in.
 // "Google hasn't verified this app", "Advanced" and "Go to Hey Look! (unsafe)" are the words of Google's own page (which Google shows in the
 // language of the browser), so they stay in English in every language.
 export default define({
@@ -14,8 +14,8 @@ export default define({
     "signin.end.cancelled": "{provider} sign-in was cancelled.",
     "signin.end.denied": "{provider} sign-in wasn’t completed.",
     "signin.end.generic": "{provider} sign-in didn’t finish.",
-    "signin.end.google.mail": "Google may have blocked this sign-in, for example when the limit for apps Google hasn’t verified is reached. You can add a Gmail account with an app password instead.",
-    "signin.end.google.calendar": "Google may have blocked this sign-in, for example when the limit for apps Google hasn’t verified is reached. Your mail isn’t affected.",
+    "signin.end.google.mail": "Google may have blocked this sign-in. You can add a Gmail account with an app password instead.",
+    "signin.end.google.calendar": "Google may have blocked this sign-in. Your mail isn’t affected.",
     "signin.end.microsoft": "If your organization manages this account, it may need to approve Hey Look! first. Ask your IT admin.",
     "signin.end.microsoft.blocked": "Your organization may need to approve Hey Look! before this account can sign in. Ask your IT admin, then try again.",
     "signin.end.appPassword": "Add Gmail with an app password",

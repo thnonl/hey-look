@@ -3,7 +3,7 @@ import type ns from "../../ns/signin.ts";
 
 // The wait for the browser while signing in (mail and calendar), what is said when it ends without access, and the "Sign in again"
 // state of a mailbox whose sign-in was rejected. While Google has not verified Hey Look! (GOOGLE_REVIEW_PENDING in src/signIn.ts) a
-// person who is not among the first 100 users sees Google's warning page, and nobody new can sign in once the limit is used up.
+// person who signs in sees Google's warning page, and Google may refuse the sign-in.
 // "Google hasn't verified this app", "Advanced" and "Go to Hey Look! (unsafe)" are the words of Google's own page (which Google shows in the
 // language of the browser), so they stay in English in every language.
 
@@ -15,8 +15,8 @@ export default defineLocale<typeof ns.en>({
   "signin.end.cancelled": "{provider}のサインインがキャンセルされました。",
   "signin.end.denied": "{provider}のサインインは完了していません。",
   "signin.end.generic": "{provider}のサインインが完了しませんでした。",
-  "signin.end.google.mail": "Googleがこのサインインをブロックした可能性があります。たとえば、Googleで確認されていないアプリの上限に達した場合などです。代わりに、アプリパスワードを使ってGmailアカウントを追加できます。",
-  "signin.end.google.calendar": "Googleがこのサインインをブロックした可能性があります。たとえば、Googleで確認されていないアプリの上限に達した場合などです。メールには影響しません。",
+  "signin.end.google.mail": "Googleがこのサインインをブロックした可能性があります。代わりに、アプリパスワードを使ってGmailアカウントを追加できます。",
+  "signin.end.google.calendar": "Googleがこのサインインをブロックした可能性があります。メールには影響しません。",
   "signin.end.microsoft": "このアカウントを組織が管理している場合は、先にHey Look!の承認が必要なことがあります。IT管理者に問い合わせてください。",
   "signin.end.microsoft.blocked": "このアカウントでサインインするには、組織によるHey Look!の承認が必要な場合があります。IT管理者に問い合わせてから、もう一度お試しください。",
   "signin.end.appPassword": "アプリパスワードでGmailを追加",

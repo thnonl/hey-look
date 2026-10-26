@@ -3,7 +3,7 @@ import type ns from "../../ns/signin.ts";
 
 // The wait for the browser while signing in (mail and calendar), what is said when it ends without access, and the "Sign in again"
 // state of a mailbox whose sign-in was rejected. While Google has not verified Hey Look! (GOOGLE_REVIEW_PENDING in src/signIn.ts) a
-// person who is not among the first 100 users sees Google's warning page, and nobody new can sign in once the limit is used up.
+// person who signs in sees Google's warning page, and Google may refuse the sign-in.
 // "Google hasn't verified this app", "Advanced" and "Go to Hey Look! (unsafe)" are the words of Google's own page (which Google shows in the
 // language of the browser), so they stay in English in every language.
 
@@ -15,8 +15,8 @@ export default defineLocale<typeof ns.en>({
   "signin.end.cancelled": "{provider}登录已取消。",
   "signin.end.denied": "{provider}登录未完成。",
   "signin.end.generic": "{provider}登录未能完成。",
-  "signin.end.google.mail": "Google可能已阻止此次登录，例如当未经Google验证的应用数量已达上限时。您可以改用应用专用密码添加Gmail账户。",
-  "signin.end.google.calendar": "Google可能已阻止此次登录，例如当未经Google验证的应用数量已达上限时。您的邮件不受影响。",
+  "signin.end.google.mail": "Google可能已阻止此次登录。您可以改用应用专用密码添加Gmail账户。",
+  "signin.end.google.calendar": "Google可能已阻止此次登录。您的邮件不受影响。",
   "signin.end.microsoft": "如果此账户由您的组织管理，Hey Look!可能需要先获得批准。请联系您的IT管理员。",
   "signin.end.microsoft.blocked": "此账户登录前，Hey Look!可能需要先获得您所在组织的批准。请联系您的IT管理员，然后重试。",
   "signin.end.appPassword": "使用应用专用密码添加Gmail",

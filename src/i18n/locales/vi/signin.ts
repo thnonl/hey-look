@@ -3,7 +3,7 @@ import type ns from "../../ns/signin.ts";
 
 // The wait for the browser while signing in (mail and calendar), what is said when it ends without access, and the "Sign in again"
 // state of a mailbox whose sign-in was rejected. While Google has not verified Hey Look! (GOOGLE_REVIEW_PENDING in src/signIn.ts) a
-// person who is not among the first 100 users sees Google's warning page, and nobody new can sign in once the limit is used up.
+// person who signs in sees Google's warning page, and Google may refuse the sign-in.
 // "Google hasn't verified this app", "Advanced" and "Go to Hey Look! (unsafe)" are the words of Google's own page (which Google shows in the
 // language of the browser), so they stay in English in every language.
 
@@ -15,8 +15,8 @@ export default defineLocale<typeof ns.en>({
   "signin.end.cancelled": "Đã hủy đăng nhập {provider}.",
   "signin.end.denied": "Chưa hoàn tất đăng nhập {provider}.",
   "signin.end.generic": "Đăng nhập {provider} chưa hoàn tất.",
-  "signin.end.google.mail": "Có thể Google đã chặn lần đăng nhập này, chẳng hạn khi đã đạt giới hạn áp dụng cho ứng dụng chưa được Google xác minh. Bạn có thể thêm tài khoản Gmail bằng mật khẩu ứng dụng.",
-  "signin.end.google.calendar": "Có thể Google đã chặn lần đăng nhập này, chẳng hạn khi đã đạt giới hạn áp dụng cho ứng dụng chưa được Google xác minh. Thư của bạn không bị ảnh hưởng.",
+  "signin.end.google.mail": "Có thể Google đã chặn lần đăng nhập này. Bạn có thể thêm tài khoản Gmail bằng mật khẩu ứng dụng.",
+  "signin.end.google.calendar": "Có thể Google đã chặn lần đăng nhập này. Thư của bạn không bị ảnh hưởng.",
   "signin.end.microsoft": "Nếu tài khoản này do tổ chức của bạn quản lý, tổ chức có thể cần phê duyệt Hey Look! trước. Hãy liên hệ quản trị viên CNTT.",
   "signin.end.microsoft.blocked": "Tổ chức của bạn có thể cần phê duyệt Hey Look! thì tài khoản này mới đăng nhập được. Hãy liên hệ quản trị viên CNTT rồi thử lại.",
   "signin.end.appPassword": "Thêm Gmail bằng mật khẩu ứng dụng",
