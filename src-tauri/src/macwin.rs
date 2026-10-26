@@ -354,7 +354,56 @@ pub fn check(label: &str) -> Option<String> {
     ALIVE.fetch_add(1, Ordering::Relaxed);
     // SAFETY: `found` keeps the window alive for the read; main thread (caller).
     let retains: usize = unsafe { msg_send![Retained::as_ptr(&found) as *mut AnyObject, retainCount] };
-    Some(format!("native window {number}: STILL ALIVE after being finished, retain count {retains} (this check's own reference is one of them); {}", windows_summary()))
+    // SAFETY: as above; the content view and title are checked for null by `text` / the null test.
+    let own = unsafe {
+        let ptr = Retained::as_ptr(&found) as *mut AnyObject;
+        let visible: Bool = msg_send![ptr, isVisible];
+        let content: *mut AnyObject = msg_send![ptr, contentView];
+        let subviews = if content.is_null() { 0 } else { subview_count(content) };
+        format!("visible {}, title {:?}, content view {} with {subviews} subview(s)", visible.as_bool(), text(msg_send![ptr, title]), if content.is_null() { "nil".into() } else { text(msg_send![content, className]) })
+    };
+    Some(format!(
+        "native window {number}: STILL ALIVE after being finished, retain count {retains} (this check's own reference is one of them); {own}; {} (an ordered-out empty shell is the known residual of DEC-024, a visible one would be a ghost window); {}",
+        crate::popout::shell_verdict(&window_rows()),
+        windows_summary()
+    ))
+}
+
+/// Number of direct subviews of `view`.
+///
+/// SAFETY (caller): main thread; `view` is a live NSView.
+unsafe fn subview_count(view: *mut AnyObject) -> usize {
+    // SAFETY: `view` is live (caller); the array is checked for null.
+    unsafe {
+        let list: *mut AnyObject = msg_send![view, subviews];
+        if list.is_null() { 0 } else { msg_send![list, count] }
+    }
+}
+
+/// One row per window `NSApp` lists (number, class, title, visible, content subviews), for the log and for `popout::shell_verdict`. DEBUG BUILDS ONLY: empty in a release build. Read-only. Main thread.
+pub fn window_rows() -> Vec<crate::popout::WindowRow> {
+    if !cfg!(debug_assertions) {
+        return Vec::new();
+    }
+    // SAFETY: main thread (callers); `app_window_list` drops null entries and the windows are alive for this task.
+    unsafe {
+        app_window_list()
+            .into_iter()
+            .map(|w| {
+                let visible: Bool = msg_send![w, isVisible];
+                let number: isize = msg_send![w, windowNumber];
+                let content: *mut AnyObject = msg_send![w, contentView];
+                crate::popout::WindowRow {
+                    number,
+                    class: text(msg_send![w, className]),
+                    title: text(msg_send![w, title]),
+                    visible: visible.as_bool(),
+                    titled: is_titled(w),
+                    subviews: if content.is_null() { 0 } else { subview_count(content) },
+                }
+            })
+            .collect()
+    }
 }
 
 /// What [`apply_appearance`] found and did, for the log (one line per window).
