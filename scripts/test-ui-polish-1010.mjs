@@ -13,7 +13,8 @@
 //   node scripts/test-ui-polish-1010.mjs --url=http://127.0.0.1:1420/ --shots=<dir>      use a dev server that is already running, PNGs of the lit states
 import fs from 'node:fs';
 import path from 'node:path';
-import { arg, flag, inputs, ROOT, sleep, startHarness } from './cdp-harness.mjs';
+import { arg, flag, inputs, languageJs, ROOT, sleep, startHarness } from './cdp-harness.mjs';
+import { hitProbe } from './lib/settings-search-probe.mjs';
 
 const SHOTS = arg('shots');
 const H = await startHarness('test-ui-polish-1010', { vitePort0: 5660 });
@@ -223,9 +224,62 @@ async function r1() {
   }
 }
 
+// ======================================================================== R6
+async function r6() {
+  section = 'R6';
+  const targets = [
+    { tab: 'mb:all', focus: 'loadRemote', kind: 'row' }, { tab: 'about', focus: 'pg-about', kind: 'heading' }, { tab: 'appearance', focus: 'theme', kind: 'block' },
+    { tab: 'about', focus: 'updateCheck', kind: 'control' },
+  ];
+  const runOne = async (label, w, h, lang, theme, forced) => {
+    await openWith(`${theme}&lang=${lang}`, { prefs: JSON.stringify({ language: lang === 'en' ? 'en' : lang, prefsRev: 2 }) }, w, h);
+    await cdp('Emulation.setEmulatedMedia', { features: [{ name: 'forced-colors', value: forced ? 'active' : 'none' }, { name: 'prefers-reduced-motion', value: 'reduce' }] });
+    for (const t of targets) {
+      await evaluate(`${S('setDialog')}(null); 1`);
+      await sleep(150);
+      await evaluate(`${S('setDialog')}({ type: 'settings', tab: ${JSON.stringify(t.tab)}, focus: ${JSON.stringify(t.focus)}, nonce: Date.now() }); 1`);
+      const lit = await until(`!!document.getElementById('set-${t.focus}')?.classList.contains('set-hit')`);
+      ok(lit, `${label} ${t.kind}: the target is lit`);
+      if (!lit) continue;
+      await sleep(150);
+      const r = JSON.parse(await evaluate(hitProbe(t.focus, true)));
+      const L = `${label} ${t.kind} ${t.focus}`;
+      ok(r.bodyNoHScroll, `${L}: no horizontal scroll in the settings body`);
+      if (t.kind === 'control') {
+        ok(r.lit === 'element' && r.outline.style === 'solid' && parseFloat(r.outline.width) === 2, `${L}: a control is lit by its outline as before: ${JSON.stringify(r.outline)}`);
+      } else {
+        ok(r.lit === '::before' && r.outline.style === 'solid' && parseFloat(r.outline.width) === 2, `${L}: the ring is on the ::before: ${JSON.stringify(r.outline)}`);
+        eq([r.outLeft, r.outRight], [10, 10], `${L}: the lit area is 10 px wider on both sides`);
+        ok(Math.abs(r.labelLeft - r.labelLeftWithout) <= 0.5, `${L}: the label does not move (${r.labelLeftWithout} -> ${r.labelLeft})`);
+        ok(Math.abs(r.hitLeft - (r.labelLeft - 10)) <= 1, `${L}: the fill starts 10 px left of the first letter (fill ${r.hitLeft}, letter ${r.labelLeft})`);
+        ok(r.gapBarToLabel >= 6 - 0.5, `${L}: the bar is at least 6 px from the first letter (${r.gapBarToLabel})`);
+        if (t.kind === 'row') ok(Math.abs(r.hitRight - (r.ctlRight + 10)) <= 1, `${L}: the fill ends 10 px right of the control (fill ${r.hitRight}, control ${r.ctlRight})`);
+        ok(parseFloat(r.radius) === 10 || forced, `${L}: radius 10 px (${r.radius})`);
+        if (!forced) ok(r.background !== 'rgba(0, 0, 0, 0)', `${L}: the fill is there (${r.background})`);
+        // inside the 26 px of side padding: nothing is clipped
+        const clip = await evaluate(`(() => { const e = document.getElementById('set-${t.focus}'), b = document.querySelector('.settings-body'), r = e.getBoundingClientRect(), br = b.getBoundingClientRect(); return [r.left - 10 - br.left, br.right - (r.right + 10)]; })()`);
+        ok(clip[0] >= 0 && clip[1] >= 0, `${L}: the lit area is inside the settings body (${clip})`);
+      }
+      if (label.startsWith('en 1280') || forced) await io.shot(`r6-${t.kind}-${theme}${forced ? '-forced' : ''}`);
+    }
+  };
+  for (const [w, h] of [[1280, 800], [960, 560]]) for (const theme of ['light', 'dark']) await runOne(`en ${w}x${h} ${theme}`, w, h, 'en', theme, false);
+  await runOne('en 960x560 forced', 960, 560, 'en', 'light', true);
+  for (const lang of ['de', 'ru']) await runOne(`${lang} 960x560 light`, 960, 560, lang, 'light', false);
+  await cdp('Emulation.setEmulatedMedia', { features: [{ name: 'forced-colors', value: 'none' }, { name: 'prefers-reduced-motion', value: 'no-preference' }] });
+  // without a search the rows are the ones of 1.0.9: no rule of the highlight matches a row that is not lit
+  await fresh();
+  await evaluate(`${S('setDialog')}({ type: 'settings', tab: 'general', nonce: Date.now() }); 1`);
+  ok(await until(`!!document.querySelector('.set-row')`), 'Settings open');
+  const plain = await evaluate(`(() => { const r = document.querySelector('.set-row'), cs = getComputedStyle(r), b = getComputedStyle(r, '::before'); return { pos: cs.position, iso: cs.isolation, before: b.content, bg: cs.backgroundColor }; })()`);
+  eq([plain.pos, plain.iso, plain.before], ['static', 'auto', 'none'], 'a row that is not lit has no position, no isolation, no ::before');
+  const css = fs.readFileSync(path.join(ROOT, 'src/settingsSearch.css'), 'utf8');
+  ok(!/\.set-row\s*[{,]/.test(css), 'settingsSearch.css has no rule on .set-row itself');
+}
+
 // ======================================================================== run
 const only = arg('only');
-const parts = { r4, r1 };
+const parts = { r4, r1, r6 };
 for (const [name, fn] of Object.entries(parts)) {
   if (only && !only.split(',').includes(name)) continue;
   try { await fn(); } catch (e) { failures.push(`[${name}] threw: ${e.stack || e.message}`); console.error(`FAIL [${name}] threw`, e); }
