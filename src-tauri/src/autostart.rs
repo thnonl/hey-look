@@ -79,6 +79,26 @@ pub fn unix_entry_args(linux: bool, tray_host: bool) -> &'static [&'static str] 
     if linux && !tray_host { &[] } else { &[TRAY_FLAG] }
 }
 
+/// The text of a .desktop entry with no trailing white space on its `Exec=` line. The library under the plugin (auto-launch) writes `Exec=<path> <args>`
+/// with the space even when there are no arguments, so the entry without `--minimized` ended in `...hey-look ` (Linux QA 1.0.10). Nothing else is changed:
+/// not the path (a path with a space stays as the library wrote it), not the other lines.
+#[cfg(any(target_os = "linux", test))]
+pub fn trim_exec_line(content: &str) -> String {
+    content.split('\n').map(|l| if l.starts_with("Exec=") { l.trim_end() } else { l }).collect::<Vec<_>>().join("\n")
+}
+
+/// Linux: the entry the plugin has just written (`~/.config/autostart/<name>.desktop`) gets its `Exec=` line trimmed; a missing or unreadable file is left alone.
+#[cfg(target_os = "linux")]
+pub fn tidy_linux_entry() {
+    let (Some(name), Some(home)) = (ENTRY_NAME.get(), std::env::var_os("HOME")) else { return };
+    let path = std::path::Path::new(&home).join(".config").join("autostart").join(format!("{name}.desktop"));
+    let Ok(text) = std::fs::read_to_string(&path) else { return };
+    let tidy = trim_exec_line(&text);
+    if tidy != text {
+        let _ = std::fs::write(&path, tidy);
+    }
+}
+
 // ---------- the value in the Run key ----------
 
 /// What the entry should say for the exe at `exe`: `"<exe>"` (the window shows at sign-in) or, with the switch "Start in the tray" on, `"<exe>" --minimized`.
@@ -694,6 +714,19 @@ mod tests {
     fn code(name: &str) -> String {
         let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join(name);
         crate::test_guard::non_test_code(&std::fs::read_to_string(p).unwrap().replace('\r', ""))
+    }
+
+    #[test]
+    fn the_exec_line_of_the_desktop_entry_has_no_trailing_space() {
+        let entry = |exec: &str| format!("[Desktop Entry]\nType=Application\nName=Hey Look!\nExec={exec}\nStartupNotify=false\nTerminal=false");
+        // what auto-launch writes: `Exec={path} {args}`
+        let with_flag = entry("/opt/Hey Look/hey-look --minimized");
+        assert_eq!(trim_exec_line(&with_flag), with_flag, "with --minimized nothing changes");
+        assert_eq!(trim_exec_line(&entry("/usr/bin/hey-look ")), entry("/usr/bin/hey-look"), "without arguments the space goes");
+        assert_eq!(trim_exec_line(&entry("/opt/Hey Look/hey-look ")), entry("/opt/Hey Look/hey-look"), "a path with a space keeps it inside, loses the one at the end");
+        let clean = entry("/usr/bin/hey-look");
+        assert_eq!(trim_exec_line(&clean), clean, "idempotent");
+        assert_eq!(trim_exec_line(""), "");
     }
 
     #[test]

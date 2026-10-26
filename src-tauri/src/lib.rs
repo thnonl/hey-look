@@ -2476,7 +2476,12 @@ fn set_autostart(app: tauri::AppHandle, state: tauri::State<AppState>, enabled: 
         use tauri_plugin_autostart::ManagerExt;
         let _ = &state;
         let m = app.autolaunch();
-        if enabled { m.enable() } else { m.disable() }.map_err(err)
+        let done = if enabled { m.enable() } else { m.disable() }.map_err(err);
+        #[cfg(target_os = "linux")]
+        if enabled && done.is_ok() {
+            autostart::tidy_linux_entry(); // (the library leaves a space after the path when there are no arguments)
+        }
+        done
     }
 }
 
@@ -6657,6 +6662,7 @@ pub fn run() {
                 let m = app.autolaunch();
                 if m.is_enabled().unwrap_or(false) {
                     let _ = m.enable();
+                    autostart::tidy_linux_entry();
                 }
             }
             // the language of the native texts (tray, notifications) as the UI last mirrored it; English until the first run mirrors it
