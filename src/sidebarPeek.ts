@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 
 /*
  * The peek: while the side menu is folded to icons, the full menu opens over the list and the reading pane (they do not move) when the
@@ -41,9 +42,18 @@ export function useSidebarPeek(active: boolean, busy: boolean) {
     stop();
     timer.current = window.setTimeout(fn, ms);
   };
+  /** when the pointer rest ended in an open peek (performance.now), and when the last press came: a right-click just after the peek opened is the person's click on the icon they were resting on */
+  const openedAt = useRef(-1e9);
+  const pressAt = useRef(-1e9);
   const openBy = (by: "hover" | "key") => {
     how.current = by;
+    openedAt.current = performance.now();
     setOpen(true);
+  };
+  /** the hover wait ended: nothing opens while a menu is up, a button is down or a press came a moment ago (1.0.10, QA BUG-7: a wait re-armed by a move with the button down fired after the menu) */
+  const openHover = () => {
+    if (now.current.busy || ptr.current.down || performance.now() - pressAt.current < 1000) return;
+    openBy("hover");
   };
   const close = useCallback(() => {
     window.clearTimeout(timer.current);
@@ -61,6 +71,31 @@ export function useSidebarPeek(active: boolean, busy: boolean) {
     if (!active) close();
   }, [active, close]);
 
+  // A right-click in the first moments of a hover peek (the pointer had rested, the peek opened, the person clicks the icon they were resting on): the peek goes and the click is
+  // given again to the icon under the pointer (1.0.10, QA BUG-7: it landed on a row of the peek, or on none)
+  useEffect(() => {
+    const ctx = (e: MouseEvent) => {
+      if (!now.current.open || how.current !== "hover" || now.current.pinned || performance.now() - openedAt.current > 350) return;
+      const el = pane.current;
+      if (!el || !(e.target instanceof Node) || !el.contains(e.target) || (e as MouseEvent & { __again?: boolean }).__again) return;
+      const rail = el.getBoundingClientRect(); // (the column keeps the width of the icons while the menu lies over the list: only a click on the icons' own place is theirs)
+      if (e.clientX >= rail.right) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      const { clientX: x, clientY: y, ctrlKey, shiftKey, altKey, metaKey } = e;
+      flushSync(() => close());
+      requestAnimationFrame(() => {
+        const to = document.elementFromPoint(x, y);
+        if (!to) return;
+        const again = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 2, buttons: 0, ctrlKey, shiftKey, altKey, metaKey });
+        (again as MouseEvent & { __again?: boolean }).__again = true;
+        to.dispatchEvent(again);
+      });
+    };
+    window.addEventListener("contextmenu", ctx, true);
+    return () => window.removeEventListener("contextmenu", ctx, true);
+  }, [close]);
+
   // the pointer rests on the icons without having moved (or entered) since the icons appeared: the wait starts then (1.0.10, Mac QA)
   const armIfResting = () => {
     const el = pane.current;
@@ -70,7 +105,7 @@ export function useSidebarPeek(active: boolean, busy: boolean) {
     if (p.x < r.left || p.x >= r.right || p.y < r.top || p.y >= r.bottom) return;
     inside.current = true;
     anchor.current = { x: p.x, y: p.y };
-    later(PEEK_HOVER_MS, () => openBy("hover"));
+    later(PEEK_HOVER_MS, openHover);
   };
   const armRef = useRef(armIfResting);
   armRef.current = armIfResting;
@@ -175,13 +210,13 @@ export function useSidebarPeek(active: boolean, busy: boolean) {
         return;
       }
       anchor.current = { x: e.clientX, y: e.clientY };
-      if (!pressed.current) later(PEEK_HOVER_MS, () => openBy("hover"));
+      if (!pressed.current) later(PEEK_HOVER_MS, openHover);
     },
     onPointerMove: (e: React.PointerEvent) => {
-      if (e.pointerType === "touch" || !active || now.current.open || pressed.current || !inside.current) return;
+      if (e.pointerType === "touch" || !active || now.current.open || now.current.busy || e.buttons !== 0 || pressed.current || !inside.current) return;
       if (Math.hypot(e.clientX - anchor.current.x, e.clientY - anchor.current.y) <= PEEK_MOVE_PX) return;
       anchor.current = { x: e.clientX, y: e.clientY };
-      later(PEEK_HOVER_MS, () => openBy("hover")); // still moving: the wait starts again
+      later(PEEK_HOVER_MS, openHover); // still moving: the wait starts again
     },
     onPointerLeave: (e: React.PointerEvent) => {
       if (e.pointerType === "touch") return;
@@ -192,11 +227,13 @@ export function useSidebarPeek(active: boolean, busy: boolean) {
       later(PEEK_LEAVE_MS, close);
     },
     onPointerDown: (e: React.PointerEvent) => {
+      pressAt.current = performance.now();
       if (e.button !== 2) pressed.current = true; // (a right-click ends with its menu, whose close starts the wait again)
       if (!now.current.open) stop();
     },
     // a right-click is a press too (a system that sends the menu on the release, or without a pointerdown that reaches here): no menu opens over the icon under the pointer
     onContextMenu: () => {
+      pressAt.current = performance.now();
       if (!now.current.open) stop(); // (the menu is `busy`; its close starts the wait again)
     },
     // the keyboard comes in: the menu opens at once (a click that gives the pane the focus does not, :focus-visible is for the keyboard)

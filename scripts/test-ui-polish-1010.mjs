@@ -958,9 +958,52 @@ async function r12() {
   eq(await side(), 'rail', 'a press on an icon: the peek does not come up under the pointer');
 }
 
+// ======================================================================== R13 (Sandbox QA round 6, BUG-7): arrivals and right-clicks in random order, seeded
+async function r13() {
+  section = 'R13';
+  const seedArg = Number(arg('seed') || 20261027);
+  const N = Number(arg('arrivals') || 14);
+  let seed = seedArg;
+  const rnd = (n) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n; };
+  const side = () => evaluate(`document.querySelector('.folder-pane').dataset.sidebar`);
+  const bad = [];
+  for (const os of ['windows', 'macos']) {
+    await fresh(`light&lang=en&os=${os}`, 960, 900);
+    ok(await until(`!!document.querySelector('.is-rail')`), `${os}: icon column`);
+    const targets = [await centre('.is-rail .fp-avatar', 1), await centre(`.is-rail ${ONE}`), await centre('.is-rail .fp-avatar', 2)];
+    for (let i = 0; i < N; i++) {
+      const [x, y] = targets[rnd(targets.length)];
+      const rest = [0, 40, 120, 250, 400, 470, 480, 490, 495][rnd(9)]; // (the last values: the press lands just as the 500 ms wait ends)
+      const jitters = rnd(4);
+      const hold = rnd(70);
+      // away from the rail: the peek is closed and no menu is up
+      await mouse('mouseMoved', 900, 300 + rnd(300));
+      if (!(await until(`document.querySelector('.folder-pane').dataset.sidebar === 'rail' && !document.querySelector('.ctx-menu')`, 1500))) { await press('Escape'); await mouse('mousePressed', 900, 500); await mouse('mouseReleased', 900, 500); await sleep(150); }
+      await sleep(30 + rnd(120));
+      await mouse('mouseMoved', x, y);
+      let waited = 0;
+      for (let j = 0; j < jitters; j++) { const d = 1 + rnd(4); const w = Math.min(rest - waited, rnd(rest + 1)); if (w > 0) { await sleep(w); waited += w; } await mouse('mouseMoved', x + (j % 2 ? d : -d), y); }
+      if (rest - waited > 0) await sleep(rest - waited);
+      await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'right', buttons: 2, clickCount: 1 });
+      if (rnd(3) === 0) await mouse('mouseMoved', x + 2 + rnd(4), y + 1, { button: 'right', buttons: 2 }); // (a small move with the button held)
+      if (hold) await sleep(hold);
+      await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'right', buttons: 0, clickCount: 1 });
+      const opened = await until(`!!document.querySelector('.ctx-menu')`, 500);
+      const s1 = await side();
+      await sleep(700); // (a wait that was re-armed by something would fire about here)
+      const s2 = await side();
+      const still = await evaluate(`!!document.querySelector('.ctx-menu')`);
+      if (!opened || s1 !== 'rail' || s2 !== 'rail' || !still) bad.push({ os, i, seed: seedArg, rest, jitters, hold, opened, s1, s2, still });
+      if (opened || still) { await press('Escape'); await sleep(60); }
+      await mouse('mousePressed', 900, 450); await mouse('mouseReleased', 900, 450);
+    }
+  }
+  ok(bad.length === 0, `${N} random arrivals x 2 systems (seed ${seedArg}): a right-click always opens the menu and the peek stays closed: ${JSON.stringify(bad.slice(0, 5))} (${bad.length} failed)`);
+}
+
 // ======================================================================== run
 const only = arg('only');
-const parts = { r4, r1, r6, r3, r5, r2, r7, r8, r9, r10, r11, r12 };
+const parts = { r4, r1, r6, r3, r5, r2, r7, r8, r9, r10, r11, r12, r13 };
 for (const [name, fn] of Object.entries(parts)) {
   if (only && !only.split(',').includes(name)) continue;
   try { await fn(); } catch (e) { failures.push(`[${name}] threw: ${e.stack || e.message}`); console.error(`FAIL [${name}] threw`, e); }
