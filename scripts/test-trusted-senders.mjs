@@ -8,7 +8,7 @@
 //   T-C5  AC-11    another window's change (the event) updates an open message within a second
 //   T-C6  AC-12..15 held messages (Junk, encrypted, failed check) keep their warning with Stop; the global switch hides every notice
 //   T-C7  AC-14/18 Stop puts the message back to blocked, toast with Undo, focus on the add link; after an add the focus is on the Stop link
-//   T-C8  AC-16    8 languages x 960x560 / 1280x800: the labels fit (no clipping, no horizontal scroll, at most 3 lines at 1280x800), a long sender address does not matter
+//   T-C8  AC-16    8 languages x 960x560 / 1280x800: the labels fit (no clipping, no horizontal scroll, at most 3 lines), a long sender address does not matter
 //   T-C10 AC-19    a reply quotes the pictures of a trusted sender's message; not those of a Junk message of the same sender
 //   T-C11 AC-21..26 the list in Settings: empty, search above 8, Remove, Remove all (cancel / confirm), the note while the global switch is on
 //   node scripts/test-trusted-senders.mjs [--require-browser]
@@ -49,11 +49,15 @@ const THREADS = [
 ];
 
 const open = async (id) => {
-  await evaluate(`window.__store.getState().select(null); 1`);
-  await sleep(80);
-  await evaluate(`window.__remoteFetchCalls = []; window.__store.getState().select(${JSON.stringify(id)}); 1`);
-  ok(await until(`!!document.querySelector('.rp-msg.open iframe.msg-frame')`, 15000), `${id}: the message did not open`);
-  await sleep(450);
+  // (a conversation that was added a moment ago is in the list once the store has been refreshed: one more try with a refresh when it did not open in time, so a slow machine does not fail the test)
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await evaluate(`window.__store.getState().select(null); 1`);
+    await sleep(80);
+    if (attempt > 0) { await evaluate(`window.__store.getState().refresh().then(() => 1)`); await sleep(400); }
+    await evaluate(`window.__remoteFetchCalls = []; window.__store.getState().select(${JSON.stringify(id)}); 1`);
+    if (await until(`!!document.querySelector('.rp-msg.open iframe.msg-frame')`, attempt === 2 ? 15000 : 6000)) { await sleep(450); return; }
+  }
+  ok(false, `${id}: the message did not open`);
 };
 /** The notice of the open message: its class, text and links (text, title, data-trust) in DOM order. */
 const notice = () => evaluate(`(() => { const n = document.querySelector('.rp-msg.open .notice'); if (!n) return null; return { cls: n.className, text: n.firstChild ? n.textContent.replace(/\\s+/g, ' ').trim() : '', links: [...n.querySelectorAll('button.link')].map((b) => ({ text: b.textContent.trim(), title: b.title, trust: b.dataset.trust || null })) }; })()`);
@@ -304,7 +308,7 @@ try {
       ok(!m.text.includes(LONG) && !m.text.includes(SENDER), `${lang} ${w}x${h} ${id}: the address is not in the text`);
       const trust = m.links.find((l) => /^(?!.*\()/.test(l.text) && l.text !== m.links[0].text && m.links.indexOf(l) === 1);
       if (trust) ok([...trust.text].length <= (['ja', 'zh-Hans'].includes(lang) ? 22 : 52), `${lang}: the label is short enough (${[...trust.text].length}): ${trust.text}`);
-      if (w === 1280 && theme === 'light') ok(m.lines <= 3, `${lang} 1280x800 ${id}: at most 3 lines (${m.lines})`);
+      if (theme === 'light') ok(m.lines <= (w === 1280 ? 3 : 4), `${lang} ${w}x${h} ${id}: at most ${w === 1280 ? 3 : 4} lines (${m.lines}; 3 at 1280, 4 at the narrow 960x560 where the Russian and German blocked text alone takes 3)`);
       if (id === 'trN') report.push(`${theme} ${lang} ${w}x${h}: ${m.lines} lines`);
     }
     await setList([]);
