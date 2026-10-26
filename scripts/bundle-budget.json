@@ -9,7 +9,7 @@
     "reason": "B2, the final budget of spec-107-wp9 section 2.1 (from the WP9d merge). Measured at WP9d: 872,788 B."
   },
   "langChunkGzip": {
-    "bytes": 60000,
+    "bytes": 58500,
     "reason": "B3. One chunk per non-English language (dictionary + date-fns locale, src/i18n/lang-<code>.ts). Measured at WP9c: 40.7 to 49.5 KB gzip (ru the largest); 55 KB leaves room for the texts the later work packages add."
   },
   "lazyChunkGzip": {
@@ -17,7 +17,7 @@
     "reason": "B4. No lazy chunk of the 1.0.7 release is above 21 KB gzip today; 170 KB leaves room for the PDF.js module of WP5 only through a named exception."
   },
   "cssGzip": {
-    "bytes": 26000,
+    "bytes": 26500,
     "reason": "B5, the final budget of spec-107-wp9 section 2.1. Measured at WP9d: 24,074 B (one render-blocking stylesheet)."
   },
   "exceptions": [],
@@ -126,6 +126,22 @@
       "old": 55000,
       "new": 60000,
       "reason": "1.0.10 Test connection adds 91 texts (about 2.8 KB gzip of Russian text, the largest language): ru measured 56,901 B against 55,000 B (it was about 54.2 KB before). 60,000 B leaves room for the texts of the other 1.0.10 features and of 1.0.11; the next raise should come with a split of the dictionary."
+    },
+    {
+      "date": "2026-10-27",
+      "branch": "candidate/v1.0.10 (merge of feature/v1010-trusted-senders and feature/v1010-test-connection)",
+      "field": "langChunkGzip",
+      "old": 60000,
+      "new": 58500,
+      "reason": "Set from the MERGED build: the largest language chunk (ru) measures 57,512 B gzip with both features (Test connection about +2.8 KB, trusted senders about +0.7 KB of Russian text); the limit is that plus about 1,000 B. Lowered from the 60,000 B of the Test connection branch because the merged size does not need it."
+    },
+    {
+      "date": "2026-10-27",
+      "branch": "candidate/v1.0.10 (merge of feature/v1010-trusted-senders and feature/v1010-test-connection)",
+      "field": "cssGzip",
+      "old": 26000,
+      "new": 26500,
+      "reason": "The two 1.0.10 features add about 270 B of gzip CSS (the Test connection panel, the sender list of Settings): measured 26,028 B on the merged build, 28 B over the 26,000 B of WP9d. 26,500 B leaves about 470 B."
     }
   ]
 }
