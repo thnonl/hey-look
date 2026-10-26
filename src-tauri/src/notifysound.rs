@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 pub static SOUND: &[u8] = include_bytes!("../sounds/new-mail.wav");
 /// SHA-256 of the approved sample (spec-107-wp13 W13.8, AC-13.8.10).
 #[cfg_attr(not(test), allow(dead_code))]
-pub const SOUND_SHA256: &str = "13d5defb4accc177aefca80270bbb0fb68b318b657f4e216ec07d6148e6de4ad";
+pub const SOUND_SHA256: &str = "4a9ccd9b2584dbd52773b9557bcd6c9c1ac56e91fa69fc0c0505b92fb292fa4f";
 /// At most one sound per this time for the whole app (REQ-13.8.3).
 pub const THROTTLE: Duration = Duration::from_secs(3);
 
