@@ -6,16 +6,44 @@
 
 - Windows: starting Hey Look! with Windows now shows the window, like any other start. Before, it started hidden in the tray, and the hidden window could leave a white rectangle on the desktop. The window is made when the desktop is ready (taskbar, display and web view runtime), so it does not come up blank while Windows is still signing in
 - Windows: the start-with-Windows entry of an existing install is rewritten at the first start of this version from `"<path>" --minimized` (or the older unquoted form) to `"<path>"`, so the update changes your next sign-in to a visible start. An entry of another program and one that you turned off in Task Manager are left alone
+- The new-mail notification sound is quieter (9 dB lower, same sound)
+- The text that Sign in with Google is open to a limited number of people is gone from the app and the website; when Google refuses a sign-in the app only says Google may have blocked it and offers a Gmail app password instead
 
 ### Added
 
 - Windows: Settings > Notifications has a new switch, "Start in the tray", under "Start Hey Look! when I sign in to Windows" (shown while that one is on; off by default; in all eight languages). Turning it on makes the entry `"<path>" --minimized` again: the app starts in the tray icon and the window stays hidden until you open it. Turning it off, or the start-with-Windows switch off, writes the entry at once
 - `startup.log` has `[autostart]` lines that say which entry is registered and whether "Start in the tray" is on, and a `[gate]` line that says when a start is treated as a start at sign-in
+- Account menu has "Account settings…"; One Inbox has a menu with "All accounts settings…"
+- Mailboxes can be reordered by dragging the whole header row, the avatar in the narrow icon column or the Settings entry (touch: the grip only)
 
 ### Fixed
 
 - Windows: a start in the tray no longer takes the keyboard focus for a moment while the hidden window is made, so what you are typing at sign-in is not interrupted
 - Windows: turning on "Start Hey Look! when I sign in to Windows" is written to your own user's startup entry and read back. Before, a copy that ran as an administrator wrote the entry for all users, the switch showed "on" and your own entry was missing; now a failure turns the switch back off and shows the Windows error
+- One Inbox always stays in Favorites: its star is locked, the All accounts > Folders switch is locked on, and a list that lost it gets it back
+- Clicking the open message again no longer reloads it: the reading pane, loaded pictures and expanded messages stay
+- The highlight of a found setting in Settings no longer covers the text of the setting
+- macOS: Ctrl+click on a mailbox header no longer also collapses it, and a right-click on the left edge of an avatar in the icon column opens the account menu without opening the sidebar
+
+### Known limitations
+
+- APT repository, Microsoft Store and Snap Store: not available in this release (download Hey Look! from GitHub or the website; it updates itself)
+- Not tested by the project's QA with real accounts or real hardware; the owner checks these after the release and what he finds goes into the next version:
+  - Google and Microsoft sign-in (mail and calendar) was tested with simulated sign-in servers, not with real Google or Microsoft accounts
+  - Calendar: CalDAV sync was tested against simulated servers, not against real servers (iCloud, Fastmail, Baikal, Nextcloud, Radicale)
+  - Confidential mail: hiding the window from screen capture (Windows Print Screen and Snipping Tool, macOS screenshots and screen recording) was not tested end to end with the real tools
+  - The exact part of Windows (the compositor or the web view) that draws the white rectangle of a hidden window was not identified; the fix was found by experiment on one computer, and if a white rectangle still shows after a start with Windows, `startup.log` in the data folder of the app has `[ghost …]`, `[tray …]` and `[autostart …]` lines that tell what the app saw. A rectangle left by a copy that is already running goes away when that copy is opened from the tray once, or when 1.0.9 is installed
+  - Rules were tested with simulated mail servers, not with real Gmail, Outlook or iCloud mailboxes (Gmail labels in particular)
+- Windows 11 puts the icon of a new app in the hidden-icons flyout of the notification area; to see it in the bar, drag it out or turn it on in Windows Settings > Personalization > Taskbar
+- macOS: each pop-out window you close keeps a small empty system window (about 0.2 MB) until Hey Look! quits
+- macOS: the first time you print, macOS may ask whether Hey Look! may find devices on your local network; the system print window asks it, to find your printers, and Hey Look! uses the local network for nothing else
+- Confidential mail: Linux has no screenshot blocking (the window is hidden from screen capture and recording on Windows and macOS only)
+- Linux: notification buttons need a desktop whose notification service draws them, and the tray icon has no click action (use Open Hey Look! in its menu)
+- Linux: the x86_64 release packages (AppImage, .deb, .rpm) were not installed or tested
+- Calendar: some work or school organisations only let an administrator approve the Microsoft calendar permission
+- Rules: there is no "Mailing list" condition yet; a rule for all mailboxes that moves mail in several mailboxes gives one "moved" notice with Undo per mailbox
+- There is no plain-text-only mode when writing a message
+- Folders can be created but not renamed or deleted in Hey Look!
 
 ## 1.0.9 — 2026-10-26
 

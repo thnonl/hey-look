@@ -430,23 +430,24 @@ export function findProblems({ rows = REMOVED, read = (f) => fs.readFileSync(f, 
       if (/limited to 100|first 100|100 (users|people)|100 test users/i.test(text)) fail(`${name}: puts a number of people on the Google sign-in`);
     }
   }
-  // the README and the 1.0.9 section of the CHANGELOG say nothing about mobile apps either (owner decision: no statement, not even "no mobile apps")
+  // the README and the 1.0.10 section of the CHANGELOG say nothing about mobile apps either (owner decision: no statement, not even "no mobile apps")
   {
     const root = path.join(DOCS, '..');
     const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
     const log = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
-    const sect = (/^## 1\.0\.9\b[\s\S]*?(?=^## |(?![\s\S]))/m.exec(log) || [''])[0];
-    for (const [name, text] of [['README.md', readme], ['CHANGELOG.md (1.0.9)', sect]]) if (/\bmobile (apps?|clients?|versions?)\b|\bphone apps?\b|\bsmartphones?\b/i.test(text)) fail(`${name}: says something about mobile apps`);
+    const sect = (/^## 1\.0\.10\b[\s\S]*?(?=^## |(?![\s\S]))/m.exec(log) || [''])[0];
+    for (const [name, text] of [['README.md', readme], ['CHANGELOG.md (1.0.10)', sect]]) if (/\bmobile (apps?|clients?|versions?)\b|\bphone apps?\b|\bsmartphones?\b/i.test(text)) fail(`${name}: says something about mobile apps`);
   }
-  // macOS does have notifications (owner 2026-10-20, DEC-017): README, CONTRIBUTING, the release footer and the 1.0.9 section of the CHANGELOG do not say it has none
+  // macOS does have notifications (owner 2026-10-20, DEC-017): README, CONTRIBUTING, the release footer and the 1.0.10 section of the CHANGELOG do not say it has none
   {
     const root = path.join(DOCS, '..');
     const log = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
-    const sect = (/^## 1\.0\.9\b[\s\S]*?(?=^## |(?![\s\S]))/m.exec(log) || [''])[0];
+    const sect = (/^## 1\.0\.10\b[\s\S]*?(?=^## |(?![\s\S]))/m.exec(log) || [''])[0];
     const files =[['README.md', fs.readFileSync(path.join(root, 'README.md'), 'utf8')], ['CONTRIBUTING.md', fs.readFileSync(path.join(root, 'CONTRIBUTING.md'), 'utf8')],
-      ['.github/release-footer.md', fs.readFileSync(path.join(root, '.github', 'release-footer.md'), 'utf8')], ['CHANGELOG.md (1.0.9)', sect]];
+      ['.github/release-footer.md', fs.readFileSync(path.join(root, '.github', 'release-footer.md'), 'utf8')], ['CHANGELOG.md (1.0.10)', sect]];
     for (const [name, text] of files) if (/cannot show native notifications|native notifications are not available|no native notifications|macOS has no notifications|macOS has no Print/i.test(text)) fail(`${name}: says macOS has no notifications or no Print`);
   }
+  // (stays on the 1.0.9 section until the 1.0.10 QA reports exist: the release-prep commit moves it to 1.0.10 with the new statement)
   // 1.0.9 test statement (hotfix, Windows start-up code): tested on Windows 11 on real hardware; macOS and Linux were NOT run (their start flag, plugin and entry are unchanged, the shared
   // changes were only built there). Do not claim a Mac / Linux check here unless its QA report exists; when it does, say it in the three texts and relax the "not run" check below in the same commit.
   {
