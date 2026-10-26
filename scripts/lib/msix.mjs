@@ -147,6 +147,15 @@ export function storeLogos() {
   ];
 }
 
+/** The optional images of the Store listing of 1.0.10 (Partner Center rows PromoImage1920x1080 = 16:9 hero art, StoreLogoOverride150x150 and 71x71 = small tiles). Not part of the package. */
+export function listingExtras() {
+  return [
+    { file: "store-hero-1920x1080.png", w: 1920, h: 1080, kind: "hero" },
+    { file: "store-tile-150x150.png", w: 150, h: 150, kind: "tile" },
+    { file: "store-tile-71x71.png", w: 71, h: 71, kind: "tile" },
+  ];
+}
+
 /** Width, height and colour type of a PNG, or null when the bytes are not one. */
 export function pngInfo(buf) {
   const sig = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);

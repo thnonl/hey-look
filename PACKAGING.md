@@ -218,6 +218,8 @@ system. In the dev preview of the page: `#managed=msstore` and `#autostartlock=u
 | `src-tauri/msix/readiness.json` | `appPackagedMode`: does the app have its packaged mode (see above) |
 | `scripts/msix-build.mjs` | builds the package from the release exe with the Windows SDK (`makeappx`, `makepri`), and a copy signed with a throw-away certificate |
 | `scripts/msix-assets.mjs` | draws the package logos and the Store listing images from `docs/assets/favicon.svg` (headless Chrome or Edge); the PNGs are not committed |
+| `scripts/store-listing-csv.mjs` | turns the Store listing texts (one md per language) and the listing images into a Partner Center import folder (one .csv + `images/`), filling the language columns of the owner's export; `--check` validates a folder, `--rebase` fixes the root folder name in the image paths. Test: `scripts/test-store-listing-csv.mjs` (fixture: a real export, `scripts/fixtures/store-listing/`). The real import has not been tried |
+| `scripts/store-screenshots.mjs` | the 8 listing screenshots in each of the 8 languages (1920x1080) from the dev preview (`src/devMockShots.ts`: the sample mail of the md replaces the mock mailbox; the AI stub answers one fixed text) in a headless Chrome |
 | `scripts/msix-verify.mjs` | unpacks a package and checks it against the manifest rules, the images and the exe |
 | `.github/scripts/msix-check.ps1` | installs the test-signed copy on the disposable runner, starts it, checks it, removes it |
 

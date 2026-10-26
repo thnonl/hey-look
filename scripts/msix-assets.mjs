@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // Draws the images of the Microsoft Store package and of the Store listing from docs/assets/favicon.svg with a headless Chrome/Edge (no
 // dependencies, Node 22+), like scripts/make-site-images.mjs. The PNGs are NOT committed: CI makes them (job msix of release.yml).
-//   node scripts/msix-assets.mjs --out <folder> [--only package|store]
+//   node scripts/msix-assets.mjs --out <folder> [--only package|store|listing]
 //   <folder>/Assets/   the package images (spec A-21): StoreLogo, Square44x44Logo (+ targetsize-16/24/32/48/256 and _altform-unplated),
 //                      Square150x150Logo, each at the scales 100, 125, 150, 200, 400; resources.pri (makepri) makes the scales findable
 //   <folder>/store/    the Store listing images (W14.7): box art 2160x2160 and 1080x1080, poster 1440x2160 and 720x1080, app tile 300x300
+//                      (--only listing: the optional extras of the import, scripts/store-listing-csv.mjs: hero art 1920x1080, tiles 150x150 and 71x71)
 // The mark keeps its transparent corners in the package images and in the tile; the box art and the poster are opaque (brand blue behind the
 // mark, no text, so no font decides how they look). CHROME_PATH overrides the browser lookup. Exit 1 when no browser is found.
 import fs from "node:fs";
@@ -13,7 +14,7 @@ import path from "node:path";
 import net from "node:net";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { packageImages, pngInfo, ROOT, storeLogos } from "./lib/msix.mjs";
+import { listingExtras, packageImages, pngInfo, ROOT, storeLogos } from "./lib/msix.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -46,6 +47,11 @@ export function pageFor({ kind, w, h }, markUri) {
   if (kind === "box") {
     const s = Math.round(w * 0.6);
     return { style: bg, html: img(`left:${Math.round((w - s) / 2)}px;top:${Math.round((h - s) / 2)}px;width:${s}px;height:${s}px`) };
+  }
+  if (kind === "hero") {
+    // 16:9 hero art of the Store listing: the mark centred on the brand background, no text, nothing in the bottom third
+    const s = Math.round(h * 0.46);
+    return { style: bg, html: img(`left:${Math.round((w - s) / 2)}px;top:${Math.round(h * 0.4 - s / 2)}px;width:${s}px;height:${s}px`) };
   }
   if (kind === "poster") {
     const s = Math.round(w * 0.74);
@@ -144,14 +150,15 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const val = (n) => (a.includes(n) ? a[a.indexOf(n) + 1] : undefined);
   const out = val("--out");
   const only = val("--only");
-  if (!out || (only && !["package", "store"].includes(only))) {
-    console.error("usage: node scripts/msix-assets.mjs --out <folder> [--only package|store]");
+  if (!out || (only && !["package", "store", "listing"].includes(only))) {
+    console.error("usage: node scripts/msix-assets.mjs --out <folder> [--only package|store|listing]");
     process.exit(2);
   }
   try {
     let n = 0;
-    if (only !== "store") n += (await renderImages(packageImages(), path.join(out, "Assets"))).length;
-    if (only !== "package") n += (await renderImages(storeLogos(), path.join(out, "store"))).length;
+    if (!only || only === "package") n += (await renderImages(packageImages(), path.join(out, "Assets"))).length;
+    if (!only || only === "store") n += (await renderImages(storeLogos(), path.join(out, "store"))).length;
+    if (only === "listing") n += (await renderImages(listingExtras(), path.join(out, "store"))).length;
     console.log(`msix-assets: ${n} images in ${out}`);
   } catch (e) {
     console.error(`msix-assets: ${e.message}`);

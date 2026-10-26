@@ -12,6 +12,7 @@ import { parseReplyTo } from "./replyTo";
 import { nameInlinePicture } from "./editor/messageBody";
 import type { LangPref } from "./i18n";
 import { packThread } from "./threadPack";
+import { applyShots, type ShotsData } from "./devMockShots";
 import type { MessageFull } from "./api";
 
 const now = Math.floor(Date.now() / 1000);
@@ -1106,6 +1107,9 @@ export function installMock() {
     accounts.length = 0; // first-run: the Welcome screen
     folders.length = 0;
   }
+  // the Store listing screenshots (scripts/store-screenshots.mjs): the sample mail of the listing replaces the mock mailbox (src/devMockShots.ts)
+  const shots = (window as unknown as { __hlShots?: ShotsData }).__hlShots;
+  if (shots) applyShots(shots, { accounts, threads, threadMsgs: mockThreadMsgs, folders, outbox: mockOutbox, rules: mockRules, settings, secrets: mockSecrets, pgpKeys, mkKey, row: t, msg: secMsg, setEvents: (l) => void (calEvents = l as MockEvent[]), ev, now });
   for (const [param, id] of [["reauth", "a2"], ["reauthms", "a4"]] as const) {
     const m = new RegExp(`(^|&)${param}=([a-z]+)`).exec(window.location.hash.slice(1))?.[2];
     if (m) reauthNeeded[id] = m;
@@ -2529,6 +2533,8 @@ export function installMock() {
       }
       case "ai_complete": {
         // dev switches for the waiting states of an AI call: #slowai[=ms] answers after 20 s (or ms); #failai[=timeout|nokey|server|plain|auth|forbidden|model|url|busy|bad|network|total|cancelled|once] fails after 5 s (or #failaims=ms; "once": the first call only)
+        const canned = (window as unknown as { __hlShotsAnswer?: string }).__hlShotsAnswer; // the listing screenshots: one fixed answer, never a call out
+        if (canned) return later(400, () => canned);
         const part = Number(/this is part (\d+)/.exec(String(a.system))?.[1] ?? 0);
         mockAiRequests.push({ id: String(a.jobId), part, chars: String(a.prompt).length });
         const reply = String(a.system).startsWith("Translate")
