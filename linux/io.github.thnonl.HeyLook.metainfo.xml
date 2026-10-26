@@ -240,6 +240,12 @@
   <releases>
     <!-- The version-bump commit of a release adds its entry FIRST (the newest release is the snap's version and the one the release
          workflow checks against the tag). -->
+    <release version="1.0.10" date="2026-10-27">
+      <description>
+        <p>The start-with-Windows entry shows the window by default, with a new switch to start in the tray; One Inbox stays in Favorites, accounts can be dragged by their whole header, and the new-mail sound is quieter.</p>
+      </description>
+      <url>https://github.com/thnonl/hey-look/releases/tag/v1.0.10</url>
+    </release>
     <release version="1.0.9" date="2026-10-26">
       <description>
         <p>Fixes the white rectangle that stayed on the Windows desktop after Hey Look! started with Windows or in the tray, and makes the start-with-Windows entry and the tray start more dependable.</p>

@@ -133,7 +133,7 @@ mutate("a namespace that is not ignorable", 'IgnorableNamespaces="uap uap5 uap17
 mutate("a mailto / protocol registration", "    </Application>", '<Extensions><uap:Extension Category="windows.protocol"><uap:Protocol Name="mailto"/></uap:Extension></Extensions>\n    </Application>', /windows\.protocol/);
 mutate("a file type association", "    </Application>", '<uap:Extension Category="windows.fileTypeAssociation" />\n    </Application>', /fileTypeAssociation/);
 mutate("a logo outside Assets", "<Logo>Assets\\StoreLogo.png</Logo>", "<Logo>StoreLogo.png</Logo>", /image reference/);
-mutate("another description", "<Description>Fast, private desktop mail client</Description>", "<Description>x</Description>", /Description/);
+mutate("another description", "<Description>Desktop mail client</Description>", "<Description>x</Description>", /Description/);
 
 // ---- images
 check("package images: three logos, five scales, the target sizes (spec A-21)", () => {

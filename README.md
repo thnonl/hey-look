@@ -1,6 +1,6 @@
 # Hey Look!
 
-A fast, private desktop mail client for Windows, macOS and Linux. Free and open source, with no ads, no analytics and no account to create.
+A desktop mail client for Windows, macOS and Linux. Free and open source, with no ads, no analytics and no account to create.
 
 [![Hey Look! intro](docs/media/preview.gif)](https://heylook.namthai.site/#film)
 

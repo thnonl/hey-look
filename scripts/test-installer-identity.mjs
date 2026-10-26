@@ -33,7 +33,7 @@ check("bundle identity", () => {
   assert.notEqual(b.publisher, conf.productName, "the publisher must differ from the product name");
   assert.equal(b.copyright, "© 2026 thnonl");
   assert.equal(b.homepage, "https://heylook.namthai.site/");
-  assert.equal(b.shortDescription, "Fast, private desktop mail client");
+  assert.equal(b.shortDescription, "Desktop mail client");
   assert.equal(b.longDescription, "Hey Look! is a free, open-source desktop mail client for Google, Microsoft, iCloud, Yahoo and any IMAP/SMTP mailbox.");
   assert.equal(b.license, "MIT");
   assert.match(read("src-tauri/Cargo.toml"), /^authors = \["thnonl"\]$/m);

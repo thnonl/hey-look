@@ -12,7 +12,7 @@ export const READINESS = path.join(ROOT, "src-tauri", "msix", "readiness.json");
 
 /** The name the Store shows (DEC-006): the only name that was reserved for the product. */
 export const STORE_DISPLAY_NAME = "Hey Look! Mail Client";
-export const DESCRIPTION = "Fast, private desktop mail client";
+export const DESCRIPTION = "Desktop mail client";
 /** The languages of the package (spec A-20). */
 export const LANGUAGES = ["en-US", "vi", "fr", "zh-Hans", "es", "ja", "de", "ru"];
 export const EXE_NAME = "hey-look.exe";
@@ -89,7 +89,7 @@ export function checkManifest(xml, expect = {}) {
   if (propName !== STORE_DISPLAY_NAME) bad.push(`Properties DisplayName is '${propName}', expected '${STORE_DISPLAY_NAME}' (DEC-006)`);
   const visual = /<uap:VisualElements\b[^>]*>/.exec(xml)?.[0] ?? "";
   if (attr(visual, "DisplayName") !== STORE_DISPLAY_NAME) bad.push(`VisualElements DisplayName is '${attr(visual, "DisplayName")}', expected '${STORE_DISPLAY_NAME}' (DEC-006)`);
-  if (!/<Description>Fast, private desktop mail client<\/Description>/.test(props)) bad.push("Properties Description is not the agreed one");
+  if (!/<Description>Desktop mail client<\/Description>/.test(props)) bad.push("Properties Description is not the agreed one");
   const app = /<Application\b[^>]*>/.exec(xml)?.[0] ?? "";
   if (attr(app, "Executable") !== EXE_NAME) bad.push(`Application Executable is '${attr(app, "Executable")}', expected ${EXE_NAME}`);
   if (attr(app, "EntryPoint") !== "Windows.FullTrustApplication") bad.push("Application EntryPoint is not Windows.FullTrustApplication");
