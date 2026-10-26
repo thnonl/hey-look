@@ -114,4 +114,24 @@ assert.deepEqual(go({ all: true, headerTo: [], headerCc: [], headerFrom: null })
 assert.deepEqual(fallbackReferences(["<a@x>", null, "<b@x>"], "<b@x>"), ["<a@x>", "<b@x>"]);
 assert.deepEqual(fallbackReferences([], "<b@x>"), ["<b@x>"]);
 assert.deepEqual(fallbackReferences([], null), []);
+// 1.0.9 BUG-3: a message from ANOTHER account of the person is received mail in the account it is in: Reply goes to that sender (the To used to be empty: both addresses are "mine").
+// It is "my own message" (answered to its recipients) only in the account it was sent from. `mailbox` is the account the message is in.
+{
+  const two = new Set(["namth.onl@gmail.com", "thnonline@gmail.com"]);
+  const inbox = { fromEmail: "thnonline@gmail.com", fromName: "Nam Thái", to: "namth.onl@gmail.com", cc: "", mine: two, mailbox: "namth.onl@gmail.com", replyTo: [], all: false };
+  const r = (o) => replyTargets({ ...inbox, ...o });
+  assert.deepEqual(r({}), { to: ["Nam Thái <thnonline@gmail.com>"], cc: [], viaReplyTo: null }, "Reply: to the sender, who is my other account");
+  assert.deepEqual(r({ all: true }), { to: ["Nam Thái <thnonline@gmail.com>"], cc: [], viaReplyTo: null }, "Reply all: to the sender; the account the message is in is never in it");
+  const more = r({ to: "namth.onl@gmail.com,bob@ext.test", cc: "thnonline@gmail.com,carol@ext.test", all: true });
+  assert.deepEqual([more.to, more.cc], [["Nam Thái <thnonline@gmail.com>", "bob@ext.test"], ["carol@ext.test"]], "Reply all: sender + the other recipients, once each, no account of mine twice");
+  // the same message in the Sent folder of the account it came from: my own message, answered to its recipients (another account of mine is a recipient like any other)
+  const sent = replyTargets({ ...inbox, mailbox: "thnonline@gmail.com" });
+  assert.deepEqual(sent.to, ["namth.onl@gmail.com"], "Sent folder of the sending account: Reply goes to the recipient, even when it is my other account");
+  assert.deepEqual(replyTargets({ ...inbox, mailbox: "thnonline@gmail.com", to: "namth.onl@gmail.com,bob@ext.test" }).to, ["bob@ext.test"], "(a recipient that is not mine is preferred as before)");
+  // a Reply-To that is my own account is still dropped (W8.6): the sender is answered
+  assert.deepEqual(r({ replyTo: ["namth.onl@gmail.com"] }).to, ["Nam Thái <thnonline@gmail.com>"]);
+  assert.equal(r({ replyTo: ["namth.onl@gmail.com"] }).viaReplyTo, null);
+  // an outside sender is unchanged
+  assert.deepEqual(r({ fromEmail: "x@ext.test", fromName: "" }).to, ["x@ext.test"]);
+}
 console.log("reply-targets: all checks passed");
