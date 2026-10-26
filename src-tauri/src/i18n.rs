@@ -222,7 +222,7 @@ fn texts(k: K) -> [&'static str; 3] {
         K::StartFailProfile => [
             "Hey Look! could not start because it cannot use its data folder.\n\nMake sure the folder below exists, is a folder and not a file, and that your Windows account may write to it. Then start Hey Look! again.",
             "Hey Look! không khởi động được vì không dùng được thư mục dữ liệu của mình.\n\nHãy kiểm tra thư mục bên dưới có tồn tại, là một thư mục chứ không phải một tệp, và tài khoản Windows của bạn có quyền ghi vào đó. Sau đó hãy khởi động lại ứng dụng.",
-            "Hey Look! n’a pas pu démarrer, car il ne peut pas utiliser son dossier de données.\n\nVérifiez que le dossier ci-dessous existe, que c’est bien un dossier et non un fichier, et que votre compte Windows peut y écrire. Relancez ensuite l’application.",
+            "Hey Look! n’a pas pu démarrer, car il ne peut pas utiliser son dossier de données.\n\nVérifiez que le dossier ci-dessous existe, que c’est bien un dossier et non un fichier, et que votre compte Windows peut y écrire. Relancez ensuite Hey Look!.",
         ],
         K::StartFailFolder => ["Folder:", "Thư mục:", "Dossier :"],
         K::StartFailSaid => ["Windows said:", "Windows báo:", "Windows indique :"],
