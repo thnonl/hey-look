@@ -506,3 +506,7 @@ static | node scripts/test-store-listing-csv.mjs
 
 # 1.0.10 UI polish (R4 R1 R3 R5 R2): One Inbox always in Favorites (locked star, locked Settings switch, write guard, read rule), no reload on a click on the open mail, Account settings... / All accounts settings... menus, the whole account row drags
 ui-b | node scripts/test-ui-polish-1010.mjs --require-browser
+# 1.0.10 senders whose remote content always loads (spec ba-v1010-trusted-senders-images): the rule, the offer and the notice states (T-U1..3)
+static | node --experimental-strip-types scripts/test-trusted-rule.mjs
+# 1.0.10 trusted senders in the dev preview: the notice and its links, load now, Undo, the next message, held messages, Stop, the quote of a reply (T-C1..C7, C10), the Settings list and 8 languages x 2 sizes (T-C8, C11)
+ui-c | node scripts/test-trusted-senders.mjs --require-browser

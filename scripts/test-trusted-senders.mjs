@@ -207,6 +207,109 @@ try {
   ok(q.imgs === 0 && q.note && q.fetched === 0, `a Junk message of the same sender: the note, nothing fetched (${JSON.stringify(q)})`);
   await evaluate(`window.__store.getState().openCompose(null, { restore: false }); 1`);
   await setList([]);
+
+  // ======================================================================== T-C11: the list in Settings
+  section = 'settings';
+  await setList([]);
+  await evaluate(`window.__store.getState().setDialog({ type: 'settings', tab: 'mb:all', section: 'reading', nonce: Date.now() }); 1`);
+  ok(await until(`!!document.querySelector('.trusted-list')`, 8000), 'the list is under the Always load remote content switch');
+  const order = await evaluate(`(() => { const ids = [...document.querySelectorAll('.settings-body .set-row')].map((r) => r.id); return [ids.indexOf('set-loadRemote'), ids.indexOf('set-trusted')]; })()`);
+  ok(order[0] >= 0 && order[1] === order[0] + 1, `the list's row follows the switch's (${order})`);
+  const sl = () => evaluate(`(() => { const l = document.querySelector('.trusted-list'); if (!l) return null; const rows = [...l.querySelectorAll('.list-row')].map((r) => r.querySelector('.lr-title').textContent); return { rows, search: !!l.querySelector('input.trusted-search'), muted: [...l.querySelectorAll(':scope > .muted')].map((m) => m.textContent.trim()), removeAll: [...document.querySelectorAll('.settings-body .set-row button')].some((b) => b.textContent.trim() === 'Remove all'), added: l.querySelector('.list-row .small') ? l.querySelector('.list-row .small').textContent.trim() : null }; })()`);
+  let s = await sl();
+  ok(s.rows.length === 0 && s.muted.some((m) => m.startsWith('No senders yet.')) && !s.search && !s.removeAll, `empty: the text, no search box, no Remove all (${JSON.stringify(s)})`);
+  await setList(['one@shop.example']);
+  await sleep(300);
+  s = await sl();
+  ok(s.rows.length === 1 && !s.removeAll && /^Added /.test(s.added || '') && !s.search, `one sender: a row with its date, no Remove all (${JSON.stringify(s)})`);
+  await setList(['a@shop.example', 'b@shop.example', 'c@shop.example', 'd@shop.example', 'e@shop.example', 'f@other.example', 'g@other.example', 'h@other.example']);
+  await sleep(300);
+  s = await sl();
+  ok(s.rows.length === 8 && !s.search && s.removeAll, `eight senders: no search box yet, Remove all (${JSON.stringify(s)})`);
+  await setList(['a@shop.example', 'b@shop.example', 'c@shop.example', 'd@shop.example', 'e@shop.example', 'f@other.example', 'g@other.example', 'h@other.example', 'i@other.example']);
+  await sleep(300);
+  s = await sl();
+  ok(s.rows.length === 9 && s.search, 'nine senders: the search box');
+  const type = async (txt) => { await evaluate(`(() => { const i = document.querySelector('.trusted-search'); i.focus(); return 1; })()`); await cdp('Input.insertText', { text: txt }); await sleep(150); };
+  await type('SHOP');
+  s = await sl();
+  eq(s.rows, ['a@shop.example', 'b@shop.example', 'c@shop.example', 'd@shop.example', 'e@shop.example'], 'search "SHOP": only the rows that contain it');
+  await evaluate(`(() => { const i = document.querySelector('.trusted-search'); i.select(); return 1; })()`);
+  await type('zzz');
+  s = await sl();
+  ok(s.rows.length === 0 && s.muted.some((m) => m === 'No senders match "zzz".'), `"zzz": the no-match text (${JSON.stringify(s.muted)})`);
+  await evaluate(`(() => { const i = document.querySelector('.trusted-search'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, ''); i.dispatchEvent(new Event('input', { bubbles: true })); return 1; })()`);
+  await sleep(150);
+  // Remove one
+  ok(await evaluate(`(() => { const b = document.querySelector('.trusted-list .list-row button'); if (!b) return false; const name = b.getAttribute('aria-label'); window.__removed = name; b.click(); return true; })()`), 'a Remove button');
+  await sleep(300);
+  eq(await evaluate(`window.__removed`), 'Remove a@shop.example', 'the name of the button has the address');
+  eq(await evaluate(`window.__mockRemoteOk.has('a@shop.example')`), false, 'Remove: off the list');
+  s = await sl();
+  eq(s.rows.length, 8, 'Remove: the row is gone');
+  // Remove all: Cancel, then confirm
+  const modalBtn = (label) => evaluate(`(() => { const b = [...document.querySelectorAll('.ask button')].find((x) => x.textContent.trim() === ${JSON.stringify(label)}); if (!b) return false; b.click(); return true; })()`);
+  await evaluate(`[...document.querySelectorAll('.settings-body .set-row button')].find((b) => b.textContent.trim() === 'Remove all').click(); 1`);
+  ok(await until(`!![...document.querySelectorAll('.ask')].find((m) => m.textContent.includes('Remove all senders?'))`, 2000), 'Remove all asks first');
+  ok((await evaluate(`document.body.innerText`)).includes('Remote content from 8 senders will be blocked again.'), 'with the number in the text');
+  ok(await modalBtn('Cancel'), 'Cancel');
+  await sleep(300);
+  eq(await evaluate(`window.__mockRemoteOk.size`), 8, 'Cancel: nothing changed');
+  await evaluate(`[...document.querySelectorAll('.settings-body .set-row button')].find((b) => b.textContent.trim() === 'Remove all').click(); 1`);
+  ok(await until(`!![...document.querySelectorAll('.ask')].find((m) => m.textContent.includes('Remove all senders?'))`, 2000), 'Remove all asks again');
+  ok(await evaluate(`(() => { const bs = [...document.querySelectorAll('.ask button')].filter((x) => x.textContent.trim() === 'Remove all'); if (!bs.length) return false; bs[bs.length - 1].click(); return true; })()`), 'confirm');
+  await sleep(400);
+  eq(await evaluate(`window.__mockRemoteOk.size`), 0, 'confirm: the list is empty');
+  s = await sl();
+  ok(s.rows.length === 0 && s.muted.some((m) => m.startsWith('No senders yet.')), 'and the empty text shows');
+  // the note while the global switch is on
+  await evaluate(`window.__store.getState().setPrefs({ loadRemote: true }); 1`);
+  await sleep(200);
+  s = await sl();
+  ok(s.muted.some((m) => m.startsWith('Not needed while "Always load remote content (images)" is on')), `the global switch is on: the note (${JSON.stringify(s.muted)})`);
+  await evaluate(`window.__store.getState().setPrefs({ loadRemote: false }); 1`);
+  await sleep(200);
+  s = await sl();
+  ok(!s.muted.some((m) => m.startsWith('Not needed while')), 'off: the note is gone');
+  // the same list in one mailbox's page
+  await evaluate(`window.__store.getState().setDialog({ type: 'settings', tab: 'mb:a2', section: 'reading', nonce: Date.now() }); 1`);
+  ok(await until(`!!document.querySelector('.trusted-list')`, 6000), 'a mailbox page shows the same list');
+  await evaluate(`window.__store.getState().setDialog(null); 1`);
+
+  // ======================================================================== T-C8 + T-C9: the notice in 8 languages, two sizes, both themes
+  section = 'layout';
+  const LANGS = ['en', 'de', 'es', 'fr', 'ja', 'ru', 'vi', 'zh-Hans'];
+  const SIZES = [[960, 560], [1280, 800]];
+  const report = [];
+  for (const theme of ['light', 'dark']) for (const [w, h] of SIZES) for (const lang of LANGS) {
+    if (theme === 'dark' && lang !== 'en' && lang !== 'de') continue;
+    await H.openApp(`${theme}&lang=${lang}`, w, h);
+    await evaluate(`${THREADS.map(([id, subject, over]) => `window.__mockAddThread(${JSON.stringify(id)}, ${JSON.stringify(subject)}, ${JSON.stringify(over)});`).join(' ')} window.__store.getState().setPrefs({ loadRemote: false }); window.__store.getState().refresh().then(() => 1)`);
+    await sleep(300);
+    for (const [id, state] of [['trN', 'offer'], ['trL', 'offer'], ['trJ', 'held']]) {
+      if (state === 'held') await setList([SENDER]);
+      await open(id);
+      const m = await evaluate(`(() => {
+        const n = document.querySelector('.rp-msg.open .notice'); if (!n) return null;
+        const cs = getComputedStyle(n), lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.4, r = n.getBoundingClientRect(), pane = n.closest('.rp-msg').parentElement;
+        const links = [...n.querySelectorAll('button.link')].map((b) => { const q = b.getBoundingClientRect(); const own = parseFloat(getComputedStyle(b).lineHeight) || lh; return { text: b.textContent.trim(), lines: Math.round(q.height / own), h: Math.round(q.height), inside: q.left >= r.left - 1 && q.right <= r.right + 1, tall: b.scrollWidth > b.clientWidth + 1 }; });
+        const sc = [...document.querySelectorAll('.rp-msg.open, .reading-pane, .reader, .rp-scroll')].some((e) => e.scrollWidth > e.clientWidth + 1);
+        return { lines: Math.round((r.height - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)) / lh), clip: n.scrollWidth > n.clientWidth + 1, hscroll: sc || document.documentElement.scrollWidth > innerWidth, links, text: n.textContent, right: Math.round(r.right), vw: innerWidth };
+      })()`);
+      ok(m, `${lang} ${w}x${h} ${id}: the notice shows`);
+      if (!m) continue;
+      ok(!m.clip && !m.hscroll, `${theme} ${lang} ${w}x${h} ${id}: not clipped, no horizontal scroll (${JSON.stringify({ clip: m.clip, hscroll: m.hscroll })})`);
+      ok(m.links.every((l) => l.inside && !l.tall), `${lang} ${w}x${h} ${id}: every link inside the notice ${JSON.stringify(m.links.filter((l) => !l.inside || l.tall))}`);
+      ok(!/reading\.trust|settings\.reading/.test(m.text), `${lang} ${w}x${h} ${id}: no raw key`);
+      ok(!m.text.includes(LONG) && !m.text.includes(SENDER), `${lang} ${w}x${h} ${id}: the address is not in the text`);
+      const trust = m.links.find((l) => /^(?!.*\()/.test(l.text) && l.text !== m.links[0].text && m.links.indexOf(l) === 1);
+      if (trust) ok([...trust.text].length <= (['ja', 'zh-Hans'].includes(lang) ? 22 : 52), `${lang}: the label is short enough (${[...trust.text].length}): ${trust.text}`);
+      if (w === 1280 && theme === 'light') ok(m.lines <= 3, `${lang} 1280x800 ${id}: at most 3 lines (${m.lines})`);
+      if (id === 'trN') report.push(`${theme} ${lang} ${w}x${h}: ${m.lines} lines`);
+    }
+    await setList([]);
+  }
+  console.log('  notice lines:', report.join('; '));
 } finally {
   await H.shutdown();
 }
