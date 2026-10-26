@@ -319,6 +319,12 @@ pub fn defer(config: &mut tauri::utils::config::Config) -> bool {
     on
 }
 
+/// Is the main window made with the focus? Only when it is going to be shown (a visible start, an icon that never came, a request for the window); a window that
+/// stays hidden is made without it (QA BUG-1 of 1.0.10: the hidden window of a tray start took the foreground).
+pub fn focus_at_creation(show_at_start: bool, requested: bool) -> bool {
+    show_at_start || requested
+}
+
 /// Is this start gated (the main window is made by `start`, not by tauri)?
 pub fn is_deferred() -> bool {
     DEFERRED.load(Ordering::SeqCst)
@@ -413,8 +419,12 @@ pub fn start(app: &AppHandle, show_at_start: bool) {
             }
         }
         let config = app.config().app.windows.first().cloned();
+        // a window that stays hidden (tray start) must not take the keyboard focus: with the default (`focus` true) wry moves the focus into the web view
+        // (`MoveFocus`) as soon as the controller exists, a quarter of a second after the window, and that makes the hidden window the foreground window for
+        // ~70 ms (QA BUG-1: it stole the keystrokes of what the person was typing at sign-in). A window that is shown at once gets the focus as before.
+        let take_focus = focus_at_creation(show_at_start, REQUESTED.load(Ordering::SeqCst));
         let made = match config {
-            Some(cfg) => tauri::WebviewWindowBuilder::from_config(&app, &cfg).and_then(|b| b.build()).map(|_| ()),
+            Some(cfg) => tauri::WebviewWindowBuilder::from_config(&app, &cfg).and_then(|b| b.focused(take_focus).build()).map(|_| ()),
             None => Err(tauri::Error::Io(std::io::Error::other("no window in the config"))),
         };
         CREATED.store(true, Ordering::SeqCst);
@@ -679,6 +689,18 @@ mod tests {
         // the tray check, the parking and the ghost looks belong to a tray start only
         let start = &gate[gate.find("pub fn start(").unwrap()..];
         assert!(start.contains("if !show_at_start && !REQUESTED.load(Ordering::SeqCst) {") && start.contains("made.is_ok() && !show_at_start"), "{start}");
+    }
+
+    #[test]
+    fn a_window_that_stays_hidden_is_made_without_the_focus() {
+        assert!(!focus_at_creation(false, false), "tray start: no focus");
+        assert!(focus_at_creation(true, false) && focus_at_creation(false, true) && focus_at_creation(true, true));
+        let gate = code("startgate.rs");
+        let start = &gate[gate.find("pub fn start(").unwrap()..];
+        let made = &start[start.find("WebviewWindowBuilder::from_config").unwrap()..];
+        assert!(made[..made.find(".build()").unwrap()].contains(".focused(take_focus)"), "{made}");
+        assert!(start.contains("focus_at_creation(show_at_start, REQUESTED.load(Ordering::SeqCst))"));
+        assert!(start.find("focus_at_creation(").unwrap() > start.find("tray_confirmed(").unwrap(), "decided after the tray check, which can turn a hidden start into a shown one");
     }
 
     #[test]
