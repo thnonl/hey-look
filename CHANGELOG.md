@@ -16,6 +16,7 @@
 - A hidden picture is now a visible box with a shield, "Picture hidden for privacy" and how to show it. Click it, press Enter, or right-click it (Shift+F10 with the keyboard) for "Show this picture", "Show all pictures in this message" and "Always show pictures from this sender"
 - The app now ships its own font (Inter) so that text looks and wraps the same on Windows, macOS and Linux (Chinese and Japanese keep the system fonts; the font adds about 57 KB to the app)
 - Senders whose remote content always loads: a third link in the notice above a message whose content is blocked, "Always load remote content from this sender", loads it at once and for every later message from that exact address (not in Junk, not for encrypted messages, not when the sender check failed, never for your own addresses). "Stop loading remote content from this sender" is in the same place, with Undo. The list is in Settings > Mailboxes > Reading, with search, Remove and Remove all; Block sender takes the address off it
+- Hey Look! is also available in the Microsoft Store (a link on the download page and in the README); the Store installs it and keeps it up to date
 - Windows: Settings > Notifications has a new switch, "Start in the tray", under "Start Hey Look! when I sign in to Windows" (shown while that one is on; off by default; in all eight languages). Turning it on makes the entry `"<path>" --minimized` again: the app starts in the tray icon and the window stays hidden until you open it. Turning it off, or the start-with-Windows switch off, writes the entry at once
 - Windows: a line under the switch "Start in the tray" says that with it on Hey Look! starts with its window closed and is opened from the tray icon
 - `startup.log` has `[autostart]` lines that say which entry is registered and whether "Start in the tray" is on, and a `[gate]` line that says when a start is treated as a start at sign-in
@@ -38,7 +39,8 @@
 
 ### Known limitations
 
-- APT repository, Microsoft Store and Snap Store: not available in this release (download Hey Look! from GitHub or the website; it updates itself)
+- APT repository and Snap Store: not available in this release (download Hey Look! from GitHub or the website; it updates itself)
+- Microsoft Store: Hey Look! is in the Store; the Store gets this release after Microsoft has approved it, so the Store version can be behind GitHub for a while
 - Not tested by the project's QA with real accounts or real hardware; the owner checks these after the release and what he finds goes into the next version:
   - Google and Microsoft sign-in (mail and calendar) was tested with simulated sign-in servers, not with real Google or Microsoft accounts
   - Calendar: CalDAV sync was tested against simulated servers, not against real servers (iCloud, Fastmail, Baikal, Nextcloud, Radicale)
