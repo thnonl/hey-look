@@ -347,6 +347,7 @@ export default defineLocale<typeof ns.en>({
   "settings.reading.maxDefault": "{n} (Standard)",
   "settings.folders.account": "Ordner dieses Kontos, die unter „Favoriten“ erscheinen.",
   "settings.folders.all": "Ordner, die unter „Favoriten“ für alle Konten zusammen angezeigt werden.",
+  "settings.folders.inboxAlways": "Immer in den Favoriten",
   "settings.folder.inbox": "Posteingang",
   "settings.folder.drafts": "Entwürfe",
   "settings.folder.sent": "Gesendet",

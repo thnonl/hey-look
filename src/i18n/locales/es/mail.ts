@@ -102,6 +102,7 @@ export default defineLocale<typeof ns.en>({
   "mail.pane.quickViews": "Vistas rápidas",
   "mail.pane.addFav": "Añadir a Favoritos",
   "mail.pane.removeFav": "Quitar de Favoritos",
+  "mail.pane.favLocked": "La bandeja de entrada de todas las cuentas siempre permanece en Favoritos",
   "mail.pane.failedTitle": { one: "No se pudo enviar {n} mensaje programado", other: "No se pudieron enviar {n} mensajes programados" },
   "mail.pane.failedBadge": { one: "{n} fallido", other: "{n} fallidos" },
   "mail.pane.retry": "{error}\nHaz clic para reintentar",

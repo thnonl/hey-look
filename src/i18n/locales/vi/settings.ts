@@ -347,6 +347,7 @@ export default defineLocale<typeof ns.en>({
   "settings.reading.maxDefault": "{n} (mặc định)",
   "settings.folders.account": "Các thư mục của tài khoản này xuất hiện trong Mục yêu thích.",
   "settings.folders.all": "Các thư mục hiển thị trong Mục yêu thích cho tất cả tài khoản gộp lại.",
+  "settings.folders.inboxAlways": "Luôn có trong Mục yêu thích",
   "settings.folder.inbox": "Hộp thư đến",
   "settings.folder.drafts": "Thư nháp",
   "settings.folder.sent": "Đã gửi",

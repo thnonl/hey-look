@@ -102,6 +102,7 @@ export default defineLocale<typeof ns.en>({
   "mail.pane.quickViews": "クイックビュー",
   "mail.pane.addFav": "お気に入りに追加",
   "mail.pane.removeFav": "お気に入りから削除",
+  "mail.pane.favLocked": "すべてのアカウントの受信トレイは常にお気に入りに表示されます",
   "mail.pane.failedTitle": { other: "送信予約メッセージ{n}件の送信に失敗しました" },
   "mail.pane.failedBadge": { other: "{n}件失敗" },
   "mail.pane.retry": "{error}\nクリックして再試行",

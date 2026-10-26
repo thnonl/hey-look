@@ -102,6 +102,7 @@ export default defineLocale<typeof ns.en>({
   "mail.pane.quickViews": "快速视图",
   "mail.pane.addFav": "添加到收藏夹",
   "mail.pane.removeFav": "从收藏夹中移除",
+  "mail.pane.favLocked": "所有账户的收件箱始终保留在“收藏夹”中",
   "mail.pane.failedTitle": { other: "{n}封定时邮件发送失败" },
   "mail.pane.failedBadge": { other: "{n}封发送失败" },
   "mail.pane.retry": "{error}\n点击重试",

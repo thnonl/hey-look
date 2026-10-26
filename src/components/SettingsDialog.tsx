@@ -1313,8 +1313,9 @@ function FoldersPanel({ scope }: { scope: string | null }) {
     <>
       <div className="muted small pad">{scope ? t("settings.folders.account") : t("settings.folders.all")}</div>
       {keys.map(({ key, label }) => (
-        <Row key={key} label={label} noSearch /* settings-search: skip – one row per folder, the Folders section itself is registered */>
-          <Switch checked={isFav(`${scope ?? "*"}|${key}`)} onChange={() => toggle(`${scope ?? "*"}|${key}`)} />
+        // One Inbox (the Inbox of all accounts) is always in Favorites: its switch is on and locked
+        <Row key={key} label={label} hint={!scope && key === "inbox" ? t("settings.folders.inboxAlways") : undefined} noSearch /* settings-search: skip – one row per folder, the Folders section itself is registered */>
+          <Switch checked={!scope && key === "inbox" ? true : isFav(`${scope ?? "*"}|${key}`)} disabled={!scope && key === "inbox"} onChange={() => toggle(`${scope ?? "*"}|${key}`)} />
         </Row>
       ))}
     </>

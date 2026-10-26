@@ -347,6 +347,7 @@ export default defineLocale<typeof ns.en>({
   "settings.reading.maxDefault": "{n} (по умолчанию)",
   "settings.folders.account": "Папки этой учётной записи, которые показываются в разделе «Избранное».",
   "settings.folders.all": "Папки, которые показываются в разделе «Избранное» для всех учётных записей вместе.",
+  "settings.folders.inboxAlways": "Всегда в избранном",
   "settings.folder.inbox": "Входящие",
   "settings.folder.drafts": "Черновики",
   "settings.folder.sent": "Отправленные",

@@ -237,19 +237,27 @@ export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
         ) : queued > 0 && key === "scheduled" ? (
           <span className="fp-badge">{queued}</span>
         ) : null}
-        {!rail && (
+        {!rail && (() => {
+          // One Inbox (`*|inbox`) is always in Favorites (1.0.10): its star is a filled, locked button. aria-disabled (not disabled) keeps it in the
+          // Tab order and keeps the tooltip, so the reason can be read; a click does nothing and does not open the row.
+          const locked = acct === null && key === "inbox";
+          const on = locked || isFav(acct, key);
+          const label = locked ? t("mail.pane.favLocked") : on ? t("mail.pane.removeFav") : t("mail.pane.addFav");
+          return (
           <button
-            className={`fp-star ${isFav(acct, key) ? "on" : ""}`}
-            title={isFav(acct, key) ? t("mail.pane.removeFav") : t("mail.pane.addFav")}
-            aria-label={isFav(acct, key) ? t("mail.pane.removeFav") : t("mail.pane.addFav")}
+            className={`fp-star ${on ? "on" : ""} ${locked ? "locked" : ""}`}
+            title={label}
+            aria-label={label}
+            aria-disabled={locked ? true : undefined}
             onClick={(e) => {
               e.stopPropagation();
-              toggleFav(acct, key);
+              if (!locked) toggleFav(acct, key);
             }}
           >
-            <Star size={12} fill={isFav(acct, key) ? "currentColor" : "none"} />
+            <Star size={12} fill={on ? "currentColor" : "none"} />
           </button>
-        )}
+          );
+        })()}
       </div>
     );
   };

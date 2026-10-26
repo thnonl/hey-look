@@ -454,18 +454,28 @@ pub fn clean_prefs(raw: &str, valid: &std::collections::HashSet<String>) -> Opti
     changed.then(|| v.to_string())
 }
 
-/// One-time preference changes, counted by `prefsRev` in the stored `prefs` (same rule as `mergePrefs` in src/prefs.ts).
+/// One-time preference changes, counted by `prefsRev` in the stored `prefs` (same rules as `applyPrefsRev` in src/prefsRev.ts).
 /// Revision 1 (1.0.7): "Count Other (bulk) mail" is on by default. The whole `prefs` object is saved on every change, so a stored
 /// `false` is almost always untouched, not chosen; it is switched on once and the person's own choice is kept after that.
-/// `None` when nothing needs to change (already at revision 1 or later) or the text is not a JSON object.
+/// Revision 2 (1.0.10): One Inbox (`*|inbox`) is always in Favorites. Earlier versions let its star take it out with no way back; a stored
+/// `favorites` list without it gets it at index 0, once (nothing else moves). A missing or non-list `favorites` is left alone.
+/// `None` when nothing needs to change (already at the newest revision) or the text is not a JSON object.
 pub fn migrate_prefs(raw: &str) -> Option<String> {
     let mut v: serde_json::Value = serde_json::from_str(raw).ok()?;
     let o = v.as_object_mut()?;
-    if o.get("prefsRev").and_then(|r| r.as_i64()).unwrap_or(0) >= 1 {
+    let rev = o.get("prefsRev").and_then(|r| r.as_i64()).unwrap_or(0);
+    if rev >= 2 {
         return None;
     }
-    o.insert("countOtherMail".into(), serde_json::Value::Bool(true));
-    o.insert("prefsRev".into(), serde_json::Value::from(1));
+    if rev < 1 {
+        o.insert("countOtherMail".into(), serde_json::Value::Bool(true));
+    }
+    if let Some(a) = o.get_mut("favorites").and_then(|a| a.as_array_mut()) {
+        if !a.iter().any(|f| f.as_str() == Some("*|inbox")) {
+            a.insert(0, serde_json::Value::String("*|inbox".into()));
+        }
+    }
+    o.insert("prefsRev".into(), serde_json::Value::from(2));
     Some(v.to_string())
 }
 
@@ -726,20 +736,49 @@ mod tests {
     fn prefs_rev_1_turns_count_other_on_once() {
         let j = |s: &str| serde_json::from_str::<serde_json::Value>(&migrate_prefs(s).expect("changed")).unwrap();
         let a = j(r#"{"countOtherMail":false,"listW":420}"#);
-        assert_eq!((a["countOtherMail"].as_bool(), a["prefsRev"].as_i64(), a["listW"].as_i64()), (Some(true), Some(1), Some(420)));
+        assert_eq!((a["countOtherMail"].as_bool(), a["prefsRev"].as_i64(), a["listW"].as_i64()), (Some(true), Some(2), Some(420)));
         let b = j(r#"{"countOtherMail":true}"#);
-        assert_eq!((b["countOtherMail"].as_bool(), b["prefsRev"].as_i64()), (Some(true), Some(1)));
+        assert_eq!((b["countOtherMail"].as_bool(), b["prefsRev"].as_i64()), (Some(true), Some(2)));
         let c = j("{}");
-        assert_eq!((c["countOtherMail"].as_bool(), c["prefsRev"].as_i64()), (Some(true), Some(1)));
+        assert_eq!((c["countOtherMail"].as_bool(), c["prefsRev"].as_i64()), (Some(true), Some(2)));
         // a rev below 1 counts as missing
         assert_eq!(j(r#"{"countOtherMail":false,"prefsRev":0}"#)["countOtherMail"], true);
-        // done once: a later choice of "off" is kept
-        assert!(migrate_prefs(r#"{"countOtherMail":false,"prefsRev":1}"#).is_none());
+        // done once: a later choice of "off" is kept (rev 1 only gets rule 2)
+        assert_eq!(j(r#"{"countOtherMail":false,"prefsRev":1}"#)["countOtherMail"], false);
         assert!(migrate_prefs(r#"{"countOtherMail":false,"prefsRev":2}"#).is_none());
         // not JSON, not an object: left alone
         assert!(migrate_prefs("not json").is_none());
         assert!(migrate_prefs("[1]").is_none());
         assert!(migrate_prefs("null").is_none());
+    }
+
+    #[test]
+    fn prefs_rev_2_puts_one_inbox_back_once() {
+        // the same cases as scripts/test-prefs-defaults.mjs (prefsRev.ts)
+        let run = |s: &str| serde_json::from_str::<serde_json::Value>(&migrate_prefs(s).expect("changed")).unwrap();
+        let a = run(r#"{"prefsRev":1,"favorites":["*|sent"]}"#);
+        assert_eq!((a["favorites"].clone(), a["prefsRev"].as_i64()), (serde_json::json!(["*|inbox", "*|sent"]), Some(2)));
+        let b = run(r#"{"prefsRev":1,"favorites":[]}"#);
+        assert_eq!(b["favorites"], serde_json::json!(["*|inbox"]));
+        // already there: not moved, only the marker is written
+        let c = run(r#"{"prefsRev":1,"favorites":["*|inbox","x|sent"]}"#);
+        assert_eq!((c["favorites"].clone(), c["prefsRev"].as_i64()), (serde_json::json!(["*|inbox", "x|sent"]), Some(2)));
+        let c2 = run(r#"{"prefsRev":1,"favorites":["*|sent","*|inbox"]}"#);
+        assert_eq!(c2["favorites"], serde_json::json!(["*|sent", "*|inbox"]));
+        // no list, or not a list: no key made, nothing else touched
+        let d = run(r#"{"prefsRev":1}"#);
+        assert!(d.get("favorites").is_none());
+        assert_eq!(d["prefsRev"].as_i64(), Some(2));
+        let e = run(r#"{"prefsRev":1,"favorites":"junk"}"#);
+        assert_eq!((e["favorites"].as_str(), e["prefsRev"].as_i64()), (Some("junk"), Some(2)));
+        // rev 0: both rules
+        let f = run(r#"{"countOtherMail":false,"favorites":["*|sent"]}"#);
+        assert_eq!((f["favorites"].clone(), f["countOtherMail"].as_bool(), f["prefsRev"].as_i64()), (serde_json::json!(["*|inbox", "*|sent"]), Some(true), Some(2)));
+        // rev 2 and later: the rule does not run again (the app's read rule shows the row anyway), a later rev is untouched
+        assert!(migrate_prefs(r#"{"prefsRev":2,"favorites":["*|sent"]}"#).is_none());
+        assert!(migrate_prefs(r#"{"prefsRev":3,"favorites":["*|sent"]}"#).is_none());
+        // an account's own Inbox is not One Inbox
+        assert_eq!(run(r#"{"prefsRev":1,"favorites":["a1|inbox"]}"#)["favorites"], serde_json::json!(["*|inbox", "a1|inbox"]));
     }
 
     #[test]
@@ -751,9 +790,9 @@ mod tests {
         set_setting(&c, "prefs", r#"{"countOtherMail":false,"focused":true}"#).unwrap();
         assert!(migrate_stored_prefs(&c).unwrap());
         let v: serde_json::Value = serde_json::from_str(&get_setting(&c, "prefs").unwrap()).unwrap();
-        assert_eq!((v["countOtherMail"].as_bool(), v["prefsRev"].as_i64(), v["focused"].as_bool()), (Some(true), Some(1), Some(true)));
+        assert_eq!((v["countOtherMail"].as_bool(), v["prefsRev"].as_i64(), v["focused"].as_bool()), (Some(true), Some(2), Some(true)));
         // the person turns it off (the app saves the whole object, marker included): the next start leaves it
-        set_setting(&c, "prefs", r#"{"countOtherMail":false,"prefsRev":1}"#).unwrap();
+        set_setting(&c, "prefs", r#"{"countOtherMail":false,"prefsRev":2}"#).unwrap();
         assert!(!migrate_stored_prefs(&c).unwrap());
         assert!(get_setting(&c, "prefs").unwrap().contains(r#""countOtherMail":false"#));
         // damaged text is left alone

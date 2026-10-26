@@ -33,6 +33,7 @@ import type { Lang } from "./i18n";
 import { fmtNumber } from "./i18n/format";
 import { calTz, CalView, Day, rangeFor, systemTz, today } from "./calendar";
 import { accentText, accountColor, buttonAccent, clampMaxDownload, DEFAULT_PREFS, lightened, mergePrefs, Prefs, readableOn, staleAccountPrefs, topBar, validHex } from "./prefs";
+import { withOneInbox } from "./prefsRev";
 import { systemThemeAttribute } from "./osTheme";
 import type { MailCanvasSession } from "./mailCanvas";
 import { captionColors, gradientT } from "./captionColors";
@@ -1681,6 +1682,8 @@ export const useStore = create<State>((set, get) => ({
       } else if (get().langLoading) set({ langLoading: null });
     }
     const before = get().prefs;
+    // One Inbox always stays in Favorites (1.0.10): a list without it gets it back at index 0, whichever window or code path wrote it
+    if (patch.favorites) patch = { ...patch, favorites: withOneInbox(patch.favorites) };
     const prefs = { ...before, ...patch };
     // a new cap: mailboxes that were stopped by the old one are asked again
     if ("maxDownload" in patch && patch.maxDownload !== get().prefs.maxDownload) set({ limited: {} });
