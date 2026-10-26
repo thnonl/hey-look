@@ -15,6 +15,7 @@
 - `startup.log` has `[autostart]` lines that say which entry is registered and whether "Start in the tray" is on, and a `[gate]` line that says when a start is treated as a start at sign-in
 - Account menu has "Account settings…"; One Inbox has a menu with "All accounts settings…"
 - Mailboxes can be reordered by dragging the whole header row, the avatar in the narrow icon column or the Settings entry (touch: the grip only)
+- Settings > Add account > iCloud, Yahoo, other: a Test connection button checks the incoming (IMAP) and outgoing (SMTP) server at the same time without saving anything, and says per server what is wrong and which field to fix (server name, port and security, certificate, password or app password), with one-click fixes for common mistakes (port and security, swapped hosts, trusting a certificate, an app password link, Google or Microsoft sign-in). A failed Add account shows the same lines (in all eight languages)
 
 ### Fixed
 
