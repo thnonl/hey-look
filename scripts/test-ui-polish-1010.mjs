@@ -420,9 +420,180 @@ async function r5() {
   await closeMenu();
 }
 
+// ======================================================================== R2
+const order = () => evaluate(`${S('accounts')}.map((a) => a.id).join()`);
+const rectOf = (selector, nth = 0) => evaluate(`(() => { const e = document.querySelectorAll(${JSON.stringify(selector)})[${nth}]; e.scrollIntoView({ block: 'nearest' }); const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, top: r.top, bottom: r.bottom, left: r.left, right: r.right }; })()`);
+const down = (x, y, extra = {}) => cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1, ...extra });
+const moveTo = (x, y, extra = {}) => cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'left', buttons: 1, ...extra });
+const up = (x, y, extra = {}) => cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 1, ...extra });
+const reordering = () => evaluate(`document.body.classList.contains('reordering')`);
+const liveText = () => evaluate(`[...document.querySelectorAll('[role=status]')].map((e) => e.textContent).join('|')`);
+const gid = (id) => `.fp-group[data-reorder-id="${id}"]`;
+
+async function r2() {
+  section = 'R2';
+  // ---- the header, by its name (AC-2.1, 2.2)
+  await fresh();
+  eq(await order(), 'a1,a2,a3,a4,a5', 'the order to start from');
+  const collapsedBefore = await evaluate(S('prefs.collapsed'));
+  const hd = await rectOf(`${gid('a4')} .fp-head .fp-acct`);
+  const gap = await rectOf(`${gid('a2')} .fp-head`);
+  await moveTo(hd.x, hd.y, { buttons: 0, button: 'none' });
+  await down(hd.x, hd.y);
+  await moveTo(hd.x, hd.y - 10);
+  await moveTo(hd.x, hd.y - 80);
+  await moveTo(gap.x, gap.top + 4);
+  ok(await until(`!!document.querySelector('.reorder-ghost') && !!document.querySelector('.reorder-line') && document.body.classList.contains('reordering')`), 'dragging a mailbox by its name shows the ghost and the line, the cursor is grabbing');
+  const line = await evaluate(`(() => { const l = document.querySelector('.reorder-line').getBoundingClientRect(), a = document.querySelector(${JSON.stringify(gid('a1'))}).getBoundingClientRect(), b = document.querySelector(${JSON.stringify(gid('a2'))}).getBoundingClientRect(); return { top: l.top, a1Bottom: a.bottom, a2Top: b.top, srcDim: document.querySelector(${JSON.stringify(gid('a4'))}).classList.contains('reorder-src'), cursor: getComputedStyle(document.body).cursor }; })()`);
+  ok(Math.abs(line.top - line.a1Bottom) <= 3 && line.srcDim && line.cursor === 'grabbing', `the line is in the gap between 1 and 2, the source is dimmed: ${JSON.stringify(line)}`);
+  await io.shot('r2-header-drag');
+  await up(gap.x, gap.top + 4);
+  await until(`${S('accounts')}.map((a) => a.id).join() !== 'a1,a2,a3,a4,a5'`);
+  eq(await order(), 'a1,a4,a2,a3,a5', 'a4 lands at position 2');
+  await sleep(250);
+  eq(await evaluate(S('prefs.collapsed')), collapsedBefore, 'no collapse toggle after the drop');
+  ok(await evaluate(`document.querySelector(${JSON.stringify(gid('a4') + ' .fp-head')}).getAttribute('aria-expanded') === 'true'`), 'its group stays expanded');
+  ok(!(await reordering()), 'the drag is over');
+  eq((await prefsSaved()).accountOrder, ['a1', 'a4', 'a2', 'a3', 'a5'], 'saved');
+  // reload: the order stays, and Settings and the pickers list it so (AC-2.2)
+  await H.openApp('light&lang=en&persist', 1280, 800);
+  eq(await order(), 'a1,a4,a2,a3,a5', 'after a reload');
+  await evaluate(`${S('setDialog')}({ type: 'settings', tab: 'general', nonce: Date.now() }); 1`);
+  await until(`!!document.querySelector('.nav-acct')`);
+  eq(await evaluate(`[...document.querySelectorAll('.nav-acct')].map((e) => e.dataset.reorderId).join()`), 'a1,a4,a2,a3,a5', 'Settings > Mailboxes lists them in the new order');
+  await evaluate(`${S('setDialog')}(null); 1`);
+
+  // ---- a press that stays under 4 px is a click (AC-2.5); nothing after a drag opens (AC-2.2), Escape cancels (AC-2.6)
+  await fresh();
+  const h1 = await rectOf(`${gid('a1')} .fp-head`);
+  await down(h1.x, h1.y); await moveTo(h1.x + 2, h1.y + 1); await up(h1.x + 2, h1.y + 1);
+  await sleep(200);
+  eq(await evaluate(`!!${S('prefs.collapsed')}['a1']`), true, 'a press and release under 4 px collapses the group');
+  ok(!(await reordering()) && (await order()) === 'a1,a2,a3,a4,a5', 'no drag from a short press');
+  await io.click(`${gid('a1')} .fp-head`);
+  await sleep(200);
+  eq(await evaluate(`!!${S('prefs.collapsed')}['a1']`), false, 'a plain click expands it again');
+  // Escape
+  const h3 = await rectOf(`${gid('a3')} .fp-head`);
+  await down(h3.x, h3.y); await moveTo(h3.x, h3.y - 20); await moveTo(h3.x, h3.y - 90);
+  ok(await until(`!!document.querySelector('.reorder-ghost')`), 'a drag is on');
+  await press('Escape');
+  await sleep(150);
+  ok(!(await evaluate(`!!document.querySelector('.reorder-ghost')`)) && !(await reordering()), 'Escape ends the drag');
+  ok((await liveText()).includes('Reordering cancelled'), `cancelled is announced: ${await liveText()}`);
+  await moveTo(h3.x, h3.y); await up(h3.x, h3.y);
+  await sleep(250);
+  eq(await order(), 'a1,a2,a3,a4,a5', 'the order is unchanged after Escape');
+  eq(await evaluate(`!!${S('prefs.collapsed')}['a3']`), false, 'the release after Escape toggles nothing');
+
+  // ---- what does not start a drag: a modifier, the right button, the warning icon
+  for (const [name, mod] of [['Ctrl', 2], ['Shift', 8], ['Alt', 1], ['Meta', 4]]) {
+    await down(h3.x, h3.y, { modifiers: mod }); await moveTo(h3.x, h3.y - 30, { modifiers: mod }); await moveTo(h3.x, h3.y - 90, { modifiers: mod });
+    await sleep(120);
+    ok(!(await reordering()) && !(await evaluate(`!!document.querySelector('.reorder-ghost')`)), `${name}+press and move starts no drag`);
+    await up(h3.x, h3.y - 90, { modifiers: mod });
+    await sleep(80);
+  }
+  eq(await order(), 'a1,a2,a3,a4,a5', 'no modifier press moved anything');
+  await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x: h3.x, y: h3.y, button: 'right', buttons: 2, clickCount: 1 });
+  await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: h3.x, y: h3.y - 60, button: 'right', buttons: 2 });
+  ok(!(await reordering()), 'a right-button press starts no drag');
+  await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x: h3.x, y: h3.y - 60, button: 'right', buttons: 0, clickCount: 1 });
+  await closeMenu();
+  // the warning icon of a mailbox with a sync error: a press on it is its own click, no drag
+  await evaluate(`window.__store.setState({ syncErrors: { a3: 'mock: sign-in failed' } }); 1`);
+  await sleep(200);
+  if (await evaluate(`!!document.querySelector(${JSON.stringify(gid('a3') + ' .fp-warn')})`)) {
+    const w = await rectOf(`${gid('a3')} .fp-warn`);
+    await down(w.x, w.y); await moveTo(w.x, w.y - 30); await moveTo(w.x, w.y - 90);
+    ok(!(await reordering()), 'a press on the warning icon starts no drag');
+    await up(w.x, w.y - 90);
+    await sleep(100);
+  }
+  await evaluate(`window.__store.setState({ syncErrors: {} }); 1`);
+
+  // ---- touch: only the grip drags (Q4)
+  await fresh();
+  const touch = async (type, x, y) => cdp('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y, id: 1 }] });
+  const th = await rectOf(`${gid('a3')} .fp-head`);
+  await touch('touchStart', th.x, th.y); await touch('touchMove', th.x, th.y - 20); await touch('touchMove', th.x, th.y - 90);
+  ok(!(await reordering()), 'a touch drag on the header starts no reorder');
+  await touch('touchEnd', th.x, th.y - 90);
+  await sleep(150);
+  eq(await order(), 'a1,a2,a3,a4,a5', 'a touch drag on the header moved nothing');
+
+  // ---- the rail: the avatar (AC-2.3)
+  await fresh('light&lang=en', 960, 900);
+  ok(await until(`!!document.querySelector('.is-rail')`), 'icon column');
+  const selBefore = await evaluate(`[${S('folder')}, ${S('accountId')}].join('|')`);
+  const av1 = await rectOf('.is-rail .fp-avatar', 0), av3 = await rectOf('.is-rail .fp-avatar', 2);
+  await down(av1.x, av1.y); await moveTo(av1.x, av1.y + 12); await moveTo(av1.x, av3.y + 8);
+  ok(await until(`!!document.querySelector('.reorder-line')`), 'the line shows in the icon column');
+  const rail = await evaluate(`(() => { const l = document.querySelector('.reorder-line').getBoundingClientRect(), p = document.querySelector('.folder-pane').getBoundingClientRect(); return { left: l.left, width: l.width, pane: p.width }; })()`);
+  ok(rail.width >= 36 && rail.width <= rail.pane, `the line spans the rail: ${JSON.stringify(rail)}`);
+  await up(av1.x, av3.y + 8);
+  await until(`${S('accounts')}.map((a) => a.id).join() !== 'a1,a2,a3,a4,a5'`);
+  eq(await order(), 'a2,a3,a1,a4,a5', 'the 1st avatar lands below the 3rd');
+  await sleep(250);
+  eq(await evaluate(`[${S('folder')}, ${S('accountId')}].join('|')`), selBefore, 'the drop opened no Inbox');
+  // a click on an avatar still opens its Inbox
+  await io.click('.is-rail .fp-avatar', 'first');
+  ok(await until(`${S('accountId')} === ${JSON.stringify((await order()).split(',')[0])}`), 'a click on an avatar opens its Inbox');
+
+  // ---- the Settings navigation (AC-2.4)
+  await fresh();
+  await evaluate(`${S('setDialog')}({ type: 'settings', tab: 'general', nonce: Date.now() }); 1`);
+  await until(`document.querySelectorAll('.nav-acct').length === 5`);
+  const n4 = await rectOf('.nav-acct > button', 3), n1 = await rectOf('.nav-acct > button', 0);
+  await down(n4.x, n4.y); await moveTo(n4.x, n4.y - 15); await moveTo(n1.x, n1.top + 2);
+  ok(await until(`!!document.querySelector('.reorder-ghost')`), 'dragging a mailbox of the Settings navigation by its address shows the preview');
+  await up(n1.x, n1.top + 2);
+  await until(`${S('accounts')}.map((a) => a.id).join() !== 'a1,a2,a3,a4,a5'`);
+  eq(await order(), 'a4,a1,a2,a3,a5', 'the 4th lands first');
+  await sleep(250);
+  ok(await evaluate(`${S('dialog')}.tab === 'general' && !!document.getElementById('set-pg-general')`), 'the page did not change because of the release');
+  // a plain click on the entry opens its page
+  await io.click('.nav-acct > button', 'first');
+  ok(await until(`${S('dialog')}?.tab === 'mb:a4' || !!document.querySelector('.settings-nav button.active.has-sub')`), 'a click on the entry opens the mailbox page');
+  await evaluate(`${S('setDialog')}(null); 1`);
+
+  // ---- the keyboard way stays (AC-2.8)
+  await fresh();
+  await evaluate(`document.querySelector(${JSON.stringify(gid('a2') + ' .fp-head')}).focus(); 1`);
+  await press('ArrowDown', 1);
+  await until(`${S('accounts')}.map((a) => a.id).join() !== 'a1,a2,a3,a4,a5'`);
+  eq(await order(), 'a1,a3,a2,a4,a5', 'Alt+Down moves the mailbox');
+  ok((await liveText()).includes('position 3 of 5'), `announced: ${await liveText()}`);
+
+  // ---- auto-scroll at the bottom of a short window (AC-2.7)
+  await fresh('light&lang=en', 1280, 560);
+  const sc = await evaluate(`(() => { const t = document.querySelector('.fp-tree'), s = document.querySelector('.fp-surface'); const el = [t, s, t.parentElement].find((e) => e.scrollHeight > e.clientHeight + 4); return el ? { cls: el.className, over: el.scrollHeight - el.clientHeight } : null; })()`);
+  ok(sc && sc.over > 40, `the menu is taller than the window: ${JSON.stringify(sc)}`);
+  const a1 = await rectOf(`${gid('a1')} .fp-head`);
+  const box = await evaluate(`(() => { const t = document.querySelector('.fp-tree'); let p = t; while (p && !(p.scrollHeight > p.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(p).overflowY))) p = p.parentElement; const r = p.getBoundingClientRect(); return { bottom: r.bottom, top: r.top }; })()`);
+  await down(a1.x, a1.y); await moveTo(a1.x, a1.y + 20); await moveTo(a1.x, box.bottom - 6);
+  await sleep(1200);
+  const scrolled = await evaluate(`(() => { const t = document.querySelector('.fp-tree'); let p = t; while (p && !(p.scrollHeight > p.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(p).overflowY))) p = p.parentElement; return p.scrollTop; })()`);
+  ok(scrolled > 20, `the pane scrolled while the pointer rested near the bottom edge: ${scrolled}`);
+  await up(a1.x, box.bottom - 6);
+  await until(`${S('accounts')}.map((a) => a.id).join() !== 'a1,a2,a3,a4,a5'`);
+  ok((await order()).split(',').indexOf('a1') >= 3, `the drop below the visible part works: ${await order()}`);
+
+  // ---- one account: no drag from anywhere (AC-2.9)
+  await fresh();
+  await evaluate(`window.__store.setState({ accounts: window.__store.getState().accounts.slice(0, 1) }); 1`);
+  await sleep(200);
+  const o1 = await rectOf(`${gid('a1')} .fp-head`);
+  await down(o1.x, o1.y); await moveTo(o1.x, o1.y + 10); await moveTo(o1.x + 20, o1.y + 1);
+  ok(!(await reordering()), 'one account: no drag');
+  await up(o1.x + 20, o1.y + 1);
+  await sleep(200);
+  eq(await evaluate(`!!${S('prefs.collapsed')}['a1']`), true, 'one account: the press is a normal click');
+}
+
 // ======================================================================== run
 const only = arg('only');
-const parts = { r4, r1, r6, r3, r5 };
+const parts = { r4, r1, r6, r3, r5, r2 };
 for (const [name, fn] of Object.entries(parts)) {
   if (only && !only.split(',').includes(name)) continue;
   try { await fn(); } catch (e) { failures.push(`[${name}] threw: ${e.stack || e.message}`); console.error(`FAIL [${name}] threw`, e); }

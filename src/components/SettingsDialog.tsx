@@ -2493,9 +2493,9 @@ export function Settings({ initial, focus, nonce, section, windowed }: { initial
       </div>
     );
   };
-  const item = (k: string, l: ReactNode, sub = false, movable = false) => (
+  const item = (k: string, l: ReactNode, sub = false, movable = false, drag?: React.HTMLAttributes<HTMLElement>) => (
     <Fragment key={k}>
-      <button data-reorder-focus={movable ? "" : undefined} className={`${tab === k ? "active" : ""} ${sub ? "sub" : ""} ${tab === k && k.startsWith("mb:") ? "has-sub" : ""}`} aria-current={tab === k ? "page" : undefined} onClick={() => setTab(k)}>
+      <button data-reorder-focus={movable ? "" : undefined} {...drag} className={`${tab === k ? "active" : ""} ${sub ? "sub" : ""} ${tab === k && k.startsWith("mb:") ? "has-sub" : ""}`} aria-current={tab === k ? "page" : undefined} onClick={() => setTab(k)}>
         {l}
       </button>
       {tab === k && k.startsWith("mb:") && sections(k)}
@@ -2529,7 +2529,7 @@ export function Settings({ initial, focus, nonce, section, windowed }: { initial
             // the mailboxes can be moved here too (grip, Alt+Up / Alt+Down, menu): AccountReorder.tsx
             <div key={a.id} className={`nav-acct ${reorder.dragging === a.id ? "reorder-src" : ""}`} data-reorder-id={a.id} {...reorder.entry(a.id)}>
               {accounts.length > 1 && <Grip email={a.email} bind={reorder.grip(a.id)} dragging={reorder.dragging === a.id} />}
-              {item(`mb:${a.id}`, <><span className="dot" style={{ background: accountColor(a, prefs.accent) }} />{a.email}</>, true, true)}
+              {item(`mb:${a.id}`, <><span className="dot" style={{ background: accountColor(a, prefs.accent) }} />{a.email}</>, true, true, reorder.row(a.id))}
             </div>
           ))}
           {item("add-account", t("settings.nav.addAccount"), true)}

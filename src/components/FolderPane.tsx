@@ -284,7 +284,7 @@ export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
   };
 
   const head = (id: string, label: ReactNode, movable = false, fresh = false) => (
-    <button className={`fp-head ${fresh ? "fresh" : ""}`} onClick={() => toggle(id)} aria-expanded={!collapsed(id)} data-reorder-focus={movable ? "" : undefined}>
+    <button className={`fp-head ${fresh ? "fresh" : ""}`} onClick={() => toggle(id)} aria-expanded={!collapsed(id)} data-reorder-focus={movable ? "" : undefined} {...(movable ? reorder.row(id) : undefined)}>
       {collapsed(id) ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
       {label}
       {fresh && <span className="fp-new" aria-hidden />}
@@ -305,6 +305,7 @@ export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
       <button
         className={`fp-head fp-avatar ${accountId === a.id ? "on" : ""} ${fresh ? "fresh" : ""}`}
         data-reorder-focus=""
+        {...reorder.row(a.id)}
         aria-current={accountId === a.id ? "true" : undefined}
         aria-label={[l.name ? `${l.name} (${a.email})` : a.email, unreadText(unread), error ?? "", newText].filter(Boolean).join(", ")}
         title={tip}

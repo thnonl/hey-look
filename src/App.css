@@ -372,6 +372,7 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .fp-head { display: flex; align-items: center; gap: 6px; width: 100%; background: none; border: 0; padding: 7px 14px; font-weight: 650; font-size: .86em; color: var(--muted); text-align: left; letter-spacing: .02em; }
 .fp-head:hover { color: var(--fg); background: var(--bg3); }
 .fp-acct { flex: 1; min-width: 0; }
+.fp-head[data-reorder-focus], .nav-acct > button { -webkit-user-select: none; user-select: none; } /* a mailbox is dragged by its whole entry (AccountReorder.tsx `row`): no text selection from a press on it */
 /* reordering the mailboxes (components/AccountReorder.tsx): the grip at the left of a mailbox, the preview that follows the pointer, the line where it lands */
 .fp-group { position: relative; }
 .reorder-grip { position: absolute; left: 1px; top: 0; bottom: 0; margin: auto 0; z-index: 1; line-height: 0; display: inline-flex; align-items: center; justify-content: center; width: 12px; height: 20px; color: var(--muted); border-radius: 3px; cursor: grab; touch-action: none; opacity: 0; transition: opacity .1s; }
