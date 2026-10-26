@@ -15,7 +15,7 @@ export default defineLocale<typeof ns.en>({
   "signin.end.cancelled": "Se canceló el inicio de sesión con {provider}.",
   "signin.end.denied": "No se completó el inicio de sesión con {provider}.",
   "signin.end.generic": "El inicio de sesión con {provider} no terminó.",
-  "signin.end.google.mail": "Es posible que Google haya bloqueado este inicio de sesión. En su lugar, puedes añadir una cuenta de Gmail con una contraseña de aplicación.",
+  "signin.end.google.mail": "Es posible que Google haya bloqueado este inicio de sesión. Como alternativa, puedes añadir una cuenta de Gmail con una contraseña de aplicación.",
   "signin.end.google.calendar": "Es posible que Google haya bloqueado este inicio de sesión. Tu correo no se ve afectado.",
   "signin.end.microsoft": "Si tu organización administra esta cuenta, es posible que tenga que aprobar Hey Look! antes. Consulta con tu administrador de TI.",
   "signin.end.microsoft.blocked": "Es posible que tu organización tenga que aprobar Hey Look! para que esta cuenta pueda iniciar sesión. Consulta con tu administrador de TI y vuelve a intentarlo.",

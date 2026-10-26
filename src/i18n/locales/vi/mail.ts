@@ -102,7 +102,7 @@ export default defineLocale<typeof ns.en>({
   "mail.pane.quickViews": "Chế độ xem nhanh",
   "mail.pane.addFav": "Thêm vào Mục yêu thích",
   "mail.pane.removeFav": "Xóa khỏi Mục yêu thích",
-  "mail.pane.allSettings": "Cài đặt tất cả tài khoản…",
+  "mail.pane.allSettings": "Cài đặt cho tất cả tài khoản…",
   "mail.pane.failedTitle": { one: "{n} thư đã lên lịch gửi không thành công", other: "{n} thư đã lên lịch gửi không thành công" },
   "mail.pane.failedBadge": { one: "{n} lỗi", other: "{n} lỗi" },
   "mail.pane.retry": "{error}\nNhấp để thử lại",
