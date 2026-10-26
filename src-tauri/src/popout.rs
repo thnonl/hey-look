@@ -58,6 +58,8 @@ pub const RETIRE_GIVE_UP: Duration = Duration::from_millis(2500);
 /// After a window is gone: when its native window is checked and finished by hand, and when the count of windows is logged a second time.
 pub const SWEEP_AFTER: Duration = Duration::from_millis(400);
 pub const COUNT_AFTER: Duration = Duration::from_secs(3);
+/// macOS debug builds: one more look at the window list this long after the close (is a shell still there once AppKit has surely finished with it?)
+pub const LATE_AFTER: Duration = Duration::from_secs(10);
 /// The offset of a second window of a kind, in logical pixels (REQ-W5).
 pub const CASCADE: i32 = 28;
 /// Event to a secondary window: save what you hold and answer (the secondary counterpart of the main page's `flush-sends`).
@@ -1386,6 +1388,13 @@ fn after_destroyed(app: &AppHandle, label: &str, destroyed: bool) {
             left.sort();
             log(&format!("{name}: {} s after closing: {} window(s) left in the app ({}){}", COUNT_AFTER.as_secs(), left.len(), left.join(", "), native_summary()));
         });
+        std::thread::sleep(LATE_AFTER);
+        let name = label.clone();
+        let _ = app.run_on_main_thread(move || {
+            if let Some(text) = native_late(&name) {
+                log(&format!("{name}: {text}"));
+            }
+        });
     });
 }
 
@@ -1421,6 +1430,69 @@ fn native_check(label: &str) -> Option<String> {
 #[cfg(not(target_os = "macos"))]
 fn native_check(_label: &str) -> Option<String> {
     None
+}
+
+/// Main thread, macOS debug builds: the window list again `LATE_AFTER` after the close, with every window's number, class, title, visibility and content, so that a ghost can be told from the known
+/// empty shells (DEC-024). `None` in a release build and elsewhere.
+#[cfg(target_os = "macos")]
+fn native_late(label: &str) -> Option<String> {
+    let rows = crate::macwin::window_rows();
+    if rows.is_empty() {
+        return None;
+    }
+    Some(format!("{} s after closing ({label}): {}; {}", LATE_AFTER.as_secs(), shell_verdict(&rows), rows.iter().map(WindowRow::describe).collect::<Vec<_>>().join(" | ")))
+}
+#[cfg(not(target_os = "macos"))]
+fn native_late(_label: &str) -> Option<String> {
+    None
+}
+
+/// One window of `NSApp windows` as the debug log shows it (filled by macwin.rs on macOS).
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub struct WindowRow {
+    pub number: isize,
+    pub class: String,
+    pub title: String,
+    pub visible: bool,
+    pub titled: bool,
+    /// direct subviews of the content view (an empty shell left by `sweep` has none)
+    pub subviews: usize,
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+impl WindowRow {
+    pub fn describe(&self) -> String {
+        format!("#{} {} {:?} {}{}, {} subview(s)", self.number, self.class, self.title, if self.visible { "visible" } else { "ordered out" }, if self.titled { ", titled" } else { "" }, self.subviews)
+    }
+}
+
+/// DEC-024: a closed window that is not visible and holds no view is the known empty shell (one per close, about 0.1-0.5 MB until quit; Mac QA 95368866 saw exactly this for 5 readers + 1 compose).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn is_known_shell(visible: bool, subviews: usize) -> bool {
+    !visible && subviews == 0
+}
+
+/// How many titled windows in `rows` are empty ordered-out shells.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn shell_count(rows: &[WindowRow]) -> usize {
+    rows.iter().filter(|r| r.titled && is_known_shell(r.visible, r.subviews)).count()
+}
+
+/// Tell the known residual (DEC-024: an ordered-out, empty, titled window shell per closed pop-out) from a real problem (a visible window that is not one of the open ones, or a shell that still
+/// has content). `open` windows are the visible titled ones: the caller does not know which are legitimate, so they are only counted and listed. Pure, so it is tested everywhere.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn shell_verdict(rows: &[WindowRow]) -> String {
+    if rows.is_empty() {
+        return "window list not read (release build)".to_string();
+    }
+    let shells = shell_count(rows);
+    let loaded = rows.iter().filter(|r| r.titled && !r.visible && r.subviews > 0).count();
+    let visible: Vec<String> = rows.iter().filter(|r| r.visible).map(|r| format!("#{} {:?}", r.number, r.title)).collect();
+    format!(
+        "{shells} empty ordered-out shell(s) (known residual), {loaded} ordered-out window(s) that still hold views (hidden main/tray windows or a leak of content), visible: {}",
+        if visible.is_empty() { "none".to_string() } else { visible.join(", ") }
+    )
 }
 
 /// Main thread. ", NSApp lists n window(s), m visible" on macOS, nothing elsewhere.
@@ -2032,6 +2104,36 @@ mod tests {
     }
 
     #[test]
+    fn the_late_window_list_tells_known_shells_from_ghosts() {
+        let row = |number, title: &str, visible, subviews| WindowRow { number, class: "TaoWindow".into(), title: title.into(), visible, titled: true, subviews };
+        assert!(shell_verdict(&[]).contains("not read"));
+        let v = shell_verdict(&[row(1, "Hey Look!", true, 3), row(2, "", false, 0), row(3, "", false, 0), row(4, "Hidden", false, 2)]);
+        assert!(v.contains("2 empty ordered-out shell(s)") && v.contains("1 ordered-out window(s) that still hold views") && v.contains("#1 \"Hey Look!\""), "{v}");
+        assert!(shell_verdict(&[row(2, "", false, 0)]).ends_with("visible: none"));
+        assert!(row(5, "Re: x", true, 1).describe().contains("visible") && row(5, "", false, 0).describe().contains("ordered out"));
+    }
+
+    #[test]
+    fn only_an_empty_hidden_window_is_the_known_shell() {
+        assert!(is_known_shell(false, 0) && !is_known_shell(true, 0) && !is_known_shell(false, 2) && !is_known_shell(true, 3));
+        let row = |visible, subviews| WindowRow { number: 1, class: "TaoWindow".into(), title: String::new(), visible, titled: true, subviews };
+        assert_eq!(shell_count(&[row(false, 0), row(false, 0), row(true, 0), row(false, 1)]), 2);
+        // the quiet wording for the known case, the loud one only for a ghost (macwin.rs `check`)
+        let mac = crate::test_guard::non_test_code(include_str!("macwin.rs"));
+        let check = &mac[mac.find("pub fn check(").unwrap()..mac.find("unsafe fn subview_count(").unwrap()];
+        assert!(check.find("is_known_shell(visible, subviews)").unwrap() < check.find("STILL ALIVE").unwrap() && check.contains("GHOST") && check.contains("empty hidden shell"));
+    }
+
+    #[test]
+    fn the_late_window_list_is_logged_after_the_count_and_reads_only_in_debug_builds() {
+        let code = crate::test_guard::non_test_code(include_str!("popout.rs"));
+        assert!(code.find("COUNT_AFTER.as_secs()").unwrap() < code.find("native_late(&name)").unwrap());
+        let mac = crate::test_guard::non_test_code(include_str!("macwin.rs"));
+        let rows = &mac[mac.find("pub fn window_rows(").unwrap()..];
+        assert!(rows.find("!cfg!(debug_assertions)").unwrap() < rows.find("app_window_list()").unwrap());
+    }
+
+    #[test]
     fn the_log_says_when_the_event_loop_itself_stopped_taking_messages() {
         // a window call that fails with this text is not about that window: the hint is added to the line, and only to that error
         let e = "runtime error: failed to send message to the webview";
@@ -2088,7 +2190,7 @@ mod tests {
         // no #[cfg(target_os)] around the road itself: the macOS-only parts are the native hold / sweep / summary functions
         let road = &code[code.find("pub fn retire(").unwrap()..code.find("/// macOS: keep a reference to the native window").unwrap()];
         assert!(!road.contains("cfg(target_os") && !road.contains("cfg(windows"), "the end of a window is the same on every system");
-        assert_eq!(code.matches("#[cfg(target_os = \"macos\")]").count(), 5, "native_hold, native_sweep, native_check, native_summary, and the title bar style of `create` (D-097)");
+        assert_eq!(code.matches("#[cfg(target_os = \"macos\")]").count(), 6, "native_hold, native_sweep, native_check, native_summary, and the title bar style of `create` (D-097)");
         // a window that was ended is never put on screen again: by a second open, by its own page getting ready late, by the wait for the page
         assert!(code.contains("if !reg(app).may_show(label) {"));
         let ready = &code[code.find("pub fn mark_ready(").unwrap()..];

@@ -12,6 +12,8 @@
 //! DEC-024 (fix31): this module never sends `release` / `autorelease` / `CFRelease` to a window or a view and never frees what the framework owns; the only references it lets go of are the ones it took
 //! itself with `Retained` (`hold`: the window and its delegate), dropped in `sweep`. What stays after a close is an empty window shell (about 0.1 to 0.3 MB) until the app quits; the
 //! teardown below removes its views and web content. The source guard is `leakfix.rs`.
+//! Measured on a Mac (QA, debug build 95368866, 5 reader pop-outs + 1 compose): exactly one empty shell per close (TaoWindow or TUINSWindow, 0 subviews, not visible), about 0.1-0.5 MB each; the visible
+//! windows never grew (main window + 3 NSStatusBarWindow menu-bar items). `check` therefore logs that case as a plain info line and says STILL ALIVE ... GHOST only for a visible window or one with views.
 //!
 //! 1.0.7 (D-093): with the tao fix of W4.1 (the over-retain of the window) a closed window was STILL left behind by every compose and reader window, so the holders that are
 //! left are not the one tao fixed. The sweep now takes away what the app side can: the window's delegate and the observers tao registered for it (tao adds the delegate to the
@@ -354,7 +356,67 @@ pub fn check(label: &str) -> Option<String> {
     ALIVE.fetch_add(1, Ordering::Relaxed);
     // SAFETY: `found` keeps the window alive for the read; main thread (caller).
     let retains: usize = unsafe { msg_send![Retained::as_ptr(&found) as *mut AnyObject, retainCount] };
-    Some(format!("native window {number}: STILL ALIVE after being finished, retain count {retains} (this check's own reference is one of them); {}", windows_summary()))
+    // SAFETY: as above; the content view and title are checked for null by `text` / the null test.
+    let (visible, subviews, own) = unsafe {
+        let ptr = Retained::as_ptr(&found) as *mut AnyObject;
+        let visible: Bool = msg_send![ptr, isVisible];
+        let content: *mut AnyObject = msg_send![ptr, contentView];
+        let subviews = if content.is_null() { 0 } else { subview_count(content) };
+        let own = format!("visible {}, title {:?}, content view {} with {subviews} subview(s)", visible.as_bool(), text(msg_send![ptr, title]), if content.is_null() { "nil".into() } else { text(msg_send![content, className]) });
+        (visible.as_bool(), subviews, own)
+    };
+    let rows = window_rows();
+    // DEC-024: an empty ordered-out shell is the known residual (Mac QA, 95368866: 5 reader pop-outs + 1 compose, exactly one shell per close, 0 subviews, never visible, about 0.1-0.5 MB each):
+    // a plain info line. Only a visible window or one that still holds views is logged loudly.
+    if crate::popout::is_known_shell(visible, subviews) {
+        return Some(format!(
+            "native window {number}: closed, stays as an empty hidden shell (known, DEC-024; {} shell(s) so far, retain count {retains}); {}",
+            crate::popout::shell_count(&rows),
+            windows_summary()
+        ));
+    }
+    Some(format!(
+        "native window {number}: STILL ALIVE after being finished, GHOST: it is visible or still holds views, retain count {retains} (this check's own reference is one of them); {own}; {}; {}",
+        crate::popout::shell_verdict(&rows),
+        windows_summary()
+    ))
+}
+
+/// Number of direct subviews of `view`.
+///
+/// SAFETY (caller): main thread; `view` is a live NSView.
+unsafe fn subview_count(view: *mut AnyObject) -> usize {
+    // SAFETY: `view` is live (caller); the array is checked for null.
+    unsafe {
+        let list: *mut AnyObject = msg_send![view, subviews];
+        if list.is_null() { 0 } else { msg_send![list, count] }
+    }
+}
+
+/// One row per window `NSApp` lists (number, class, title, visible, content subviews), for the log and for `popout::shell_verdict`. DEBUG BUILDS ONLY: empty in a release build. Read-only. Main thread.
+pub fn window_rows() -> Vec<crate::popout::WindowRow> {
+    if !cfg!(debug_assertions) {
+        return Vec::new();
+    }
+    // SAFETY: main thread (callers); `app_window_list` drops null entries and the windows are alive for this task.
+    unsafe {
+        app_window_list()
+            .into_iter()
+            .map(|w| {
+                let visible: Bool = msg_send![w, isVisible];
+                let number: isize = msg_send![w, windowNumber];
+                let content: *mut AnyObject = msg_send![w, contentView];
+                crate::popout::WindowRow {
+                    number,
+                    class: text(msg_send![w, className]),
+                    title: text(msg_send![w, title]),
+                    visible: visible.as_bool(),
+                    titled: is_titled(w),
+                    subviews: if content.is_null() { 0 } else { subview_count(content) },
+                }
+            })
+            .collect()
+    }
 }
 
 /// What [`apply_appearance`] found and did, for the log (one line per window).
