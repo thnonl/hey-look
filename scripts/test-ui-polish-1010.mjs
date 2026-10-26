@@ -136,9 +136,96 @@ async function r4() {
   ok(await evaluate(`document.querySelector(${JSON.stringify(star)})?.getAttribute('aria-disabled') === 'true'`), 'one account: the Favorites > Inbox row is there with a locked star');
 }
 
+// ======================================================================== R1
+async function r1() {
+  section = 'R1';
+  await fresh('light&lang=en&smallmailbox');
+  // the conversations: one with several messages and one more
+  const ids = await evaluate(`window.__store.getState().threads.map((t) => [t.threadId, t.count ?? t.messageCount ?? 1])`);
+  const multi = ids.find(([, n]) => n > 1)?.[0], other = ids.find(([id]) => id !== multi)?.[0];
+  ok(multi && other, `the mock has a conversation with several messages and another one: ${JSON.stringify(ids.slice(0, 8))}`);
+  const row = (id) => `.ml-row[data-thread="${id}"]`;
+  const loaded = (id) => `${S('selected')} === ${JSON.stringify(id)} && ${S('messages.length')} > 0 && !!document.querySelector('.rp-msg')`;
+  // what happens in the page: every get_thread call, every removed iframe / mail card / reading pane
+  const probe = `(() => {
+    const w = window; if (!w.__calls1) { w.__calls1 = []; const inv = w.__TAURI_INTERNALS__.invoke; w.__TAURI_INTERNALS__.invoke = function (cmd, ...a) { if (/^get_thread/.test(cmd)) w.__calls1.push(cmd); return inv.call(this, cmd, ...a); }; }
+    w.__calls1.length = 0; w.__removed1 = []; w.__msgs1 = w.__store.getState().messages; w.__pend1 = 0;
+    w.__obs1?.disconnect();
+    w.__obs1 = new MutationObserver((list) => { for (const m of list) for (const n of m.removedNodes) if (n.nodeType === 1 && (n.matches('iframe, .rp-msg, .reading-pane, .rp-msg-body') || n.querySelector('iframe, .rp-msg'))) w.__removed1.push(n.className || n.tagName); });
+    w.__obs1.observe(document.querySelector('.reading-region') || document.body, { childList: true, subtree: true });
+    w.__txt1 = new MutationObserver(() => { if (/Opening message/.test(document.body.innerText)) w.__pend1++; });
+    return 1; })()`;
+  const state = () => evaluate(`({ calls: window.__calls1.length, removed: window.__removed1.slice(), same: window.__store.getState().messages === window.__msgs1, sel: ${S('selected')}, n: ${S('messages.length')}, err: ${S('openError')}, opening: /Opening message/.test(document.body.innerText) })`);
+
+  await io.click(row(multi));
+  ok(await until(loaded(multi)), 'the conversation opens');
+  await sleep(500);
+  // expand all messages (AC-1.2): the row click must not collapse them again
+  const nmsg = await evaluate(S('messages.length'));
+  await evaluate(`[...document.querySelectorAll('.rp-msg:not(.open) .rp-msg-head')].forEach((h) => h.click()); 1`);
+  await sleep(200);
+  const openBefore = await evaluate(`document.querySelectorAll('.rp-msg.open').length`);
+  const scrollTop = await evaluate(`(() => { const e = document.querySelector('.rp-scroll, .rp-body, .reading-pane'); return e ? e.scrollTop : 0; })()`);
+  await evaluate(probe);
+  for (let i = 0; i < 5; i++) { await io.click(row(multi)); await sleep(i % 2 ? 30 : 160); }
+  await evaluate(`document.querySelector(${JSON.stringify(row(multi))}).focus(); 1`);
+  await press('Enter'); await sleep(120); await press('Space'); await sleep(250);
+  let st = await state();
+  eq([st.calls, st.removed, st.same, st.sel, st.opening], [0, [], true, multi, false], `re-click on the open mail (5 clicks, Enter, Space): no fetch, nothing removed, same messages array, no "Opening message"`);
+  eq(await evaluate(`document.querySelectorAll('.rp-msg.open').length`), openBefore, 'the expanded messages stay expanded');
+  ok(openBefore >= Math.min(nmsg, 2), `more than one message was expanded before: ${openBefore} of ${nmsg}`);
+  ok((await evaluate(`document.querySelector(${JSON.stringify(row(multi))}).classList.contains('selected')`)), 'the row stays selected');
+
+  // mark unread, then click the open row: it stays unread (Q3)
+  await evaluate(`${S('act')}([${JSON.stringify(multi)}], 'unread'); 1`);
+  await sleep(300);
+  const unread0 = await evaluate(`${S('threads')}.find((t) => t.threadId === ${JSON.stringify(multi)}).unread`);
+  await io.click(row(multi)); await sleep(300);
+  eq(await evaluate(`${S('threads')}.find((t) => t.threadId === ${JSON.stringify(multi)}).unread`), unread0, 'Mark as unread, then a click on the open mail: it stays as it was');
+  ok(unread0 === true || unread0 > 0, `the mail is unread after "Mark as unread": ${unread0}`);
+
+  // another conversation opens as before
+  await evaluate(probe);
+  await io.click(row(other));
+  ok(await until(loaded(other)), 'another row opens its conversation');
+  st = await state();
+  ok(st.calls >= 1, `another row fetches its thread: ${st.calls} call(s)`);
+  ok(!st.same, 'another row replaces the messages');
+
+  // a read in flight: a second click starts no second read
+  await evaluate(`window.__mockDelays = { thread: 500 }; 1`);
+  await evaluate(probe);
+  await io.click(row(multi)); await sleep(100); await io.click(row(multi)); await sleep(100); await press('Enter');
+  ok(await until(loaded(multi)), 'the slow read ends and shows the conversation');
+  st = await state();
+  eq(st.calls, 1, 'three clicks while the read is running: one get_thread');
+  await evaluate(`window.__mockDelays = {}; 1`);
+
+  // a failed open is tried again by the next click (AC-1.7)
+  await evaluate(`window.__mockDelays = { thread: 20, threadFail: true }; 1`);
+  await evaluate(probe);
+  await io.click(row(other));
+  ok(await until(`${S('openError')} === ${JSON.stringify(other)}`), 'the failed open is recorded');
+  const failedCalls = (await state()).calls;
+  ok(failedCalls >= 1, 'the failing read was made');
+  await evaluate(`window.__mockDelays = {}; 1`);
+  await io.click(row(other));
+  ok(await until(loaded(other)), 'the next click on the failed row opens it');
+  ok((await state()).calls > failedCalls, 'the retry made a new get_thread call');
+
+  // a message being written: the click still leaves it, then shows the mail (AC-1.8)
+  await evaluate(`${S('openCompose')}?.({ mode: 'new' }); 1`).catch(() => {});
+  await sleep(400);
+  if (await evaluate(`!!${S('compose')}`)) {
+    await evaluate(probe);
+    await io.click(row(other));
+    ok(await until(`!${S('compose')} || document.querySelector('[role=dialog]')`), 'with Compose open the click leaves it (or asks)');
+  }
+}
+
 // ======================================================================== run
 const only = arg('only');
-const parts = { r4 };
+const parts = { r4, r1 };
 for (const [name, fn] of Object.entries(parts)) {
   if (only && !only.split(',').includes(name)) continue;
   try { await fn(); } catch (e) { failures.push(`[${name}] threw: ${e.stack || e.message}`); console.error(`FAIL [${name}] threw`, e); }

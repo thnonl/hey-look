@@ -3,7 +3,7 @@
 // Run: node --experimental-strip-types scripts/test-compose-selection.mjs
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { actionTargets, mayOpenMail, ribbonAvailability, selectionAfterCompose } from "../src/composeSelection.ts";
+import { actionTargets, isReopen, mayOpenMail, ribbonAvailability, selectionAfterCompose } from "../src/composeSelection.ts";
 
 const none = new Set();
 
@@ -40,6 +40,18 @@ assert.ok(/disabled={disabled}>/.test(ribbon), "a menu button (Report, Move to, 
 assert.equal(mayOpenMail("t2", true), false);
 assert.equal(mayOpenMail(null, true), true);
 assert.equal(mayOpenMail("t2", false), true);
+
+// (1.0.10 R1) a click on the open conversation's row opens nothing new: loaded, or its read is still in flight; a failed open, another mail or a message being written still go through
+const st = (o) => ({ selected: "t1", messages: [{}], openError: null, composing: false, ...o });
+assert.equal(isReopen(st({}), "t1", null), true, "open and loaded: nothing to do");
+assert.equal(isReopen(st({ messages: [] }), "t1", "t1"), true, "still loading (a read in flight): no second read");
+assert.equal(isReopen(st({ messages: [] }), "t1", null), false, "selected, empty, no read running: open it");
+assert.equal(isReopen(st({ messages: [] }), "t1", "t2"), false, "the read in flight is another mail's");
+assert.equal(isReopen(st({ openError: "t1" }), "t1", null), false, "the last open failed: a click tries again");
+assert.equal(isReopen(st({ openError: "t2" }), "t1", null), true, "an error of another mail does not matter");
+assert.equal(isReopen(st({}), "t2", null), false, "another conversation opens as before");
+assert.equal(isReopen(st({ selected: null, messages: [] }), "t1", null), false, "nothing open");
+assert.equal(isReopen(st({ composing: true }), "t1", null), false, "while writing the click leaves the message first");
 
 // when writing ends the reading pane gets the mail that was open before, unless another was picked or it left the list
 assert.equal(selectionAfterCompose("t1", null, ["t0", "t1"]), "t1");
