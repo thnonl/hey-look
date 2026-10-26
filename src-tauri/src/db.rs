@@ -35,6 +35,7 @@ pub fn migrate(conn: &Connection) -> R<()> {
            thread_id TEXT PRIMARY KEY, pinned INTEGER NOT NULL DEFAULT 0, snoozed_until INTEGER
          );
          CREATE TABLE IF NOT EXISTS blocked(email TEXT PRIMARY KEY);
+         CREATE TABLE IF NOT EXISTS remote_ok(email TEXT PRIMARY KEY COLLATE NOCASE, added INTEGER NOT NULL); -- senders whose remote content always loads (remote_ok.rs)
          CREATE TABLE IF NOT EXISTS templates(
            id TEXT PRIMARY KEY, name TEXT NOT NULL, subject TEXT NOT NULL, body TEXT NOT NULL
          );
