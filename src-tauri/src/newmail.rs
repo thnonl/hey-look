@@ -67,6 +67,33 @@ pub fn note_moved(account_id: &str, message_id: &str) {
     map.insert((account_id.to_string(), message_id.to_string()), Instant::now());
 }
 
+/// How long the app remembers where a move put a message, to see whether its copy has reached the target folder here (`recent_moves`).
+const TRACK_MOVES_FOR: Duration = Duration::from_secs(3 * 60);
+const TRACK_MOVES_CAP: usize = 2000;
+
+/// (account, Message-ID, target folder key, when)
+static MOVED_TO: Mutex<Vec<(String, String, String, Instant)>> = Mutex::new(Vec::new());
+
+/// The app moved this message into the folder `dst` (a role or a folder key, as the local rows name it).
+pub fn note_moved_to(account_id: &str, message_id: &str, dst: &str) {
+    if message_id.is_empty() {
+        return;
+    }
+    let mut g = MOVED_TO.lock().unwrap_or_else(|p| p.into_inner());
+    g.retain(|m| m.3.elapsed() < TRACK_MOVES_FOR);
+    if g.len() >= TRACK_MOVES_CAP {
+        g.remove(0);
+    }
+    g.push((account_id.to_string(), message_id.to_string(), dst.to_string(), Instant::now()));
+}
+
+/// The moves of this mailbox of the last minutes: (Message-ID, target folder).
+pub fn recent_moves(account_id: &str) -> Vec<(String, String)> {
+    let mut g = MOVED_TO.lock().unwrap_or_else(|p| p.into_inner());
+    g.retain(|m| m.3.elapsed() < TRACK_MOVES_FOR);
+    g.iter().filter(|m| m.0 == account_id).map(|m| (m.1.clone(), m.2.clone())).collect()
+}
+
 /// Was this message moved by the app a short while ago?
 pub fn was_moved(account_id: &str, message_id: &str) -> bool {
     let g = MOVED.lock().unwrap_or_else(|p| p.into_inner());
