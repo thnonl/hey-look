@@ -10,6 +10,11 @@
 - After an update you asked for, or a restart you asked for, the window you were using comes back, also when the app had been started with Windows (it used to return to the tray)
 - Windows: a start in the tray checks that the tray icon is really in the notification area, asks Windows to draw it again if it is not, and shows the window when the icon never appears (up to 15 seconds), so the app is never running unseen
 - A test copy of the app has its own start-with-Windows entry; before, turning the switch on or off in a test copy changed the entry of the installed app
+- A folder with dots in its name (for example `QA-1.0.8`) is shown in full in the list header, the rule list, the search rows and the command bar; before, only the part after the last dot ("8") showed
+- Mail from another account of yours is answered to its sender: Reply, Reply all and Forward no longer send it back to your own address
+- A rule that moves mail now makes sure the moved mail shows in its target folder: follow-up syncs run after 1.5, 4, 10, 25 and 60 seconds until it is there (on Gmail a rule-moved mail showed only at the next poll)
+- A list that fits in the window no longer asks for older mail by itself, and a request for older mail ends after 90 seconds; the Unread and Flagged views no longer show "Loading…" for ever
+- The recent searches panel no longer opens by itself when the window is restored or gets the focus again
 
 ### Known limitations
 
