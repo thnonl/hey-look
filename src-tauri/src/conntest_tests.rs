@@ -636,3 +636,90 @@ fn a_refused_add_carries_part_and_kind_and_stores_nothing() {
         assert!(!e.contains("Pw-Test-4711") && e.contains("••••"), "{e}");
     });
 }
+
+// ------------------------------------------------------------ opt-in: a real server with real TLS (GreenMail, self-signed certificate)
+
+/// `HL_CT_IT=1`: the rows of the QA kit (E:\hey-mail\test-builds\v1010-testconn\README.md) that need a server that speaks TLS. Start GreenMail first:
+///   docker run --rm -d --name hl-ct-gm -p 127.0.0.1:13025:3025 -p 127.0.0.1:13143:3143 -p 127.0.0.1:13465:3465 -p 127.0.0.1:13993:3993 \
+///     -e "GREENMAIL_OPTS=-Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.users=u1:pw1@example.test" greenmail/standalone:2.1.0
+/// then `HL_CT_IT=1 cargo test --lib conntest_it -- --nocapture`. Skipped (passes) without the variable, so `cargo test` and CI are unchanged.
+#[test]
+fn conntest_it_greenmail() {
+    if std::env::var("HL_CT_IT").is_err() {
+        return;
+    }
+    let run_with = |a: &Account, pw: &str| run(a, pw, pw, Which::Both, Duration::from_secs(20), &|| false);
+    let mut a = account(13993, true, 13465, "ssl");
+    a.username = "u1".into();
+    a.email = "u1@example.test".into();
+    // K1: both work, the folders are counted
+    let r = run_with(&a, "pw1");
+    println!("K1 {r:?}");
+    assert_eq!((imap(&r).status.as_str(), smtp(&r).status.as_str()), ("ok", "ok"), "{r:?}");
+    assert!(imap(&r).folders.unwrap_or(0) >= 1);
+    // K6: the same with the certificate checked: self-signed
+    let mut strict = a.clone();
+    strict.tls_insecure = false;
+    let r = run_with(&strict, "pw1");
+    println!("K6 {r:?}");
+    assert_eq!((imap(&r).kind.as_str(), smtp(&r).kind.as_str()), (CERT_UNTRUSTED, CERT_UNTRUSTED), "{r:?}");
+    // K8: a wrong password
+    let r = run_with(&a, "not-the-password");
+    println!("K8 {r:?}");
+    assert_eq!((imap(&r).kind.as_str(), smtp(&r).kind.as_str()), (AUTH, AUTH), "{r:?}");
+    assert!(!serde_json::to_string(&r).unwrap().contains("not-the-password"));
+    // K3: nothing listens
+    let dead = crate::testutil::dead_addr().port();
+    let r = run_with(&account(dead, true, dead, "ssl"), "pw1");
+    assert_eq!((imap(&r).kind.as_str(), smtp(&r).kind.as_str()), (REFUSED, REFUSED), "{r:?}");
+    // K4: plain ports used with SSL/TLS
+    let mut b = account(13143, true, 13025, "ssl");
+    b.username = "u1".into();
+    let r = run_with(&b, "pw1");
+    println!("K4 {r:?}");
+    assert_eq!((imap(&r).kind.as_str(), smtp(&r).kind.as_str()), (SECURE, SECURE), "{r:?}");
+    // STARTTLS asked of GreenMail: it does not offer it
+    let mut c = account(13143, false, 13025, "starttls");
+    c.username = "u1".into();
+    let r = run_with(&c, "pw1");
+    println!("STARTTLS {r:?}");
+    assert_eq!((imap(&r).kind.as_str(), smtp(&r).kind.as_str()), (SECURE, SECURE), "{r:?}");
+    // K9, K10: the ports of the other protocol
+    let mut d = account(13465, true, 13993, "ssl");
+    d.username = "u1".into();
+    let r = run_with(&d, "pw1");
+    println!("K9/K10 {r:?}");
+    assert_eq!((imap(&r).kind.as_str(), imap(&r).sees.as_deref()), (NOT_IMAP, Some("smtp")), "{r:?}");
+    assert_eq!((smtp(&r).kind.as_str(), smtp(&r).sees.as_deref()), (NOT_SMTP, Some("imap")), "{r:?}");
+}
+
+/// `HL_CT_NET=1`: the rows of the QA kit that need the internet (certificates of other people's servers, K7, K11 to K14). No account is signed in to except a made-up
+/// address at Microsoft (K14, which refuses it at once). Skipped (passes) without the variable.
+#[test]
+fn conntest_it_internet() {
+    if std::env::var("HL_CT_NET").is_err() {
+        return;
+    }
+    use std::net::ToSocketAddrs;
+    let go = |host: &str, port: u16, ssl: bool, insecure: bool, secs: u64| {
+        let mut a = account(port, ssl, 1, "ssl");
+        a.imap_host = host.into();
+        a.tls_insecure = insecure;
+        a.username = "nobody@example.invalid".into();
+        let r = run(&a, "not-a-password", "not-a-password", Which::Imap, Duration::from_secs(secs), &|| false);
+        println!("{host}:{port} {r:?}");
+        r.imap.unwrap()
+    };
+    // K11, K12: the badssl.com certificates (the TLS handshake fails before anything is said)
+    assert_eq!(go("expired.badssl.com", 443, true, false, 20).kind, CERT_EXPIRED);
+    assert_eq!(go("self-signed.badssl.com", 443, true, false, 20).kind, CERT_UNTRUSTED);
+    let w = go("wrong.host.badssl.com", 443, true, false, 20);
+    assert_eq!(w.kind, CERT_NAME);
+    assert!(w.cert_names.iter().any(|n| n.contains("badssl.com")), "the names of the certificate: {:?}", w.cert_names);
+    // K7 (the address of imap.gmail.com used by number) is not a certName row: Google serves a certificate for "invalid2.invalid" to a client that sends no name, which no system trusts; wrong.host.badssl.com above is the row for a trusted certificate of another name
+    // K13: Gmail on the SSL/TLS port with STARTTLS: it waits for the client, the part ends as a secure connection problem
+    assert_eq!(go("imap.gmail.com", 993, false, false, 6).kind, SECURE);
+    // K14: Outlook with any password: Microsoft does not take a password
+    let m = go("outlook.office365.com", 993, true, false, 20);
+    assert!(matches!(m.kind.as_str(), MICROSOFT_PASSWORD | AUTH), "{m:?}");
+}
