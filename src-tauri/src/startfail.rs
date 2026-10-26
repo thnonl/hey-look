@@ -73,16 +73,34 @@ pub fn profile_problem(dir: &Path) -> Option<ProfileProblem> {
     }
 }
 
-/// The folders to check, in order: the app's data folder (settings, mail database, log) and, on Windows, the folder of the web view's
-/// user data (`%LOCALAPPDATA%\<identifier>`; a package keeps both in its own folder, already covered by the first).
-fn profile_folders() -> Vec<PathBuf> {
-    let mut v: Vec<PathBuf> = log_dir().into_iter().collect();
-    if cfg!(windows) && crate::pkg::dirs().is_none() {
-        if let Some(l) = std::env::var_os("LOCALAPPDATA").filter(|l| !l.is_empty()) {
-            v.push(PathBuf::from(l).join(crate::identity::identifier()));
-        }
+/// The folders to check, in order: the app's data folder (settings, mail database, log) and, on Windows (not in a package, which keeps both
+/// in its own folder, already covered by the first), what WebView2 uses: the identifier folder under `%LOCALAPPDATA%` and its `EBWebView`
+/// folder. A file in the place of either makes WebView2 show its own box ("can't read and write to its data directory") before ours.
+pub fn profile_folders_for(data: Option<PathBuf>, local_app_data: Option<PathBuf>, identifier: &str, packaged: bool) -> Vec<PathBuf> {
+    let mut v: Vec<PathBuf> = data.into_iter().collect();
+    if let (Some(l), false) = (local_app_data, packaged) {
+        let id = l.join(identifier);
+        v.push(id.clone());
+        v.push(id.join("EBWebView"));
     }
     v
+}
+
+fn profile_folders() -> Vec<PathBuf> {
+    let local = if cfg!(windows) { std::env::var_os("LOCALAPPDATA").filter(|l| !l.is_empty()).map(PathBuf::from) } else { None };
+    profile_folders_for(log_dir(), local, crate::identity::identifier(), crate::pkg::dirs().is_some())
+}
+
+/// The first unusable folder of the list, if any.
+pub fn first_profile_problem(folders: &[PathBuf]) -> Option<ProfileProblem> {
+    folders.iter().find_map(|d| profile_problem(d))
+}
+
+/// Asked in `run()` BEFORE the web view exists (lib.rs): an unusable data folder ends the start here with our own message, so WebView2 never
+/// gets to show its English one. Windows only (the message box is); elsewhere the start goes on as before.
+#[cfg(windows)]
+pub fn profile_blocks_start() -> bool {
+    first_profile_problem(&profile_folders()).is_some()
 }
 
 /// Which text to show: the data folder's (with the folder and the system's words) when it is the known cause and the runtime is there,
@@ -162,7 +180,7 @@ pub fn fail_start(what: &str) {
         let (lang, tags) = windows_language();
         crate::startup::line("fatal", &format!("the message is shown in {lang:?} (Windows UI languages: {tags:?})"));
         let runtime_missing = webview_runtime_missing();
-        let problem = if runtime_missing { None } else { profile_folders().iter().find_map(|d| profile_problem(d)) };
+        let problem = if runtime_missing { None } else { first_profile_problem(&profile_folders()) };
         if let Some(p) = &problem {
             crate::startup::line("fatal", &format!("the data folder cannot be used: {} ({})", p.folder.display(), p.error));
         }
@@ -354,6 +372,43 @@ mod tests {
             assert_eq!(message_for(l, Some(log), false, None), message_in(l, Some(log)));
             assert_eq!(message_for(l, Some(log), true, Some(&p)), message_in(l, Some(log)), "{l:?}: a missing runtime wins");
         }
+    }
+
+    #[test]
+    fn the_web_views_folders_are_checked_too_and_a_package_keeps_its_own() {
+        let l = PathBuf::from("local");
+        let data = PathBuf::from("data");
+        assert_eq!(
+            profile_folders_for(Some(data.clone()), Some(l.clone()), "thnonl.heylook", false),
+            vec![data.clone(), l.join("thnonl.heylook"), l.join("thnonl.heylook").join("EBWebView")]
+        );
+        assert_eq!(profile_folders_for(Some(data.clone()), Some(l.clone()), "thnonl.heylook", true), vec![data.clone()]);
+        assert_eq!(profile_folders_for(None, None, "x", false), Vec::<PathBuf>::new());
+        // a FILE named EBWebView, or the identifier folder being a file, is found
+        let base = std::env::temp_dir().join(format!("hl-startfail-order-{}", std::process::id()));
+        let id = base.join("thnonl.heylook");
+        let _ = std::fs::create_dir_all(&id);
+        std::fs::write(id.join("EBWebView"), b"x").unwrap();
+        let p = first_profile_problem(&profile_folders_for(None, Some(base.clone()), "thnonl.heylook", false)).expect("a file named EBWebView");
+        assert_eq!(p.folder, id.join("EBWebView"));
+        let idfile = base.join("id-file");
+        std::fs::write(&idfile, b"x").unwrap();
+        let p = first_profile_problem(&profile_folders_for(None, Some(base.clone()), "id-file", false)).expect("the identifier folder is a file");
+        assert_eq!(p.folder, idfile);
+        let ok = base.join("fine");
+        assert_eq!(first_profile_problem(&profile_folders_for(Some(ok.clone()), Some(base.join("ok-local")), "a", false)), None);
+    }
+
+    #[test]
+    fn the_data_folder_is_checked_before_the_web_view_is_made() {
+        // source guard: run() asks right after the runtime check and before anything that creates a web view (the health wait, the builder, the start gate's window)
+        let lib = include_str!("lib.rs");
+        let at = |s: &str| lib.find(s).unwrap_or_else(|| panic!("lib.rs no longer has {s}"));
+        let check = at("startfail::profile_blocks_start()");
+        assert!(at("startfail::webview_runtime_missing()") < check, "the missing runtime keeps its place and its text");
+        assert!(check < at("webview_health::wait_for_previous_run();"), "before the previous run's web view processes are waited for");
+        assert!(check < at("let builder = tauri::Builder::default();"), "before the builder");
+        assert!(check < at(".build(context)"), "before Builder::build creates the window");
     }
 
     #[test]

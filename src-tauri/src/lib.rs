@@ -6575,6 +6575,12 @@ pub fn run() {
     if startfail::webview_runtime_missing() && (!gated || startfail::seam().is_some()) {
         startfail::fail_start("the Microsoft WebView2 Runtime was not found on this computer");
     }
+    // an unusable data folder (a file where a folder should be, no write permission) is told in our own, translated message now: the web view would
+    // show its own English box first (startfail.rs)
+    #[cfg(windows)]
+    if startfail::profile_blocks_start() {
+        startfail::fail_start("the data folder cannot be used");
+    }
     // a restart or an installer relaunch starts this process while the previous run's web view processes are still going away: a web
     // view created now would join them and die with them (see webview_health.rs)
     webview_health::wait_for_previous_run();
