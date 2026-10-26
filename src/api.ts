@@ -8,6 +8,7 @@ import type { RecoveredDraft, RecoveryInfo, RecoveryLoaded, SnapshotOut } from "
 import type { PopoutKind } from "./popout/route";
 import type { Importance } from "./importance";
 import type { ThreadHome } from "./notifyOpen";
+import type { ConnTestReport } from "./connHints";
 
 export interface Account {
   id: string;
@@ -683,6 +684,11 @@ export const api = {
     invoke<Account>("add_account", { input, passwordValue, smtpPassword: smtpPassword || null }),
   /** "Cancel" while the add account form waits: the attempt stops before it stores anything */
   cancelAddAccount: () => invoke<void>("cancel_add_account"),
+  /** "Test connection" of the manual account form: one part ("imap" or "smtp") of the check, nothing is stored. The form asks for both at once. */
+  testConnection: (input: AccountInput, passwordValue: string, smtpPassword: string | undefined, part: "imap" | "smtp") =>
+    invoke<ConnTestReport>("test_connection", { input, passwordValue, smtpPassword: smtpPassword || null, part }),
+  /** Cancel (or Esc) while a test runs: the parts that have not answered end at once */
+  cancelTestConnection: () => invoke<void>("cancel_test_connection"),
   discoverServer: (email: string) => invoke<Discovered | null>("discover_server", { email }),
   googleEnvConfigured: () => invoke<boolean>("google_env_configured"),
   googleSignIn: (clientId: string, clientSecret: string, displayName: string) =>

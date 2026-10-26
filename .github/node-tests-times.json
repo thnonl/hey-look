@@ -273,6 +273,8 @@
   "node scripts/test-reply-golden.mjs --require-browser": 40,
   "bash .github/scripts/check-oauth-env.sh --selftest": 2,
   "node scripts/test-publish-manifest.mjs": 1,
-  "node scripts/test-release-workflow.mjs": 1
+  "node scripts/test-release-workflow.mjs": 1,
+  "node --experimental-strip-types scripts/test-conn-hints.mjs": 2,
+  "node scripts/test-conn-test-ui.mjs --require-browser": 90
  }
 }

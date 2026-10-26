@@ -5,7 +5,7 @@ use std::path::Path;
 /// few they need). A command missing here is not callable from any window; the tests in lib.rs (`capability_tests`) keep this list, the
 /// handler and the main capability the same.
 const APP_COMMANDS: &[&str] = &[
-    "frame_info", "frame_caption_rect", "frame_system_menu", "list_accounts", "add_account", "cancel_add_account", "google_sign_in", "oauth_cancel", "reauth_account",
+    "frame_info", "frame_caption_rect", "frame_system_menu", "list_accounts", "add_account", "cancel_add_account", "test_connection", "cancel_test_connection", "google_sign_in", "oauth_cancel", "reauth_account",
     "google_env_configured", "microsoft_sign_in", "microsoft_env_configured", "microsoft_tenant", "discover_server", "update_account",
     "remove_account", "sync_account", "refresh_badge", "test_notification", "notify_permission", "os_color_scheme", "open_notification_settings", "print_html", "mac_menu_state", "notify_caps", "play_notify_sound", "create_mail_folder", "open_external", "copy_text", "read_clipboard_text", "get_autostart", "set_autostart",
     "list_folders", "list_threads", "locate_thread", "get_thread", "get_thread_packed", "thread_action", "prepare_action", "list_senders", "sender_action", "list_blocked", "unblock", "list_remote_ok", "remote_ok_add", "remote_ok_remove", "remote_ok_clear",

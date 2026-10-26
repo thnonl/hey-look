@@ -6,6 +6,7 @@ mod mailrules;
 mod calendar;
 mod calseries;
 mod calsync;
+mod conntest;
 mod credwipe;
 mod clipdecode;
 mod db;
@@ -335,11 +336,58 @@ async fn add_account(
     // this attempt's number: "Cancel" in the form cancels the attempts started up to now, a later one is its own
     let attempt = ADD_STARTED.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
     blocking(move || {
-        let imap_login = |acc: &Account, pw: &str| imap_login_check(acc, pw, ADD_ACCOUNT_PROBE_TIMEOUT);
         let cancelled = || ADD_CANCELLED_TO.load(std::sync::atomic::Ordering::SeqCst) >= attempt;
-        add_account_cancellable(&db, input, &password_value, smtp_password, &imap_login, &smtp::test, &cancelled, &keyring_store)
+        // a refused check comes as `ACCOUNT_CHECK|part=…|kind=…` (conntest.rs), the kinds "Test connection" shows
+        let imap_login = |acc: &Account, pw: &str| conntest::check_imap(acc, pw, imap_login_check(acc, pw, ADD_ACCOUNT_PROBE_TIMEOUT));
+        let smtp_check = |acc: &Account, pw: &str| conntest::check_smtp(acc, pw, smtp::test(acc, pw));
+        add_account_cancellable(&db, input, &password_value, smtp_password, &imap_login, &smtp_check, &cancelled, &keyring_store)
     })
     .await
+}
+
+/// "Test connection" of the manual account form: the incoming and the outgoing server are checked at the same time, nothing is stored (conntest.rs).
+/// `part`: "imap" or "smtp" asks for one part (the form asks for both at once, so each line shows its result as soon as it is known); empty or "both" runs both.
+#[tauri::command]
+async fn test_connection(input: AccountInput, password_value: String, smtp_password: Option<String>, part: Option<String>) -> R<conntest::ConnTestReport> {
+    let attempt = TEST_STARTED.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+    blocking(move || {
+        let acc = account_of(input);
+        let smtp_pw = smtp_password.filter(|p| !p.is_empty()).unwrap_or_else(|| password_value.clone());
+        let cancelled = || TEST_CANCELLED_TO.load(std::sync::atomic::Ordering::SeqCst) >= attempt;
+        Ok(conntest::run(&acc, &password_value, &smtp_pw, conntest::Which::parse(part.as_deref()), conntest::PART_TIMEOUT, &cancelled))
+    })
+    .await
+}
+
+static TEST_STARTED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static TEST_CANCELLED_TO: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// "Cancel" (or Esc) while a test runs: the parts that have not answered end as cancelled at once and a late answer is dropped.
+#[tauri::command]
+fn cancel_test_connection() {
+    TEST_CANCELLED_TO.store(TEST_STARTED.load(std::sync::atomic::Ordering::SeqCst), std::sync::atomic::Ordering::SeqCst);
+}
+
+/// The account a form describes, before it is stored: the email, the user names and the host names are trimmed (a space typed or pasted
+/// after a host name made the lookup fail); passwords are never trimmed.
+fn account_of(input: AccountInput) -> Account {
+    Account {
+        id: uuid::Uuid::new_v4().to_string(),
+        email: input.email.trim().to_string(),
+        display_name: input.display_name,
+        imap_host: input.imap_host.trim().to_string(),
+        imap_port: input.imap_port,
+        imap_ssl: input.imap_ssl,
+        smtp_host: input.smtp_host.trim().to_string(),
+        smtp_port: input.smtp_port,
+        smtp_security: input.smtp_security,
+        username: input.username.trim().to_string(),
+        auth: "password".into(),
+        color: None,
+        smtp_username: input.smtp_username.trim().to_string(),
+        tls_insecure: input.tls_insecure,
+        reply_to: String::new(),
+    }
 }
 
 /// The newest attempt to add an account that was started, and the newest one the person cancelled (the form's Cancel while it waits).
@@ -474,23 +522,7 @@ fn add_account_cancellable(
     cancelled: &dyn Fn() -> bool,
     store: &dyn Fn(&str, &str, &dyn Fn() -> bool) -> R<()>,
 ) -> R<Account> {
-    let acc = Account {
-        id: uuid::Uuid::new_v4().to_string(),
-        email: input.email,
-        display_name: input.display_name,
-        imap_host: input.imap_host,
-        imap_port: input.imap_port,
-        imap_ssl: input.imap_ssl,
-        smtp_host: input.smtp_host,
-        smtp_port: input.smtp_port,
-        smtp_security: input.smtp_security,
-        username: input.username,
-        auth: "password".into(),
-        color: None,
-        smtp_username: input.smtp_username.trim().to_string(),
-        tls_insecure: input.tls_insecure,
-        reply_to: String::new(),
-    };
+    let acc = account_of(input);
     let smtp_password = smtp_password.filter(|p| !p.is_empty());
     let smtp_pw = smtp_password.clone().unwrap_or_else(|| password_value.to_string());
     let test_smtp = !acc.smtp_username.is_empty() || smtp_password.is_some();
@@ -540,7 +572,7 @@ fn check_new_account(
     if test_smtp {
         smtp_check(acc, smtp_pw)?;
     } else if let Err(e) = smtp_check(acc, smtp_pw) {
-        if mail::is_secure_connection_error(&e) {
+        if mail::is_secure_connection_error(&e) || conntest::is_secure_kind(&e) {
             return Err(e);
         }
     }
@@ -6851,6 +6883,8 @@ pub fn run() {
             list_accounts,
             add_account,
             cancel_add_account,
+            test_connection,
+            cancel_test_connection,
             google_sign_in,
             oauth_cancel,
             reauth_account,

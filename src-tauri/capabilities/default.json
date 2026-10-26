@@ -21,6 +21,8 @@
     "allow-list-accounts",
     "allow-add-account",
     "allow-cancel-add-account",
+    "allow-test-connection",
+    "allow-cancel-test-connection",
     "allow-google-sign-in",
     "allow-oauth-cancel",
     "allow-reauth-account",

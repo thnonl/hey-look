@@ -492,6 +492,10 @@ ui-e | node scripts/test-reply-images.mjs --require-browser
 static | node --experimental-strip-types scripts/test-port-field.mjs
 # 1.0.7 D-006 in the real page: typed 31501 / 587 / 465 / 65535, ArrowUp, the wheel, a paste, Backspace to empty, then the add_account call carries the typed ports
 ui-d | node scripts/test-smtp-port-ui.mjs --require-browser
+# 1.0.10 Test connection (Settings > Add account > other): the rules without the page (enabling, host names, hints and fixes, the 21 kinds, stale lines, the pause after three failed sign-ins, the coded error of a refused add, every text in the 8 languages)
+static | node --experimental-strip-types scripts/test-conn-hints.mjs
+# 1.0.10 Test connection in the real page with the mocked backend: the lines of every kind, Cancel / Esc, stale lines, the fixes, a refused Add account, the pause, the keyboard, the long case in all languages at 960x560
+ui-b | node scripts/test-conn-test-ui.mjs --require-browser
 # 1.0.7 D-021: Ctrl+Q on Linux emits the quit-key event (main window, reader window, a message frame, a text box); other chords, Windows and macOS do not
 ui-d | node scripts/test-quit-key-ui.mjs --require-browser
 # 1.0.7 D-112: every frame that can hold the focus has the Ctrl+Q handler (the frame of a Confidential mail had none: the key did nothing while the person had clicked into the mail); the source guard

@@ -1,5 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
-import { ChevronDown, ChevronUp, ExternalLink, KeyRound, Lock, Play, Plus, ShieldAlert, Trash2, Upload, Volume2 } from "lucide-react";
+import { ChevronDown, ChevronUp, ExternalLink, KeyRound, Lock, Play, Plus, PlugZap, ShieldAlert, Trash2, TriangleAlert, Upload, Volume2 } from "lucide-react";
 import { openPopout } from "../popout/open";
 import { SETTINGS_KEY } from "../popout/windowKinds";
 import { openUpdateLink } from "../updates";
@@ -24,6 +24,8 @@ import { cutAtWord, friendlyError, useStore } from "../store";
 import { ensureTrustedLoaded, reloadTrusted, removeTrusted, useTrusted } from "../trustedSenders";
 import { credStore, kbd, riskyHint, usePlatform } from "../platform";
 import { portFromText, portText } from "../portField";
+import { addBlocked, applyFix, badHosts, type Block, changedWhileChecking, cooldown, type ConnForm, fieldValue, type FieldId, fixMsg, type Fix, needReason, NO_STREAK, nextStreak, parseAccountCheck, type PartReport, preHints, say, sigsOf, streakKey, type Streak } from "../connHints";
+import { ConnTestBlock } from "./ConnTest";
 import { LazyRuleDialog } from "../lazyViews";
 import { ACTION_WORD, ruleTitle } from "../ruleText";
 import { runRule } from "../ruleRun";
@@ -659,7 +661,8 @@ const SOURCE_LABEL: Record<Discovered["source"], Key> = {
   guess: "settings.add.found.guess",
 };
 
-function ImapForm({ initialProvider = "custom" }: { initialProvider?: string }) {
+/** The manual account form. `onSegment`: the Google / Microsoft sign-in segments of the tab (the fixes "Use Google sign-in" and "Use Microsoft sign-in"). */
+function ImapForm({ initialProvider = "custom", onSegment }: { initialProvider?: string; onSegment?: (kind: OAuthKind) => void }) {
   const t = useT();
   const { showToast } = useStore();
   const [provider, setProvider] = useState(initialProvider);
@@ -678,7 +681,42 @@ function ImapForm({ initialProvider = "custom" }: { initialProvider?: string }) 
   const [found, setFound] = useState<Discovered | null>(null);
   const [error, setError] = useState("");
   const addBtn = useRef<HTMLButtonElement>(null);
+  const testBtn = useRef<HTMLButtonElement>(null);
   const wasBusy = useRef(false);
+  // ---- Test connection (src/connHints.ts has the rules, src-tauri/src/conntest.rs the checks)
+  const showAdv = provider === "custom" || provider === "bridge";
+  const form: ConnForm = {
+    provider, showAdv, email, pw, username, imapHost: adv.imapHost, imapPort: adv.imapPort, imapSsl: adv.imapSsl, smtpHost: adv.smtpHost, smtpPort: adv.smtpPort,
+    smtpSecurity: adv.smtpSecurity, sepSmtp, smtpUser, smtpPw, insecure,
+  };
+  const now = sigsOf(form);
+  const need = needReason(form);
+  const [block, setBlock] = useState<Block | null>(null);
+  /** which test is the one on screen: Cancel, an edit or a newer test leaves an older one without a voice */
+  const testNo = useRef(0);
+  const streak = useRef<Streak>(NO_STREAK);
+  const [pauseUntil, setPauseUntil] = useState(0);
+  const [clock, setClock] = useState(() => Date.now());
+  const secondsLeft = Math.max(0, Math.ceil((pauseUntil - clock) / 1000));
+  const paused = secondsLeft > 0;
+  useEffect(() => {
+    if (pauseUntil <= Date.now()) return;
+    setClock(Date.now());
+    const id = window.setInterval(() => {
+      setClock(Date.now());
+      if (Date.now() >= pauseUntil) window.clearInterval(id);
+    }, 250);
+    return () => window.clearInterval(id);
+  }, [pauseUntil]);
+  const checking = block?.source === "test" && (block.imap.state === "checking" || block.smtp.state === "checking");
+  const checkingNow = useRef(false);
+  checkingNow.current = !!checking;
+  /** the field that "Show field" pointed at, red until it is edited */
+  const [pointed, setPointed] = useState<{ id: FieldId; value: string } | null>(null);
+  const fields = useRef<Partial<Record<FieldId, HTMLElement | null>>>({});
+  const reg = (id: FieldId) => (el: HTMLElement | null) => { fields.current[id] = el; };
+  const invalid = (id: FieldId) => (pointed?.id === id && pointed.value === fieldValue(form, id)) || badHosts(form).includes(id);
+  const slot = useRef<HTMLDivElement>(null);
   // the attempt failed: the button was disabled while it ran (the focus fell off it), so the focus goes back to it
   useEffect(() => {
     if (busy) wasBusy.current = true;
@@ -687,12 +725,14 @@ function ImapForm({ initialProvider = "custom" }: { initialProvider?: string }) 
       if (!document.activeElement || document.activeElement === document.body) addBtn.current?.focus();
     }
   }, [busy]);
-  const showAdv = provider === "custom" || provider === "bridge";
   const pick = (p: string) => {
+    if (checkingNow.current) endTest();
     setProvider(p);
     setAdv(startAdv(p));
     setInsecure(!!PROVIDERS[p].insecure);
     setFound(null);
+    setBlock(null);
+    setPointed(null);
   };
   const detect = async () => {
     setDetecting(true);
@@ -725,31 +765,143 @@ function ImapForm({ initialProvider = "custom" }: { initialProvider?: string }) 
     setError("");
     void api.cancelAddAccount().catch(() => undefined);
   };
+  const inputOf = (f: ConnForm) => ({
+    email: f.email.trim(), displayName: name, imapHost: f.imapHost.trim(), imapPort: f.imapPort, imapSsl: f.imapSsl, smtpHost: f.smtpHost.trim(), smtpPort: f.smtpPort,
+    smtpSecurity: f.smtpSecurity, username: f.username.trim() || f.email.trim(), smtpUsername: f.sepSmtp ? f.smtpUser.trim() : "", tlsInsecure: f.insecure,
+  });
+  /** ends the test that runs (no result, no late answer) */
+  const endTest = () => {
+    testNo.current++;
+    void api.cancelTestConnection().catch(() => undefined);
+  };
+  /** after a result: three failed sign-ins in a row (or the server's "too many") pause Test and Add for a minute */
+  const noteSignIns = (f: ConnForm, reports: (PartReport | null | undefined)[]) => {
+    const r = nextStreak(streak.current, streakKey(f), reports);
+    streak.current = r.streak;
+    if (r.pause) setPauseUntil(Date.now() + cooldown.seconds * 1000);
+  };
   const add = async () => {
+    if (checkingNow.current) endTest(); // (Add while a test runs: the test ends first)
     const mine = ++attempt.current;
+    const sent = form;
     setBusy(true);
     setError("");
+    setBlock(null);
     try {
-      const acc = await api.addAccount(
-        {
-          email, displayName: name, imapHost: adv.imapHost, imapPort: adv.imapPort, imapSsl: adv.imapSsl,
-          smtpHost: adv.smtpHost, smtpPort: adv.smtpPort, smtpSecurity: adv.smtpSecurity, username: username || email,
-          smtpUsername: sepSmtp ? smtpUser : "", tlsInsecure: insecure,
-        },
-        pw,
-        sepSmtp ? smtpPw : undefined,
-      );
+      const acc = await api.addAccount(inputOf(sent), pw, sepSmtp ? smtpPw : undefined);
       setPw(""); setSmtpPw("");
       // closes this dialog, opens the new account's Inbox and starts its first sync
       void useStore.getState().accountAdded(acc);
     } catch (e) {
       if (mine !== attempt.current) return; // (cancelled: the person has gone on; nothing was stored)
-      setError(friendlyError(e)); // stay here with what was typed: the message is next to the button, and in a toast
+      const refused = parseAccountCheck(e);
+      if (refused) {
+        // the same lines as "Test connection": the part that was refused, and the other one as far as it got
+        const other = refused.part === "imap" ? "smtp" : "imap";
+        const reached: PartReport = { status: "ok", kind: "ok", host: "", port: 0, security: "", certNames: [], detail: "", ms: 0 };
+        const failed = { state: "done" as const, report: refused.report };
+        setBlock({ source: "add", imap: refused.part === "imap" ? failed : { state: "done", report: reached }, smtp: refused.part === "smtp" ? failed : other === "smtp" ? { state: "notChecked" } : { state: "done", report: reached }, sigs: sigsOf(sent) });
+        noteSignIns(sent, [refused.report]);
+      } else setError(friendlyError(e)); // stay here with what was typed: the message is next to the button, and in a toast
       showToast(() => friendlyError(e), undefined, "error");
     } finally {
       if (mine === attempt.current) setBusy(false);
     }
   };
+  /** "Test connection": the incoming and the outgoing server at once, each line shows its result as soon as it is known; nothing is stored. `over`: a change the page has not drawn yet ("Trust this certificate and test again"). */
+  const runTest = async (over?: Partial<ConnForm>) => {
+    const f: ConnForm = { ...form, ...over };
+    if (checkingNow.current || paused || needReason(f)) return;
+    const mine = ++testNo.current;
+    checkingNow.current = true;
+    setPointed(null);
+    setBlock({ source: "test", imap: { state: "checking" }, smtp: { state: "checking" }, sigs: sigsOf(f) });
+    const input = inputOf(f);
+    const run = async (part: "imap" | "smtp"): Promise<PartReport> => {
+      let rep: PartReport;
+      try {
+        const r = await api.testConnection(input, f.pw, f.sepSmtp ? f.smtpPw : undefined, part);
+        rep = (part === "imap" ? r.imap : r.smtp) ?? { status: "error", kind: "unknown", host: "", port: 0, security: "", certNames: [], detail: "", ms: 0 };
+      } catch (e) {
+        rep = { status: "error", kind: "unknown", host: part === "imap" ? input.imapHost : input.smtpHost, port: part === "imap" ? input.imapPort : input.smtpPort, security: "", certNames: [], detail: String(e instanceof Error ? e.message : e), ms: 0 };
+      }
+      if (mine === testNo.current) setBlock((b) => (b && b.source === "test" ? { ...b, [part]: { state: rep.status === "cancelled" ? "cancelled" : "done", report: rep } } : b));
+      return rep;
+    };
+    const both = await Promise.all([run("imap"), run("smtp")]);
+    if (mine !== testNo.current) return;
+    checkingNow.current = false;
+    noteSignIns(f, both);
+  };
+  /** Cancel (or Esc) while the test runs: the lines end at once, a late answer is dropped */
+  const cancelTest = () => {
+    endTest();
+    checkingNow.current = false;
+    setBlock((b) => (b ? { ...b, imap: { state: "cancelled" }, smtp: { state: "cancelled" } } : b));
+  };
+  // the focus goes to Cancel when a test starts and back to the button when it ends (the link that had it is gone then), like the Add button
+  const wasChecking = useRef(false);
+  useEffect(() => {
+    if (checking) {
+      wasChecking.current = true;
+      slot.current?.querySelector<HTMLElement>('[data-conn="cancel"]')?.focus({ preventScroll: true });
+    } else if (wasChecking.current) {
+      wasChecking.current = false;
+      if (!document.activeElement || document.activeElement === document.body || slot.current?.contains(document.activeElement)) testBtn.current?.focus({ preventScroll: true });
+    }
+    if (block?.source === "test") slot.current?.scrollIntoView({ block: "nearest" });
+  }, [checking, block?.source, !!block]);
+  // Esc ends a running test and does not close Settings (the next Esc does what it did)
+  useEffect(() => {
+    if (!checking) return;
+    const k = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault(); // (the dialog closes on an Esc nobody took)
+      cancelTest();
+    };
+    window.addEventListener("keydown", k, true);
+    return () => window.removeEventListener("keydown", k, true);
+  }, [checking]);
+  // an edit while a test runs ends it and clears the block (no mix of old and new settings)
+  useEffect(() => {
+    if (block && changedWhileChecking(block, now)) {
+      endTest();
+      checkingNow.current = false;
+      setBlock(null);
+    }
+  }, [now.both, now.imap, now.smtp]);
+  // closing Settings or going to another segment ends the test: no late answer anywhere
+  useEffect(() => () => { if (checkingNow.current) void api.cancelTestConnection().catch(() => undefined); }, []);
+  /** "Show field": focuses and selects the field, which stays red until it is edited */
+  const showField = (id: FieldId) => {
+    const el = fields.current[id];
+    if (!el) return;
+    el.scrollIntoView({ block: "nearest" });
+    el.focus();
+    (el as HTMLInputElement).select?.();
+    setPointed({ id, value: fieldValue(form, id) });
+  };
+  /** the one-click fixes change the form only; "Trust this certificate and test again" also runs the test */
+  const fix = (fx: Fix) => {
+    switch (fx.id) {
+      case "appPassword": void openUpdateLink(fx.url); return;
+      case "google": case "microsoft": onSegment?.(fx.id); return;
+      case "trust": setInsecure(true); void runTest({ insecure: true }); return;
+      default: setAdv((a) => ({ ...a, ...applyFix(form, fx) }));
+    }
+  };
+  const pre = preHints(form);
+  const preUnder = (part: "imap" | "smtp") =>
+    pre.filter((h) => h.part === part).map((h) => (
+      <div key={h.id} className="conn-pre muted small" data-pre={h.id}>
+        <TriangleAlert size={12} aria-hidden="true" />
+        <span>{say(h.msg)}</span>
+        {h.fixes.map((fx) => (
+          <button key={fx.id} className="btn small" data-conn={`fix-${fx.id}`} onClick={() => fix(fx)}>{say(fixMsg(fx))}</button>
+        ))}
+      </div>
+    ));
+  const reason = paused ? t("settings.test.cooldown", { s: secondsLeft }) : need ? t(`settings.test.${need}`) : "";
   return (
     <>
       <div className="set-card">
@@ -762,7 +914,7 @@ function ImapForm({ initialProvider = "custom" }: { initialProvider?: string }) 
           {PROVIDERS[provider].hint && <div className="notice">{PROVIDERS[provider].hint}</div>}
           <label>{t("settings.add.email")}</label>
           <div className="row-inline">
-            <input autoComplete="off" aria-label={t("settings.add.email")} placeholder="name@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <input ref={reg("email")} autoComplete="off" aria-label={t("settings.add.email")} placeholder="name@example.com" value={email} onChange={(e) => setEmail(e.target.value)} aria-invalid={invalid("email") || undefined} />
             <button className="btn" disabled={detecting || !email.includes("@")} onClick={() => void detect()} title={t("settings.add.detectTitle")}>
               {detecting ? t("settings.add.detecting") : t("settings.add.detect")}
             </button>
@@ -776,28 +928,34 @@ function ImapForm({ initialProvider = "custom" }: { initialProvider?: string }) 
           <label>{t("settings.add.displayName")}</label>
           <input autoComplete="off" aria-label={t("settings.add.displayName")} placeholder={t("settings.add.yourName")} value={name} onChange={(e) => setName(e.target.value)} />
           <label>{t("settings.add.password")}</label>
-          <input autoComplete="off" aria-label={t("settings.add.password")} type="password" value={pw} onChange={(e) => setPw(e.target.value)} />
+          <input ref={reg("password")} autoComplete="off" aria-label={t("settings.add.password")} type="password" value={pw} onChange={(e) => setPw(e.target.value)} aria-invalid={invalid("password") || undefined} />
           {showAdv && (
             <>
               <label>{t("settings.add.username")}</label>
-              <input autoComplete="off" aria-label={t("settings.add.username")} placeholder="name@example.com" value={username} onChange={(e) => setUsername(e.target.value)} />
+              <input ref={reg("username")} autoComplete="off" aria-label={t("settings.add.username")} placeholder="name@example.com" value={username} onChange={(e) => setUsername(e.target.value)} aria-invalid={invalid("username") || undefined} />
               <label>{t("settings.add.imapServer")}</label>
-              <div className="row-inline">
-                <input autoComplete="off" aria-label={t("settings.add.imapHost")} placeholder="imap.example.com" value={adv.imapHost} onChange={(e) => setAdv({ ...adv, imapHost: e.target.value })} />
-                <input autoComplete="off" type="text" inputMode="numeric" aria-label={t("settings.add.imapPort")} placeholder="993" value={portText(adv.imapPort)} onChange={(e) => setAdv({ ...adv, imapPort: portFromText(e.target.value, adv.imapPort) })} />
-                <select aria-label={t("settings.add.imapSecurity")} value={adv.imapSsl ? "ssl" : "starttls"} onChange={(e) => setAdv({ ...adv, imapSsl: e.target.value === "ssl" })}>
-                  {/* i18n-ok: protocol names */}
-                  <option value="ssl">SSL/TLS</option><option value="starttls">STARTTLS</option>
-                </select>
+              <div className="conn-group">
+                <div className="row-inline">
+                  <input ref={reg("imapHost")} autoComplete="off" aria-label={t("settings.add.imapHost")} placeholder="imap.example.com" value={adv.imapHost} onChange={(e) => setAdv({ ...adv, imapHost: e.target.value })} aria-invalid={invalid("imapHost") || undefined} />
+                  <input ref={reg("imapPort")} autoComplete="off" type="text" inputMode="numeric" aria-label={t("settings.add.imapPort")} placeholder="993" value={portText(adv.imapPort)} onChange={(e) => setAdv({ ...adv, imapPort: portFromText(e.target.value, adv.imapPort) })} aria-invalid={invalid("imapPort") || undefined} />
+                  <select ref={reg("imapSecurity")} aria-label={t("settings.add.imapSecurity")} value={adv.imapSsl ? "ssl" : "starttls"} onChange={(e) => setAdv({ ...adv, imapSsl: e.target.value === "ssl" })} aria-invalid={invalid("imapSecurity") || undefined}>
+                    {/* i18n-ok: protocol names */}
+                    <option value="ssl">SSL/TLS</option><option value="starttls">STARTTLS</option>
+                  </select>
+                </div>
+                {preUnder("imap")}
               </div>
               <label>{t("settings.add.smtpServer")}</label>
-              <div className="row-inline">
-                <input autoComplete="off" aria-label={t("settings.add.smtpHost")} placeholder="smtp.example.com" value={adv.smtpHost} onChange={(e) => setAdv({ ...adv, smtpHost: e.target.value })} />
-                <input autoComplete="off" type="text" inputMode="numeric" aria-label={t("settings.add.smtpPort")} placeholder="465" value={portText(adv.smtpPort)} onChange={(e) => setAdv({ ...adv, smtpPort: portFromText(e.target.value, adv.smtpPort) })} />
-                <select aria-label={t("settings.add.smtpSecurity")} value={adv.smtpSecurity} onChange={(e) => setAdv({ ...adv, smtpSecurity: e.target.value as "ssl" | "starttls" })}>
-                  {/* i18n-ok: protocol names */}
-                  <option value="ssl">SSL/TLS</option><option value="starttls">STARTTLS</option>
-                </select>
+              <div className="conn-group">
+                <div className="row-inline">
+                  <input ref={reg("smtpHost")} autoComplete="off" aria-label={t("settings.add.smtpHost")} placeholder="smtp.example.com" value={adv.smtpHost} onChange={(e) => setAdv({ ...adv, smtpHost: e.target.value })} aria-invalid={invalid("smtpHost") || undefined} />
+                  <input ref={reg("smtpPort")} autoComplete="off" type="text" inputMode="numeric" aria-label={t("settings.add.smtpPort")} placeholder="465" value={portText(adv.smtpPort)} onChange={(e) => setAdv({ ...adv, smtpPort: portFromText(e.target.value, adv.smtpPort) })} aria-invalid={invalid("smtpPort") || undefined} />
+                  <select ref={reg("smtpSecurity")} aria-label={t("settings.add.smtpSecurity")} value={adv.smtpSecurity} onChange={(e) => setAdv({ ...adv, smtpSecurity: e.target.value as "ssl" | "starttls" })} aria-invalid={invalid("smtpSecurity") || undefined}>
+                    {/* i18n-ok: protocol names */}
+                    <option value="ssl">SSL/TLS</option><option value="starttls">STARTTLS</option>
+                  </select>
+                </div>
+                {preUnder("smtp")}
               </div>
               <div className="row-inline">
                 <Switch checked={sepSmtp} onChange={setSepSmtp} label={t("settings.add.sepSmtp")} />
@@ -805,9 +963,9 @@ function ImapForm({ initialProvider = "custom" }: { initialProvider?: string }) 
               {sepSmtp && (
                 <>
                   <label>{t("settings.add.smtpUsername")}</label>
-                  <input autoComplete="off" aria-label={t("settings.add.smtpUsername")} value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} placeholder={username || email} />
+                  <input ref={reg("smtpUsername")} autoComplete="off" aria-label={t("settings.add.smtpUsername")} value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} placeholder={username || email} aria-invalid={invalid("smtpUsername") || undefined} />
                   <label>{t("settings.add.smtpPasswordLabel")}</label>
-                  <input autoComplete="off" aria-label={t("settings.add.smtpPassword")} type="password" value={smtpPw} onChange={(e) => setSmtpPw(e.target.value)} />
+                  <input ref={reg("smtpPassword")} autoComplete="off" aria-label={t("settings.add.smtpPassword")} type="password" value={smtpPw} onChange={(e) => setSmtpPw(e.target.value)} aria-invalid={invalid("smtpPassword") || undefined} />
                 </>
               )}
               <div className="row-inline">
@@ -820,21 +978,29 @@ function ImapForm({ initialProvider = "custom" }: { initialProvider?: string }) 
               )}
             </>
           )}
-          <button ref={addBtn} className="btn primary" disabled={busy || !email || !pw} onClick={() => void add()}>
-            <Plus size={14} /> {busy ? t("settings.add.connecting") : t("settings.add.addAccount")}
-          </button>
+          <div className="conn-btns">
+            <button ref={testBtn} className="btn" data-conn="test" disabled={checking || busy || !!need || paused} title={reason || undefined} aria-describedby={reason ? "conn-reason" : undefined} onClick={() => void runTest()}>
+              {checking ? <><span className="spin" aria-hidden="true" /> {t("settings.test.testing")}</> : <><PlugZap size={14} aria-hidden="true" /> {t("settings.test.button")}</>}
+            </button>
+            <button ref={addBtn} className="btn primary" disabled={busy || paused || addBlocked(form)} onClick={() => void add()}>
+              <Plus size={14} /> {busy ? t("settings.add.connecting") : t("settings.add.addAccount")}
+            </button>
+          </div>
+          {reason && <div id="conn-reason" className="muted small" data-conn="reason">{reason}</div>}
           <div className="muted small">{t("settings.add.passwordsStored", { store: credStore() })}</div>
         </div>
       </div>
       {/* how the attempt ended: one slot of fixed size under the card, so the Add button never moves (the error used to be a row above it) */}
-      <div className="signin-slot">
-        {error ? (
-          <div className="notice bad" role="alert">{error}</div>
-        ) : busy ? (
+      <div className="signin-slot conn-slot" ref={slot}>
+        {busy ? (
           // the wait for the server, or for a locked keyring, can be long: it can be ended
           <div className="notice" role="status">
             {t("settings.add.connecting")} <button className="link" onClick={cancel}>{t("common.cancel")}</button>
           </div>
+        ) : block ? (
+          <ConnTestBlock block={block} form={form} now={now} onCancel={cancelTest} onShowField={showField} onFix={fix} />
+        ) : error ? (
+          <div className="notice bad" role="alert">{error}</div>
         ) : null}
       </div>
     </>
@@ -850,7 +1016,7 @@ function AddAccountTab() {
     <div>
       <h3 id="set-pg-add-account">{t("settings.add.addAccount")}</h3>
       <Seg value={kind} onChange={(k) => { setPreset("custom"); setKind(k); }} options={[["google", "Google"], ["microsoft", "Microsoft"], ["imap", t("settings.add.imapTab")]]} />
-      {kind === "imap" ? <ImapForm key={preset} initialProvider={preset} /> : <OAuthBlock key={kind} kind={kind} onAppPassword={() => { setPreset("gmail"); setKind("imap"); }} />}
+      {kind === "imap" ? <ImapForm key={preset} initialProvider={preset} onSegment={(k) => { setPreset("custom"); setKind(k); }} /> : <OAuthBlock key={kind} kind={kind} onAppPassword={() => { setPreset("gmail"); setKind("imap"); }} />}
     </div>
   );
 }
