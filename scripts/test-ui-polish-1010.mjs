@@ -863,12 +863,54 @@ async function r10() {
       }
     }
     ok(bad.length === 0, `${label}: a header clipped by the top of the list takes its right-click on every visible point: ${JSON.stringify(bad.slice(0, 6))}`);
+    // Sandbox QA round 5 scrolled a header 13 px past the TOP OF THE PANE (not past the bottom of the sticky top row, which is 42 px tall and opaque): the strip they clicked (pane top .. header bottom)
+    // belongs to that sticky row (its collapse button), the header is wholly behind it and is not painted: every point there must be the sticky row, and nothing of the header is hit
+    const geo = await evaluate(`(() => { const sc = document.querySelector('.fp-surface'), st = sc.getBoundingClientRect(), hr = document.querySelectorAll('.fp-group[data-reorder-id] .fp-headrow')[1]; sc.scrollTop += Math.round(hr.getBoundingClientRect().top - (st.top - 13)); const h = hr.getBoundingClientRect(), ft = document.querySelector('.fp-top').getBoundingClientRect(); const out = []; for (let y = Math.ceil(st.top) + 1; y < h.bottom; y += 3) for (const x of [60, 150, 190]) { const e = document.elementFromPoint(x, y); out.push(!!e && !!e.closest('.fp-top') && !e.closest('.fp-headrow')); } return { hidden: h.bottom <= ft.bottom, all: out.every(Boolean), n: out.length }; })()`);
+    if (label === 'wide') ok(geo.hidden && geo.all && geo.n > 0, `${label}: a header 13 px past the top of the pane is wholly behind the sticky top row, which owns those points (${JSON.stringify(geo)})`);
   }
+}
+
+// ======================================================================== R11 (Windows Sandbox QA, BUG-6): the peek after Escape closed a menu that was opened from it
+async function r11() {
+  section = 'R11';
+  await fresh('light&lang=en&os=windows', 960, 900);
+  ok(await until(`!!document.querySelector('.is-rail')`), 'icon column');
+  const side = () => evaluate(`document.querySelector('.folder-pane').dataset.sidebar`);
+  let seed = 7;
+  const rnd = (n) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n; };
+  const slow = [];
+  for (let i = 0; i < 20; i++) {
+    const kind = i % 2 ? 'folder' : 'account'; // a mailbox header's menu (reorder) and a folder row's menu (One Inbox)
+    await mouse('mouseMoved', 900, 400);
+    await until(`document.querySelector('.folder-pane').dataset.sidebar === 'rail' && !document.querySelector('.ctx-menu')`, 2500);
+    await sleep(200 + rnd(300));
+    const [ax, ay] = await centre('.is-rail .fp-avatar', 1);
+    await mouse('mouseMoved', ax, ay);
+    if (!(await until(`document.querySelector('.folder-pane').dataset.sidebar === 'peek'`, 2500))) { ok(false, `run ${i}: the peek did not open`); continue; }
+    await sleep(350 + rnd(300)); // (the menu slides in)
+    const sel = kind === 'account' ? '.folder-pane .fp-group[data-reorder-id] .fp-head' : `.folder-pane ${ONE}`;
+    const [x, y] = await centre(sel, kind === 'account' ? 1 : 0);
+    await mouse('mouseMoved', x, y);
+    await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'right', buttons: 2, clickCount: 1 });
+    await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'right', clickCount: 1 });
+    if (!(await until(`!!document.querySelector('.ctx-menu')`, 800))) { ok(false, `run ${i} (${kind}): no menu`); continue; }
+    // the pointer goes to the list (random place and speed), the menu is still open: the peek stays
+    const steps = 1 + rnd(5);
+    for (let s = 1; s <= steps; s++) { await mouse('mouseMoved', x + ((900 - x) * s) / steps, y + (((200 + rnd(400)) - y) * s) / steps); await sleep(20 + rnd(60)); }
+    await sleep(rnd(700));
+    if ((await side()) !== 'peek') { ok(false, `run ${i} (${kind}): the peek closed while its menu was open`); continue; }
+    await press('Escape');
+    const t0 = Date.now();
+    const closed = await until(`document.querySelector('.folder-pane').dataset.sidebar === 'rail'`, 1500);
+    const dt = Date.now() - t0;
+    if (!closed || dt > 700) slow.push([i, kind, closed ? dt : 'open']);
+  }
+  ok(slow.length === 0, `after Escape closed the menu, with the pointer off the rail, the peek closes within ~0.5 s every time (20 runs): ${JSON.stringify(slow)}`);
 }
 
 // ======================================================================== run
 const only = arg('only');
-const parts = { r4, r1, r6, r3, r5, r2, r7, r8, r9, r10 };
+const parts = { r4, r1, r6, r3, r5, r2, r7, r8, r9, r10, r11 };
 for (const [name, fn] of Object.entries(parts)) {
   if (only && !only.split(',').includes(name)) continue;
   try { await fn(); } catch (e) { failures.push(`[${name}] threw: ${e.stack || e.message}`); console.error(`FAIL [${name}] threw`, e); }

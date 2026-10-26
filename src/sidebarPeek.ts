@@ -69,7 +69,10 @@ export function useSidebarPeek(active: boolean, busy: boolean) {
 
   // a menu or a drag that kept it open has ended and the pointer is elsewhere
   useEffect(() => {
-    if (busy || !open || inside.current) return;
+    if (busy || !open) return;
+    // (1.0.10, QA BUG-6) the pointer went somewhere that sends no pointerleave (the mail, a frame) while the menu was open, so `inside` can be a stale yes: ask the page now
+    inside.current = !!pane.current?.matches(":hover");
+    if (inside.current) return;
     // the focus a menu gave back to its icon keeps the peek open only when the keyboard opened it (1.0.10: a hover peek stayed open after its menu closed)
     if (how.current !== "key" || !pane.current?.contains(document.activeElement)) later(PEEK_LEAVE_MS, close);
   }, [busy]); // eslint-disable-line react-hooks/exhaustive-deps

@@ -103,7 +103,8 @@ export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
   }); // the mailbox groups can be moved (grip, Alt+Up / Alt+Down, menu); see AccountReorder.tsx
   /** the menu of a folder of the person that can have a subfolder: right-click, ContextMenu key or Shift+F10 on its row (the other rows have none, W13.10) */
   const [fmenu, setFmenu] = useState<{ acct: string | null; key: string; at: { x: number; y: number }; keyboard: boolean; from: HTMLElement | null } | null>(null);
-  const peek = useSidebarPeek(folded, reorder.dragging !== null || reorder.menuOpen);
+  // (the peek stays while a menu opened from it is open: a mailbox's menu, and 1.0.10 also the menu of a folder row such as One Inbox)
+  const peek = useSidebarPeek(folded, reorder.dragging !== null || reorder.menuOpen || fmenu !== null);
   const rail = folded && !peek.open; // icons only; a peek is the full menu over the panes
   // the control and Ctrl+B / Cmd+B (sidebarState.ts `toggleSidebar`): fold or open the menu in place, or - with no room next to the list - open the overlay pinned or close it
   const onToggle = () => {
