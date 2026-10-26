@@ -1467,6 +1467,18 @@ impl WindowRow {
     }
 }
 
+/// DEC-024: a closed window that is not visible and holds no view is the known empty shell (one per close, about 0.1-0.5 MB until quit; Mac QA 95368866 saw exactly this for 5 readers + 1 compose).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn is_known_shell(visible: bool, subviews: usize) -> bool {
+    !visible && subviews == 0
+}
+
+/// How many titled windows in `rows` are empty ordered-out shells.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn shell_count(rows: &[WindowRow]) -> usize {
+    rows.iter().filter(|r| r.titled && is_known_shell(r.visible, r.subviews)).count()
+}
+
 /// Tell the known residual (DEC-024: an ordered-out, empty, titled window shell per closed pop-out) from a real problem (a visible window that is not one of the open ones, or a shell that still
 /// has content). `open` windows are the visible titled ones: the caller does not know which are legitimate, so they are only counted and listed. Pure, so it is tested everywhere.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -1474,7 +1486,7 @@ pub fn shell_verdict(rows: &[WindowRow]) -> String {
     if rows.is_empty() {
         return "window list not read (release build)".to_string();
     }
-    let shells = rows.iter().filter(|r| r.titled && !r.visible && r.subviews == 0).count();
+    let shells = shell_count(rows);
     let loaded = rows.iter().filter(|r| r.titled && !r.visible && r.subviews > 0).count();
     let visible: Vec<String> = rows.iter().filter(|r| r.visible).map(|r| format!("#{} {:?}", r.number, r.title)).collect();
     format!(
@@ -2099,6 +2111,17 @@ mod tests {
         assert!(v.contains("2 empty ordered-out shell(s)") && v.contains("1 ordered-out window(s) that still hold views") && v.contains("#1 \"Hey Look!\""), "{v}");
         assert!(shell_verdict(&[row(2, "", false, 0)]).ends_with("visible: none"));
         assert!(row(5, "Re: x", true, 1).describe().contains("visible") && row(5, "", false, 0).describe().contains("ordered out"));
+    }
+
+    #[test]
+    fn only_an_empty_hidden_window_is_the_known_shell() {
+        assert!(is_known_shell(false, 0) && !is_known_shell(true, 0) && !is_known_shell(false, 2) && !is_known_shell(true, 3));
+        let row = |visible, subviews| WindowRow { number: 1, class: "TaoWindow".into(), title: String::new(), visible, titled: true, subviews };
+        assert_eq!(shell_count(&[row(false, 0), row(false, 0), row(true, 0), row(false, 1)]), 2);
+        // the quiet wording for the known case, the loud one only for a ghost (macwin.rs `check`)
+        let mac = crate::test_guard::non_test_code(include_str!("macwin.rs"));
+        let check = &mac[mac.find("pub fn check(").unwrap()..mac.find("unsafe fn subview_count(").unwrap()];
+        assert!(check.find("is_known_shell(visible, subviews)").unwrap() < check.find("STILL ALIVE").unwrap() && check.contains("GHOST") && check.contains("empty hidden shell"));
     }
 
     #[test]
