@@ -102,9 +102,11 @@ const guard = read("src/store.ts").slice(read("src/store.ts").indexOf("setPrefs:
 assert.match(guard, /if \(patch\.favorites\) patch = \{ \.\.\.patch, favorites: withOneInbox\(patch\.favorites\) \};/, "setPrefs puts One Inbox back before it applies and saves");
 assert.ok(guard.indexOf("withOneInbox") < guard.indexOf("const prefs = { ...before, ...patch }"), "...before the patch is applied");
 const fp = read("src/components/FolderPane.tsx");
-assert.match(fp, /const locked = acct === null && key === "inbox";/, "the star of One Inbox is locked");
-assert.match(fp, /aria-disabled=\{locked \? true : undefined\}/, "aria-disabled, not disabled: it stays in the Tab order");
-assert.match(fp, /if \(!locked\) toggleFav\(acct, key\);/, "a click on the locked star does nothing");
+const tip = read("src/components/Tip.tsx");
+assert.match(fp, /locked=\{acct === null && key === "inbox"\}/, "the star of One Inbox is locked");
+assert.match(tip, /aria-disabled=\{locked \? true : undefined\}/, "aria-disabled, not disabled: it stays in the Tab order");
+assert.match(tip, /if \(!locked\) onToggle\(\);/, "a click on the locked star does nothing");
+assert.match(tip, /title=\{label\}/, "the title stays next to the tooltip of Tip.tsx");
 const sd = read("src/components/SettingsDialog.tsx");
 assert.match(sd, /disabled=\{!scope && key === "inbox"\}/, "the All accounts Inbox switch is disabled");
 

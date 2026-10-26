@@ -574,7 +574,8 @@ async function r2() {
   const a1 = await rectOf(`${gid('a1')} .fp-head`);
   const box = await evaluate(`(() => { const t = document.querySelector('.fp-tree'); let p = t; while (p && !(p.scrollHeight > p.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(p).overflowY))) p = p.parentElement; const r = p.getBoundingClientRect(); return { bottom: r.bottom, top: r.top }; })()`);
   await down(a1.x, a1.y); await moveTo(a1.x, a1.y + 20); await moveTo(a1.x, box.bottom - 6);
-  await sleep(1200);
+  // (the pane scrolls on the page's frames: wait until it has reached its end, however busy the machine is)
+  await until(`(() => { const t = document.querySelector('.fp-tree'); let p = t; while (p && !(p.scrollHeight > p.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(p).overflowY))) p = p.parentElement; return p.scrollTop >= p.scrollHeight - p.clientHeight - 2; })()`, 8000);
   const scrolled = await evaluate(`(() => { const t = document.querySelector('.fp-tree'); let p = t; while (p && !(p.scrollHeight > p.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(p).overflowY))) p = p.parentElement; return p.scrollTop; })()`);
   ok(scrolled > 20, `the pane scrolled while the pointer rested near the bottom edge: ${scrolled}`);
   await up(a1.x, box.bottom - 6);
@@ -657,9 +658,192 @@ async function r7() {
   ok(miss.length === 0, `every point of an icon is the icon's own or its mailbox's: ${JSON.stringify(miss.slice(0, 4))}`);
 }
 
+// ======================================================================== R8 (Mac QA round 2): the hover peek closes, Escape from a menu does not open it, the tooltip of the locked star
+const sideNow = () => evaluate(`document.querySelector('.folder-pane').dataset.sidebar`);
+const menuUp = () => evaluate(`!!document.querySelector('.ctx-menu')`);
+
+async function r8() {
+  section = 'R8';
+  const railOpen = async (hash = 'light&lang=en&os=macos', w = 960, h = 900) => { await fresh(hash, w, h); ok(await until(`!!document.querySelector('.is-rail')`), 'icon column'); await mouse('mouseMoved', 800, 600); await sleep(300); };
+  const avXY = async (n = 1) => centre('.is-rail .fp-avatar', n);
+
+  // ---- P1: a hover peek goes when the pointer leaves
+  await railOpen();
+  let [x, y] = await avXY();
+  await mouse('mouseMoved', x, y);
+  ok(await until(`document.querySelector('.folder-pane').dataset.sidebar === 'peek'`, 1500), 'resting on an icon opens the peek');
+  await mouse('mouseMoved', 800, 600);
+  ok(await until(`document.querySelector('.folder-pane').dataset.sidebar === 'rail'`, 1500), 'the peek closes when the pointer leaves');
+  // the engine sends no pointerleave (the pointer went into a frame or out of the window): the pane is asked whether it is still hovered
+  await mouse('mouseMoved', x, y);
+  ok(await until(`document.querySelector('.folder-pane').dataset.sidebar === 'peek'`, 1500), 'peek again');
+  await evaluate(`window.__blockOut = (e) => e.stopPropagation(); window.addEventListener('pointerout', window.__blockOut, true); window.addEventListener('pointerover', window.__blockOut, true); 1`);
+  await mouse('mouseMoved', 800, 600);
+  ok(await until(`document.querySelector('.folder-pane').dataset.sidebar === 'rail'`, 1800), 'no pointerleave reaches the app: the peek still closes (the hover check)');
+  await evaluate(`window.removeEventListener('pointerout', window.__blockOut, true); window.removeEventListener('pointerover', window.__blockOut, true); 1`);
+
+  // ---- P1: a menu opened from the peek: the peek stays while it is open, and goes when the menu closes with the pointer elsewhere
+  await railOpen();
+  [x, y] = await avXY();
+  await mouse('mouseMoved', x, y);
+  await until(`document.querySelector('.folder-pane').dataset.sidebar === 'peek'`, 1500);
+  const [hx, hy] = await centre('.folder-pane .fp-group[data-reorder-id="a2"] .fp-head');
+  await mouse('mouseMoved', hx, hy);
+  await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x: hx, y: hy, button: 'right', buttons: 2, clickCount: 1 });
+  await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x: hx, y: hy, button: 'right', clickCount: 1 });
+  ok(await until(`!!document.querySelector('.ctx-menu')`), 'the menu of a mailbox opens from the peek');
+  await mouse('mouseMoved', 900, 700);
+  await sleep(700);
+  eq(await sideNow(), 'peek', 'the peek stays while its menu is open');
+  await press('Escape');
+  ok(await until(`document.querySelector('.folder-pane').dataset.sidebar === 'rail'`, 1500), 'the menu closed with Escape and the pointer elsewhere: the peek goes too');
+
+  // ---- P1: the keyboard's peek stays while the focus is inside, pointer or no pointer
+  await railOpen();
+  await evaluate(`document.querySelector('.is-rail .fp-toggle').focus(); 1`);
+  await press('Tab');
+  ok(await until(`document.querySelector('.folder-pane').dataset.sidebar === 'peek'`, 1500), 'Tab into the icons opens the peek');
+  await sleep(1200);
+  eq(await sideNow(), 'peek', 'the keyboard peek stays with the pointer elsewhere');
+  await evaluate(`document.body.focus(); document.activeElement.blur(); 1`);
+  ok(await until(`document.querySelector('.folder-pane').dataset.sidebar === 'rail'`, 1500), 'it closes when the focus leaves');
+
+  // ---- P2: right-click an avatar, Escape, away, Ctrl+click: no peek next to the menu
+  await railOpen();
+  [x, y] = await avXY(0);
+  await mouse('mouseMoved', x, y);
+  await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'right', buttons: 2, clickCount: 1 });
+  await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'right', clickCount: 1 });
+  ok(await until(`!!document.querySelector('.ctx-menu')`), 'right-click opens the account menu');
+  eq(await sideNow(), 'rail', 'no peek next to the menu');
+  await press('Escape');
+  await sleep(500);
+  eq(await [await sideNow(), await menuUp()], ['rail', false], 'Escape closes the menu; the focus returns to the avatar and the peek stays closed');
+  ok(await evaluate(`document.activeElement === document.querySelectorAll('.is-rail .fp-avatar')[0]`), 'the focus is on the avatar');
+  await mouse('mouseMoved', 800, 600);
+  await sleep(1200);
+  await mouse('mouseMoved', x, y);
+  await mouse('mousePressed', x, y, { modifiers: 2 });
+  await mouse('mouseReleased', x, y, { modifiers: 2 });
+  await sleep(300);
+  eq(await sideNow(), 'rail', 'Ctrl+click on the avatar: no peek');
+  await sleep(1000);
+  eq(await sideNow(), 'rail', 'still none a second later');
+
+  // ---- P3: the tooltip of the locked star
+  const tipText = 'The Inbox of all accounts always stays in Favorites';
+  for (const [theme, forced] of [['light', false], ['dark', false], ['light', true]]) {
+    await fresh(`${theme}&lang=en`, 1280, 800);
+    await cdp('Emulation.setEmulatedMedia', { features: [{ name: 'forced-colors', value: forced ? 'active' : 'none' }] });
+    const star = `${ONE} .fp-star`;
+    const [sx, sy] = await centre(star);
+    await mouse('mouseMoved', sx, sy);
+    await sleep(200);
+    ok(!(await evaluate(`!!document.querySelector('.tip')`)), `${theme}${forced ? ' forced' : ''}: no tooltip before 400 ms`);
+    ok(await until(`!!document.querySelector('.tip')`, 1500), `${theme}${forced ? ' forced' : ''}: the tooltip shows after the pointer rested`);
+    const t = await evaluate(`(() => { const e = document.querySelector('.tip'), r = e.getBoundingClientRect(), b = document.querySelector(${JSON.stringify(star)}), cs = getComputedStyle(e); return { text: e.textContent, role: e.getAttribute('role'), id: e.id, by: b.getAttribute('aria-describedby'), left: r.left, right: r.right, top: r.top, bottom: r.bottom, w: innerWidth, h: innerHeight, bg: cs.backgroundColor, fg: cs.color, border: cs.borderTopColor, title: b.title, label: b.getAttribute('aria-label'), starRight: b.getBoundingClientRect().right, starBottom: b.getBoundingClientRect().bottom, z: cs.zIndex }; })()`);
+    ok(t.text === tipText && t.role === 'tooltip' && t.by === t.id && t.title === tipText && t.label === tipText, `${theme}: text, role, aria-describedby, title kept: ${JSON.stringify(t)}`);
+    ok(t.left >= 0 && t.right <= t.w && t.top >= 0 && t.bottom <= t.h, `${theme}: the tooltip is inside the window: ${JSON.stringify([t.left, t.right, t.top, t.bottom])}`);
+    ok(Math.abs(t.right - t.starRight) <= 1 && t.top >= t.starBottom, `${theme}: right-aligned under the star`);
+    ok(t.bg !== 'rgba(0, 0, 0, 0)' && t.bg !== t.fg, `${theme}${forced ? ' forced' : ''}: readable colours ${t.bg} on ${t.fg}`);
+    await io.shot(`p3-tooltip-${theme}${forced ? '-forced' : ''}`);
+    await press('Escape');
+    ok(!(await evaluate(`!!document.querySelector('.tip')`)), `${theme}: Escape closes it`);
+    await mouse('mouseMoved', 700, 400);
+    await mouse('mouseMoved', sx, sy);
+    await until(`!!document.querySelector('.tip')`, 1500);
+    await mouse('mouseMoved', 700, 400);
+    ok(await until(`!document.querySelector('.tip')`, 800), `${theme}: it goes with the pointer`);
+    await cdp('Emulation.setEmulatedMedia', { features: [{ name: 'forced-colors', value: 'none' }] });
+  }
+  // the keyboard: Tab from the row to its star shows it at once; Tab on closes it
+  await fresh();
+  await evaluate(`document.querySelector(${JSON.stringify(ONE)}).focus(); 1`);
+  await press('Tab');
+  ok(await until(`!!document.querySelector('.tip')`, 600), 'keyboard focus on the star shows the tooltip');
+  ok(await evaluate(`document.activeElement.classList.contains('fp-star') && document.activeElement.getAttribute('aria-describedby') === document.querySelector('.tip').id`), 'the focused star is described by it');
+  await press('Tab');
+  ok(await until(`!document.querySelector('.tip')`, 600), 'leaving the star closes it');
+  // other stars have none
+  await fresh();
+  await mouse('mouseMoved', ...(await centre(`.fp-row[data-key="sent"]:not([data-acct]) .fp-star`)));
+  await sleep(700);
+  ok(!(await evaluate(`!!document.querySelector('.tip')`)), 'the other stars have no tooltip of their own');
+  // in the peek (the icon column's menu): not clipped
+  await railOpen('light&lang=en', 960, 700);
+  await mouse('mouseMoved', ...(await centre('.is-rail .fp-avatar', 0)));
+  await until(`document.querySelector('.folder-pane').dataset.sidebar === 'peek'`, 1500);
+  const [px, py] = await centre(`.folder-pane ${ONE} .fp-star`);
+  await mouse('mouseMoved', px, py);
+  ok(await until(`!!document.querySelector('.tip')`, 1500), 'the tooltip shows in the peek');
+  const pt = await evaluate(`(() => { const r = document.querySelector('.tip').getBoundingClientRect(); return [r.left, r.right, r.top, r.bottom, innerWidth, innerHeight]; })()`);
+  ok(pt[0] >= 0 && pt[1] <= pt[4] && pt[2] >= 0 && pt[3] <= pt[5], `the tooltip in the peek is inside the window: ${JSON.stringify(pt)}`);
+  await io.shot('p3-tooltip-peek');
+}
+
+// ======================================================================== R9 (Windows QA): the star by keyboard, the drop line of a collapsed source
+async function r9() {
+  section = 'R9';
+  // W1: Enter and Space on the focused star belong to the star (they bubbled to the row and opened it)
+  await fresh();
+  await io.click(`.fp-row[data-key="drafts"]:not([data-acct])`); // some other view is open, so "opens One Inbox" can be seen
+  await sleep(300);
+  const view = () => evaluate(`${S('folder')} + '|' + ${S('accountId')}`);
+  const v0 = await view();
+  ok(v0.startsWith('drafts'), `another view is open: ${v0}`);
+  const star = `${ONE} .fp-star`;
+  await evaluate(`document.querySelector(${JSON.stringify(star)}).focus(); 1`);
+  for (const key of ['Enter', 'Space']) {
+    await press(key);
+    await sleep(250);
+    eq(await view(), v0, `${key} on the locked star opens nothing`);
+    eq((await favRows()).slice(0, 3), ['*|inbox', '*|sent', '*|drafts'], `${key} on the locked star changes no favorite`);
+    ok(await evaluate(`document.activeElement === document.querySelector(${JSON.stringify(star)}) && document.activeElement.getAttribute('aria-disabled') === 'true'`), `${key}: the star keeps the focus and aria-disabled`);
+  }
+  // the star of another row: Enter / Space toggles the favorite and does not open the row
+  const sent = `.fp-tree .fp-group:first-child .fp-row[data-key="sent"] .fp-star`;
+  await evaluate(`document.querySelector(${JSON.stringify(sent)}).focus(); 1`);
+  await press('Enter');
+  await sleep(250);
+  eq(await favRows(), ['*|inbox', '*|drafts'], 'Enter on the star of Sent removes it');
+  eq(await view(), v0, '...and opens nothing');
+  const sentRow = await evaluate(`!!document.querySelector('.fp-row[data-key="sent"]:not([data-acct]) .fp-star')`);
+  ok(!sentRow, 'the Sent row left Favorites');
+  // the row itself still opens with Enter and Space
+  await evaluate(`document.querySelector(${JSON.stringify(ONE)}).focus(); 1`);
+  await press('Enter');
+  ok(await until(`${S('folder')} === 'inbox' && ${S('accountId')} === null`), 'Enter on the row opens it');
+
+  // W2: the line spans the menu whether the dragged mailbox is open or collapsed, and also when nothing scrolls
+  for (const [name, collapsed, h] of [['expanded source', {}, 800], ['collapsed source', { a4: true }, 800], ['everything collapsed, nothing scrolls', { a1: true, a2: true, a3: true, a4: true, a5: true, fav: true, views: true }, 800]]) {
+    await openWith('light&lang=en', { prefs: JSON.stringify({ language: 'en', prefsRev: 2, collapsed }) }, 1280, h);
+    const hd = await rectOf(`${gid('a4')} .fp-head`);
+    const gap = await rectOf(`${gid('a2')} .fp-head`);
+    await moveTo(hd.x, hd.y, { buttons: 0, button: 'none' });
+    await down(hd.x, hd.y);
+    await moveTo(hd.x, hd.y - 10);
+    await moveTo(gap.x, gap.top + 4);
+    ok(await until(`!!document.querySelector('.reorder-line')`), `${name}: the line shows`);
+    const l = await evaluate(`(() => { const r = document.querySelector('.reorder-line').getBoundingClientRect(), p = document.querySelector('.folder-pane').getBoundingClientRect(); return { left: r.left, width: r.width, pane: p.width, top: r.top }; })()`);
+    ok(l.width >= l.pane - 20 && l.width <= l.pane && l.left >= 0, `${name}: the line is as wide as the menu (${JSON.stringify(l)})`);
+    await up(gap.x, gap.top + 4);
+    await until(`${S('accounts')}.map((a) => a.id).join() !== 'a1,a2,a3,a4,a5'`);
+    eq(await order(), 'a1,a4,a2,a3,a5', `${name}: it drops`);
+  }
+  // the icon column
+  await fresh('light&lang=en', 960, 900);
+  const av1 = await rectOf('.is-rail .fp-avatar', 0), av3 = await rectOf('.is-rail .fp-avatar', 2);
+  await down(av1.x, av1.y); await moveTo(av1.x, av1.y + 12); await moveTo(av1.x, av3.y + 8);
+  ok(await until(`!!document.querySelector('.reorder-line')`), 'rail: the line shows');
+  const rl = await evaluate(`document.querySelector('.reorder-line').getBoundingClientRect().width`);
+  ok(rl >= 36, `rail: the line is ${rl} px wide`);
+  await up(av1.x, av3.y + 8);
+  await sleep(200);
+}
+
 // ======================================================================== run
 const only = arg('only');
-const parts = { r4, r1, r6, r3, r5, r2, r7 };
+const parts = { r4, r1, r6, r3, r5, r2, r7, r8, r9 };
 for (const [name, fn] of Object.entries(parts)) {
   if (only && !only.split(',').includes(name)) continue;
   try { await fn(); } catch (e) { failures.push(`[${name}] threw: ${e.stack || e.message}`); console.error(`FAIL [${name}] threw`, e); }

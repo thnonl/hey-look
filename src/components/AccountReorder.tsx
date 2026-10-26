@@ -77,7 +77,10 @@ export function useAccountReorder(containerRef: RefObject<HTMLElement | null>, e
     if (from < 0) return null;
     const to = dropIndex(rects.map((r) => (r.top + r.bottom) / 2), from, d.y);
     const others = rects.filter((_, i) => i !== from);
-    const box = (scrollParent(els[0]) ?? containerRef.current)?.getBoundingClientRect();
+    // the box the line spans: the list that scrolls, else the nearest ancestor that has a size (the tree itself is `display: contents`: with everything collapsed nothing scrolls and its own box is empty)
+    let sized: HTMLElement | null = els[0]?.parentElement ?? null;
+    while (sized && sized.getBoundingClientRect().width === 0) sized = sized.parentElement;
+    const box = (scrollParent(els[0]) ?? sized ?? containerRef.current)?.getBoundingClientRect();
     const edge = others.length === 0 ? null : to === 0 ? others[0].top : others[to - 1].bottom;
     return { id: d.id, x: d.x, y: d.y, to, line: edge !== null && box ? { top: edge - 1, left: box.left + 6, width: box.width - 12 } : null };
   }, [containerRef]); // eslint-disable-line react-hooks/exhaustive-deps

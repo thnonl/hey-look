@@ -409,6 +409,8 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
 .fp-star { background: none; border: 0; padding: 0; width: 24px; height: 24px; margin: -3px 0; /* 24px target, but never taller than the row's text line */ justify-content: center; align-items: center; color: var(--muted); display: none; border-radius: 4px; }
 .fp-star.on { color: #e0a100; display: inline-flex; }
 .fp-star.locked { cursor: default; }
+.tip { position: fixed; z-index: var(--z-menu); max-width: 232px; padding: 5px 9px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: var(--r-sm); box-shadow: var(--shadow); font-size: .86em; line-height: 1.35; pointer-events: none; overflow-wrap: anywhere; } /* components/Tip.tsx */
+@media (forced-colors: active) { .tip { border-color: CanvasText; background: Canvas; color: CanvasText; } }
 .fp-row:hover .fp-star, .fp-row:focus-within .fp-star { display: inline-flex; }
 .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; display: inline-block; }
 

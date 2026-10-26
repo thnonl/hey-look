@@ -1,5 +1,5 @@
 import {
-  AlertTriangle, Archive, CalendarClock, CalendarDays, ChevronDown, ChevronRight, Clock, FileText, Flag, Folder, Inbox, MailOpen, OctagonAlert, PanelLeftClose, PanelLeftOpen, Pin, Send, Star, Trash2,
+  AlertTriangle, Archive, CalendarClock, CalendarDays, ChevronDown, ChevronRight, Clock, FileText, Flag, Folder, Inbox, MailOpen, OctagonAlert, PanelLeftClose, PanelLeftOpen, Pin, Send, Trash2,
 } from "lucide-react";
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { accountLabel } from "../accountLabel";
@@ -22,6 +22,7 @@ import { peekDrag, takeDrag } from "../dragWire";
 import { moveChoices } from "../rowMenu";
 import { hasNew, hasNewMailbox } from "../newMail";
 import { useSidebarPeek } from "../sidebarPeek";
+import { FavStar } from "./Tip";
 import { sidebarControlOpen, toggleSidebar } from "../sidebarState";
 import { sidebarInput, useWindowWidth } from "../useSidebar";
 
@@ -206,7 +207,8 @@ export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
         onClick={go}
         onContextMenu={hasMenu ? (e) => openMenu(e, false) : undefined}
         onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
+          if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) {
+            // (only the row itself: the Enter or Space of its star or chevron is theirs; before 1.0.10 it bubbled here and opened the row instead of toggling the favorite)
             e.preventDefault();
             go();
           } else if (hasMenu && isContextMenuKey(e)) openMenu(e, true);
@@ -241,27 +243,7 @@ export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
         ) : queued > 0 && key === "scheduled" ? (
           <span className="fp-badge">{queued}</span>
         ) : null}
-        {!rail && (() => {
-          // One Inbox (`*|inbox`) is always in Favorites (1.0.10): its star is a filled, locked button. aria-disabled (not disabled) keeps it in the
-          // Tab order and keeps the tooltip, so the reason can be read; a click does nothing and does not open the row.
-          const locked = acct === null && key === "inbox";
-          const on = locked || isFav(acct, key);
-          const label = locked ? t("mail.pane.favLocked") : on ? t("mail.pane.removeFav") : t("mail.pane.addFav");
-          return (
-          <button
-            className={`fp-star ${on ? "on" : ""} ${locked ? "locked" : ""}`}
-            title={label}
-            aria-label={label}
-            aria-disabled={locked ? true : undefined}
-            onClick={(e) => {
-              e.stopPropagation();
-              if (!locked) toggleFav(acct, key);
-            }}
-          >
-            <Star size={12} fill={on ? "currentColor" : "none"} />
-          </button>
-          );
-        })()}
+        {!rail && <FavStar on={acct === null && key === "inbox" ? true : isFav(acct, key)} locked={acct === null && key === "inbox"} label={acct === null && key === "inbox" ? t("mail.pane.favLocked") : isFav(acct, key) ? t("mail.pane.removeFav") : t("mail.pane.addFav")} onToggle={() => toggleFav(acct, key)} />}
       </div>
     );
   };
