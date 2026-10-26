@@ -214,7 +214,7 @@ pub fn set_entry(enabled: bool, tray: bool) -> Result<(), String> {
     })();
     match &done {
         Ok(()) => log("the entry was read back and is in the Run key of the current user (or gone)"),
-        Err(e) => log(&format!("FAILED: {e}")),
+        Err(e) => log(&format!("could not be done: {e}")),
     }
     done
 }

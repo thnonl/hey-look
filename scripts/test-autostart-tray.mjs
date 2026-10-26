@@ -350,7 +350,7 @@ if (!exe) {
       const be = bridge(connection(edir));
       const res = await be.evalIn("main", `window.__TAURI_INTERNALS__.invoke("set_autostart", { enabled: true }).then(() => "ok", (e) => "ERR " + e)`);
       ok("[G error] a refused write is an error that names the entry and carries the Windows text", /^ERR The start at sign-in could not be turned on: Windows refused to write the entry "[^"]+" \(.+\)\.$/.test(String(res)), String(res));
-      ok("[G error] the log says it", /the switch was turned on \(Start in the tray: off\): FAILED/.test(logOf(edir)), logOf(edir).slice(-400));
+      ok("[G error] the log says it", /the switch was turned on \(Start in the tray: off\): could not be done/.test(logOf(edir)), logOf(edir).slice(-400));
       await kill(app);
       // the entry of the installed app was never part of this
       const real = reg("query", String.raw`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", name);
