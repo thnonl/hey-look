@@ -34,6 +34,8 @@ export function useSidebarPeek(active: boolean, busy: boolean) {
   const now = useRef({ open, pinned, busy });
   now.current = { open, pinned, busy };
 
+  /** the last pointer position the page was told about, and whether a button is held: the wait for rest can start without a move (the rail appeared under the pointer, the window got the focus back, a menu closed) */
+  const ptr = useRef({ x: -1, y: -1, down: false });
   const stop = () => window.clearTimeout(timer.current);
   const later = (ms: number, fn: () => void) => {
     stop();
@@ -58,6 +60,46 @@ export function useSidebarPeek(active: boolean, busy: boolean) {
   useEffect(() => {
     if (!active) close();
   }, [active, close]);
+
+  // the pointer rests on the icons without having moved (or entered) since the icons appeared: the wait starts then (1.0.10, Mac QA)
+  const armIfResting = () => {
+    const el = pane.current;
+    const p = ptr.current;
+    if (!el || !active || now.current.open || now.current.busy || pressed.current || p.down || p.x < 0) return;
+    const r = el.getBoundingClientRect();
+    if (p.x < r.left || p.x >= r.right || p.y < r.top || p.y >= r.bottom) return;
+    inside.current = true;
+    anchor.current = { x: p.x, y: p.y };
+    later(PEEK_HOVER_MS, () => openBy("hover"));
+  };
+  const armRef = useRef(armIfResting);
+  armRef.current = armIfResting;
+  useEffect(() => {
+    const mv = (e: PointerEvent) => {
+      if (e.pointerType === "touch") return;
+      ptr.current = { x: e.clientX, y: e.clientY, down: e.buttons !== 0 };
+    };
+    const up = () => {
+      ptr.current = { ...ptr.current, down: false };
+    };
+    const focus = () => window.setTimeout(() => armRef.current(), 60);
+    window.addEventListener("pointermove", mv, true);
+    window.addEventListener("pointerdown", mv, true);
+    window.addEventListener("pointerup", up, true);
+    window.addEventListener("focus", focus);
+    return () => {
+      window.removeEventListener("pointermove", mv, true);
+      window.removeEventListener("pointerdown", mv, true);
+      window.removeEventListener("pointerup", up, true);
+      window.removeEventListener("focus", focus);
+    };
+  }, []);
+  // the icons became the menu column (the sidebar folded under a resting pointer, the window opened folded)
+  useEffect(() => {
+    if (!active) return;
+    const id = window.setTimeout(() => armRef.current(), 80);
+    return () => window.clearTimeout(id);
+  }, [active]);
   useEffect(() => () => window.clearTimeout(timer.current), []);
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
@@ -69,7 +111,11 @@ export function useSidebarPeek(active: boolean, busy: boolean) {
 
   // a menu or a drag that kept it open has ended and the pointer is elsewhere
   useEffect(() => {
-    if (busy || !open) return;
+    if (busy) return;
+    if (!open) {
+      const id = window.setTimeout(() => armRef.current(), 60); // (a menu on an icon closed with the pointer resting on the icons)
+      return () => window.clearTimeout(id);
+    }
     // (1.0.10, QA BUG-6) the pointer went somewhere that sends no pointerleave (the mail, a frame) while the menu was open, so `inside` can be a stale yes: ask the page now
     inside.current = !!pane.current?.matches(":hover");
     if (inside.current) return;
@@ -145,14 +191,13 @@ export function useSidebarPeek(active: boolean, busy: boolean) {
       if (now.current.pinned || now.current.busy) return;
       later(PEEK_LEAVE_MS, close);
     },
-    onPointerDown: () => {
-      pressed.current = true;
+    onPointerDown: (e: React.PointerEvent) => {
+      if (e.button !== 2) pressed.current = true; // (a right-click ends with its menu, whose close starts the wait again)
       if (!now.current.open) stop();
     },
     // a right-click is a press too (a system that sends the menu on the release, or without a pointerdown that reaches here): no menu opens over the icon under the pointer
     onContextMenu: () => {
-      pressed.current = true;
-      if (!now.current.open) stop();
+      if (!now.current.open) stop(); // (the menu is `busy`; its close starts the wait again)
     },
     // the keyboard comes in: the menu opens at once (a click that gives the pane the focus does not, :focus-visible is for the keyboard)
     onFocus: (e: React.FocusEvent) => {

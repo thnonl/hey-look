@@ -908,9 +908,59 @@ async function r11() {
   ok(slow.length === 0, `after Escape closed the menu, with the pointer off the rail, the peek closes within ~0.5 s every time (20 runs): ${JSON.stringify(slow)}`);
 }
 
+// ======================================================================== R12 (Mac QA, round 6): the wait for rest also starts without a move
+async function r12() {
+  section = 'R12';
+  const side = () => evaluate(`document.querySelector('.folder-pane').dataset.sidebar`);
+  // (a) the pointer moved into the rail once and then never again: the peek opens after 500 ms of rest
+  await fresh('light&lang=en&os=macos', 960, 900);
+  ok(await until(`!!document.querySelector('.is-rail')`), 'icon column');
+  await mouse('mouseMoved', 900, 400);
+  await sleep(300);
+  const [ax, ay] = await centre('.is-rail .fp-avatar', 1);
+  await mouse('mouseMoved', ax, ay);
+  await sleep(250);
+  eq(await side(), 'rail', 'not yet after 250 ms');
+  ok(await until(`document.querySelector('.folder-pane').dataset.sidebar === 'peek'`, 1500), 'no event for 600 ms: the peek opens');
+  // (b) the pointer is over the place of the rail while the menu is wide; the window narrows (the sidebar folds) without a pointer event: the peek opens after the wait
+  await fresh('light&lang=en&os=macos', 1280, 900);
+  await mouse('mouseMoved', 900, 400);
+  await sleep(200);
+  await mouse('mouseMoved', 28, 330);
+  await sleep(200);
+  await cdp('Emulation.setDeviceMetricsOverride', { width: 960, height: 900, deviceScaleFactor: 1, mobile: false });
+  ok(await until(`!!document.querySelector('.is-rail')`, 3000), 'the sidebar folded');
+  ok(await until(`document.querySelector('.folder-pane').dataset.sidebar === 'peek'`, 2500), 'the rail appeared under a resting pointer: the peek opens after the wait');
+  // (c) a menu on an icon closes with the pointer resting on the rail: the peek opens after the wait
+  await fresh('light&lang=en&os=windows', 960, 900);
+  await mouse('mouseMoved', 900, 400);
+  await sleep(300);
+  const [bx, by] = await centre('.is-rail .fp-avatar', 1);
+  await mouse('mouseMoved', bx, by);
+  await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x: bx, y: by, button: 'right', buttons: 2, clickCount: 1 });
+  await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x: bx, y: by, button: 'right', clickCount: 1 });
+  ok(await until(`!!document.querySelector('.ctx-menu')`, 800), 'the menu opened (right-click right after arriving)');
+  eq(await side(), 'rail', 'and the peek stayed closed');
+  await sleep(800);
+  eq(await side(), 'rail', 'while the menu is open the peek does not open');
+  await press('Escape');
+  ok(await until(`!document.querySelector('.ctx-menu')`, 800), 'the menu closed');
+  ok(await until(`document.querySelector('.folder-pane').dataset.sidebar === 'peek'`, 2500), 'the menu closed with the pointer resting on the rail: the peek opens after the wait');
+  // (d) a press cancels a pending wait (the old guarantee): a left click on an icon and no peek under the pointer afterwards
+  await fresh('light&lang=en&os=windows', 960, 900);
+  await mouse('mouseMoved', 900, 400);
+  await sleep(300);
+  const [cx, cy] = await centre('.is-rail .fp-avatar', 1);
+  await mouse('mouseMoved', cx, cy);
+  await mouse('mousePressed', cx, cy);
+  await mouse('mouseReleased', cx, cy);
+  await sleep(1200);
+  eq(await side(), 'rail', 'a press on an icon: the peek does not come up under the pointer');
+}
+
 // ======================================================================== run
 const only = arg('only');
-const parts = { r4, r1, r6, r3, r5, r2, r7, r8, r9, r10, r11 };
+const parts = { r4, r1, r6, r3, r5, r2, r7, r8, r9, r10, r11, r12 };
 for (const [name, fn] of Object.entries(parts)) {
   if (only && !only.split(',').includes(name)) continue;
   try { await fn(); } catch (e) { failures.push(`[${name}] threw: ${e.stack || e.message}`); console.error(`FAIL [${name}] threw`, e); }
