@@ -121,6 +121,11 @@ pub enum K {
     // the app that could not start at all (startfail.rs): Windows only, the window and the page do not exist to say it
     StartFailTitle,
     StartFailBody,
+    // the same, when the cause is known to be the data folder (startfail.rs): {folder} and {error} are filled in
+    StartFailProfile,
+    // its two labels: the folder, and what the system said
+    StartFailFolder,
+    StartFailSaid,
 }
 
 /// Every text key; the tests walk it (the app itself matches on `K`).
@@ -131,7 +136,7 @@ pub const ALL: &[K] = &[
     K::EveryDay, K::EveryMonth, K::EveryYear, K::SaveAttachmentsTo, K::ChooseKeyFile,
     K::OpenPgpKeys, K::CalendarFile, K::SavePublicKey, K::SaveKeyBackup,
     K::LoadFailTitle, K::LoadFailWindows, K::LoadFailMac, K::LoadFailLinux, K::LoadFailRetry, K::LoadFailOpenLog, K::LoadFailQuit, K::LoadFailLog,
-    K::StartFailTitle, K::StartFailBody,
+    K::StartFailTitle, K::StartFailBody, K::StartFailProfile, K::StartFailFolder, K::StartFailSaid,
 ];
 
 /// English, Vietnamese, French. The product name stays "Hey Look!".
@@ -214,6 +219,13 @@ fn texts(k: K) -> [&'static str; 3] {
             "Hey Look! không khởi động được vì không tạo được cửa sổ của mình.\n\nNguyên nhân thường gặp nhất là Microsoft WebView2 Runtime, một thành phần miễn phí của Microsoft mà các ứng dụng dùng để hiển thị cửa sổ, bị thiếu hoặc hỏng. Hãy cài đặt hoặc sửa chữa nó tại https://developer.microsoft.com/microsoft-edge/webview2/ (chọn “Evergreen Bootstrapper” hoặc “Evergreen Standalone Installer”), rồi mở lại Hey Look!.\n\nĐiều gì đã xảy ra được lưu trong tệp nhật ký nêu bên dưới; nếu sự cố vẫn còn, hãy gửi tệp này cho bộ phận hỗ trợ.",
             "Hey Look! n’a pas pu démarrer, car sa fenêtre n’a pas pu être créée.\n\nLa cause la plus fréquente est que le runtime Microsoft WebView2, un composant Microsoft gratuit que les applications utilisent pour afficher leurs fenêtres, est absent ou endommagé. Installez-le ou réparez-le depuis https://developer.microsoft.com/microsoft-edge/webview2/ (choisissez « Evergreen Bootstrapper » ou « Evergreen Standalone Installer »), puis relancez Hey Look!.\n\nCe qui s’est passé est enregistré dans le fichier journal indiqué ci-dessous ; envoyez-le au support si le problème persiste.",
         ],
+        K::StartFailProfile => [
+            "Hey Look! could not start because it cannot use its data folder.\n\nMake sure the folder below exists, is a folder and not a file, and that your Windows account may write to it. Then start Hey Look! again.",
+            "Hey Look! không khởi động được vì không dùng được thư mục dữ liệu của mình.\n\nHãy kiểm tra thư mục bên dưới có tồn tại, là một thư mục chứ không phải một tệp, và tài khoản Windows của bạn có quyền ghi vào đó. Sau đó hãy khởi động lại ứng dụng.",
+            "Hey Look! n’a pas pu démarrer, car il ne peut pas utiliser son dossier de données.\n\nVérifiez que le dossier ci-dessous existe, que c’est bien un dossier et non un fichier, et que votre compte Windows peut y écrire. Relancez ensuite l’application.",
+        ],
+        K::StartFailFolder => ["Folder:", "Thư mục:", "Dossier :"],
+        K::StartFailSaid => ["Windows said:", "Windows báo:", "Windows indique :"],
     }
 }
 
@@ -724,7 +736,7 @@ mod tests {
     #[test]
     fn all_lists_every_variant() {
         // texts() is exhaustive; ALL must not forget one (the variant count is pinned by the last variant's position)
-        assert_eq!(ALL.len(), K::StartFailBody as usize + 1);
+        assert_eq!(ALL.len(), K::StartFailSaid as usize + 1);
         let mut seen = std::collections::HashSet::new();
         for k in ALL {
             assert!(seen.insert(*k as usize), "{k:?} twice");

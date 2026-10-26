@@ -42,6 +42,61 @@ pub fn message_in(l: Lang, log: Option<&Path>) -> (String, String) {
     (i18n::tr_in(l, K::StartFailTitle).to_string(), body)
 }
 
+/// The folder the app needs and cannot use, and what the system said about it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProfileProblem {
+    pub folder: PathBuf,
+    pub error: String,
+}
+
+/// Can the app use this data folder? It must be a folder (or be creatable as one) and a file must be writable in it. `None` = usable.
+/// This is what tells a damaged profile (a file where the folder should be, no write permission, a full or read-only disk) from a missing
+/// WebView2 Runtime: both end in "the window could not be created", but only the second is cured by installing the runtime.
+pub fn profile_problem(dir: &Path) -> Option<ProfileProblem> {
+    let fail = |e: String| Some(ProfileProblem { folder: dir.to_path_buf(), error: e });
+    match std::fs::metadata(dir) {
+        Ok(m) if !m.is_dir() => return fail("a file with this name exists where the folder should be".to_string()),
+        Ok(_) => {}
+        Err(_) => {
+            if let Err(e) = std::fs::create_dir_all(dir) {
+                return fail(e.to_string());
+            }
+        }
+    }
+    let probe = dir.join(format!(".write-test-{}", std::process::id()));
+    match std::fs::write(&probe, b"x") {
+        Ok(()) => {
+            let _ = std::fs::remove_file(&probe);
+            None
+        }
+        Err(e) => fail(e.to_string()),
+    }
+}
+
+/// The folders to check, in order: the app's data folder (settings, mail database, log) and, on Windows, the folder of the web view's
+/// user data (`%LOCALAPPDATA%\<identifier>`; a package keeps both in its own folder, already covered by the first).
+fn profile_folders() -> Vec<PathBuf> {
+    let mut v: Vec<PathBuf> = log_dir().into_iter().collect();
+    if cfg!(windows) && crate::pkg::dirs().is_none() {
+        if let Some(l) = std::env::var_os("LOCALAPPDATA").filter(|l| !l.is_empty()) {
+            v.push(PathBuf::from(l).join(crate::identity::identifier()));
+        }
+    }
+    v
+}
+
+/// Which text to show: the data folder's (with the folder and the system's words) when it is the known cause and the runtime is there,
+/// else the WebView2 text, as before.
+pub fn message_for(l: Lang, log: Option<&Path>, runtime_missing: bool, problem: Option<&ProfileProblem>) -> (String, String) {
+    match problem {
+        Some(p) if !runtime_missing => (
+            i18n::tr_in(l, K::StartFailTitle).to_string(),
+            format!("{}\n\n{}\n{}\n\n{}\n{}", i18n::tr_in(l, K::StartFailProfile), i18n::tr_in(l, K::StartFailFolder), p.folder.display(), i18n::tr_in(l, K::StartFailSaid), p.error),
+        ),
+        _ => message_in(l, log),
+    }
+}
+
 /// Where `startup.log` of this run is (or will be) when no `AppHandle` exists yet, from the identifier and the environment (`env` is
 /// `std::env::var` in the app): the folder the app's setup opens later, so the person finds one log, not two.
 pub fn data_folder_for(identifier: &str, os: &str, env: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> {
@@ -106,7 +161,12 @@ pub fn fail_start(what: &str) {
     {
         let (lang, tags) = windows_language();
         crate::startup::line("fatal", &format!("the message is shown in {lang:?} (Windows UI languages: {tags:?})"));
-        let (title, body) = message_in(lang, log.as_deref());
+        let runtime_missing = webview_runtime_missing();
+        let problem = if runtime_missing { None } else { profile_folders().iter().find_map(|d| profile_problem(d)) };
+        if let Some(p) = &problem {
+            crate::startup::line("fatal", &format!("the data folder cannot be used: {} ({})", p.folder.display(), p.error));
+        }
+        let (title, body) = message_for(lang, log.as_deref(), runtime_missing, problem.as_ref());
         show_box(&title, &body);
         crate::startup::line("fatal", &format!("error message shown, ending with exit code {EXIT_CODE}"));
         std::process::exit(EXIT_CODE);
@@ -266,6 +326,34 @@ mod tests {
         assert!(!is_setup_panic("called `Option::unwrap()` on a `None` value"));
         assert!(!is_setup_panic("index out of bounds: the len is 3 but the index is 5"));
         assert!(!is_setup_panic("thread panicked: Failed to setup app")); // only the message that starts with it
+    }
+
+    #[test]
+    fn an_unusable_data_folder_is_named_and_a_missing_runtime_keeps_its_text() {
+        let base = std::env::temp_dir().join(format!("hl-startfail-test-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&base);
+        // a usable folder (made on the way) is no problem
+        assert_eq!(profile_problem(&base.join("ok").join("deeper")), None);
+        // a FILE where the folder should be (the case of the QA sandbox): the cause is known, the folder is named
+        let file = base.join("is-a-file");
+        std::fs::write(&file, b"x").unwrap();
+        let p = profile_problem(&file).expect("a file is not a folder");
+        assert_eq!(p.folder, file);
+        assert!(p.error.contains("file"), "{}", p.error);
+        // a folder below a file cannot be created either
+        let below = file.join("sub");
+        assert!(profile_problem(&below).is_some());
+        // the decision, in every language: the folder and the error are in the text, no WebView2 words
+        for l in i18n::LANGS {
+            let (title, body) = message_for(l, None, false, Some(&p));
+            assert_eq!(title, i18n::tr_in(l, K::StartFailTitle));
+            assert!(body.contains(&file.display().to_string()) && body.contains(&p.error), "{l:?}: {body}");
+            assert!(!body.contains("WebView2"), "{l:?}: {body}");
+            // no problem found, or the runtime is missing: the old text with the log
+            let log = Path::new("C:\\x\\startup.log");
+            assert_eq!(message_for(l, Some(log), false, None), message_in(l, Some(log)));
+            assert_eq!(message_for(l, Some(log), true, Some(&p)), message_in(l, Some(log)), "{l:?}: a missing runtime wins");
+        }
     }
 
     #[test]

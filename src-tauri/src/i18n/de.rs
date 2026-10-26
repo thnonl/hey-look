@@ -55,6 +55,9 @@ pub fn text(k: K) -> &'static str {
         K::LoadFailLog => "Protokolldatei:",
         K::StartFailTitle => "Hey Look! konnte nicht gestartet werden",
         K::StartFailBody => "Hey Look! konnte nicht gestartet werden, weil sein Fenster nicht erstellt werden konnte.\n\nAm häufigsten fehlt die Microsoft WebView2 Runtime (eine kostenlose Microsoft-Komponente, mit der Apps ihre Fenster anzeigen) oder sie ist beschädigt. Installieren oder reparieren Sie sie unter https://developer.microsoft.com/microsoft-edge/webview2/ („Evergreen Bootstrapper“ oder „Evergreen Standalone Installer“ wählen) und starten Sie Hey Look! danach erneut.\n\nWas schiefgelaufen ist, steht in der unten genannten Protokolldatei; schicken Sie sie an den Support, falls das Problem bleibt.",
+        K::StartFailProfile => "Hey Look! konnte nicht gestartet werden, weil es seinen Datenordner nicht verwenden kann.\n\nPrüfen Sie, ob der folgende Ordner existiert, ein Ordner und keine Datei ist und ob Ihr Windows-Konto darin schreiben darf. Starten Sie Hey Look! danach erneut.",
+        K::StartFailFolder => "Ordner:",
+        K::StartFailSaid => "Windows meldet:",
     }
 }
 

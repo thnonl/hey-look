@@ -269,6 +269,18 @@ async function r6() {
   eq([plain.pos, plain.iso, plain.before], ['static', 'auto', 'none'], 'a row that is not lit has no position, no isolation, no ::before');
   const css = fs.readFileSync(path.join(ROOT, 'src/settingsSearch.css'), 'utf8');
   ok(!/\.set-row\s*[{,]/.test(css), 'settingsSearch.css has no rule on .set-row itself');
+  // QA sandbox BUG-1: the right air of "Start in the tray". Every row of the Notifications page (Windows, start at sign-in on and off, two widths) ends at its switch, so the lit area
+  // (row + 10 px) is 10 px (+-1) from the control, and the hit probe says the same for the row lit by a search
+  for (const [state, extra] of [['sign-in on', '&autostart=on'], ['sign-in off', '']]) for (const [w, h] of [[1280, 800], [960, 560]]) {
+    await fresh(`light&lang=en&os=windows${extra}`, w, h);
+    await evaluate(`${S('setDialog')}({ type: 'settings', tab: 'tray', focus: 'startInTray', nonce: Date.now() }); 1`);
+    ok(await until(`!!document.getElementById('set-startInTray')?.classList.contains('set-hit')`), `${state} ${w}: Start in the tray is lit`);
+    const rows = await evaluate(`[...document.querySelectorAll('.settings-body .set-row')].map((r) => { const t = r.querySelector('.set-ctl .track, .set-ctl > select, .set-ctl > button'); return [r.id, r.getBoundingClientRect().right, t ? t.getBoundingClientRect().right : null]; }).filter((x) => x[2] !== null)`);
+    ok(rows.length >= 4 && rows.some((x) => x[0] === 'set-startInTray'), `${state} ${w}: the Notifications rows with a control are there (${rows.length})`);
+    for (const [id, rowRight, ctlRight] of rows) ok(Math.abs(rowRight - ctlRight) <= 0.5, `${state} ${w}: ${id}: the control ends at the row's right edge, so the lit area is 10 px past it (row ${rowRight}, control ${ctlRight})`);
+    const r = JSON.parse(await evaluate(hitProbe('startInTray')));
+    ok(r && Math.abs(r.hitRight - (r.ctlRight + 10)) <= 1 && Math.abs(r.hitLeft - (r.labelLeft - 10)) <= 1, `${state} ${w}: Start in the tray: 10 px (+-1) of air on both sides (left ${r && r.labelLeft - r.hitLeft}, right ${r && r.hitRight - r.ctlRight})`);
+  }
 }
 
 // ======================================================================== R3 + R5

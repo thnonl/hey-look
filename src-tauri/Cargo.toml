@@ -127,6 +127,10 @@ imap = { path = "vendor/imap-2.4.1" }
 # `cargo update -p tao --precise <version>` (the test tao_carries_the_macos_window_release_fix accepts both).
 tao = { git = "https://github.com/tauri-apps/tao", rev = "9aa859e1fe61d664f8fd33f4593f9fac4a0012d5" }
 
+[features]
+# QA kits (debug builds): `tauri build --debug --features gui-subsystem` makes a Windows GUI program like the release build (main.rs), so the debug console does not take the foreground
+gui-subsystem = []
+
 [profile.release]
 codegen-units = 1
 lto = true
