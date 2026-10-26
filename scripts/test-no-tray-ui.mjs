@@ -99,7 +99,9 @@ try {
     for (const os of ['windows', 'linux']) {
       for (const [lang, labels] of Object.entries(other)) {
         const body = await seen(`lang=${lang}&os=${os}`);
-        for (const l of labels) assert.ok(body.includes(l), `${os} ${lang}: "${l}" is not in the tab`);
+        // (1.0.10: on Windows the start-at-sign-in switch has no hint any more: it shows the window unless the switch "Start in the tray" is on; Linux keeps the hint)
+        for (const l of os === 'windows' ? labels.slice(0, 2) : labels) assert.ok(body.includes(l), `${os} ${lang}: "${l}" is not in the tab`);
+        if (os === 'windows') assert.ok(!body.includes(labels[2]), `windows ${lang}: "${labels[2]}" is still shown`);
       }
     }
     // the old tray labels are gone from a Mac's tab

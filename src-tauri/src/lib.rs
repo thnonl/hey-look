@@ -2459,7 +2459,7 @@ fn get_autostart(app: tauri::AppHandle) -> pkg::AutostartInfo {
 }
 
 #[tauri::command]
-fn set_autostart(app: tauri::AppHandle, enabled: bool) -> R<()> {
+fn set_autostart(app: tauri::AppHandle, state: tauri::State<AppState>, enabled: bool) -> R<()> {
     use tauri_plugin_autostart::ManagerExt;
     if pkg::packaged() {
         return pkg::set_startup_task(enabled);
@@ -2467,7 +2467,8 @@ fn set_autostart(app: tauri::AppHandle, enabled: bool) -> R<()> {
     let m = app.autolaunch();
     let done = if enabled { m.enable() } else { m.disable() }.map_err(err);
     if enabled && done.is_ok() {
-        autostart::ensure_entry(); // (the plugin wrote `<exe> --minimized`; the entry is brought into the quoted form)
+        // (the plugin wrote `<exe>` without arguments; the entry is brought into the quoted form of the switch "Start in the tray")
+        autostart::ensure_entry(autostart::start_in_tray(&shell::prefs(&state.db)));
     }
     done
 }
@@ -6292,7 +6293,15 @@ fn set_setting(app: tauri::AppHandle, window: tauri::Window, state: tauri::State
     // macOS: what the notification settings were before this write (turning notifications or the Dock badge on asks macOS for permission, W5.10)
     #[cfg(target_os = "macos")]
     let notify_before = (key == "prefs").then(|| shell::mac_notify_reasons(&shell::prefs(&state.db), &mac_account_ids(&state.db)));
+    // Windows: the switch "Start in the tray" decides the form of the start-at-sign-in entry (autostart.rs)
+    let tray_before = (cfg!(windows) && key == "prefs").then(|| autostart::start_in_tray(&shell::prefs(&state.db)));
     db::set_setting(&lock(&state.db), &key, &value)?;
+    if let Some(before) = tray_before {
+        let now = autostart::start_in_tray(&shell::prefs(&state.db));
+        if now != before {
+            autostart::ensure_entry(now);
+        }
+    }
     #[cfg(target_os = "macos")]
     if let Some(before) = notify_before {
         if shell::turned_on(before, shell::mac_notify_reasons(&shell::prefs(&state.db), &mac_account_ids(&state.db))) {
@@ -6548,11 +6557,12 @@ pub fn run() {
     // a start that fails ends in a message the person can read, not in a silent exit (see startfail.rs)
     startfail::install_panic_hook();
     let package_name = context.package_info().name.clone();
-    // a Windows autostart (--minimized) makes its window only when the desktop is ready (startgate.rs); the WebView2 runtime is one of the
-    // things it waits for, so a runtime that answers a minute after login is no reason for an error message at login
+    // a Windows autostart (--minimized, the package's startup task, or a start just after the desktop shell began: the visible start at sign-in) makes its window
+    // only when the desktop is ready (startgate.rs); the WebView2 runtime is one of the things it waits for, so a runtime that answers a minute after login
+    // is no reason for an error message at login
     let gated = startgate::defer(context.config_mut());
     if gated {
-        startup::line("gate", "this is a --minimized start: the main window is made after the start gate (startgate.rs)");
+        startup::line("gate", &format!("this is {}: the main window is made after the start gate (startgate.rs)", startgate::reason()));
     }
     #[cfg(windows)]
     if startfail::webview_runtime_missing() && (!gated || startfail::seam().is_some()) {
@@ -6562,6 +6572,9 @@ pub fn run() {
     // view created now would join them and die with them (see webview_health.rs)
     webview_health::wait_for_previous_run();
     // the name of this copy's autostart entry (autostart.rs)
+    // Windows: the plugin writes the entry without arguments, a visible start; `autostart::ensure_entry` adds `--minimized` when the switch "Start in the tray" is on.
+    // macOS / Linux: the launch agent / .desktop keep `--minimized` (the switch is offered on Windows only)
+    let entry_args: &[&str] = if cfg!(windows) { &[] } else { &[autostart::TRAY_FLAG] };
     let entry_name = autostart::entry_name(if update::managed_by() == Some("snap") { update::SNAP_NAME } else { &package_name }, identity::isolated().then(identity::aumid));
     autostart::set_entry_name(&entry_name);
     let builder = tauri::Builder::default();
@@ -6597,10 +6610,10 @@ pub fn run() {
             startup::stage(Some(app), "a second start was handed to this instance: showing the window");
             shell::show_main(app)
         }))
-        // "Open at login": the autostart entry always starts in the tray (`--minimized`, autostart.rs; macOS: the launch agent, the builder's default). It is named
+        // "Open at login": Windows: a visible start unless "Start in the tray" is on (`--minimized`, autostart.rs); macOS / Linux: always `--minimized`. It is named
         // after the app ("Hey Look!.desktop" on Linux, kept for the installed .deb and AppImage entries); in the snap it must be hey-look.desktop, the one name
         // snapd starts (snapcraft.yaml `autostart`); a copy that is not the owner's (a QA build) has a name of its own and never touches the real entry
-        .plugin(tauri_plugin_autostart::Builder::new().args([autostart::TRAY_FLAG]).app_name(entry_name).build())
+        .plugin(tauri_plugin_autostart::Builder::new().args(entry_args.iter().copied()).app_name(entry_name).build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -6614,10 +6627,11 @@ pub fn run() {
             let dir = legacy_names::data_dir(app.handle())?;
             app.manage(legacy_names::DataDir(dir.clone()));
             startup::init_log_dir(dir.clone());
-            // the autostart entry of this copy is looked at (and written in the form `"<exe>" --minimized` when it is this program's), autostart.rs
-            autostart::ensure_entry();
             let conn = db::open(&dir.join("heylook.db"))?;
             let db: Db = Arc::new(Mutex::new(conn));
+            // the autostart entry of this copy is looked at (and written in the form of the switch "Start in the tray" when it is this program's), autostart.rs
+            let start_prefs = shell::prefs(&db);
+            autostart::ensure_entry(autostart::start_in_tray(&start_prefs));
             // the language of the native texts (tray, notifications) as the UI last mirrored it; English until the first run mirrors it
             if let Some(code) = db::get_setting(&lock(&db), "ui_language") {
                 i18n::set_lang(&code);
@@ -6696,8 +6710,8 @@ pub fn run() {
 
             // started by "launch at login" => stay in the tray (only when there is a tray to come back from). The window is shown
             // when its page has reported itself (not here: see startup.rs), and the page is reloaded if it never does.
-            // (the package's startup task passes no argument: Windows says it started the app, pkg.rs)
-            let minimized = std::env::args().any(|a| a == autostart::TRAY_FLAG) || pkg::started_by_startup_task();
+            // (the package's startup task passes no argument: Windows says it started the app, pkg.rs, and the switch "Start in the tray" decides)
+            let minimized = autostart::tray_start(std::env::args().any(|a| a == autostart::TRAY_FLAG), pkg::started_by_startup_task(), &start_prefs);
             // a restart that a person was looking at (the app's own after a dead page, the one after an update they asked for) inherits `--minimized` from an
             // autostarted run: its window comes back (the old run left a note, autostart.rs)
             let window_wanted = autostart::take_window_wanted(&dir, now());

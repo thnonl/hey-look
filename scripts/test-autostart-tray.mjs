@@ -4,6 +4,11 @@
 // a test copy has its own entry, a second `--minimized` start does not bring the window up, a restart that a person is looking at keeps the window, a tray start checks that
 // its icon is really there.
 //
+// 1.0.10 (owner decision): the start at Windows sign-in is a VISIBLE start by default. The entry is `"<exe>"` (no `--minimized`); the opt-in switch Settings > Notifications >
+// "Start in the tray" (pref startInTray, default off) makes it `"<exe>" --minimized`, the 1.0.9 tray start. The entry is looked after in the form that matches the switch, so the
+// `--minimized` entry of every install from 1.0.0 .. 1.0.9 is written again without the flag. A start without the flag shortly after the desktop shell began (a sign-in start) is
+// gated like a tray start (startgate.rs), then shows its window.
+//
 // Static (runs in CI): the wiring in the sources. With --exe (a DEBUG build with its own identifier, Windows, a visible desktop; a QA-kit run, not part of CI): the real thing,
 //   A  `--minimized` start: no visible window of the process and no taskbar button for 10 s, the tray icon confirmed in the log; a second `--minimized` start leaves the window
 //      hidden; a second start without the flag shows it, painted (pixels from the screen at 2 and 5 s).
@@ -11,8 +16,11 @@
 //   D  the tray icon taken out of the notification area behind the icon library's back (HEYLOOK_TEST_TRAY=drop): the check finds it missing, asks for it again, the icon
 //      comes back and the window stays hidden; with drop-always (asking does nothing) the check gives up after 15 s and the window is shown, not an invisible app.
 //   E  the ghost (a hidden window that the compositor still draws white): the control run (parking off) sees it, the run with the look heals it; A needs it to stay away.
-//   C  the autostart entry (a throw-away registry key, HEYLOOK_TEST_RUN_KEY, never the Run key Windows runs): an entry of this exe in the old form (path not quoted) or
-//      without the flag is written again as `"<exe>" --minimized`; the right one and the entry of another program are left alone.
+//   C  the autostart entry (a throw-away registry key, HEYLOOK_TEST_RUN_KEY, never the Run key Windows runs): with the switch off an entry of this exe in the old forms (path not
+//      quoted, `--minimized`) is written again as `"<exe>"`; with the switch on (pref in the app's database) as `"<exe>" --minimized`; the right one and the entry of another
+//      program are left alone; turning the switch on or off in a running app writes the entry at once.
+//   F  the visible start at sign-in (a start without the flag, the shell told to be young: HEYLOOK_TEST_SHELL_AGE_S): the log says it is gated and why, the window is made after the
+//      gate, shown and painted with a taskbar button, never parked, no tray check; with an old shell it is no gated start at all.
 //
 //   node scripts/test-autostart-tray.mjs [--exe=<debug hey-look.exe>]
 import { spawn, spawnSync } from "node:child_process";
@@ -43,13 +51,16 @@ const code = (p) => {
   const gate = code("src-tauri/src/startgate.rs");
   const auto = code("src-tauri/src/autostart.rs");
   const cargo = read("src-tauri/Cargo.toml");
-  ok("the autostart entry carries the tray flag, on every system", /tauri_plugin_autostart::Builder::new\(\)\.args\(\[autostart::TRAY_FLAG\]\)/.test(run) && auto.includes('pub const TRAY_FLAG: &str = "--minimized";'));
+  ok("the autostart entry has no flag on Windows (a visible start) and keeps the tray flag on macOS and Linux", /let entry_args: &\[&str\] = if cfg!\(windows\) \{ &\[\] \} else \{ &\[autostart::TRAY_FLAG\] \};/.test(run) && /tauri_plugin_autostart::Builder::new\(\)\.args\(entry_args\.iter\(\)\.copied\(\)\)/.test(run) && auto.includes('pub const TRAY_FLAG: &str = "--minimized";'));
+  ok("the switch is the pref startInTray, off by default; the flag or (package task only) the switch makes a tray start", auto.includes('pub const TRAY_PREF: &str = "startInTray";') && auto.includes("crate::shell::pbool(prefs, TRAY_PREF, false)") && run.includes("autostart::tray_start(std::env::args().any(|a| a == autostart::TRAY_FLAG), pkg::started_by_startup_task(), &start_prefs)") && read("src/prefs.ts").includes("startInTray: false,"));
+  ok("the entry is written without the flag unless the switch is on", auto.includes('if tray { format!("\\"{exe}\\" {TRAY_FLAG}") } else { format!("\\"{exe}\\"") }'));
+  ok("a start without the flag just after the desktop shell began is gated, then shown (not a tray start)", gate.includes("sign_in_start(age)") && gate.includes("pub const SIGN_IN_SHELL_AGE: Duration = Duration::from_secs(180);") && gate.includes('format!("a start at sign-in ({})", describe_shell_age(age))') && run.includes("startgate::reason()"));
   ok("a copy that is not the owner's has its own entry name (a QA build never overwrites the installed app's entry)", run.includes("identity::isolated().then(identity::aumid)") && run.includes(".app_name(entry_name)"));
   ok("a start with the flag makes its window after the start gate and keeps it hidden until it is asked for", gate.includes("pub fn wanted(args: &[String], windows: bool)") && run.includes("startgate::defer(context.config_mut())") && code("src-tauri/src/startup.rs").includes("window stays hidden (tray start)"));
   ok("the tray icon is created before the gate waits, and a tray that cannot be created shows the window", run.indexOf("shell::setup_tray(") < run.indexOf("startgate::start(app.handle(), show_at_start)") && run.includes("let show_at_start = !minimized || !shell::tray_ready() || window_wanted;"));
   ok("an icon that the shell does not know is asked for again, and when it never comes the window is shown", gate.includes("autostart::tray_confirmed(") && gate.includes("show_at_start = true") && code("src-tauri/src/shell.rs").includes("pub fn tray_icon_present(") && auto.includes('"tray_icon_app"') && auto.includes('w!("TaskbarCreated")'));
   ok("a second start with the flag does not bring the window up, any other second start does", /autostart::is_tray_start\(&args\)[\s\S]{0,300}return;[\s\S]{0,200}shell::show_main\(app\)/.test(run));
-  ok("the entry is looked at at every start and after the switch is turned on, in the Windows registry only", run.includes("autostart::ensure_entry();") && /fn set_autostart[\s\S]{0,600}autostart::ensure_entry\(\)/.test(lib) && auto.includes("pub fn ensure_entry() {}") && cargo.includes('"Win32_System_Registry"'));
+  ok("the entry is looked at at every start, after the start-at-sign-in switch is turned on and when the tray switch changes, in the Windows registry only", run.includes("autostart::ensure_entry(autostart::start_in_tray(&start_prefs));") && /fn set_autostart[\s\S]{0,900}autostart::ensure_entry\(autostart::start_in_tray\(/.test(lib) && /fn set_setting[\s\S]{0,1500}if now != before \{\s*autostart::ensure_entry\(now\);/.test(lib) && auto.includes("pub fn ensure_entry(_tray: bool) {}") && cargo.includes('"Win32_System_Registry"'));
   ok("only this program's entry is written; the Task Manager switch (StartupApproved) is not touched", auto.includes("Plan::Other =>") && !/StartupApproved/.test(auto.replace(/\/\/.*$/gm, "")));
   ok("a restart that a person is looking at leaves the note (the app's own restart, the update restart) and takes it back when the installer did not start", code("src-tauri/src/startup.rs").includes("crate::autostart::mark_window_wanted(dir, now)") && /if restart && crate::window_shown\(&app\)/.test(code("src-tauri/src/update.rs")) && code("src-tauri/src/update.rs").includes("clear_window_wanted"));
   const ghost = code("src-tauri/src/ghost.rs");
@@ -57,7 +68,9 @@ const code = (p) => {
   const showMain = code("src-tauri/src/shell.rs");
   ok("every show of the main window gives a parked window its place back first", showMain.includes("crate::ghost::unpark(app);") && showMain.indexOf("crate::ghost::unpark(app);") < showMain.indexOf("let _ = w.show();", showMain.indexOf("pub fn show_main")) && showMain.indexOf("pub fn show_main") < showMain.indexOf("crate::ghost::unpark(app);"));
   ok("a hidden window is looked at (a tray start, and after the close button hid it): white desktop points at its place are a ghost, healed by parking, logged", ghost.includes("pub fn is_ghost(") && ghost.includes("healed by parking the window") && code("src-tauri/src/startup.rs").includes('crate::ghost::watch_hidden(app, "the tray start"') && lib.includes('ghost::watch_hidden(window.app_handle(), "the window was hidden"'));
-  ok("no new text: the hint under the switch is the existing one", /settings\.tray\.startsMinimized": "Starts minimized to the tray"/.test(read("src/i18n/ns/settings.ts")) && read("src/components/SettingsDialog.tsx").includes("t(startsMinimizedKey(os))"));
+  const dlg = read("src/components/SettingsDialog.tsx");
+  ok("the switch \"Start in the tray\" sits under the start-at-sign-in switch, Windows only, while that one is on; its label is short and in all 8 languages", /startInTrayOffered\(os, tray, autostart\.enabled\)[\s\S]{0,200}setPrefs\(\{ startInTray: v \}\)/.test(dlg) && read("src/trayWords.ts").includes('os === "windows" && tray && autostartOn') && /settings\.tray\.startInTray": "Start in the tray"/.test(read("src/i18n/ns/settings.ts")) && ["de", "es", "fr", "ja", "ru", "vi", "zh-Hans"].every((l) => /settings\.tray\.startInTray": "[^"]{2,40}"/.test(read(`src/i18n/locales/${l}/settings.ts`))));
+  ok("the old hint \"Starts minimized to the tray\" is gone on Windows (the start shows the window), Mac and Linux keep theirs", read("src/trayWords.ts").includes('startsMinimizedHint = (os: Os) => os !== "windows"') && dlg.includes("startsMinimizedHint(os) ? t(startsMinimizedKey(os)) : undefined"));
   ok("this test is in the CI list", read(".github/node-tests.txt").includes("node scripts/test-autostart-tray.mjs"));
 }
 
@@ -240,33 +253,95 @@ if (!exe) {
     await kill(app2);
   }
 
+  // the app's database of a data folder: the pref of the switch is the `prefs` row of the settings table (node:sqlite, Node 22.5+; the app ran once in this folder, so the table is there)
+  const setPrefs = async (dir, prefs) => {
+    const { DatabaseSync } = await import("node:sqlite");
+    const db = new DatabaseSync(path.join(dir, "heylook.db"));
+    db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES('prefs', ?)").run(JSON.stringify(prefs));
+    db.close();
+  };
+
   // ---- C. the autostart entry ----
   {
     const dir = newDir("c");
     let app = start(dir, ["--minimized"]);
-    ok("[C] with no entry the log says so", await waitLog(dir, /\[autostart \+\d+ ms\] no entry "[^"]+" in the Run key/, 0, 60000), logOf(dir).slice(0, 600));
+    ok("[C] with no entry the log says so (and the state of the switch)", await waitLog(dir, /\[autostart \+\d+ ms\] no entry "[^"]+" in the Run key.*\(Start in the tray: off\)/, 0, 60000), logOf(dir).slice(0, 600));
     const name = logOf(dir).match(/no entry "([^"]+)" in the Run key/)?.[1];
     ok("[C] a test copy's entry is not named like the installed app's (\"Hey Look!\" alone)", !!name && name !== "Hey Look!" && name.startsWith("Hey Look! ["), String(name));
     await kill(app);
     if (name) {
-      const good = `"${exe}" --minimized`;
+      const tray = `"${exe}" --minimized`;
+      const visible = `"${exe}"`;
+      const other = String.raw`C:\Windows\System32\notepad.exe --minimized`;
       const cases = [
-        ["the old form (path not quoted)", `${exe} --minimized`, good, /was .*: written again as/],
-        ["no flag", `"${exe}"`, good, /was .*: written again as/],
-        ["already right", good, good, /entry "[^"]+" is /],
-        ["another program", String.raw`C:\Windows\System32\notepad.exe --minimized`, String.raw`C:\Windows\System32\notepad.exe --minimized`, /starts another program .*: left alone/],
+        // [what, switch, entry found, entry after, log]
+        ["the entry of 1.0.9 (flag), switch off: the visible start", false, tray, visible, /was .*--minimized: written again as "[^"]+" \(Start in the tray: off\)/],
+        ["the entry of 1.0.0 .. 1.0.8 (path not quoted, flag), switch off", false, `${exe} --minimized`, visible, /was .*: written again as/],
+        ["the path not quoted, no flag, switch off", false, exe, visible, /was .*: written again as/],
+        ["already visible, switch off", false, visible, visible, /entry "[^"]+" is "[^"]+" \(Start in the tray: off\)/],
+        ["another program, switch off", false, other, other, /starts another program .*: left alone/],
+        ["visible entry, switch ON: the tray start", true, visible, tray, /was .*: written again as .*--minimized \(Start in the tray: on\)/],
+        ["already the tray entry, switch ON", true, tray, tray, /entry "[^"]+" is .*--minimized \(Start in the tray: on\)/],
+        ["another program, switch ON", true, other, other, /starts another program .*: left alone/],
       ];
-      for (const [what, seed, want, logRe] of cases) {
+      for (const [what, on, seed, want, logRe] of cases) {
+        await setPrefs(dir, { startInTray: on });
         reg("add", hkcu(RUN_KEY), "/v", name, "/t", "REG_SZ", "/d", seed, "/f");
         const from = logOf(dir).length;
-        app = start(dir, ["--minimized"]);
+        app = start(dir, on ? ["--minimized"] : []);
         ok(`[C] ${what}: the log says what was done`, await waitLog(dir, logRe, from, 60000), logOf(dir).slice(from).slice(0, 600));
-        ok(`[C] ${what}: the entry is ${want === seed ? "unchanged" : "written as \"<exe>\" --minimized"}`, regValue(name) === want, String(regValue(name)));
+        ok(`[C] ${what}: the entry is ${want === seed ? "unchanged" : `written as ${want}`}`, regValue(name) === want, String(regValue(name)));
         await kill(app);
       }
+      // the switch turned on and off in a RUNNING app writes the entry at once (set_setting of the prefs blob, as the page does it)
+      await setPrefs(dir, { startInTray: false });
+      reg("add", hkcu(RUN_KEY), "/v", name, "/t", "REG_SZ", "/d", visible, "/f");
+      const { connection, bridge } = await import("./test-bridge-client.mjs");
+      app = start(dir, []);
+      ok("[C live] the app is up", await waitLog(dir, /window shown, page ready/, 0, 90000));
+      const b = bridge(connection(dir));
+      const setPref = (v) => b.evalIn("main", `window.__TAURI_INTERNALS__.invoke("set_setting", { key: "prefs", value: JSON.stringify({ startInTray: ${v} }) }).then(() => "done")`);
+      const from = logOf(dir).length;
+      await setPref(true);
+      await sleep(800);
+      ok("[C live] the switch ON writes the tray entry at once", regValue(name) === tray && /was .*: written again as .*--minimized \(Start in the tray: on\)/.test(logOf(dir).slice(from)), `${regValue(name)} | ${logOf(dir).slice(from).slice(-300)}`);
+      await setPref(false);
+      await sleep(800);
+      ok("[C live] the switch OFF writes the visible entry at once", regValue(name) === visible, String(regValue(name)));
+      reg("delete", hkcu(RUN_KEY), "/v", name, "/f");
+      await setPref(true);
+      await sleep(800);
+      ok("[C live] with no entry (start at sign-in off) the switch writes nothing", regValue(name) === null, String(regValue(name)));
+      await kill(app);
       // the entry of the installed app was never part of this
       const real = reg("query", String.raw`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", name);
       ok("[C] nothing was written to the Run key Windows runs", real.status !== 0);
+    }
+  }
+
+  // ---- F. the visible start at sign-in ----
+  for (const [what, env, gated] of [["the shell is young (20 s)", { HEYLOOK_TEST_SHELL_AGE_S: "20" }, true], ["no taskbar yet", { HEYLOOK_TEST_SHELL_AGE_S: "none" }, true], ["the shell is old (a start by hand)", { HEYLOOK_TEST_SHELL_AGE_S: "86400" }, false]]) {
+    const dir = newDir("f");
+    const before = locked ? null : whiteDesktop();
+    const app = start(dir, [], env);
+    ok(`[F ${what}] the window is shown (a visible start)`, await waitLog(dir, /window shown, page ready/, 0, 90000) && /window created hidden \(show at start: true\)/.test(logOf(dir)), logOf(dir).slice(-800));
+    const log = logOf(dir);
+    if (gated) {
+      ok(`[F ${what}] the log says the start is gated and why`, /\[gate\] this is a start at sign-in \((the desktop shell began 20 s ago|the taskbar window does not exist yet)\): the main window is made after the start gate/.test(log), log.slice(0, 900));
+      ok(`[F ${what}] the gates were read and the window made after them`, /\[gate \+\d+ ms\] start gate: the window waits for the desktop/.test(log) && /all gates open after \d+ ms: making the window/.test(log) && /window made after the start gate/.test(log), log.slice(0, 1500));
+    } else {
+      ok(`[F ${what}] no gate: a normal start, the window of the config`, !/start gate: the window waits/.test(log) && !/this is a start at sign-in/.test(log), log.slice(0, 900));
+    }
+    ok(`[F ${what}] no tray check, no parking, no ghost look (those are for a tray start)`, !/\[tray \+/.test(log) && !/parked off-screen/.test(log) && !/\[ghost \+\d+ ms\] look/.test(log), log.slice(-800));
+    await sleep(2500);
+    const w = windows(app.pid);
+    ok(`[F ${what}] the window is visible, on the screen, with a taskbar button`, w.mainVisible === true && w.taskbarButtons >= 1 && w.mainLeft > -5000, JSON.stringify(w).slice(0, 300));
+    const p = pixels(app.pid);
+    ok(`[F ${what}] it is painted (more than 3 colours, no colour on 95 % of the points; not white)`, p.visible === true && p.distinct > 3 && p.dominantRatio < 0.95, JSON.stringify({ vis: p.visible, dom: p.dominantRatio, distinct: p.distinct, owned: p.owned }));
+    await kill(app);
+    if (before) {
+      const after = whiteDesktop();
+      ok(`[F ${what}] after the app ended nothing white is left on the bare desktop (${newWhite(before, after)} new points)`, newWhite(before, after) === 0, JSON.stringify(after).slice(0, 200));
     }
   }
 }

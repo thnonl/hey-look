@@ -26,7 +26,7 @@ import { portFromText, portText } from "../portField";
 import { LazyRuleDialog } from "../lazyViews";
 import { ACTION_WORD, ruleTitle } from "../ruleText";
 import { runRule } from "../ruleRun";
-import { filtersIntroKey, keepRunningLabelKey, startsMinimizedKey, trayBadgeLabelKey, trayTabTitleKey } from "../trayWords";
+import { filtersIntroKey, keepRunningLabelKey, startInTrayOffered, startsMinimizedHint, startsMinimizedKey, trayBadgeLabelKey, trayTabTitleKey } from "../trayWords";
 import { systemTz } from "../calendar";
 import { setEnabled as setNudgeEnabled } from "../supportNudge";
 import { fmtDay, fmtFpr, shortKey } from "../util";
@@ -1927,10 +1927,15 @@ function TrayTab() {
       <Row
         id="autostart"
         label={os === "windows" ? t("settings.tray.autostartWindows") : t("settings.tray.autostart")}
-        hint={autostart.locked === "user" ? t("settings.tray.autostartOffInWindows") : autostart.locked === "policy" ? t("settings.tray.autostartByPolicy") : os === "linux" && !tray ? t("settings.tray.startsOpen") : t(startsMinimizedKey(os))}
+        hint={autostart.locked === "user" ? t("settings.tray.autostartOffInWindows") : autostart.locked === "policy" ? t("settings.tray.autostartByPolicy") : os === "linux" && !tray ? t("settings.tray.startsOpen") : startsMinimizedHint(os) ? t(startsMinimizedKey(os)) : undefined}
       >
         <Switch checked={autostart.enabled} disabled={autostart.locked !== null} onChange={(v) => void toggleAuto(v)} />
       </Row>
+      {startInTrayOffered(os, tray, autostart.enabled) && (
+        <Row id="startInTray" label={t("settings.tray.startInTray")}>
+          <Switch checked={prefs.startInTray} onChange={(v) => setPrefs({ startInTray: v })} />
+        </Row>
+      )}
     </div>
   );
 }

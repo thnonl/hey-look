@@ -22,7 +22,14 @@
 //! A person who asks for the window while the gate waits (tray click, a second start, a notification) is not made to wait: `request_window`
 //! ends the wait and the window is shown when it exists. A quit while waiting ends the process as always; no window is made then.
 //!
-//! A normal start (no `--minimized`) is not touched: no gate, the window of the config is made by tauri before `setup`, as before. macOS and
+//! 1.0.10: the start at Windows sign-in is a VISIBLE start by default (the entry has no `--minimized`, autostart.rs), and a visible start made at logon races the
+//! desktop just the same: the window of a gated start is made after the gates, whether it is shown afterwards (visible start) or kept in the tray (`--minimized`).
+//! A start without the flag cannot say that it is a sign-in start, so the shell tells: the process that owns the taskbar window (`Shell_TrayWnd`, explorer.exe)
+//! began less than `SIGN_IN_SHELL_AGE` ago, or there is no taskbar window yet (`sign_in_start`). Explorer runs the Run entries a few seconds to a minute after it
+//! began; a person who starts the app by hand later finds an old shell and a normal start, untouched. A person who does it within those minutes gets the same
+//! window a moment later (all gates are open: the wait is 0 ms). No delay is added: the gates are the wait.
+//!
+//! A normal start (no `--minimized`, an old shell) is not touched: no gate, the window of the config is made by tauri before `setup`, as before. macOS and
 //! Linux have no gate (the autostart there does not race a desktop shell that is missing; see webkit-checks-107.md).
 //!
 //! Lazy creation of the web view beyond the gate (a tray start that never makes it until the first show) was considered and is NOT done:
@@ -169,6 +176,39 @@ pub fn wanted(args: &[String], windows: bool) -> bool {
     windows && args.iter().skip(1).any(|a| a == "--minimized")
 }
 
+/// How long after the desktop shell began a start without `--minimized` still counts as a start at sign-in (the Run entries are started by Explorer once the
+/// desktop is up, a few seconds to a minute after it began; a slow disk can make it longer).
+pub const SIGN_IN_SHELL_AGE: Duration = Duration::from_secs(180);
+
+/// What is known about the desktop shell (the owner of the taskbar window) at the start.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShellAge {
+    /// No taskbar window yet: the shell is not up, this start is part of the sign-in.
+    NoShell,
+    /// The process that owns the taskbar window began this long ago.
+    Age(Duration),
+    /// The taskbar window exists, but its process cannot be asked: no guess, a normal start.
+    Unknown,
+}
+
+/// Is a start without `--minimized` a start at sign-in? Pure.
+pub fn sign_in_start(age: ShellAge) -> bool {
+    match age {
+        ShellAge::NoShell => true,
+        ShellAge::Age(a) => a < SIGN_IN_SHELL_AGE,
+        ShellAge::Unknown => false,
+    }
+}
+
+/// The log words of a shell age.
+pub fn describe_shell_age(age: ShellAge) -> String {
+    match age {
+        ShellAge::NoShell => "the taskbar window does not exist yet".to_string(),
+        ShellAge::Age(a) => format!("the desktop shell began {} s ago", a.as_secs()),
+        ShellAge::Unknown => "the age of the desktop shell is not known".to_string(),
+    }
+}
+
 /// Windows' name of a session's connect state (`WTS_CONNECTSTATE_CLASS`), for the log.
 pub fn session_state_name(state: i32) -> &'static str {
     match state {
@@ -218,14 +258,57 @@ static CREATED: AtomicBool = AtomicBool::new(false);
 /// Somebody asked for the window while it did not exist: the wait ends, the window is shown when it is there.
 static REQUESTED: AtomicBool = AtomicBool::new(false);
 
+/// Why this start is gated (for the log); set by `defer`.
+static REASON: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// The words for `startup.log`: "a --minimized start", ...
+pub fn reason() -> String {
+    REASON.get().cloned().unwrap_or_else(|| "a gated start".to_string())
+}
+
+/// The age of the shell, or the one a debug build is told (`HEYLOOK_TEST_SHELL_AGE_S=<seconds>` or `none`: QA of the visible start at sign-in; a release build
+/// reads no variable).
+#[cfg(windows)]
+fn shell_age() -> ShellAge {
+    if cfg!(debug_assertions) {
+        if let Ok(v) = std::env::var("HEYLOOK_TEST_SHELL_AGE_S") {
+            let v = v.trim().to_lowercase();
+            if v == "none" {
+                return ShellAge::NoShell;
+            }
+            if let Ok(secs) = v.parse::<u64>() {
+                return ShellAge::Age(Duration::from_secs(secs));
+            }
+        }
+    }
+    win::shell_age()
+}
+
+#[cfg(not(windows))]
+fn shell_age() -> ShellAge {
+    ShellAge::Unknown
+}
+
 /// Called with the config before tauri builds the app: on a gated start the window of the config is not made by tauri. Returns whether it
 /// is gated.
 pub fn defer(config: &mut tauri::utils::config::Config) -> bool {
     let args: Vec<String> = std::env::args().collect();
     // (a start by the package's startup task has no argument: Windows says how it was started, pkg.rs)
-    if !wanted(&args, cfg!(windows)) && !(cfg!(windows) && crate::pkg::started_by_startup_task()) {
+    let why = if wanted(&args, cfg!(windows)) {
+        "a --minimized start".to_string()
+    } else if cfg!(windows) && crate::pkg::started_by_startup_task() {
+        "a start by the package's startup task".to_string()
+    } else if cfg!(windows) {
+        // the visible start at sign-in: the entry has no argument, the shell's age tells (the module header)
+        let age = shell_age();
+        if !sign_in_start(age) {
+            return false;
+        }
+        format!("a start at sign-in ({})", describe_shell_age(age))
+    } else {
         return false;
-    }
+    };
+    let _ = REASON.set(why);
     let mut taken = 0;
     for w in config.app.windows.iter_mut().filter(|w| w.create) {
         w.create = false;
@@ -374,7 +457,32 @@ mod win {
     use windows::core::{w, PCWSTR, PWSTR};
     use windows::Win32::Graphics::Dwm::DwmIsCompositionEnabled;
     use windows::Win32::System::RemoteDesktop::{WTSConnectState, WTSFreeMemory, WTSQuerySessionInformationW, WTS_CURRENT_SERVER_HANDLE, WTS_CURRENT_SESSION};
-    use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, GetSystemMetrics, SM_CMONITORS};
+    use windows::Win32::Foundation::{CloseHandle, FILETIME};
+    use windows::Win32::System::Threading::{GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+    use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, GetSystemMetrics, GetWindowThreadProcessId, SM_CMONITORS};
+
+    /// How long ago the process that owns the taskbar window (Explorer) was created.
+    pub fn shell_age() -> ShellAge {
+        unsafe {
+            let Ok(bar) = FindWindowW(w!("Shell_TrayWnd"), PCWSTR::null()) else { return ShellAge::NoShell };
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(bar, Some(&mut pid));
+            if pid == 0 {
+                return ShellAge::Unknown;
+            }
+            let Ok(h) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else { return ShellAge::Unknown };
+            let (mut created, mut x, mut y, mut z) = (FILETIME::default(), FILETIME::default(), FILETIME::default(), FILETIME::default());
+            let ok = GetProcessTimes(h, &mut created, &mut x, &mut y, &mut z).is_ok();
+            let _ = CloseHandle(h);
+            if !ok {
+                return ShellAge::Unknown;
+            }
+            let then_ms = ((created.dwHighDateTime as u64) << 32 | created.dwLowDateTime as u64) / 10_000; // 100 ns -> ms since 1601
+            let Ok(since_epoch) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) else { return ShellAge::Unknown };
+            let now_ms = since_epoch.as_millis() as u64 + 11_644_473_600_000;
+            ShellAge::Age(Duration::from_millis(now_ms.saturating_sub(then_ms)))
+        }
+    }
 
     pub fn read() -> Vec<Reading> {
         vec![taskbar(), dwm(), monitor(), session(), webview2()]
@@ -543,6 +651,34 @@ mod tests {
         assert!(!wanted(&args(&["hey-look.exe", "--minimized"]), false), "macOS / Linux: no gate");
         assert!(!wanted(&args(&["hey-look.exe", "--minimized=1", "-minimized", "minimized"]), true));
         assert!(!wanted(&args(&["--minimized"]), true), "the first argument is the program");
+    }
+
+    #[test]
+    fn a_start_without_the_flag_is_a_sign_in_start_while_the_desktop_shell_is_young() {
+        let s = Duration::from_secs;
+        assert!(sign_in_start(ShellAge::NoShell), "no taskbar yet: the sign-in is still going on");
+        assert!(sign_in_start(ShellAge::Age(s(0))) && sign_in_start(ShellAge::Age(s(25))) && sign_in_start(ShellAge::Age(s(179))));
+        assert!(!sign_in_start(ShellAge::Age(s(180))), "the shell is old: the person started it by hand");
+        assert!(!sign_in_start(ShellAge::Age(s(86_400))));
+        assert!(!sign_in_start(ShellAge::Unknown), "no guess: a normal start is not delayed");
+        assert!(describe_shell_age(ShellAge::Age(s(25))).contains("25 s") && describe_shell_age(ShellAge::NoShell).contains("taskbar"));
+    }
+
+    #[test]
+    fn a_visible_start_at_sign_in_is_gated_too() {
+        let gate = code("startgate.rs");
+        let defer = &gate[gate.find("pub fn defer(").unwrap()..];
+        let defer = &defer[..defer.find("\n}\n").unwrap()];
+        assert!(defer.contains("wanted(&args, cfg!(windows))") && defer.contains("started_by_startup_task()") && defer.contains("sign_in_start(age)"), "{defer}");
+        // the flag and the package task are asked first, the shell last: a start with the flag does not read the shell at all
+        assert!(defer.find("wanted(").unwrap() < defer.find("started_by_startup_task()").unwrap() && defer.find("started_by_startup_task()").unwrap() < defer.find("shell_age()").unwrap());
+        // a start that is gated for its age shows the window once it is made (only a tray start keeps it hidden)
+        let lib = code("lib.rs");
+        assert!(lib.contains("let show_at_start = !minimized || !shell::tray_ready() || window_wanted;"));
+        assert!(lib.contains("startgate::reason()"), "the log says why the start is gated");
+        // the tray check, the parking and the ghost looks belong to a tray start only
+        let start = &gate[gate.find("pub fn start(").unwrap()..];
+        assert!(start.contains("if !show_at_start && !REQUESTED.load(Ordering::SeqCst) {") && start.contains("made.is_ok() && !show_at_start"), "{start}");
     }
 
     #[test]

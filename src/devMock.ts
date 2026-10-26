@@ -2562,7 +2562,7 @@ export function installMock() {
         return reply;
       }
       case "ai_cancel": mockAiCancelled.push(String(a.jobId)); return null;
-      case "get_autostart": return { enabled: false, locked: hashTokens().get("autostartlock") === "user" || hashTokens().get("autostartlock") === "policy" ? hashTokens().get("autostartlock") : null }; // `#autostartlock=user|policy`: the Microsoft Store switch is locked (Settings > Notifications & tray)
+      case "get_autostart": return { enabled: hashTokens().get("autostart") === "on", locked: hashTokens().get("autostartlock") === "user" || hashTokens().get("autostartlock") === "policy" ? hashTokens().get("autostartlock") : null }; // `#autostart=on`: the start at sign-in is on (the switch "Start in the tray" is offered, Windows). `#autostartlock=user|policy`: the Microsoft Store switch is locked (Settings > Notifications & tray)
       case "cancel_outbox": case "outbox_send_now": case "outbox_to_draft": {
         logOutbox(cmd, a);
         const i = mockOutbox.findIndex((x) => x.id === a.id);

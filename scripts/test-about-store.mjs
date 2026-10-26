@@ -69,15 +69,35 @@ try {
       ok(g.links.every((l) => inside(g, l.box) && l.box.h < 60), `${tag}: the four links are inside the settings body, one or two lines`);
       ok(g.paras.every((p) => inside(g, p.box)), `${tag}: the paragraphs are inside the settings body`);
       // ---- Notifications & tray: the autostart row in its three states
-      for (const [lock, hintKey, disabled] of [['user', 'settings.tray.autostartOffInWindows', true], ['policy', 'settings.tray.autostartByPolicy', true], ['none', 'settings.tray.startsMinimized', false]]) {
+      for (const [lock, hintKey, disabled] of [['user', 'settings.tray.autostartOffInWindows', true], ['policy', 'settings.tray.autostartByPolicy', true], ['none', null, false]]) {
         const t = await open(`settings=tray&autostartlock=${lock}&managed=msstore&lang=${lang}&os=windows`, theme, lang, w, h);
         const row = t.rows.find((r) => r.label === d['settings.tray.autostartWindows']);
         ok(!!row, `${tag} ${lock}: the autostart row is there ("${d['settings.tray.autostartWindows']}")`);
         if (!row) continue;
-        ok(row.hint === d[hintKey], `${tag} ${lock}: the hint is ${hintKey} (got ${JSON.stringify(row.hint)})`);
+        // (1.0.10: on Windows the unlocked switch has no hint any more: the start at sign-in shows the window unless "Start in the tray" is on)
+        ok(row.hint === (hintKey ? d[hintKey] : null), `${tag} ${lock}: the hint is ${hintKey} (got ${JSON.stringify(row.hint)})`);
         ok(row.sw && row.sw.disabled === disabled, `${tag} ${lock}: the switch is ${disabled ? 'disabled' : 'enabled'}`);
-        ok(row.hintBox && inside(t, row.hintBox) && !t.bodyScrollsX, `${tag} ${lock}: the hint is inside the settings body, no horizontal scroll`);
+        ok((!row.hintBox || inside(t, row.hintBox)) && !t.bodyScrollsX, `${tag} ${lock}: the hint is inside the settings body, no horizontal scroll`);
         ok(!/(?:settings|updates)\.[A-Za-z]+\.[A-Za-z]|\{/.test(t.text), `${tag} ${lock}: no raw key on the page`);
+      }
+      // ---- 1.0.10: "Start in the tray" under the start-at-sign-in switch (Windows only, while that switch is on); Mac and Linux keep their hint and have no such row
+      for (const [what, hash, os, offered] of [['windows, start at sign-in on', 'autostart=on', 'windows', true], ['windows, off', '', 'windows', false], ['linux, on', 'autostart=on', 'linux', false], ['macos, on', 'autostart=on', 'macos', false]]) {
+        const t = await open(`settings=tray&${hash}&lang=${lang}&os=${os}`, theme, lang, w, h);
+        const row = t.rows.find((r) => r.label === d['settings.tray.startInTray']);
+        ok(!!row === offered, `${tag} ${what}: the row "${d['settings.tray.startInTray']}" is ${offered ? 'there' : 'not there'}`);
+        const auto = t.rows.find((r) => r.label === d[os === 'windows' ? 'settings.tray.autostartWindows' : 'settings.tray.autostart']);
+        const wantHint = os === 'windows' ? null : d[os === 'macos' ? 'settings.tray.startsMinimizedMenuBar' : 'settings.tray.startsMinimized'];
+        ok(auto && auto.hint === wantHint, `${tag} ${what}: the hint under the start-at-sign-in switch is ${JSON.stringify(wantHint)} (got ${JSON.stringify(auto && auto.hint)})`);
+        if (row) {
+          ok(row.sw && !row.sw.disabled && row.sw.checked === false && row.hint === null, `${tag} ${what}: the switch is off by default, enabled, no hint (${JSON.stringify(row.sw)})`);
+          ok(d['settings.tray.startInTray'].length <= 40, `${tag}: the label is short (${d['settings.tray.startInTray'].length} characters)`);
+          await evaluate(`[...document.querySelectorAll('.settings .set-row')].find((r) => r.querySelector('.set-lbl > div')?.textContent.trim() === ${JSON.stringify(d['settings.tray.startInTray'])}).querySelector('input[type="checkbox"]').click(); 1`);
+          await sleep(200);
+          ok(await evaluate(`window.__store.getState().prefs.startInTray`) === true, `${tag} ${what}: turning it on sets the pref startInTray`);
+          const t2 = await evaluate(READ);
+          ok(t2.rows.find((r) => r.label === d['settings.tray.startInTray'])?.sw?.checked === true, `${tag} ${what}: and the switch shows it`);
+        }
+        ok(!t.bodyScrollsX && !/(?:settings|updates)\.[A-Za-z]+\.[A-Za-z]|\{/.test(t.text), `${tag} ${what}: no raw key, no horizontal scroll`);
       }
       // ---- AI Assistant: the report link
       const a = await open(`settings=ai&lang=${lang}&os=windows`, theme, lang, w, h);
