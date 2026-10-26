@@ -70,6 +70,15 @@ pub fn set_entry_name(name: &str) {
     let _ = ENTRY_NAME.set(name.to_string());
 }
 
+// ---------- macOS and Linux: the arguments of the launch agent / .desktop entry ----------
+
+/// What the plugin writes after the program in the entry of macOS and Linux: `--minimized` (a tray start), except on a Linux desktop with no tray host, where
+/// there is no icon to come back from and the start shows the window anyway (startgate): the entry then says what the hint says, "Starts with the window open"
+/// (Linux QA 1.0.10, L2). The entry is written again at the app's start (lib.rs) when the answer has changed. Windows does not use this (it writes its own value).
+pub fn unix_entry_args(linux: bool, tray_host: bool) -> &'static [&'static str] {
+    if linux && !tray_host { &[] } else { &[TRAY_FLAG] }
+}
+
 // ---------- the value in the Run key ----------
 
 /// What the entry should say for the exe at `exe`: `"<exe>"` (the window shows at sign-in) or, with the switch "Start in the tray" on, `"<exe>" --minimized`.
@@ -688,6 +697,14 @@ mod tests {
     }
 
     #[test]
+    fn the_entry_of_macos_and_linux_has_the_flag_unless_a_linux_desktop_has_no_tray() {
+        assert_eq!(unix_entry_args(false, true), &[TRAY_FLAG], "macOS");
+        assert_eq!(unix_entry_args(false, false), &[TRAY_FLAG], "macOS has its menu bar whatever the probe says");
+        assert_eq!(unix_entry_args(true, true), &[TRAY_FLAG], "Linux with a tray host");
+        assert!(unix_entry_args(true, false).is_empty(), "Linux without one: the window opens, so the entry says nothing");
+    }
+
+    #[test]
     fn the_plugin_is_built_with_the_copys_own_name_and_writes_the_flag_on_macos_and_linux_only() {
         let lib = code("lib.rs");
         let run = &lib[lib.find("pub fn run() {").unwrap()..];
@@ -697,7 +714,7 @@ mod tests {
         let before = &run[..run.find("tauri_plugin_autostart::Builder::new()").unwrap()];
         // Windows: the plugin writes the entry without arguments (a visible start) and `ensure_entry` adds the flag when the switch is on; the launch agent / .desktop
         // of macOS and Linux keep `--minimized` (the switch is offered on Windows only)
-        assert!(before.contains("let entry_args: &[&str] = if cfg!(windows) { &[] } else { &[autostart::TRAY_FLAG] };"), "{before}");
+        assert!(before.contains("let entry_args: &[&str] = if cfg!(windows) { &[] } else { autostart::unix_entry_args(cfg!(target_os = \"linux\"), tray_host) };"), "{before}");
         assert!(before.contains("autostart::set_entry_name(") && before.contains("autostart::entry_name("), "the name is chosen before the plugin is built");
         assert!(before.contains("identity::isolated()"), "an isolated copy has its own entry");
     }

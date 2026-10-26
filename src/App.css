@@ -435,6 +435,8 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
 .is-rail .fp-pip { display: block; position: absolute; top: 1px; right: -1px; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 8px; background: var(--accent); color: var(--accent-fg); font-size: 10px; line-height: 16px; font-weight: 700; text-align: center; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 2px var(--bg2); }
 .is-rail .fp-warnpip { display: block; position: absolute; bottom: 4px; right: 4px; width: 9px; height: 9px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 0 2px var(--bg2); }
 .is-rail .reorder-grip { left: 0; }
+/* (1.0.10, Linux QA) the numbers and dots on an icon are not targets: a click or a right-click on a badge, a pip or the new-mail dot is a click on the icon under it (its button or row, which owns the menu and the drag), whatever pixel of it is hit */
+.is-rail .fp-row .fp-badge, .is-rail .fp-row .fp-new, .is-rail .fp-pip, .is-rail .fp-warnpip { pointer-events: none; }
 .is-rail .fp-row { width: 40px; height: 34px; box-sizing: border-box; padding: 0; margin: 1px 0; justify-content: center; gap: 0; }
 .is-rail .fp-row .fp-lbl { display: none; }
 .is-rail .fp-row .fp-badge { position: absolute; top: 0; right: 0; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 8px; background: var(--accent); color: var(--accent-fg); font-size: 10px; line-height: 16px; font-weight: 700; text-align: center; box-shadow: 0 0 0 2px var(--bg2); }

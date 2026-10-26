@@ -591,7 +591,7 @@ pub fn mac_menu_event(app: &AppHandle, event: MenuEvent) {
 
 /// Linux: is there anything on the session bus that shows tray icons (a registered StatusNotifier host)? Any error = no.
 #[cfg(target_os = "linux")]
-fn linux_tray_host() -> bool {
+pub fn linux_tray_host() -> bool {
     let probe = || -> Result<bool, zbus::Error> {
         let conn = zbus::blocking::Connection::session()?;
         let dbus = zbus::blocking::fdo::DBusProxy::new(&conn)?;

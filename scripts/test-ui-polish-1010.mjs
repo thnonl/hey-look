@@ -633,6 +633,8 @@ async function r7() {
   ok(await until(`!!document.querySelector('.is-rail')`), 'icon column');
   await evaluate(`window.__store.setState({ reauth: { a3: 'again' }, syncErrors: { a4: 'mock: offline' } }); 1`);
   await sleep(200);
+  // the widest badge and pip (99+) on every icon, so that they cover as much of it as they can
+  await evaluate(`document.querySelectorAll('.is-rail .fp-badge, .is-rail .fp-pip').forEach((b) => { b.textContent = '99+'; }); 1`);
   const targets = [['avatar', '.is-rail .fp-group[data-reorder-id] .fp-avatar', 5], ['One Inbox', `.is-rail ${ONE}`, 1]];
   // edges, centre, the badge / pip corner and the corners inside the rounded shape (the 4 px corner pixels of the rounded button are not the icon)
   const pts = [[0.01, 0.5], [0.99, 0.5], [0.5, 0.01], [0.5, 0.99], [0.5, 0.5], [0.2, 0.2], [0.8, 0.2], [0.2, 0.8], [0.8, 0.8], [0.8, 0.1], [0.03, 0.03 + 0.12], [0.97, 0.15], [0.12, 0.5]];
@@ -659,6 +661,9 @@ async function r7() {
       ok(bad.length === 0, `${name} ${n}: a right-click opens the menu (and not the peek) at every point: ${JSON.stringify(bad.slice(0, 6))} (${bad.length} of ${pts.length} failed)`);
     }
   }
+  // 1.0.10 (Linux QA, L1): no badge, pip or dot of an icon is ever the target of a point: elementFromPoint over a grid of every icon (outside edge included) gives the icon's button or row, never the small element
+  const small = await evaluate(`(() => { const out = []; for (const e of document.querySelectorAll('.is-rail .fp-avatar, .is-rail .fp-row')) { const r = e.getBoundingClientRect(); for (let x = r.left - 2; x <= r.right + 2; x += 2) for (let y = r.top - 2; y <= r.bottom + 2; y += 2) { const t = document.elementFromPoint(x, y); if (t && t.closest('.fp-badge, .fp-pip, .fp-warnpip, .fp-new')) out.push([Math.round(x), Math.round(y), t.className]); } } return out; })()`);
+  ok(small.length === 0, `no point of an icon lands on its badge, pip or dot: ${JSON.stringify(small.slice(0, 4))} (${small.length})`);
   // the hit test: every point belongs to the entry (nothing outside it sits over it)
   const miss = await evaluate(`(() => { const out = []; for (const e of document.querySelectorAll('.is-rail .fp-avatar, .is-rail .fp-row[data-key="inbox"]:not([data-acct])')) { const r = e.getBoundingClientRect(); for (const [fx, fy] of [[0.01, 0.5], [0.99, 0.5], [0.5, 0.01], [0.5, 0.97], [0.5, 0.5], [0.2, 0.2], [0.8, 0.8]]) { const t = document.elementFromPoint(r.left + r.width * fx, r.top + r.height * fy); if (!t || !(e.contains(t) || t.closest('.fp-group, .fp-row') === e.closest('.fp-group, .fp-row'))) out.push([e.className, fx, fy, t && t.className]); } } return out; })()`);
   ok(miss.length === 0, `every point of an icon is the icon's own or its mailbox's: ${JSON.stringify(miss.slice(0, 4))}`);

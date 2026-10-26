@@ -6587,7 +6587,12 @@ pub fn run() {
     // the name of this copy's autostart entry (autostart.rs)
     // Windows: the plugin writes the entry without arguments, a visible start; `autostart::ensure_entry` adds `--minimized` when the switch "Start in the tray" is on.
     // macOS / Linux: the launch agent / .desktop keep `--minimized` (the switch is offered on Windows only)
-    let entry_args: &[&str] = if cfg!(windows) { &[] } else { &[autostart::TRAY_FLAG] };
+    // Linux without a tray host: no flag (the window opens anyway, and the hint says so; autostart.rs `unix_entry_args`)
+    #[cfg(target_os = "linux")]
+    let tray_host = shell::linux_tray_host();
+    #[cfg(not(target_os = "linux"))]
+    let tray_host = true;
+    let entry_args: &[&str] = if cfg!(windows) { &[] } else { autostart::unix_entry_args(cfg!(target_os = "linux"), tray_host) };
     let entry_name = autostart::entry_name(if update::managed_by() == Some("snap") { update::SNAP_NAME } else { &package_name }, identity::isolated().then(identity::aumid));
     autostart::set_entry_name(&entry_name);
     let builder = tauri::Builder::default();
@@ -6645,6 +6650,15 @@ pub fn run() {
             // the autostart entry of this copy is looked at (and written in the form of the switch "Start in the tray" when it is this program's), autostart.rs
             let start_prefs = shell::prefs(&db);
             autostart::ensure_entry(autostart::start_in_tray(&start_prefs));
+            // Linux: an entry that is on is written again with the arguments of today (a tray host came or went since it was written)
+            #[cfg(target_os = "linux")]
+            {
+                use tauri_plugin_autostart::ManagerExt;
+                let m = app.autolaunch();
+                if m.is_enabled().unwrap_or(false) {
+                    let _ = m.enable();
+                }
+            }
             // the language of the native texts (tray, notifications) as the UI last mirrored it; English until the first run mirrors it
             if let Some(code) = db::get_setting(&lock(&db), "ui_language") {
                 i18n::set_lang(&code);
