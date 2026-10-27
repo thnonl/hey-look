@@ -14,9 +14,9 @@ export type PictureTier = "full" | "mid" | "small";
 export type HiddenPictureBox = { hidden: true } | { hidden: false; width: string; height: string; minHeight: string; tier: PictureTier; maxHeight: string };
 
 /** The side of the box when the mail gives no width / no height (px), and its smallest height. */
-export const HIDDEN_PICTURE_WIDTH = 240;
-export const HIDDEN_PICTURE_MIN_HEIGHT = 96;
-export const HIDDEN_PICTURE_MAX_HEIGHT = 480;
+const HIDDEN_PICTURE_WIDTH = 240;
+const HIDDEN_PICTURE_MIN_HEIGHT = 96;
+const HIDDEN_PICTURE_MAX_HEIGHT = 480;
 
 /**
  * The box of a picture the reading pane hides for privacy (spec ba-v1010-written-to-and-placeholders.md section 6): the size the mail gave (at most 480 px high, the frame's own CSS

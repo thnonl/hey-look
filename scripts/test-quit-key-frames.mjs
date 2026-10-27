@@ -39,7 +39,7 @@ ok(/export function guardFrameQuitKey\(doc: Document\)/.test(qk) && /doc\.addEve
 const rp = read("components/ReadingPane.tsx");
 const hook = rp.slice(rp.indexOf("const hookDoc = () =>"), rp.indexOf("const onLoad = () => hookDoc()"));
 ok(hook.length > 500, "hookDoc found");
-ok(/lockedNow\.current \? guardFrameQuitKey\(doc\) : guardFrame\(frame, doc, \{ search: true \}\)/.test(hook), "hookDoc: a Confidential mail gets the Ctrl+Q handler, any other mail the full guard (which has it)");
+ok(/lockedNow\.current \? guardFrameQuitKey\(doc\) : guardFrame\(frame, doc, \{ search: true, picture: \(box\) => picMenuRef\.current\(box\) \}\)/.test(hook), "hookDoc: a Confidential mail gets the Ctrl+Q handler, any other mail the full guard (which has it)");
 ok(/unguard\?\.\(\)/.test(hook), "hookDoc: the handler is removed when the document is left");
 ok(/import \{ guardFrameQuitKey \} from "\.\.\/quitKey"/.test(rp), "ReadingPane imports guardFrameQuitKey");
 // the mail is written into the same frame again for each mail: the hooking is forgotten and runs again for the new document

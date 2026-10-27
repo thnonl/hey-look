@@ -18,9 +18,11 @@ export const HIDDEN_PICTURE_CSS = `.hl-bpx{cursor:pointer;gap:2px;padding:6px;te
 .hl-bpx[data-tall=no] .hl-bp-alt{display:none}
 .hl-bpx[data-pending]{opacity:.6;cursor:progress}.hl-bpx.bad{border-color:#c4314b;color:#c4314b}
 a .hl-bpx{cursor:default}
-html.hm-dark .hl-bpx{background:#262a30;border-color:#6b7280;color:#c3c9d1}html.hm-dark .hl-bpx:hover{background:#2d3239}html.hm-dark .hl-bpx:focus-visible{outline-color:#8fb4e3}
-html.hm-dark .hl-bp-hint,html.hm-dark .hl-bpx .hl-bp-alt{color:#c3c9d1}html.hm-dark .hl-bpx .hl-bp-ico{filter:brightness(1.6)}
 @media print{.hl-bp-hint{display:none!important}.hl-bpx{cursor:default;outline:none}}`;
+
+/** The dark presentation of that box (the screen frame only: a printed page is always light). */
+export const HIDDEN_PICTURE_DARK_CSS = `html.hm-dark .hl-bpx{background:#262a30;border-color:#6b7280;color:#c3c9d1}html.hm-dark .hl-bpx:hover{background:#2d3239}html.hm-dark .hl-bpx:focus-visible{outline-color:#8fb4e3}
+html.hm-dark .hl-bp-hint,html.hm-dark .hl-bpx .hl-bp-alt{color:#c3c9d1}html.hm-dark .hl-bpx .hl-bp-ico{filter:brightness(1.6)}`;
 
 /** Everything up to the placeholders of blocked pictures. */
 export const MAIL_FRAME_CSS = `body{font:14px/1.5 "Segoe UI Variable","Segoe UI",system-ui,sans-serif;margin:0;padding:10px 12px;word-wrap:break-word;background:var(--hm-bg);color:var(--hm-fg)}

@@ -27,7 +27,7 @@ import { fmtNumber } from "../i18n/format";
 import { tx } from "../i18n/rich";
 import { DARK_CANVAS, frameBaseCss, frameRootClass, pressCanvas } from "../mailCanvas";
 import { useAppDark } from "../useAppDark";
-import { MAIL_FRAME_CSS, MAIL_FRAME_SPIN_CSS } from "../mailFrameCss";
+import { HIDDEN_PICTURE_DARK_CSS, MAIL_FRAME_CSS, MAIL_FRAME_SPIN_CSS } from "../mailFrameCss";
 import { reapply as reapplyColorScheme, rewriteMailHtml } from "../colorSchemeMedia";
 import { eff } from "../prefs";
 import { addNoAuto, addTrusted, canOffer, ensureTrustedLoaded, normSender, noticeState, remoteAllowed, remoteAllowedFor, removeNoAuto, removeTrusted, useTrusted, type RemoteInput } from "../trustedSenders";
@@ -496,7 +496,8 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     <style>${frameBaseCss()}
     ${MAIL_FRAME_CSS}
     ${lockedNow.current ? CONFIDENTIAL_FRAME_CSS : ""}
-    ${MAIL_FRAME_SPIN_CSS}</style>
+    ${MAIL_FRAME_SPIN_CSS}
+    ${HIDDEN_PICTURE_DARK_CSS}</style>
     </head><body>`,
       rewriteMailHtml(html, darkNow.current),
       `<style>html,body{overflow:hidden!important;height:auto!important;min-height:0!important}</style></body></html>`,
