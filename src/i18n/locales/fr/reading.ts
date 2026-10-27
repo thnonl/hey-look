@@ -143,7 +143,7 @@ export default defineLocale<typeof ns.en>({
   "reading.lang.spanish": "espagnol",
   "reading.lang.russian": "russe",
 
-  "reading.body.blocked": "Certains contenus de ce message ont été bloqués pour limiter le pistage.",
+  "reading.body.blocked": "Contenus bloqués dans ce message pour limiter le pistage.",
   "reading.body.loadContent": "Charger le contenu",
   "reading.body.alwaysLoad": "Toujours charger le contenu distant (Paramètres)",
   "reading.trust.add": "Toujours charger pour cet expéditeur",
