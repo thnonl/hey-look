@@ -26,7 +26,8 @@ import { fileURLToPath } from 'node:url';
 import { LANGS, DOCS, fileOf } from './generate-site-languages.mjs';
 
 export const PAGES = ['index', 'features', 'help', 'download'];
-export const CEILING_EN = { index: 560, features: 760, help: 1060, download: 360 };
+// 1.0.10: features 760 -> 800 (auto-shown pictures and privacy placeholders; orchestrator decision 2026-10-28, the new privacy feature text is legitimate)
+export const CEILING_EN = { index: 560, features: 800, help: 1060, download: 360 };
 export const FACTOR = { en: 1, vi: 1.5, fr: 1.3, zh: 1.1, es: 1.3, ja: 1.7, de: 1.3, ru: 1.3 };
 export const ceiling = (code, page) => Math.floor(CEILING_EN[page] * FACTOR[code]);
 
