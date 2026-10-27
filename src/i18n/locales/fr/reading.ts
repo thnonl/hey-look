@@ -151,7 +151,7 @@ export default defineLocale<typeof ns.en>({
   "reading.trust.addTitle": "Toujours charger le contenu distant de {email}",
   "reading.trust.stopTitle": "Ne plus charger le contenu distant de {email}",
   "reading.trust.loaded": "Le contenu distant se charge automatiquement pour cet expéditeur.",
-  "reading.trust.failedCheck": "Contenu distant bloqué : ce message a échoué à la vérification de l’expéditeur et n’en vient peut-être pas.",
+  "reading.trust.failedCheck": "Contenu distant bloqué : ce message a échoué à la vérification de l’expéditeur et peut ne pas venir de lui.",
   "reading.trust.added": "Le contenu distant de {email} se chargera toujours.",
   "reading.trust.removed": "Le contenu distant de {email} ne se chargera plus automatiquement.",
   "reading.trust.full": "Vous pouvez ajouter jusqu’à {max} expéditeurs. Supprimez-en d’abord dans les Paramètres.",

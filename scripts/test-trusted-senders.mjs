@@ -13,6 +13,7 @@
 //   T-C11 AC-21..26 the list in Settings: empty, search above 8, Remove, Remove all (cancel / confirm), the note while the global switch is on
 //   node scripts/test-trusted-senders.mjs [--require-browser]
 import fs from 'node:fs';
+import os from 'node:os';
 import { sleep, startHarness } from './cdp-harness.mjs';
 
 const H = await startHarness('test-trusted-senders', { vitePort0: 5720 });
@@ -317,7 +318,7 @@ try {
     await setList([]);
   }
   console.log('  notice lines:', report.join('; '));
-  fs.writeFileSync(process.env.NOTICE_LINES_OUT || 'NUL', report.join('\n'));
+  fs.writeFileSync(process.env.NOTICE_LINES_OUT || os.devNull, report.join('\n'));
 } finally {
   await H.shutdown();
 }
