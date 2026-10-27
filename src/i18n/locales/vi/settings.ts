@@ -463,6 +463,7 @@ export default defineLocale<typeof ns.en>({
   "settings.tray.startsMinimized": "Khởi động ở dạng thu nhỏ vào khay hệ thống",
   "settings.tray.startInTray": "Khởi động ở khay hệ thống",
   "settings.tray.startInTrayNeedsSignIn": "Hãy bật công tắc ở trên trước.",
+  "settings.tray.startInTrayHint": "Khi bật, Hey Look! khởi động mà không mở cửa sổ; hãy mở từ biểu tượng ở khay hệ thống.",
   "settings.tray.keepRunningMenuBar": "Tiếp tục chạy trên thanh menu khi đóng cửa sổ",
   "settings.tray.trayBadgeMenuBar": "Huy hiệu biểu tượng thanh menu",
   "settings.tray.startsMinimizedMenuBar": "Khởi động ở dạng thu nhỏ vào thanh menu",

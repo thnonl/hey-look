@@ -203,7 +203,7 @@ the website's Store block stays hidden (`STORE_PRODUCT_ID` in `docs/assets/site.
 - does not update itself: `update::managed_by` answers "msstore", every check answers "managed", the download and install commands refuse; Settings > About shows "Updates come from the Microsoft Store." and the Store form of the
   privacy text, without the "Check for updates" button and the switch;
 - starts at sign-in through the package's startup task `HeyLookStartup` (off until the person turns it on; the person can turn it off in Windows Settings > Apps > Startup, an organisation can decide: the switch is then grey
-  with a hint); a start by the task behaves like `--minimized` (tray only, when there is a tray).
+  with a hint); a start by the task opens the window like any start, and only with the switch "Start in the tray" on it is a tray start (the task has no argument; `autostart::tray_start`).
 
 Not done in the package: single instance is the plugin's (it keys on the app identifier, so a GitHub copy and a Store copy running together hand a second start to the first: use one of them), and a notification that
 is clicked after the app was closed does not start it (as in the GitHub version). `appPackagedMode` in `src-tauri/msix/readiness.json` is `true`; the job `msix-check` then requires the database in `LocalState` on the runner,

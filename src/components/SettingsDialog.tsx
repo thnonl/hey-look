@@ -2164,7 +2164,7 @@ function TrayTab() {
         <Switch checked={autostart.enabled} disabled={autostart.locked !== null} onChange={(v) => void toggleAuto(v)} />
       </Row>
       {startInTrayOffered(os, tray) && (
-        <Row id="startInTray" label={t("settings.tray.startInTray")} hint={!autostart.enabled && autostart.locked === null ? t("settings.tray.startInTrayNeedsSignIn") : undefined}>
+        <Row id="startInTray" label={t("settings.tray.startInTray")} hint={!autostart.enabled && autostart.locked === null ? t("settings.tray.startInTrayNeedsSignIn") : t("settings.tray.startInTrayHint")}>
           <Switch checked={prefs.startInTray} disabled={!autostart.enabled} onChange={(v) => setPrefs({ startInTray: v })} />
         </Row>
       )}

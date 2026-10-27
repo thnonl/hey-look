@@ -97,7 +97,7 @@ check("site.js shows the Store block only for a Store ID", () => {
 });
 check("English help: the three paragraphs of the Store version", () => {
   const help = read("docs/help.html");
-  assert.ok(help.includes("If you installed Hey Look! from the Microsoft Store, the Store keeps it up to date, and Settings &gt; About says so."));
+  assert.ok(help.includes("A Store copy is updated only by the Store, has no updater of its own and does not check GitHub; Settings &gt; About says &ldquo;Updates come from the Microsoft Store.&rdquo;"));
   assert.ok(help.includes("The Store version keeps its own mail, accounts and settings, apart from a copy installed from this website. Use one of them on a computer, not both."));
   assert.ok(help.includes("The AI Assistant sends your request to the AI service you set up in Settings &gt; AI Assistant, and that service writes the answer. Hey Look! does not provide or control the AI model, and text written by AI can be wrong."));
 });

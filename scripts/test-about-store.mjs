@@ -91,7 +91,7 @@ try {
         const on = hash.includes('autostart=on');
         if (row && !on) ok(row.sw && row.sw.disabled && row.sw.checked === false && row.hint === d['settings.tray.startInTrayNeedsSignIn'] && (!row.hintBox || inside(t, row.hintBox)), `${tag} ${what}: greyed with the hint to turn the switch above on first (${JSON.stringify(row.sw)} ${JSON.stringify(row.hint)})`);
         if (row && on) {
-          ok(row.sw && !row.sw.disabled && row.sw.checked === false && row.hint === null, `${tag} ${what}: the switch is off by default, enabled, no hint (${JSON.stringify(row.sw)})`);
+          ok(row.sw && !row.sw.disabled && row.sw.checked === false && row.hint === d['settings.tray.startInTrayHint'], `${tag} ${what}: the switch is off by default, enabled, with the hint that the window stays closed (${JSON.stringify(row.sw)})`);
           ok(d['settings.tray.startInTray'].length <= 40, `${tag}: the label is short (${d['settings.tray.startInTray'].length} characters)`);
           await evaluate(`[...document.querySelectorAll('.settings .set-row')].find((r) => r.querySelector('.set-lbl > div')?.textContent.trim() === ${JSON.stringify(d['settings.tray.startInTray'])}).querySelector('input[type="checkbox"]').click(); 1`);
           await sleep(200);

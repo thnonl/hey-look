@@ -463,6 +463,7 @@ export default defineLocale<typeof ns.en>({
   "settings.tray.startsMinimized": "Запускается свёрнутым в трей",
   "settings.tray.startInTray": "Запускать свёрнутым в трей",
   "settings.tray.startInTrayNeedsSignIn": "Сначала включите переключатель выше.",
+  "settings.tray.startInTrayHint": "Если включено, Hey Look! запускается без окна; откройте его через значок в трее.",
   "settings.tray.keepRunningMenuBar": "Продолжать работу в строке меню при закрытии окна",
   "settings.tray.trayBadgeMenuBar": "Индикатор на значке в строке меню",
   "settings.tray.startsMinimizedMenuBar": "Запускается свёрнутым в строку меню",

@@ -318,7 +318,7 @@ export function buildIndex(ctx: IndexCtx): Entry[] {
   Y("countOther", "settings.tray.countOther", "settings.tray.countOtherHint");
   Y("autostart", win ? "settings.tray.autostartWindows" : "settings.tray.autostart", ctx.os === "linux" && !ctx.tray ? "settings.tray.startsOpen" : startsMinimizedHint(ctx.os) ? startsMinimizedKey(ctx.os) : undefined, { kw: ["settings.kw.autostart", "settings.kw.tray"] });
   // (the row is always drawn on Windows with a tray; greyed with a hint while the start at sign-in is off)
-  if (win && ctx.tray) Y("startInTray", "settings.tray.startInTray", undefined, { kw: ["settings.kw.autostart", "settings.kw.tray"] });
+  if (win && ctx.tray) Y("startInTray", "settings.tray.startInTray", "settings.tray.startInTrayHint", { kw: ["settings.kw.autostart", "settings.kw.tray"] });
 
   const actionsTitle = t("settings.actions.title");
   add({ id: "pg-actions", tab: "actions", kind: "page", label: actionsTitle, hint: t("settings.actions.intro"), lead: nav.more });
