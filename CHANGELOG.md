@@ -13,6 +13,7 @@
 
 - Senders whose remote content always loads: a third link in the notice above a message whose content is blocked, "Always load remote content from this sender", loads it at once and for every later message from that exact address (not in Junk, not for encrypted messages, not when the sender check failed, never for your own addresses). "Stop loading remote content from this sender" is in the same place, with Undo. The list is in Settings > Mailboxes > Reading, with search, Remove and Remove all; Block sender takes the address off it
 - Windows: Settings > Notifications has a new switch, "Start in the tray", under "Start Hey Look! when I sign in to Windows" (shown while that one is on; off by default; in all eight languages). Turning it on makes the entry `"<path>" --minimized` again: the app starts in the tray icon and the window stays hidden until you open it. Turning it off, or the start-with-Windows switch off, writes the entry at once
+- Windows: a line under the switch "Start in the tray" says that with it on Hey Look! starts with its window closed and is opened from the tray icon
 - `startup.log` has `[autostart]` lines that say which entry is registered and whether "Start in the tray" is on, and a `[gate]` line that says when a start is treated as a start at sign-in
 - Account menu has "Account settings…"; One Inbox has a menu with "All accounts settings…"
 - Mailboxes can be reordered by dragging the whole header row, the avatar in the narrow icon column or the Settings entry (touch: the grip only)
@@ -20,6 +21,7 @@
 
 ### Fixed
 
+- Windows: when Hey Look! cannot start because its data folder or the web view's folder cannot be used (a file where the folder should be, no permission to write), the message now names the folder and what Windows said, in your language, instead of blaming the Microsoft WebView2 Runtime, and it is shown before the web view makes its own English message; a missing runtime keeps its message
 - Windows: a start in the tray no longer takes the keyboard focus for a moment while the hidden window is made, so what you are typing at sign-in is not interrupted
 - Windows: turning on "Start Hey Look! when I sign in to Windows" is written to your own user's startup entry and read back. Before, a copy that ran as an administrator wrote the entry for all users, the switch showed "on" and your own entry was missing; now a failure turns the switch back off and shows the Windows error
 - One Inbox always stays in Favorites (and is restored if it was removed); its star is gone

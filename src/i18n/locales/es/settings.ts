@@ -463,7 +463,7 @@ export default defineLocale<typeof ns.en>({
   "settings.tray.startsMinimized": "Se inicia minimizado en la bandeja del sistema",
   "settings.tray.startInTray": "Iniciar en la bandeja",
   "settings.tray.startInTrayNeedsSignIn": "Activa primero el interruptor de arriba.",
-  "settings.tray.startInTrayHint": "Con esto activado, Hey Look! se inicia sin abrir la ventana; ábrela desde el icono de la bandeja.",
+  "settings.tray.startInTrayHint": "Con esta opción activada, Hey Look! se inicia con la ventana cerrada; ábrela desde el icono de la bandeja.",
   "settings.tray.keepRunningMenuBar": "Seguir en la barra de menús al cerrar la ventana",
   "settings.tray.trayBadgeMenuBar": "Insignia del icono de la barra de menús",
   "settings.tray.startsMinimizedMenuBar": "Se inicia minimizado en la barra de menús",
