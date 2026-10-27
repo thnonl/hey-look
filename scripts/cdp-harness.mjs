@@ -156,9 +156,12 @@ export async function startHarness(name, { vitePort0 = 5480 } = {}) {
 export const languageJs = (lang) => `new Promise((ok, no) => {
   const L = ${JSON.stringify(lang)}, t0 = Date.now();
   window.__store.getState().setPrefs({ language: L });
+  let again = 0;
   const t = setInterval(() => {
     const s = window.__store.getState();
     if (s.langLoading === null && s.prefs.language === L) { clearInterval(t); ok(1); }
+    // the dev server can fail one dynamic import of a language chunk (a dependency re-optimised while it is served: the store then keeps the old language and shows an error toast): ask again, as a person would, at most 5 times
+    else if (s.langLoading === null && s.prefs.language !== L && Date.now() - t0 > 3000 * (again + 1) && again < 5) { again++; window.__store.getState().setPrefs({ language: L }); }
     else if (Date.now() - t0 > 90000) { clearInterval(t); no(new Error('the language ' + L + ' was not applied after 90 s (langLoading ' + JSON.stringify(s.langLoading) + ', prefs.language ' + JSON.stringify(s.prefs.language) + ')')); }
   }, 20);
 })`;
