@@ -152,7 +152,7 @@ export default defineLocale<typeof ns.en>({
   "reading.trust.addTitle": "Externe Inhalte von {email} immer laden",
   "reading.trust.stopTitle": "Externe Inhalte von {email} nicht mehr laden",
   "reading.trust.loaded": "Externe Inhalte werden für diesen Absender automatisch geladen.",
-  "reading.trust.failedCheck": "Externe Inhalte blockiert: Absenderprüfung fehlgeschlagen. Die Nachricht stammt womöglich nicht vom Absender.",
+  "reading.trust.failedCheck": "Externe Inhalte blockiert: Absenderprüfung fehlgeschlagen, der Absender ist womöglich gefälscht.",
   "reading.trust.added": "Externe Inhalte von {email} werden immer geladen.",
   "reading.trust.removed": "Externe Inhalte von {email} werden nicht mehr automatisch geladen.",
   "reading.trust.full": "Sie können bis zu {max} Absender hinzufügen. Entfernen Sie zuerst einige in den Einstellungen.",

@@ -156,7 +156,7 @@ try {
   eq(n.links.map((l) => l.trust), [null, 'stop', null], 'encrypted: the Stop link is the middle one');
   await open('trF');
   n = await notice();
-  ok(n.cls === 'notice' && /failed the sender check/.test(n.text), `failed check: its own text (${n.text})`);
+  ok(n.cls === 'notice' && /sender check failed/.test(n.text), `failed check: its own text (${n.text})`);
   eq(n.links.map((l) => l.trust), [null, 'stop', null], 'failed check: the Stop link is the middle one');
   f = await frame();
   ok(f.boxes > 0 && f.imgs === 0, 'failed check: not loaded');
@@ -285,7 +285,7 @@ try {
   // ======================================================================== T-C8 + T-C9: the notice in 8 languages, two sizes, both themes
   section = 'layout';
   const LANGS = ['en', 'de', 'es', 'fr', 'ja', 'ru', 'vi', 'zh-Hans'];
-  const SIZES = [[960, 560], [1260, 800], [1280, 800]]; // (1260: its notice is 508 px wide; the Sandbox QA window at 1280 had 511 px, 17 px less than this preview at 1280)
+  const SIZES = [[960, 560], [1230, 800], [1244, 800], [1260, 800], [1280, 800]]; // (the Sandbox QA windows are OUTER sizes: a window of 1260 has a page of about 1244, whose notice is about 490 px wide; 1260 and 1280 here are page widths)
   const report = [];
   for (const theme of ['light', 'dark']) for (const [w, h] of SIZES) for (const lang of LANGS) {
     if (theme === 'dark' && lang !== 'en' && lang !== 'de') continue;
@@ -293,8 +293,9 @@ try {
     await evaluate(`${THREADS.map(([id, subject, over]) => `window.__mockAddThread(${JSON.stringify(id)}, ${JSON.stringify(subject)}, ${JSON.stringify(over)});`).join(' ')} window.__store.getState().setPrefs({ loadRemote: false }); window.__store.getState().refresh().then(() => 1)`);
     await sleep(300);
     // the three notices of the spec: the offer (S1), the blocked notice of a trusted sender held back in Junk (S5) and the one for a failed sender check (S6, the longest text)
-    for (const [id, state] of [['trN', 'offer'], ['trL', 'offer'], ['trJ', 'held'], ['trF', 'heldFailed']]) {
-      await setList([SENDER]);
+    // both states of each variant (the sender on the list: the Stop link; not on it: the add link or none): offer, Junk, failed sender check
+    for (const [id, state, onList] of [['trN', 'offer', false], ['trL', 'offer', false], ['trJ', 'held', true], ['trJ', 'plainJunk', false], ['trF', 'heldFailed', true], ['trF', 'plainFailed', false]]) {
+      await setList(onList ? [SENDER] : []);
       await open(id);
       const m = await evaluate(`(() => {
         const n = document.querySelector('.rp-msg.open .notice'); if (!n) return null;
@@ -312,7 +313,7 @@ try {
       ok(!m.text.includes(LONG) && !m.text.includes(SENDER), `${lang} ${w}x${h} ${id}: the address is not in the text`);
       const trust = m.links.find((l) => /^(?!.*\()/.test(l.text) && l.text !== m.links[0].text && m.links.indexOf(l) === 1);
       if (trust) ok([...trust.text].length <= (['ja', 'zh-Hans'].includes(lang) ? 22 : 52), `${lang}: the label is short enough (${[...trust.text].length}): ${trust.text}`);
-      if (theme === 'light') ok(m.lines <= (w >= 1260 ? 3 : 4), `${lang} ${w}x${h} ${id}: at most ${w >= 1260 ? 3 : 4} lines (${m.lines}; 3 at 1280, 4 at the narrow 960x560 where the Russian and German blocked text alone takes 3)`);
+      if (theme === 'light') ok(m.lines <= (w >= 1230 ? 3 : 4), `${lang} ${w}x${h} ${id}: at most ${w >= 1230 ? 3 : 4} lines (${m.lines}; 3 at 1280, 4 at the narrow 960x560 where the Russian and German blocked text alone takes 3)`);
       if (theme === 'light') report.push(`${lang} ${w}x${h} ${state}: ${m.lines} (${m.width}px)`);
     }
     await setList([]);

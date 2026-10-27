@@ -152,7 +152,7 @@ export default defineLocale<typeof ns.en>({
   "reading.trust.addTitle": "Cargar siempre el contenido remoto de {email}",
   "reading.trust.stopTitle": "Dejar de cargar el contenido remoto de {email}",
   "reading.trust.loaded": "El contenido remoto se carga automáticamente para este remitente.",
-  "reading.trust.failedCheck": "Contenido remoto bloqueado: el mensaje no superó la comprobación del remitente; puede no ser de él.",
+  "reading.trust.failedCheck": "Contenido remoto bloqueado: no superó la comprobación del remitente, puede ser falso.",
   "reading.trust.added": "El contenido remoto de {email} se cargará siempre.",
   "reading.trust.removed": "El contenido remoto de {email} ya no se cargará automáticamente.",
   "reading.trust.full": "Puedes añadir hasta {max} remitentes. Antes, quita algunos en Configuración.",
