@@ -12,6 +12,7 @@
 //   T-C10 AC-19    a reply quotes the pictures of a trusted sender's message; not those of a Junk message of the same sender
 //   T-C11 AC-21..26 the list in Settings: empty, search above 8, Remove, Remove all (cancel / confirm), the note while the global switch is on
 //   node scripts/test-trusted-senders.mjs [--require-browser]
+import fs from 'node:fs';
 import { sleep, startHarness } from './cdp-harness.mjs';
 
 const H = await startHarness('test-trusted-senders', { vitePort0: 5720 });
@@ -154,7 +155,7 @@ try {
   eq(n.links.map((l) => l.trust), [null, 'stop', null], 'encrypted: the Stop link is the middle one');
   await open('trF');
   n = await notice();
-  ok(n.cls === 'notice' && /did not pass the sender check/.test(n.text), `failed check: its own text (${n.text})`);
+  ok(n.cls === 'notice' && /failed the sender check/.test(n.text), `failed check: its own text (${n.text})`);
   eq(n.links.map((l) => l.trust), [null, 'stop', null], 'failed check: the Stop link is the middle one');
   f = await frame();
   ok(f.boxes > 0 && f.imgs === 0, 'failed check: not loaded');
@@ -283,22 +284,24 @@ try {
   // ======================================================================== T-C8 + T-C9: the notice in 8 languages, two sizes, both themes
   section = 'layout';
   const LANGS = ['en', 'de', 'es', 'fr', 'ja', 'ru', 'vi', 'zh-Hans'];
-  const SIZES = [[960, 560], [1280, 800]];
+  const SIZES = [[960, 560], [1260, 800], [1280, 800]]; // (1260: its notice is 508 px wide; the Sandbox QA window at 1280 had 511 px, 17 px less than this preview at 1280)
   const report = [];
   for (const theme of ['light', 'dark']) for (const [w, h] of SIZES) for (const lang of LANGS) {
     if (theme === 'dark' && lang !== 'en' && lang !== 'de') continue;
     await H.openApp(`${theme}&lang=${lang}`, w, h);
     await evaluate(`${THREADS.map(([id, subject, over]) => `window.__mockAddThread(${JSON.stringify(id)}, ${JSON.stringify(subject)}, ${JSON.stringify(over)});`).join(' ')} window.__store.getState().setPrefs({ loadRemote: false }); window.__store.getState().refresh().then(() => 1)`);
     await sleep(300);
-    for (const [id, state] of [['trN', 'offer'], ['trL', 'offer'], ['trJ', 'held']]) {
-      if (state === 'held') await setList([SENDER]);
+    // the three notices of the spec: the offer (S1), the blocked notice of a trusted sender held back in Junk (S5) and the one for a failed sender check (S6, the longest text)
+    for (const [id, state] of [['trN', 'offer'], ['trL', 'offer'], ['trJ', 'held'], ['trF', 'heldFailed']]) {
+      await setList([SENDER]);
       await open(id);
       const m = await evaluate(`(() => {
         const n = document.querySelector('.rp-msg.open .notice'); if (!n) return null;
         const cs = getComputedStyle(n), lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.4, r = n.getBoundingClientRect(), pane = n.closest('.rp-msg').parentElement;
         const links = [...n.querySelectorAll('button.link')].map((b) => { const q = b.getBoundingClientRect(); const own = parseFloat(getComputedStyle(b).lineHeight) || lh; return { text: b.textContent.trim(), lines: Math.round(q.height / own), h: Math.round(q.height), inside: q.left >= r.left - 1 && q.right <= r.right + 1, tall: b.scrollWidth > b.clientWidth + 1 }; });
         const sc = [...document.querySelectorAll('.rp-msg.open, .reading-pane, .reader, .rp-scroll')].some((e) => e.scrollWidth > e.clientWidth + 1);
-        return { lines: Math.round((r.height - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)) / lh), clip: n.scrollWidth > n.clientWidth + 1, hscroll: sc || document.documentElement.scrollWidth > innerWidth, links, text: n.textContent, right: Math.round(r.right), vw: innerWidth };
+        const rg = document.createRange(); rg.selectNodeContents(n); const tops = []; for (const q of [...rg.getClientRects(), ...[...n.querySelectorAll('button.link')].flatMap((b) => [...b.getClientRects()])]) { if (q.height < 4) continue; const y = Math.round(q.top); if (!tops.some((v) => Math.abs(v - y) < 5)) tops.push(y); }
+        return { lines: tops.length, width: Math.round(r.width), clip: n.scrollWidth > n.clientWidth + 1, hscroll: sc || document.documentElement.scrollWidth > innerWidth, links, text: n.textContent, right: Math.round(r.right), vw: innerWidth };
       })()`);
       ok(m, `${lang} ${w}x${h} ${id}: the notice shows`);
       if (!m) continue;
@@ -308,12 +311,13 @@ try {
       ok(!m.text.includes(LONG) && !m.text.includes(SENDER), `${lang} ${w}x${h} ${id}: the address is not in the text`);
       const trust = m.links.find((l) => /^(?!.*\()/.test(l.text) && l.text !== m.links[0].text && m.links.indexOf(l) === 1);
       if (trust) ok([...trust.text].length <= (['ja', 'zh-Hans'].includes(lang) ? 22 : 52), `${lang}: the label is short enough (${[...trust.text].length}): ${trust.text}`);
-      if (theme === 'light') ok(m.lines <= (w === 1280 ? 3 : 4), `${lang} ${w}x${h} ${id}: at most ${w === 1280 ? 3 : 4} lines (${m.lines}; 3 at 1280, 4 at the narrow 960x560 where the Russian and German blocked text alone takes 3)`);
-      if (id === 'trN') report.push(`${theme} ${lang} ${w}x${h}: ${m.lines} lines`);
+      if (theme === 'light') ok(m.lines <= (w >= 1260 ? 3 : 4), `${lang} ${w}x${h} ${id}: at most ${w >= 1260 ? 3 : 4} lines (${m.lines}; 3 at 1280, 4 at the narrow 960x560 where the Russian and German blocked text alone takes 3)`);
+      if (theme === 'light') report.push(`${lang} ${w}x${h} ${state}: ${m.lines} (${m.width}px)`);
     }
     await setList([]);
   }
   console.log('  notice lines:', report.join('; '));
+  fs.writeFileSync(process.env.NOTICE_LINES_OUT || 'NUL', report.join('\n'));
 } finally {
   await H.shutdown();
 }

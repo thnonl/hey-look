@@ -155,7 +155,7 @@ export default define({
     "reading.trust.addTitle": "Always load remote content from {email}",
     "reading.trust.stopTitle": "Stop loading remote content from {email}",
     "reading.trust.loaded": "Remote content loads automatically for this sender.",
-    "reading.trust.failedCheck": "Remote content is blocked: this message did not pass the sender check, so it may not really be from this sender.",
+    "reading.trust.failedCheck": "Remote content is blocked: this message failed the sender check, so it may not be from this sender.",
     "reading.trust.added": "Remote content will always load for {email}.",
     "reading.trust.removed": "Remote content from {email} will no longer load automatically.",
     "reading.trust.full": "You can add up to {max} senders. Remove some in Settings first.",

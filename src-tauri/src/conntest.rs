@@ -483,6 +483,9 @@ fn greet_imap<T: Read + Write>(client: &mut imap::Client<T>, ctl: &TcpStream, cl
         } else {
             Fail::new(TIMEOUT, "connected, but the server sent no greeting")
         }),
+        // A plain (STARTTLS) client on a port that expects TLS first is not greeted: some servers wait and answer nothing (a time-out, above), others close the connection after a while
+        // (Gmail on 993 does, after about 10 s). That is the wrong-security answer, not a busy server. In SSL/TLS or plain mode a closed connection without a greeting is "busy".
+        Err(imap::Error::ConnectionLost) if starttls => Err(Fail::new(SECURE, "no greeting, the server closed the connection (an SSL/TLS port used with STARTTLS?)")),
         Err(imap::Error::ConnectionLost) => Err(Fail::new(BUSY, "the server closed the connection without a greeting")),
         Err(e) => Err(Fail::new(UNKNOWN, format!("greeting: {e}"))),
     }
@@ -571,7 +574,8 @@ fn smtp_dialog<T: Read + Write>(stream: T, ctl: &TcpStream, clock: Clock, startt
         if timed_out(e) {
             if starttls { Fail::new(SECURE, format!("{stage}: no answer (the port waits for the client?)")) } else { Fail::new(TIMEOUT, format!("{stage}: no answer")) }
         } else if e.kind() == std::io::ErrorKind::UnexpectedEof {
-            Fail::new(BUSY, format!("{stage}: the server closed the connection"))
+            // (the same reading as for IMAP: no greeting before the server hangs up, in STARTTLS mode = the port expects TLS from the start, e.g. 465)
+            if starttls && stage == "greeting" { Fail::new(SECURE, format!("{stage}: the server closed the connection (an SSL/TLS port used with STARTTLS?)")) } else { Fail::new(BUSY, format!("{stage}: the server closed the connection")) }
         } else {
             Fail::new(classify_io(e), format!("{stage}: {e}"))
         }

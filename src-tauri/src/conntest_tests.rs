@@ -337,9 +337,32 @@ fn a_server_that_hangs_up_or_says_bye_is_busy() {
         let r = go(&account(bye, false, busy_smtp, "starttls"), Which::Both, 10);
         assert_eq!(imap(&r).kind, BUSY, "{r:?}");
         assert_eq!(smtp(&r).kind, BUSY, "{r:?}");
+        // SMTP without STARTTLS (security "none"): a hang-up without a greeting is a busy server (IMAP without SSL always asks for STARTTLS: see the next test)
         let closed = serve(drop);
-        let r = go(&account(closed, false, closed, "none"), Which::Both, 10);
-        assert_eq!(imap(&r).kind, BUSY, "{r:?}");
+        let r = go(&account(closed, false, closed, "none"), Which::Smtp, 10);
+        assert_eq!(smtp(&r).kind, BUSY, "{r:?}");
+    });
+}
+
+/// 1.0.10 Sandbox QA (K13): imap.gmail.com:993 used with STARTTLS closes the connection after about 10 s without a word. In STARTTLS mode that is the wrong security
+/// (the fix "Use SSL/TLS on port 993"); SMTP without STARTTLS keeps "busy" for a server that hangs up, and `* BYE` / 421 stay "busy" everywhere.
+#[test]
+fn a_server_that_closes_without_a_greeting_in_starttls_mode_is_a_secure_connection_problem() {
+    crate::test_guard::within(60, || {
+        let closed = serve(drop);
+        let r = go(&account(closed, false, closed, "starttls"), Which::Both, 10);
+        assert_eq!(imap(&r).kind, SECURE, "{r:?}");
+        assert_eq!(smtp(&r).kind, SECURE, "{r:?}");
+        // a server that waits a while and then closes, as Gmail does
+        let late = serve(|c| {
+            std::thread::sleep(Duration::from_millis(1500));
+            drop(c);
+        });
+        let r = go(&account(late, false, late, "starttls"), Which::Both, 10);
+        assert_eq!(imap(&r).kind, SECURE, "{r:?}");
+        assert_eq!(smtp(&r).kind, SECURE, "{r:?}");
+        // without STARTTLS (SMTP security "none") the same behaviour is still a busy server
+        let r = go(&account(closed, false, closed, "none"), Which::Smtp, 10);
         assert_eq!(smtp(&r).kind, BUSY, "{r:?}");
     });
 }
