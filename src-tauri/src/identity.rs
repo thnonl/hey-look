@@ -98,18 +98,79 @@ pub fn aumid_choice(identifier: &str, data_dir_overridden: bool, process_aumid: 
     }
 }
 
-/// The credential store entry `user` of this process. The one function in the app that builds a `keyring::Entry`.
-pub fn entry(user: &str) -> keyring::Result<keyring::Entry> {
+/// A credential: the system store's entry, or (cargo feature `qa-secrets`, QA kits only) a record in the JSON file of `qasecrets.rs`. Callers use the three methods and
+/// cannot tell which one it is; the choice is made in `entry_in` and nowhere else.
+pub struct Cred(CredKind);
+
+#[cfg_attr(feature = "qa-secrets", allow(dead_code))] // (the system store is not built into a QA-secrets kit)
+enum CredKind {
+    Os(keyring::Entry),
+    #[cfg(feature = "qa-secrets")]
+    File { service: String, user: String },
+}
+
+impl Cred {
+    pub fn get_password(&self) -> keyring::Result<String> {
+        match &self.0 {
+            CredKind::Os(e) => e.get_password(),
+            #[cfg(feature = "qa-secrets")]
+            CredKind::File { service, user } => qa_store().and_then(|s| s.get(service, user).ok_or(keyring::Error::NoEntry)),
+        }
+    }
+
+    pub fn set_password(&self, value: &str) -> keyring::Result<()> {
+        match &self.0 {
+            CredKind::Os(e) => e.set_password(value),
+            #[cfg(feature = "qa-secrets")]
+            CredKind::File { service, user } => qa_store().and_then(|s| s.set(service, user, value).map_err(|e| keyring::Error::PlatformFailure(Box::new(e)))),
+        }
+    }
+
+    pub fn delete_credential(&self) -> keyring::Result<()> {
+        match &self.0 {
+            CredKind::Os(e) => e.delete_credential(),
+            #[cfg(feature = "qa-secrets")]
+            CredKind::File { service, user } => qa_store().and_then(|s| match s.delete(service, user) {
+                Ok(true) => Ok(()),
+                Ok(false) => Err(keyring::Error::NoEntry),
+                Err(e) => Err(keyring::Error::PlatformFailure(Box::new(e))),
+            }),
+        }
+    }
+}
+
+#[cfg(feature = "qa-secrets")]
+static QA_STORE: OnceLock<crate::qasecrets::FileStore> = OnceLock::new();
+
+/// Called at the start with the data folder (a no-op without the feature): from then on the credentials of this copy are in `<data folder>/qa-secrets.json`.
+pub fn init_qa_store(_data_dir: &std::path::Path) {
+    #[cfg(feature = "qa-secrets")]
+    {
+        let _ = QA_STORE.set(crate::qasecrets::FileStore::new(_data_dir.join(crate::qasecrets::FILE_NAME)));
+        crate::startup::line("secrets", "QA file store in use (qa-secrets.json in the data folder); the system credential store is not used");
+    }
+}
+
+#[cfg(feature = "qa-secrets")]
+fn qa_store() -> keyring::Result<&'static crate::qasecrets::FileStore> {
+    QA_STORE.get().ok_or_else(|| keyring::Error::Invalid("store".into(), "the QA file store is not initialised yet".into()))
+}
+
+/// The credential store entry `user` of this process. The one function in the app that builds a credential.
+pub fn entry(user: &str) -> keyring::Result<Cred> {
     entry_in(keyring_service(), user)
 }
 
 /// An entry under an explicit service (only the migration of the old service name needs this). An isolated copy is refused
 /// every service but its own: it can never touch the owner's entries, whatever a caller asks for.
-pub fn entry_in(service: &str, user: &str) -> keyring::Result<keyring::Entry> {
+pub fn entry_in(service: &str, user: &str) -> keyring::Result<Cred> {
     if !service_allowed(isolated(), service) {
         return Err(keyring::Error::Invalid("service".into(), "this copy of the app is isolated from the real credentials".into()));
     }
-    keyring::Entry::new(service, user)
+    #[cfg(feature = "qa-secrets")]
+    return Ok(Cred(CredKind::File { service: service.to_string(), user: user.to_string() }));
+    #[cfg(not(feature = "qa-secrets"))]
+    keyring::Entry::new(service, user).map(|e| Cred(CredKind::Os(e)))
 }
 
 /// Pure guard: an isolated copy may only use the isolated service.

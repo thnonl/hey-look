@@ -24,6 +24,8 @@ mod ical;
 mod ical_raw;
 mod i18n;
 mod identity;
+#[cfg(any(feature = "qa-secrets", test))]
+mod qasecrets;
 mod authres;
 mod remote_ok;
 mod importance;
@@ -6728,6 +6730,7 @@ pub fn run() {
             let dir = legacy_names::data_dir(app.handle())?;
             app.manage(legacy_names::DataDir(dir.clone()));
             startup::init_log_dir(dir.clone());
+            identity::init_qa_store(&dir); // (QA kits only: the file store of the credentials, identity.rs)
             let conn = db::open(&dir.join("heylook.db"))?;
             let db: Db = Arc::new(Mutex::new(conn));
             // the autostart entry of this copy is looked at (and written in the form of the switch "Start in the tray" when it is this program's), autostart.rs

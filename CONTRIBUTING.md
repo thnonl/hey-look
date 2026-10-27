@@ -131,6 +131,14 @@ src-tauri/src/           Rust backend
   db.rs                  SQLite schema and settings storage
 ```
 
+### QA kits without system password prompts (developers only)
+
+A QA build made with the cargo feature `qa-secrets` keeps the passwords, OAuth tokens and the AI key in `qa-secrets.json` in its data folder instead of the Keychain, Credential Manager or Secret Service, so testers are not asked for the system password. It is off by default and never part of a release or CI build (`scripts/test-qa-secrets-off.mjs` fails if a workflow, a script or a config turns it on). The log has `[secrets] QA file store in use`.
+
+- Windows: `npx tauri build --debug --no-bundle --features gui-subsystem,qa-secrets --config <identifier override>`
+- macOS: `npx tauri build --debug --no-bundle --features qa-secrets --config <identifier override>`
+- Linux: `npx tauri build --debug --no-bundle --features qa-secrets --config <identifier override>`
+
 ### Translations
 
 The UI is in English, Vietnamese, French, Simplified Chinese, Spanish, Japanese, German and Russian (Settings > General > Language, also the globe button in the top bar and the first-run Welcome screen; the default is English, for every user, and the language of the computer is never used).

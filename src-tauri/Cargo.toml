@@ -130,6 +130,8 @@ tao = { git = "https://github.com/tauri-apps/tao", rev = "9aa859e1fe61d664f8fd33
 [features]
 # QA kits (debug builds): `tauri build --debug --features gui-subsystem` makes a Windows GUI program like the release build (main.rs), so the debug console does not take the foreground
 gui-subsystem = []
+# QA kits only, never in a release or CI release build (scripts/test-qa-secrets-off.mjs): the credentials of the app live in qa-secrets.json in the data folder instead of the system store, so a QA copy does not ask for the system password. Not in `default`.
+qa-secrets = []
 
 [profile.release]
 codegen-units = 1
