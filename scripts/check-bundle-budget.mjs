@@ -31,12 +31,15 @@ const posix = (p) => p.split(path.sep).join("/");
 // ---------- budget file ----------
 
 const NUMERIC = ["initialJsGzip", "initialJsRaw", "langChunkGzip", "lazyChunkGzip", "cssGzip"];
+/** Budgets that came later (1.0.10, the font files): checked, with a reason, when the file has them; a file without them is valid. */
+const OPTIONAL = ["fontsBytes", "fontFileBytes"];
 
 /** Every budget value needs a reason; returns the list of problems (empty = valid). */
 export function validateBudget(b) {
   const bad = [];
-  for (const k of NUMERIC) {
+  for (const k of [...NUMERIC, ...OPTIONAL]) {
     const v = b[k];
+    if (v === undefined && OPTIONAL.includes(k)) continue;
     if (v === undefined) bad.push(`${k}: missing`);
     else if (v === null) continue; // not in force yet (e.g. langChunkGzip before WP9c)
     else if (typeof v.bytes !== "number" || v.bytes <= 0) bad.push(`${k}: "bytes" must be a positive number`);
@@ -227,6 +230,9 @@ export function measure(dist, report) {
   m.initialRaw = m.initial.reduce((s, x) => s + x.raw, 0);
   m.initialGzip = m.initial.reduce((s, x) => s + x.gzip, 0);
   m.cssGzip = m.css.reduce((s, x) => s + x.gzip, 0);
+  // the app's own font files (public/fonts, copied as they are): woff2 is compressed already, so the size on disk is the size that ships
+  const fontDir = fs.existsSync(path.join(dist, "fonts")) ? path.join(dist, "fonts") : path.join(ROOT, "public", "fonts"); // (the build here does not copy public/)
+  m.fonts = fs.existsSync(fontDir) ? fs.readdirSync(fontDir).filter((f) => f.endsWith(".woff2")).map((f) => ({ file: `fonts/${f}`, bytes: fs.statSync(path.join(fontDir, f)).size })) : [];
   if (report) {
     const mods = [];
     for (const c of report.chunks) {
@@ -252,6 +258,8 @@ export function check(m, budget) {
   row("initial JS gzip", m.initialGzip, budget.initialJsGzip?.bytes ?? null);
   row("initial JS raw", m.initialRaw, budget.initialJsRaw?.bytes ?? null);
   row("CSS gzip", m.cssGzip, budget.cssGzip?.bytes ?? null);
+  row("font files (woff2, all)", (m.fonts ?? []).reduce((t, x) => t + x.bytes, 0), budget.fontsBytes?.bytes ?? null);
+  row("largest font file", Math.max(0, ...(m.fonts ?? []).map((x) => x.bytes)), budget.fontFileBytes?.bytes ?? null);
   const lazyCap = budget.lazyChunkGzip?.bytes ?? null;
   for (const c of m.lazy) {
     const ex = (budget.exceptions ?? []).find((e) => matches(e.match, c.file) || matches(e.match, path.posix.basename(c.file)));
