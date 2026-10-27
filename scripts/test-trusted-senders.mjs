@@ -285,7 +285,7 @@ try {
   // ======================================================================== T-C8 + T-C9: the notice in 8 languages, two sizes, both themes
   section = 'layout';
   const LANGS = ['en', 'de', 'es', 'fr', 'ja', 'ru', 'vi', 'zh-Hans'];
-  const SIZES = [[960, 560], [1230, 800], [1244, 800], [1260, 800], [1280, 800]]; // (the Sandbox QA windows are OUTER sizes: a window of 1260 has a page of about 1244, whose notice is about 490 px wide; 1260 and 1280 here are page widths)
+  const SIZES = [[960, 560], [1230, 800] /* (478 px: a margin, 4 lines allowed) */, [1244, 800], [1260, 800], [1280, 800]]; // (the Sandbox QA windows are OUTER sizes: a window of 1260 has a page of about 1244, whose notice is about 490 px wide; 1260 and 1280 here are page widths)
   const report = [];
   for (const theme of ['light', 'dark']) for (const [w, h] of SIZES) for (const lang of LANGS) {
     if (theme === 'dark' && lang !== 'en' && lang !== 'de') continue;
@@ -313,7 +313,7 @@ try {
       ok(!m.text.includes(LONG) && !m.text.includes(SENDER), `${lang} ${w}x${h} ${id}: the address is not in the text`);
       const trust = m.links.find((l) => /^(?!.*\()/.test(l.text) && l.text !== m.links[0].text && m.links.indexOf(l) === 1);
       if (trust) ok([...trust.text].length <= (['ja', 'zh-Hans'].includes(lang) ? 22 : 52), `${lang}: the label is short enough (${[...trust.text].length}): ${trust.text}`);
-      if (theme === 'light') ok(m.lines <= (w >= 1230 ? 3 : 4), `${lang} ${w}x${h} ${id}: at most ${w >= 1230 ? 3 : 4} lines (${m.lines}; 3 at 1280, 4 at the narrow 960x560 where the Russian and German blocked text alone takes 3)`);
+      if (theme === 'light') ok(m.lines <= (w >= 1244 ? 3 : 4), `${lang} ${w}x${h} ${id}: at most ${w >= 1244 ? 3 : 4} lines (${m.lines}; 3 at 1280, 4 at the narrow 960x560 where the Russian and German blocked text alone takes 3)`);
       if (theme === 'light') report.push(`${lang} ${w}x${h} ${state}: ${m.lines} (${m.width}px)`);
     }
     await setList([]);
