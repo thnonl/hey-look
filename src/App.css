@@ -36,7 +36,7 @@
   --shadow: 0 12px 32px rgba(16, 24, 40, .18), 0 2px 6px rgba(16, 24, 40, .08);
   --ease: cubic-bezier(.2, .7, .2, 1);
   --fs: 14px;
-  font-family: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  font-family: "Inter", "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
   font-size: var(--fs);
   color: var(--fg);
   background: var(--bg);
@@ -72,8 +72,8 @@
    language names in the menus carry their own lang). The Latin stack stays first, so Latin text, line height and widths do not change; only the
    Han / kana glyphs come from the regional font: Windows (Microsoft YaHei UI, Yu Gothic UI), macOS (PingFang SC, Hiragino Sans), Linux (Noto Sans CJK).
    Cyrillic, German and Spanish need nothing: the Latin stack covers them. */
-:root:lang(zh-Hans), [lang="zh-Hans"] { font-family: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", sans-serif; }
-:root:lang(ja), [lang="ja"] { font-family: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo UI", "Noto Sans CJK JP", "Noto Sans JP", "Source Han Sans", sans-serif; }
+:root:lang(zh-Hans), [lang="zh-Hans"] { font-family: "Inter", "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", sans-serif; }
+:root:lang(ja), [lang="ja"] { font-family: "Inter", "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo UI", "Noto Sans CJK JP", "Noto Sans JP", "Source Han Sans", sans-serif; }
 
 /* Chinese and Japanese line breaking (inherited by every text block): `strict` keeps small kana, the long-vowel mark and closing punctuation
    (。、」) off the start of a line, so a paragraph does not end in a line that holds only "ん。"; `auto-phrase` (Chromium 119+, i.e. WebView2 and
@@ -622,7 +622,7 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
 .rp-msg-body { padding: 0 0 16px 52px; }
 @media (max-width: 1100px) { .rp-msg-body { padding-left: 0; } }
 .rp-reply-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
-.notice { background: color-mix(in srgb, var(--warn), transparent 90%); border-left: 3px solid var(--warn); padding: 8px 12px; border-radius: var(--r-sm); font-size: .92em; margin-bottom: 10px; }
+.notice { background: color-mix(in srgb, var(--warn), transparent 90%); border-left: 3px solid var(--warn); padding: 8px 12px; border-radius: var(--r-sm); font-size: .92em; line-height: 1.4; margin-bottom: 10px; }
 .msg-frame { width: 100%; border: 0; min-height: 40px; background: transparent; display: block; }
 .atts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; align-items: center; }
 .att-chip { display: inline-flex; align-items: center; gap: 7px; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 5px 10px; max-width: 300px; transition: background .12s, border-color .12s; }

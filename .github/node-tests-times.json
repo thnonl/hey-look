@@ -128,6 +128,7 @@
   "node scripts/test-picture-handles.mjs --require-browser": 10,
   "node scripts/test-picture-toolbar.mjs --require-browser": 82,
   "node scripts/test-popover-fit.mjs --quick --require-browser": 129,
+  "node scripts/test-font-bundle.mjs --require-browser": 25,
   "node scripts/test-ai-save-toast.mjs --require-browser": 17,
   "node scripts/test-meeting-compose.mjs --require-browser": 30,
   "node scripts/test-compose-discard.mjs --require-browser": 83,

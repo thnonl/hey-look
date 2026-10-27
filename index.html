@@ -12,6 +12,9 @@
          render replaces it. -->
     <script src="/theme-boot.js"></script>
     <link rel="stylesheet" href="/boot.css" />
+    <!-- the app's own font (Inter, public/fonts): the same text widths on Windows, macOS and Linux; the Latin file is wanted by the first paint, the others (Vietnamese, Cyrillic) load when a text needs them -->
+    <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="/fonts/fonts.css" />
   </head>
 
   <body>
