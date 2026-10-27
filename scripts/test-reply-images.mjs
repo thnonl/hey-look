@@ -94,7 +94,7 @@ try {
       assert.deepEqual(q.boxes.map((b) => [b.w, b.h]), [[32, 48], [56, 56], [24, 24], [16, 16], [24, 24]], `boxes ${JSON.stringify(q.boxes)}`);
       assert.ok(q.boxes.every((b) => b.icon), 'every box has the reading pane icon');
       assert.deepEqual(q.boxes.map((b) => b.alt), ['GitHub', '', 'deploy', 'annotations for Pages / deploy', 'apt-live-check']);
-      assert.match(q.note ?? '', /Pictures from the web are not loaded/);
+      assert.match(q.note ?? '', /Pictures from the web are not shown/);
       assert.ok(q.load, 'a "Load content" button in the note');
       assert.equal(q.external, 0);
       assert.deepEqual(await calls(), [], 'nothing was fetched before the person asked');

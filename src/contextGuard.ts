@@ -11,6 +11,8 @@ import { selectionQuery } from "./selectionSearch";
 
 /** What the menu of a hidden picture can do (the reading pane gives these to `guardFrame`): show this one (null: it has no address to fetch), show all, and "always show from this sender" (null: not offered). */
 export interface PictureMenu {
+  /** the box itself: the focus returns to it when the menu closes (Esc) */
+  box: HTMLElement;
   showOne: (() => void) | null;
   showAll: () => void;
   always: (() => void) | null;
@@ -180,7 +182,7 @@ function show(p: ReturnType<typeof probe>, at: Pt, keyboard: boolean) {
       subject: p.subject,
       search: p.searchArea && p.text ? selectionQuery(p.text) : null,
       picture: p.picture,
-      returnTo: (document.activeElement as HTMLElement | null) ?? null,
+      returnTo: p.picture?.box ?? (document.activeElement as HTMLElement | null) ?? null,
     },
   });
 }

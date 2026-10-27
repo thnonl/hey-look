@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 1.0.10: senders whose remote content always loads (spec E:\hey-mail\reports\v1-0-1\ba-v1010-trusted-senders-images.md), in the dev preview (src/devMock.ts: `list_remote_ok` / add / remove / clear,
 // `fetch_remote_images`, `window.__remoteFetchCalls`, `window.__mockAddThread`, `window.__mockRemoteOk`).
-//   T-C1  AC-6/7   the notice has three links in order (Load content, from this sender, Settings); the address is only in the tooltip; Tab order; no link for Junk, encrypted, failed check, own address
+//   T-C1  AC-6/7   the notice has three links in order (Show pictures, from this sender, Settings); the address is only in the tooltip; Tab order; no link for Junk, encrypted, failed check, own address
 //   T-C2  AC-8     pressing it loads the pictures now (boxes gone, a backend fetch), the notice becomes the info line with the Stop link
 //   T-C3  AC-9     Undo in the toast: the sender is off the list, the message is blocked again
 //   T-C4  AC-10    the next message of the sender (another conversation) loads by itself, no warning
@@ -17,6 +17,7 @@ import os from 'node:os';
 import { sleep, startHarness } from './cdp-harness.mjs';
 
 const H = await startHarness('test-trusted-senders', { vitePort0: 5720 });
+H.net.stub = (url) => (/.png$/.test(url) ? { status: 200, type: 'image/png', body: '' } : undefined); // (a message whose pictures show by themselves: the frame's own request for them is answered here)
 const { evaluate, cdp } = H;
 const failures = [];
 let checks = 0;
@@ -47,6 +48,8 @@ const THREADS = [
   ['trO', 'From myself', { fromName: 'Nam', fromEmail: 'nam@example.com', html: MAIL }],
   ['trN', 'Other shop', { fromName: 'Other', fromEmail: 'hello@other.example', html: MAIL }],
   ['trL', 'Long address', { fromName: 'L'.repeat(70), fromEmail: LONG, html: MAIL }],
+  ['trW', 'Offers (written to)', { fromName: 'Friend', fromEmail: 'friend@example.org', html: MAIL, auth: 'pass', autoReason: 'wrote' }],
+  ['trS', 'Offers (service)', { fromName: 'Google', fromEmail: 'no-reply@accounts.google.com', html: MAIL, auth: 'pass', autoReason: 'service' }],
   ['trT', 'Plain text', { fromName: 'Text', fromEmail: 'text@shop.example', html: null }],
 ];
 
@@ -84,8 +87,8 @@ try {
   await open('tr1');
   let n = await notice();
   ok(n && n.cls === 'notice', `a new sender: the blocked notice (${n && n.cls})`);
-  eq(n.links.map((l) => l.text), ['Load content', 'Always load remote content from this sender', 'Always load remote content (Settings)'], 'three links in this order');
-  ok(n.links[1].title.includes(SENDER) && n.links[1].title === `Always load remote content from ${SENDER}`, `the tooltip of the middle link has the address: ${n.links[1].title}`);
+  eq(n.links.map((l) => l.text), ['Show pictures', 'Always show pictures from this sender', 'Always show pictures (Settings)'], 'three links in this order');
+  ok(n.links[1].title.includes(SENDER) && n.links[1].title === `Always show pictures from ${SENDER}`, `the tooltip of the middle link has the address: ${n.links[1].title}`);
   ok(!n.links.some((l) => l.text.includes(SENDER)) && !n.text.includes(SENDER), 'the address is not in the visible text');
   let f = await frame();
   ok(f && f.boxes > 0 && f.imgs === 0, `blocked: boxes, no picture ${JSON.stringify(f)}`);
@@ -94,13 +97,13 @@ try {
   const seen = [await focused()];
   await press('Tab'); seen.push(await focused());
   await press('Tab'); seen.push(await focused());
-  eq(seen.map((x) => x.text), ['Load content', 'Always load remote content from this sender', 'Always load remote content (Settings)'], 'Tab goes through the three links in order');
+  eq(seen.map((x) => x.text), ['Show pictures', 'Always show pictures from this sender', 'Always show pictures (Settings)'], 'Tab goes through the three links in order');
 
   // links that are not offered
   for (const [id, why] of [['trJ', 'Junk'], ['trE', 'encrypted'], ['trF', 'failed sender check'], ['trO', 'own address']]) {
     await open(id);
     n = await notice();
-    eq(n && n.links.map((l) => l.text), ['Load content', 'Always load remote content (Settings)'], `${why}: only the two old links`);
+    eq(n && n.links.map((l) => l.text), ['Show pictures', 'Always show pictures (Settings)'], `${why}: only the two old links`);
   }
   await open('trP');
   n = await notice();
@@ -116,11 +119,11 @@ try {
   ok(await until(`(window.__remoteFetchCalls || []).length > 0`, 2000), 'the backend fetched the pictures');
   ok(await until(`(() => { const d = document.querySelector('.rp-msg.open iframe.msg-frame')?.contentDocument; return !!d && d.querySelectorAll('.hl-bp, [data-hl-blocked]').length === 0 && d.querySelectorAll('img[src^="data:image"]').length > 0; })()`, 2500), 'the pictures show within 2 s, no box left');
   n = await notice();
-  ok(n && n.cls.includes('info') && /Remote content loads automatically for this sender\./.test(n.text), `the info line: ${JSON.stringify(n)}`);
-  eq(n.links.map((l) => l.text), ['Stop loading remote content from this sender'], 'one link: Stop');
-  ok(n.links[0].title === `Stop loading remote content from ${SENDER}`, 'the Stop tooltip has the address');
+  ok(n && n.cls.includes('info') && /Pictures are shown automatically for this sender\./.test(n.text), `the info line: ${JSON.stringify(n)}`);
+  eq(n.links.map((l) => l.text), ['Stop showing pictures from this sender'], 'one link: Stop');
+  ok(n.links[0].title === `Stop showing pictures from ${SENDER}`, 'the Stop tooltip has the address');
   eq((await focused()).trust, 'stop', 'after an add by Enter the focus is on the Stop link');
-  ok((await toast() || '').includes(`Remote content will always load for ${SENDER}.`), `the toast: ${await toast()}`);
+  ok((await toast() || '').includes(`Pictures from ${SENDER} will always be shown.`), `the toast: ${await toast()}`);
   eq([...(await evaluate(`[...window.__mockRemoteOk.keys()]`))], [SENDER], 'the list has the sender, lower case');
   // Undo
   ok(await evaluate(`(() => { const b = [...document.querySelectorAll('.toast button, .toasts button')].find((x) => x.textContent.trim() === 'Undo'); if (!b) return false; b.click(); return true; })()`), 'the toast has Undo');
@@ -147,8 +150,8 @@ try {
   section = 'held';
   await open('trJ');
   n = await notice();
-  ok(n.cls === 'notice' && /blocked to help prevent tracking/.test(n.text), `Junk: the normal warning (${n.text})`);
-  eq(n.links.map((l) => l.text), ['Load content', 'Stop loading remote content from this sender', 'Always load remote content (Settings)'], 'Junk of a trusted sender: Load content, Stop, Settings');
+  ok(n.cls === 'notice' && /Pictures in this message are hidden to protect your privacy/.test(n.text), `Junk: the normal warning (${n.text})`);
+  eq(n.links.map((l) => l.text), ['Show pictures', 'Stop showing pictures from this sender', 'Always show pictures (Settings)'], 'Junk of a trusted sender: Show pictures, Stop, Settings');
   f = await frame();
   ok(f.boxes > 0 && f.imgs === 0, 'Junk: not loaded');
   await open('trE');
@@ -157,12 +160,12 @@ try {
   await open('trF');
   n = await notice();
   ok(n.cls === 'notice' && /sender check failed/.test(n.text), `failed check: its own text (${n.text})`);
-  eq(n.links.map((l) => l.trust), [null, 'stop'], 'failed check: Load content and Stop (no Settings link on a failed check)');
+  eq(n.links.map((l) => l.trust), [null, 'stop'], 'failed check: Show pictures and Stop (no Settings link on a failed check)');
   f = await frame();
   ok(f.boxes > 0 && f.imgs === 0, 'failed check: not loaded');
-  // "Load content" still loads this one message
+  // "Show pictures" still loads this one message
   await evaluate(`document.querySelector('.rp-msg.open .notice button.link').click(); 1`);
-  ok(await until(`(() => { const d = document.querySelector('.rp-msg.open iframe.msg-frame')?.contentDocument; return !!d && d.querySelectorAll('img[src^="data:image"]').length > 0; })()`, 2500), 'Load content still works for a held message');
+  ok(await until(`(() => { const d = document.querySelector('.rp-msg.open iframe.msg-frame')?.contentDocument; return !!d && d.querySelectorAll('img[src^="data:image"]').length > 0; })()`, 2500), 'Show pictures still works for a held message');
   // the global switch: no notice for anybody
   await evaluate(`window.__store.getState().setPrefs({ loadRemote: true }); 1`);
   for (const id of ['tr1', 'trJ', 'trN']) { await open(id); eq(await notice(), null, `${id}: the global switch is on: no notice`); }
@@ -182,7 +185,7 @@ try {
   f = await frame();
   ok(f.boxes > 0 && f.imgs === 0, `Stop: boxes, no picture (a cached picture is not shown) ${JSON.stringify(f)}`);
   eq((await focused()).trust, 'add', 'after Stop the focus is on the add link');
-  ok((await toast() || '').includes(`Remote content from ${SENDER} will no longer load automatically.`), `Stop: the toast ${await toast()}`);
+  ok((await toast() || '').includes(`Pictures from ${SENDER} will no longer be shown automatically.`), `Stop: the toast ${await toast()}`);
   eq(await evaluate(`window.__mockRemoteOk.size`), 0, 'Stop: off the list');
   // the 1001st address
   await evaluate(`(() => { const m = window.__mockRemoteOk; for (let i = 0; i < 1000; i++) m.set('u' + i + '@x.org', 1); return 1; })()`);
@@ -218,7 +221,7 @@ try {
   section = 'settings';
   await setList([]);
   await evaluate(`window.__store.getState().setDialog({ type: 'settings', tab: 'mb:all', section: 'reading', nonce: Date.now() }); 1`);
-  ok(await until(`!!document.querySelector('.trusted-list')`, 8000), 'the list is under the Always load remote content switch');
+  ok(await until(`!!document.querySelector('.trusted-list')`, 8000), 'the list is under the Always show pictures switch');
   const order = await evaluate(`(() => { const ids = [...document.querySelectorAll('.settings-body .set-row')].map((r) => r.id); return [ids.indexOf('set-loadRemote'), ids.indexOf('set-trusted')]; })()`);
   ok(order[0] >= 0 && order[1] === order[0] + 1, `the list's row follows the switch's (${order})`);
   const sl = () => evaluate(`(() => { const l = document.querySelector('.trusted-list'); if (!l) return null; const rows = [...l.querySelectorAll('.list-row')].map((r) => r.querySelector('.lr-title').textContent); return { rows, search: !!l.querySelector('input.trusted-search'), muted: [...l.querySelectorAll(':scope > .muted')].map((m) => m.textContent.trim()), removeAll: [...document.querySelectorAll('.settings-body .set-row button')].some((b) => b.textContent.trim() === 'Remove all'), added: l.querySelector('.list-row .small') ? l.querySelector('.list-row .small').textContent.trim() : null }; })()`);
@@ -257,7 +260,7 @@ try {
   const modalBtn = (label) => evaluate(`(() => { const b = [...document.querySelectorAll('.ask button')].find((x) => x.textContent.trim() === ${JSON.stringify(label)}); if (!b) return false; b.click(); return true; })()`);
   await evaluate(`[...document.querySelectorAll('.settings-body .set-row button')].find((b) => b.textContent.trim() === 'Remove all').click(); 1`);
   ok(await until(`!![...document.querySelectorAll('.ask')].find((m) => m.textContent.includes('Remove all senders?'))`, 2000), 'Remove all asks first');
-  ok((await evaluate(`document.body.innerText`)).includes('Remote content from 8 senders will be blocked again.'), 'with the number in the text');
+  ok((await evaluate(`document.body.innerText`)).includes('Pictures from 8 senders will be hidden again.'), 'with the number in the text');
   ok(await modalBtn('Cancel'), 'Cancel');
   await sleep(300);
   eq(await evaluate(`window.__mockRemoteOk.size`), 8, 'Cancel: nothing changed');
@@ -272,7 +275,7 @@ try {
   await evaluate(`window.__store.getState().setPrefs({ loadRemote: true }); 1`);
   await sleep(200);
   s = await sl();
-  ok(s.muted.some((m) => m.startsWith('Not needed while "Always load remote content (images)" is on')), `the global switch is on: the note (${JSON.stringify(s.muted)})`);
+  ok(s.muted.some((m) => m.startsWith('Not needed while "Always show pictures" is on')), `the global switch is on: the note (${JSON.stringify(s.muted)})`);
   await evaluate(`window.__store.getState().setPrefs({ loadRemote: false }); 1`);
   await sleep(200);
   s = await sl();
@@ -294,7 +297,7 @@ try {
     await sleep(300);
     // the three notices of the spec: the offer (S1), the blocked notice of a trusted sender held back in Junk (S5) and the one for a failed sender check (S6, the longest text)
     // both states of each variant (the sender on the list: the Stop link; not on it: the add link or none): offer, Junk, failed sender check
-    for (const [id, state, onList] of [['trN', 'offer', false], ['trL', 'offer', false], ['trJ', 'held', true], ['trJ', 'plainJunk', false], ['trF', 'heldFailed', true], ['trF', 'plainFailed', false]]) {
+    for (const [id, state, onList] of [['trN', 'offer', false], ['trL', 'offer', false], ['trJ', 'held', true], ['trJ', 'plainJunk', false], ['trF', 'heldFailed', true], ['trF', 'plainFailed', false], ['trW', 'autoWrote', false], ['trS', 'autoService', false], ['tr1', 'auto', true]]) {
       await setList(onList ? [SENDER] : []);
       await open(id);
       const m = await evaluate(`(() => {

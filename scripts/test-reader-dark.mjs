@@ -205,9 +205,9 @@ async function lightConfig(tag) {
     check(tag, st.hmAttr === 0, 'light: elements were recoloured');
     check(tag, st.min >= 4.5, `light: lowest text contrast ${st.min}:1`);
   }
-  const notice = await evaluate(`!!document.querySelector('.notice') && /blocked/i.test(document.querySelector('.notice').textContent)`);
+  const notice = await evaluate(`!!document.querySelector('.notice') && /hidden to protect your privacy/i.test(document.querySelector('.notice').textContent)`);
   const blocked = await evaluate(`(() => { const d = document.querySelector('.msg-frame').contentDocument; return [d.querySelectorAll('img[src]').length, d.querySelectorAll('img[data-hl-blocked], .hl-bp').length]; })()`);
-  check(tag, notice, 'light: the "content was blocked" notice is missing');
+  check(tag, notice, 'light: the "pictures are hidden" notice is missing');
   check(tag, blocked[0] === 0 && blocked[1] >= 1, `light: remote picture not blocked (img with src ${blocked[0]}, placeholders ${blocked[1]})`);
   await sleep(500);
   check(tag, logoRequests === 0, `light: the blocked picture was asked for ${logoRequests} time(s)`);

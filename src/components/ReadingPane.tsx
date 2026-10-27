@@ -340,8 +340,9 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   // "Stop showing pictures": a sender on the list leaves it; pictures that showed by the rule of the backend (written to, a well-known service) are turned off for this sender
   // (also for a sender on the list whose mail the rule would show, or Stop would change nothing); the Undo puts back what this took away
   // what the menu of a hidden picture does (ReadingPane `hookDoc` gives it to the context guard): this picture, all of them, and "always" while the notice offers it
-  const picMenuRef = useRef<(box: HTMLElement) => PictureMenu>(() => ({ showOne: null, showAll: () => undefined, always: null }));
+  const picMenuRef = useRef<(box: HTMLElement) => PictureMenu>((box) => ({ box, showOne: null, showAll: () => undefined, always: null }));
   picMenuRef.current = (box) => ({
+    box,
     showOne: box.getAttribute("data-src") ? () => void showOneRef.current(box) : null,
     showAll: () => setAllow(true),
     always: notice === "offer" ? () => void addSender() : null,

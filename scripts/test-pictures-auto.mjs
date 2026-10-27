@@ -1,0 +1,311 @@
+#!/usr/bin/env node
+// 1.0.10: pictures that show without a click (people you wrote to, well-known services) and the box of a hidden picture with its menu
+// (spec E:\hey-mail\reports\v1-0-1\ba-v1010-written-to-and-placeholders.md), in the dev preview (src/devMock.ts: a message can carry `autoReason`, the senders turned off are
+// `window.__mockRemoteNoauto`, the fetches of pictures are `window.__remoteFetchCalls`).
+//   T-C1/C2 S8 and S9: the notice, the pictures show, one link (Stop)         T-C3 Stop: hidden again, the offer, focus, the toast, Undo, Settings list, Remove
+//   T-C4 AC-10/11/12/13: the senders and messages that do NOT show by themselves; a trusted sender with the rule: Stop really stops
+//   T-C6 AC-15..18 the box: size, text, aria, tiers, nothing for pixels and for what the mail hides      T-C7 AC-19/20 the menu: right-click, Shift+F10, Esc, in a link, confidential
+//   T-C8 AC-21..25 show one picture (one fetch, the CSP stays, focus), show all, reopen                  T-C12 colours and the print rule
+//   node scripts/test-pictures-auto.mjs [--require-browser | --url=http://127.0.0.1:1420/]
+import { sleep, startHarness } from './cdp-harness.mjs';
+
+const H = await startHarness('test-pictures-auto', { vitePort0: 5740 });
+H.net.stub = (url) => (/\.png$/.test(url) ? { status: 200, type: 'image/png', body: '' } : undefined);
+const { evaluate, cdp } = H;
+const failures = [];
+let checks = 0;
+let tag = '';
+const ok = (c, m) => { checks++; if (!c) { failures.push(`[${tag}] ${m}`); console.error('FAIL', `[${tag}] ${m}`); } return !!c; };
+const eq = (a, b, m) => ok(JSON.stringify(a) === JSON.stringify(b), `${m}: got ${JSON.stringify(a)}, want ${JSON.stringify(b)}`);
+const until = async (expr, ms = 6000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { let v = false; try { v = await evaluate(expr); } catch { /* between renders */ } if (v) return true; await sleep(40); } return false; };
+const key = async (k, code, vk, modifiers = 0) => {
+  await cdp('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: k, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk, modifiers });
+  await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: k, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk, modifiers });
+  await sleep(60);
+};
+const mouse = async (x, y, button = 'left') => {
+  await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+  await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button, buttons: button === 'left' ? 1 : 2, clickCount: 1 });
+  await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button, buttons: 0, clickCount: 1 });
+};
+
+const SENDER = 'friend@example.org';
+const u = (n) => `https://img.shop.example/${n}.png`;
+const IMG = `<img src="${u('a')}" width="200" height="60" alt="banner">`;
+const MAIL = `<div><p>Our weekly offers</p>${IMG}</div>`;
+const ENC = { encrypted: true, partial: false, decryption: 'ok', encryptedFor: [], signature: null };
+const THREADS = [
+  ['pW', 'Written to', { fromName: 'Friend', fromEmail: SENDER, html: MAIL, auth: 'pass', autoReason: 'wrote' }],
+  ['pS', 'Service', { fromName: 'Google', fromEmail: 'no-reply@accounts.google.com', html: MAIL, auth: 'pass', autoReason: 'service' }],
+  ['pW2', 'Written to again', { fromName: 'Friend', fromEmail: SENDER, html: MAIL, auth: 'pass', autoReason: 'wrote' }],
+  ['pN', 'No reason', { fromName: 'Shop', fromEmail: 'news@shop.example', html: MAIL, auth: 'pass' }],
+  ['pJ', 'Junk', { fromName: 'Friend', fromEmail: 'junk@example.org', html: MAIL, auth: 'pass', autoReason: 'wrote', folder: 'junk' }],
+  ['pE', 'Encrypted', { fromName: 'Friend', fromEmail: 'enc@example.org', html: MAIL, auth: 'pass', autoReason: 'wrote', security: ENC }],
+  ['pF', 'Failed check', { fromName: 'Friend', fromEmail: 'fail@example.org', html: MAIL, auth: 'fail', autoReason: 'wrote' }],
+  ['pT', 'Listed and the rule', { fromName: 'Google', fromEmail: 'alerts@accounts.google.com', html: MAIL, auth: 'pass', autoReason: 'service' }],
+  ['pB', 'Boxes', { fromName: 'Shop', fromEmail: 'boxes@shop.example', html: `<p>Hi</p><img src="${u('b1')}" width="600" height="200" alt="Summer sale"><img src="${u('b2')}"><img src="${u('b3')}" width="1" height="1"><img src="${u('b4')}" hidden><img src="${u('b5')}" style="display:none"><img src="${u('b6')}" width="80" height="30" alt="Tiny"><img src="${u('b7')}" width="300" height="2">` }],
+  ['pM', 'Three pictures', { fromName: 'Shop', fromEmail: 'three@shop.example', html: `<p>Look</p><img src="${u('m1')}" width="200" height="80" alt="one"><img src="${u('m2')}" width="200" height="80" alt="two"><img src="${u('m3')}" width="200" height="80" alt="three">` }],
+  ['pL', 'In a link', { fromName: 'Shop', fromEmail: 'link@shop.example', html: `<p>Hi</p><a id="lnk" href="https://shop.example/sale"><img src="${u('l1')}" width="200" height="80" alt="linked"></a>` }],
+  ['pC', 'Confidential', { fromName: 'Shop', fromEmail: 'conf@shop.example', html: `<p>Secret</p><img src="${u('c1')}" width="200" height="80" alt="secret">`, confidential: true }],
+  ['pD', 'Dup', { fromName: 'Shop', fromEmail: 'dup@shop.example', html: `<p>x</p><img src="${u('d1')}" width="200" height="80"><img src="${u('d1')}" width="200" height="80"><img src="${u('d2')}" width="200" height="80">` }],
+];
+
+const FR = `document.querySelector('.rp-msg.open iframe.msg-frame')`;
+const open = async (id) => {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await evaluate(`window.__store.getState().select(null); 1`);
+    await sleep(80);
+    if (attempt > 0) { await evaluate(`window.__store.getState().refresh().then(() => 1)`); await sleep(400); }
+    await evaluate(`window.__remoteFetchCalls = []; window.__store.getState().select(${JSON.stringify(id)}); 1`);
+    if (await until(`!!${FR}`, attempt === 2 ? 15000 : 6000)) { await sleep(500); return; }
+  }
+  ok(false, `${id}: the message did not open`);
+};
+const notice = () => evaluate(`(() => { const n = document.querySelector('.rp-msg.open .notice'); if (!n) return null; return { cls: n.className, text: n.textContent.replace(/\\s+/g, ' ').trim(), links: [...n.querySelectorAll('button.link')].map((b) => b.textContent.trim()), trust: [...n.querySelectorAll('button.link')].map((b) => b.dataset.trust || null) }; })()`);
+const pics = () => evaluate(`(() => { const d = ${FR}?.contentDocument; if (!d) return null; return { boxes: d.querySelectorAll('.hl-bp').length, imgs: [...d.querySelectorAll('img')].filter((i) => (i.getAttribute('src') || '').startsWith('data:image')).length, raw: d.querySelectorAll('img[data-hl-src]').length }; })()`);
+const calls = () => evaluate(`JSON.stringify(window.__remoteFetchCalls || [])`).then(JSON.parse);
+const toast = () => evaluate(`(() => { const t = document.querySelector('.toast, .toasts .toast'); return t ? t.textContent.replace(/\\s+/g, ' ').trim() : null; })()`);
+const noauto = () => evaluate(`JSON.stringify([...window.__mockRemoteNoauto.keys()])`).then(JSON.parse);
+const trusted = () => evaluate(`JSON.stringify([...window.__mockRemoteOk.keys()])`).then(JSON.parse);
+const clearLists = () => evaluate(`window.__mockRemoteOk.clear(); window.__mockRemoteNoauto.clear(); window.__mockEmit('remote-ok-changed', null).then(() => 1)`);
+const clickLink = (sel) => evaluate(`(() => { const b = document.querySelector('.rp-msg.open .notice ${sel}'); if (!b) return false; b.click(); return true; })()`);
+const boxPoint = (i) => evaluate(`(() => { const f = ${FR}, d = f.contentDocument, b = d.querySelectorAll('.hl-bp[data-hl-pic]')[${i}]; b.scrollIntoView({ block: 'center' }); const q = b.getBoundingClientRect(), fr = f.getBoundingClientRect(); return [fr.left + q.left + Math.min(q.width / 2, 40), fr.top + q.top + Math.min(q.height / 2, 20)]; })()`);
+const menuRows = () => evaluate(`(() => { const m = document.querySelector('.ctx-menu'); return m ? { label: (m.querySelector('[role=menu]') || m).getAttribute('aria-label'), rows: [...m.querySelectorAll('[role=menuitem],[role=separator]')].map((e) => (e.getAttribute('role') === 'separator' ? '---' : e.textContent.trim())), first: document.activeElement ? document.activeElement.textContent.trim() : null } : null; })()`);
+const menuOpen = async () => { await until(`!!document.querySelector('.ctx-menu [role=menuitem]')`, 3000); return menuRows(); };
+const closeMenu = async () => { if (await evaluate(`!!document.querySelector('.ctx-menu')`)) { await key('Escape', 'Escape', 27); await sleep(100); } };
+const chooseRow = async (startsWith) => evaluate(`(() => { const r = [...document.querySelectorAll('.ctx-menu [role=menuitem]')].find((e) => e.textContent.trim().startsWith(${JSON.stringify(startsWith)})); if (!r) return false; r.click(); return true; })()`);
+const start = async (theme = 'light') => {
+  await H.openApp(`${theme}&lang=en&nativemenu=off`, 1280, 800);
+  await evaluate(`${THREADS.map(([id, subject, over]) => `window.__mockAddThread(${JSON.stringify(id)}, ${JSON.stringify(subject)}, ${JSON.stringify(over)});`).join(' ')} window.__store.getState().setPrefs({ loadRemote: false }); window.__store.getState().refresh().then(() => 1)`);
+  await sleep(300);
+  await clearLists();
+};
+
+try {
+  await start();
+
+  // ======================================================================== T-C1 / T-C2: S8 and S9
+  tag = 'S8';
+  await open('pW');
+  let n = await notice();
+  ok(n && n.cls.includes('info') && n.text.startsWith('Pictures shown: you have written to this address.'), `the S8 notice: ${JSON.stringify(n)}`);
+  eq(n.links, ['Stop showing pictures from this sender'], 'one link: Stop');
+  let p = await pics();
+  ok(p.boxes === 0 && p.imgs >= 1, `the picture shows by itself: ${JSON.stringify(p)}`);
+  ok((await calls()).length > 0, 'it came through the backend');
+  tag = 'S9';
+  await open('pS');
+  n = await notice();
+  ok(n && n.cls.includes('info') && n.text.startsWith('Pictures shown: the sender is a well-known service.'), `the S9 notice: ${JSON.stringify(n)}`);
+  p = await pics();
+  ok(p.boxes === 0 && p.imgs >= 1, 'the pictures show');
+
+  // ======================================================================== T-C3: Stop, Undo, Settings
+  tag = 'stop';
+  await open('pW');
+  ok(await clickLink('button.link[data-trust="stop"]'), 'the Stop link is there');
+  ok(await until(`${FR}.contentDocument.querySelectorAll('.hl-bp').length > 0`, 4000), 'Stop: the pictures are hidden again');
+  n = await notice();
+  ok(n && n.cls === 'notice' && n.links.length === 3 && n.links[1] === 'Always show pictures from this sender', `Stop: the offer is back: ${JSON.stringify(n)}`);
+  eq(await noauto(), [SENDER], 'the sender is on the list of senders turned off');
+  ok(await until(`document.activeElement && document.activeElement.dataset && document.activeElement.dataset.trust === 'add'`, 2000), 'the focus is on the add link');
+  ok(/Pictures from friend@example.org will no longer be shown automatically\./.test((await toast()) || ''), `the toast: ${await toast()}`);
+  // another message of the same sender: hidden, the offer
+  await open('pW2');
+  n = await notice();
+  ok(n && n.cls === 'notice' && n.links.length === 3, 'the next message of that sender: the offer');
+  // Undo (on the toast of the first message): the sender is off the list, the message shows again
+  await open('pW');
+  await clickLink('button.link[data-trust="add"]'); // (not the Undo: leave a clean list state first)
+  await clearLists();
+  await open('pW');
+  await clickLink('button.link[data-trust="stop"]');
+  await until(`!!document.querySelector('.toast button, .toasts .toast button')`, 3000);
+  await evaluate(`(() => { const b = [...document.querySelectorAll('.toast button, .toasts .toast button')].find((x) => /undo/i.test(x.textContent)); if (b) b.click(); return !!b; })()`);
+  ok(await until(`${FR}.contentDocument.querySelectorAll('.hl-bp').length === 0 && !!document.querySelector('.rp-msg.open .notice.info')`, 4000), 'Undo: shown again, the info line is back');
+  eq(await noauto(), [], 'Undo: the list is empty again');
+  // Settings: the list of the senders turned off, Remove brings the pictures back
+  await clickLink('button.link[data-trust="stop"]');
+  await sleep(300);
+  await evaluate(`window.__store.getState().setDialog({ type: 'settings', tab: 'mb:all', section: 'reading', nonce: Date.now() }); 1`);
+  ok(await until(`!!document.querySelector('[data-testid=noauto-list] .list-row')`, 8000), 'Settings > Reading lists the sender turned off');
+  const st = await evaluate(`(() => { const l = document.querySelector('[data-testid=noauto-list]'); return { rows: [...l.querySelectorAll('.list-row .lr-title')].map((e) => e.textContent), text: l.textContent }; })()`);
+  eq(st.rows, [SENDER], 'the row');
+  ok(st.text.includes('Senders whose pictures are not shown automatically') && st.text.includes('Pictures are also shown automatically from people you have written to'), 'the heading and the note');
+  await evaluate(`document.querySelector('[data-testid=noauto-list] .list-row button').click(); 1`);
+  ok(await until(`document.querySelectorAll('[data-testid=noauto-list] .list-row').length === 0`, 3000), 'Remove: the row is gone');
+  await evaluate(`window.__store.getState().setDialog(null); 1`);
+  await sleep(300);
+  await open('pW');
+  n = await notice();
+  ok(n && n.cls.includes('info') && n.text.startsWith('Pictures shown: you have written'), 'after Remove the message shows by itself again');
+
+  // ======================================================================== T-C4: what does not show by itself
+  tag = 'not-auto';
+  await clearLists();
+  for (const [id, why] of [['pN', 'no reason from the backend'], ['pJ', 'Junk'], ['pE', 'encrypted'], ['pF', 'failed check']]) {
+    await open(id);
+    n = await notice();
+    p = await pics();
+    ok(n && n.cls === 'notice' && n.text.startsWith('Pictures in this message are hidden to protect your privacy.') && p.imgs === 0 && p.boxes >= 1, `${why}: hidden, the normal notice (${JSON.stringify(n && n.text)})`);
+  }
+  // the global switch: no notice at all
+  await evaluate(`window.__store.getState().setPrefs({ loadRemote: true }); 1`);
+  await open('pW');
+  ok((await notice()) === null, 'AC-13: the global switch is on: no notice');
+  await evaluate(`window.__store.getState().setPrefs({ loadRemote: false }); 1`);
+  // a sender on the list AND the rule: the manual list wins, and Stop really stops
+  await evaluate(`window.__mockRemoteOk.set('alerts@accounts.google.com', 1); window.__mockEmit('remote-ok-changed', null).then(() => 1)`);
+  await open('pT');
+  n = await notice();
+  ok(n && n.text.startsWith('Pictures are shown automatically for this sender.'), `AC-11: on the list: the S4 line (${n && n.text})`);
+  await clickLink('button.link[data-trust="stop"]');
+  ok(await until(`${FR}.contentDocument.querySelectorAll('.hl-bp').length > 0`, 4000), 'AC-11: Stop: the pictures are hidden, not shown by the rule');
+  n = await notice();
+  ok(n && n.cls === 'notice', 'AC-11: the notice is the offer, not S8/S9');
+  eq(await trusted(), [], 'and the sender left the list');
+  eq(await noauto(), ['alerts@accounts.google.com'], 'and is turned off for the rule');
+  // "Always show from this sender" for a sender that was turned off: the lists never contradict each other
+  await clickLink('button.link[data-trust="add"]');
+  await sleep(300);
+  eq(await noauto(), [], 'Always show: off the list of senders turned off');
+  eq(await trusted(), ['alerts@accounts.google.com'], 'Always show: on the list');
+  await clearLists();
+
+  // ======================================================================== T-C6: the box
+  tag = 'box';
+  await open('pB');
+  const bx = await evaluate(`(() => { const d = ${FR}.contentDocument; const fw = ${FR}.getBoundingClientRect().width; return { fw, boxes: [...d.querySelectorAll('.hl-bp[data-hl-pic]')].map((b) => { const r = b.getBoundingClientRect(); const cs = getComputedStyle(b); return { w: Math.round(r.width), h: Math.round(r.height), tier: b.dataset.tier, role: b.getAttribute('role'), tab: b.getAttribute('tabindex'), aria: b.getAttribute('aria-label'), ariaHidden: b.getAttribute('aria-hidden'), main: b.querySelector('.hl-bp-main')?.textContent, hint: b.querySelector('.hl-bp-hint')?.textContent, alt: b.querySelector('.hl-bp-alt')?.textContent || null, mainShown: getComputedStyle(b.querySelector('.hl-bp-main')).display !== 'none', hintShown: getComputedStyle(b.querySelector('.hl-bp-hint')).display !== 'none', cursor: cs.cursor, src: b.dataset.src }; }) }; })()`);
+  eq(bx.boxes.length, 3, 'AC-17: the pixel, the hidden attribute, display:none and the 300 x 2 line get no box; 3 boxes remain (600 x 200, no size, 80 x 30)');
+  const [b1, b2, b3] = bx.boxes;
+  ok(b1 && Math.abs(b1.w - Math.min(600, bx.fw - 24)) <= 24 && b1.h === 200 && b1.tier === 'full', `AC-15: 600 x 200 (the frame is ${Math.round(bx.fw)} wide): ${JSON.stringify(b1)}`);
+  ok(b1 && b1.main === 'Picture hidden for privacy' && b1.hint === 'Right-click to show' && b1.alt === 'Summer sale' && b1.mainShown && b1.hintShown, `AC-15: the lines: ${JSON.stringify(b1)}`);
+  ok(b1 && b1.role === 'button' && b1.tab === '0' && b1.ariaHidden === null && b1.aria === 'Picture hidden for privacy: Summer sale. Press Enter to show it, or Shift+F10 for more options.', `AC-15/REQ-6: button, focusable, named: ${b1 && b1.aria}`);
+  ok(b2 && b2.w === 240 && b2.h >= 96 && b2.aria === 'Picture hidden for privacy. Press Enter to show it, or Shift+F10 for more options.', `AC-16: no size: 240 wide, at least 96 high, no alt in the name: ${JSON.stringify(b2)}`);
+  ok(b3 && b3.w === 80 && b3.h === 30 && b3.tier === 'small' && !b3.mainShown && !b3.hintShown && /Tiny/.test(b3.aria), `AC-18: 80 x 30: the icon only, the name is complete: ${JSON.stringify(b3)}`);
+  ok(bx.boxes.every((b) => b.cursor === 'pointer' && b.src && /^https:/.test(b.src)), 'pointer cursor, the address is kept (never loaded)');
+  const csp = await evaluate(`${FR}.contentDocument.querySelector('meta[http-equiv=Content-Security-Policy]').content`);
+  ok(/img-src data:(;|$)/.test(csp), `the frame's CSP does not allow a remote picture: ${csp}`);
+  ok((await calls()).length === 0, 'nothing was fetched');
+  // colours: light and dark (the contrast of the text >= 4.5)
+  const contrast = () => evaluate(`(() => { const d = ${FR}.contentDocument, b = d.querySelector('.hl-bp[data-hl-pic]'); const lum = (c) => { const v = c.match(/\\d+(\\.\\d+)?/g).slice(0, 3).map((x) => { const s = Number(x) / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; }); return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]; }; const bg = getComputedStyle(b).backgroundColor; const fg = getComputedStyle(b.querySelector('.hl-bp-main')).color; const hint = getComputedStyle(b.querySelector('.hl-bp-hint')).color; const r = (a, c) => { const x = lum(a), y = lum(c); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); }; return { bg, fg, main: r(bg, fg), hint: r(bg, hint) }; })()`);
+  let c = await contrast();
+  ok(c.main >= 4.5 && c.hint >= 4.5, `AC-15 light: the text has a contrast of ${c.main.toFixed(1)} / ${c.hint.toFixed(1)} (${c.bg})`);
+  await evaluate(`window.__store.getState().setPrefs({ theme: 'dark' }); 1`);
+  await sleep(600);
+  await open('pB');
+  c = await contrast();
+  ok(c.main >= 4.5 && c.hint >= 4.5, `AC-15 dark: the text has a contrast of ${c.main.toFixed(1)} / ${c.hint.toFixed(1)} (${c.bg})`);
+  await evaluate(`window.__store.getState().setPrefs({ theme: 'light' }); 1`);
+  await sleep(400);
+
+  // ======================================================================== T-C7: the menu
+  tag = 'menu';
+  await open('pM');
+  let [x, y] = await boxPoint(1);
+  await mouse(x, y, 'right');
+  let m = await menuOpen();
+  ok(m && m.label === 'Picture options', `AC-19: the menu is named: ${m && m.label}`);
+  eq(m && m.rows, ['Show this picture', 'Show all pictures in this message', 'Always show pictures from this sender'], 'AC-19: three entries in this order (a new sender)');
+  await closeMenu();
+  // keyboard: focus the box, Shift+F10, the first entry has the focus, Esc returns to the box
+  await evaluate(`(() => { const f = ${FR}, b = f.contentDocument.querySelectorAll('.hl-bp[data-hl-pic]')[0]; f.contentWindow.focus(); b.focus(); return 1; })()`);
+  await key('F10', 'F10', 121, 8);
+  m = await menuOpen();
+  eq(m && m.rows, ['Show this picture', 'Show all pictures in this message', 'Always show pictures from this sender'], 'AC-20: Shift+F10: the same menu');
+  ok(m && m.first === 'Show this picture', `AC-20: the first entry has the focus (${m && m.first})`);
+  await key('Escape', 'Escape', 27);
+  await sleep(150);
+  ok(await evaluate(`(() => { const d = ${FR}.contentDocument; return d.activeElement && d.activeElement.classList.contains('hl-bp'); })()`), 'AC-20: Esc: the focus is back on the box');
+  // a sender that is not offered the link: no third entry
+  await open('pN');
+  [x, y] = await boxPoint(0);
+  await mouse(x, y, 'right');
+  m = await menuOpen();
+  eq(m && m.rows.slice(0, 3), ['Show this picture', 'Show all pictures in this message', 'Always show pictures from this sender'], 'the offered sender: three entries');
+  await closeMenu();
+  await open('pJ');
+  [x, y] = await boxPoint(0);
+  await mouse(x, y, 'right');
+  m = await menuOpen();
+  eq(m && m.rows, ['Show this picture', 'Show all pictures in this message'], 'Junk: no "Always" entry (the notice does not offer it)');
+  await closeMenu();
+  // in a link: the picture entries, a line, the link entries
+  await open('pL');
+  [x, y] = await boxPoint(0);
+  await mouse(x, y, 'right');
+  m = await menuOpen();
+  ok(m && m.rows.slice(0, 2).join('|') === 'Show this picture|Show all pictures in this message' && m.rows.includes('---') && m.rows.length >= 5, `a picture in a link: the picture entries, a line, the link entries: ${JSON.stringify(m && m.rows)}`);
+  await closeMenu();
+  // confidential: no menu; Enter still shows the picture
+  await open('pC');
+  [x, y] = await boxPoint(0);
+  await mouse(x, y, 'right');
+  await sleep(300);
+  ok(!(await evaluate(`!!document.querySelector('.ctx-menu')`)), 'confidential mail: no menu');
+  await evaluate(`(() => { const f = ${FR}, b = f.contentDocument.querySelector('.hl-bp[data-hl-pic]'); f.contentWindow.focus(); b.focus(); return 1; })()`);
+  await key('Enter', 'Enter', 13);
+  ok(await until(`${FR}.contentDocument.querySelectorAll('.hl-bp').length === 0 && ${FR}.contentDocument.querySelectorAll('img[src^="data:image"]').length === 1`, 4000), 'confidential mail: Enter on the box still shows the picture');
+
+  // ======================================================================== T-C8: show one picture, show all
+  tag = 'show-one';
+  await open('pM');
+  await evaluate(`window.__remoteFetchCalls = []; 1`);
+  [x, y] = await boxPoint(1);
+  await mouse(x, y, 'right');
+  await menuOpen();
+  ok(await chooseRow('Show this picture'), 'the entry is there');
+  ok(await until(`${FR}.contentDocument.querySelectorAll('img[src^="data:image"]').length === 1`, 4000), 'AC-21: exactly one picture shows');
+  const after = await evaluate(`(() => { const d = ${FR}.contentDocument; return { boxes: d.querySelectorAll('.hl-bp[data-hl-pic]').length, alts: [...d.querySelectorAll('img[src^="data:image"]')].map((i) => i.getAttribute('alt')), focusOn: d.activeElement && d.activeElement.getAttribute('aria-label') }; })()`);
+  eq(after.boxes, 2, 'AC-21: the other two boxes stay');
+  eq(after.alts, ['two'], 'AC-21: it is the second one (alt, size kept)');
+  const cl = await calls();
+  eq(cl, [[u('m2')]], 'AC-21: one fetch, for exactly that address');
+  ok(after.focusOn && /three/.test(after.focusOn), `AC-23: the focus goes on to the next hidden picture (${after.focusOn})`);
+  n = await notice();
+  ok(n && n.cls === 'notice' && n.text.startsWith('Pictures in this message are hidden'), 'AC-21: the notice stays');
+  ok(/img-src data:(;|$)/.test(await evaluate(`${FR}.contentDocument.querySelector('meta[http-equiv=Content-Security-Policy]').content`)), 'AC-21: the CSP is the same');
+  // Enter on the next one
+  await key('Enter', 'Enter', 13);
+  ok(await until(`${FR}.contentDocument.querySelectorAll('img[src^="data:image"]').length === 2`, 4000), 'Enter on the focused box shows it');
+  // reopen: hidden again
+  await open('pN');
+  await open('pM');
+  p = await pics();
+  ok(p.boxes === 3 && p.imgs === 0, `AC-25: closed and opened again: all hidden (${JSON.stringify(p)})`);
+  // the same address twice: both show with one fetch
+  await open('pD');
+  await evaluate(`window.__remoteFetchCalls = []; 1`);
+  [x, y] = await boxPoint(0);
+  await mouse(x, y, 'right');
+  await menuOpen();
+  await chooseRow('Show this picture');
+  ok(await until(`${FR}.contentDocument.querySelectorAll('img[src^="data:image"]').length === 2`, 4000), 'the same address twice: both boxes show');
+  eq((await calls()).flat().length, 1, 'with one address fetched');
+  // a failure is said in the box, Enter asks again
+  await evaluate(`document.querySelector('.rp-msg.open'); 1`);
+  // show all = the "Show pictures" link
+  await open('pM');
+  [x, y] = await boxPoint(0);
+  await mouse(x, y, 'right');
+  await menuOpen();
+  await chooseRow('Show all pictures in this message');
+  ok(await until(`${FR}.contentDocument.querySelectorAll('img[src^="data:image"]').length === 3 && ${FR}.contentDocument.querySelectorAll('.hl-bp').length === 0`, 5000), 'AC-24: all pictures show');
+  ok((await notice()) === null, 'AC-24: as after "Show pictures": no notice');
+  await open('pM');
+  await clickLink('button.link:not([data-trust])');
+  ok(await until(`${FR}.contentDocument.querySelectorAll('img[src^="data:image"]').length === 3`, 5000), 'the "Show pictures" link does the same');
+
+  // ======================================================================== T-C12: print
+  tag = 'print';
+  const css = await evaluate(`fetch('/src/mailFrameCss.ts').then((r) => r.text())`);
+  ok(/@media print\{\.hl-bp-hint\{display:none!important\}/.test(css), 'AC-28: the hint line and the focus ring are not printed');
+} catch (e) {
+  failures.push(`[${tag}] ${e && e.stack ? e.stack : e}`);
+  console.error(e);
+} finally {
+  await H.shutdown();
+}
+if (failures.length) { console.error(`test-pictures-auto: FAILED (${failures.length})`); process.exit(1); }
+console.log(`test-pictures-auto: ok (${checks} checks)`);
+process.exit(0);

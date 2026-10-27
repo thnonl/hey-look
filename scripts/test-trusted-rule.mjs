@@ -5,7 +5,7 @@
 //   T-U3  the offer: never for an own address, Junk, encrypted, failed check, or an address the list cannot take
 //   node --experimental-strip-types scripts/test-trusted-rule.mjs
 import assert from 'node:assert/strict';
-import { autoOk, canOffer, MAX_TRUSTED, noticeState, normSender, remoteAllowed } from '../src/trustedRule.ts';
+import { autoOk, canOffer, MAX_TRUSTED, noticeState, normSender, remoteAllowed, ruleAuto } from '../src/trustedRule.ts';
 
 // ---- T-U1
 assert.equal(normSender('  A@Example.COM '), 'a@example.com');
@@ -73,5 +73,38 @@ assert.equal(canOffer('undisclosed-recipients', own, inbox), false, 'not an addr
 assert.equal(canOffer('', own, inbox), false);
 assert.equal(canOffer(null, own, inbox), false);
 assert.equal(canOffer(`${'a'.repeat(330)}@x.org`, own, inbox), false, 'too long');
+
+// ---- 1.0.10 T-U1 of the spec of pictures that show by themselves: global x trusted x autoReason x noAuto x folder x encrypted x auth x allow
+{
+  const seen = new Set();
+  for (const global of [false, true]) for (const trusted of [false, true]) for (const autoReason of [null, 'wrote', 'service']) for (const noAuto of [false, true]) for (const folder of ['inbox', 'junk']) for (const encrypted of [false, true]) for (const auth of ['pass', 'fail', null]) for (const allow of [false, true]) {
+    const i = { global, trusted, autoReason, noAuto, folder, encrypted, auth, allow };
+    const held = folder === 'junk' || encrypted || auth === 'fail';
+    const manual = trusted && !held;
+    const rule = !!autoReason && !noAuto && !held;
+    assert.equal(ruleAuto(i), rule, `ruleAuto ${JSON.stringify(i)}`);
+    assert.equal(remoteAllowed(i), global || manual || rule || allow, `allowed ${JSON.stringify(i)}`);
+    for (const hasRemote of [false, true]) for (const offer of [false, true]) {
+      const st = noticeState(i, hasRemote, offer);
+      let want;
+      if (global || !hasRemote) want = 'none';
+      else if (manual) want = 'auto'; // the list wins over the rule
+      else if (rule) want = autoReason === 'wrote' ? 'autoWrote' : 'autoService'; // both reasons: the backend says "wrote"
+      else if (allow) want = 'none';
+      else if (trusted) want = auth === 'fail' ? 'heldFailed' : 'held';
+      else want = offer ? 'offer' : 'plain';
+      assert.equal(st, want, `state ${JSON.stringify(i)} hasRemote=${hasRemote} offer=${offer}`);
+      seen.add(st);
+    }
+  }
+  assert.deepEqual([...seen].sort(), ['auto', 'autoService', 'autoWrote', 'held', 'heldFailed', 'none', 'offer', 'plain']);
+  const b = { global: false, trusted: false, folder: 'inbox', encrypted: false, auth: 'pass', allow: false };
+  assert.equal(noticeState({ ...b, autoReason: 'wrote' }, true, true), 'autoWrote', 'S8');
+  assert.equal(noticeState({ ...b, autoReason: 'service' }, true, true), 'autoService', 'S9');
+  assert.equal(noticeState({ ...b, autoReason: 'wrote', noAuto: true }, true, true), 'offer', 'turned off for this sender: S1, with the offer');
+  assert.equal(noticeState({ ...b, autoReason: 'wrote', trusted: true }, true, true), 'auto', 'on the list and the rule: S4');
+  assert.equal(noticeState({ ...b, autoReason: 'wrote', folder: 'junk' }, true, false), 'plain', 'Junk: S2');
+  assert.equal(noticeState({ ...b, autoReason: undefined }, true, true), 'offer', 'no reason from the backend: S1');
+}
 
 console.log('test-trusted-rule: ok');
