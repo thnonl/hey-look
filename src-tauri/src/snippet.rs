@@ -768,6 +768,10 @@ fn strip_links_in(c: &[char], depth: u8) -> String {
                     if c.get(i) == Some(&':') {
                         i += 1;
                     }
+                } else if let Some(close) = matching(c, i, '[', ']', 240).filter(|k| image_marker(&c[i + 1..*k])) {
+                    // the alt text of a picture in a text part ("[image: Google]", "[cid:logo.png@01D9]", "[Image]"): not words, and no alt text is kept
+                    out.push(' ');
+                    i = close + 1;
                 } else {
                     out.push('[');
                     i += 1;
@@ -797,6 +801,29 @@ fn strip_links_in(c: &[char], depth: u8) -> String {
         }
     }
     out
+}
+
+/// The words that open the marker of a picture in a text part, compared lower case: English, and the labels the mail programs of the app's languages write
+/// (Gmail "[image: Google]", Outlook "[cid:image001.png@01D9...]", Apple Mail "[Image]", "[Bild: ...]", "[Imagen: ...]", "[Image : ...]" (French), "[Изображение: ...]", "[画像: ...]", "[Hình ảnh: ...]").
+const IMAGE_WORDS: [&str; 16] = ["image", "img", "inline image", "inline-image", "picture", "photo", "bild", "imagen", "imagem", "immagine", "изображение", "画像", "图片", "圖片", "hình ảnh", "ảnh"];
+
+/// The text between the brackets of `[image: alt text]`, `[cid:...]` and `[Image]` (a picture of a text part). Only a whole bracket that starts with the word (and a colon,
+/// or nothing more) counts: "[Image] was uploaded" or "[image 2 of 5]" in a sentence is not touched.
+fn image_marker(t: &[char]) -> bool {
+    let text: String = t.iter().collect();
+    let low = text.trim().to_lowercase();
+    if low.starts_with("cid:") {
+        return true;
+    }
+    IMAGE_WORDS.iter().any(|w| match low.strip_prefix(w) {
+        Some("") => true,
+        // "image: alt", "Image : alt" (French spacing), "画像：alt" (full-width colon)
+        Some(rest) => {
+            let r = rest.trim_start();
+            r.starts_with(':') || r.starts_with('：')
+        }
+        None => false,
+    })
 }
 
 /// `host.tld/path`: an address written without a scheme.
@@ -1131,9 +1158,118 @@ pub fn fix_stored_links(conn: &Connection) -> Result<usize, String> {
     Ok(changed)
 }
 
+/// Settings key that marks the one-time removal of picture markers ("[image: Google]") from stored snippets as done.
+const MARKERS_FIXED_KEY: &str = "snippet_fix_v3";
+
+/// One-time clean-up of snippets stored with the alt text of a picture of a text part ("[image: Google] You allowed ..."): cleaned with `preview_text`; a snippet that
+/// would be left empty is made again from the stored body. Never changes a body, never writes an empty snippet. The notification builder cleans a snippet again
+/// when it reads it (`notification_preview`), so a row not reached yet shows no marker either. Same batches as `fix_stored_links`. Returns the rows changed.
+pub fn fix_stored_markers(conn: &Connection) -> Result<usize, String> {
+    let done: Option<String> = conn.query_row("SELECT value FROM settings WHERE key=?1", [MARKERS_FIXED_KEY], |r| r.get(0)).ok();
+    if done.is_some() {
+        return Ok(0);
+    }
+    let e = |x: rusqlite::Error| x.to_string();
+    let mut changed = 0usize;
+    for schema in crate::shard::message_schemas(conn) {
+        let table = format!("{schema}.messages");
+        let mut last = 0i64;
+        loop {
+            let batch: Vec<(i64, String)> = {
+                let mut st = conn
+                    .prepare(&format!(
+                        "SELECT rowid, snippet FROM {table} WHERE rowid>?1
+                           AND (snippet LIKE '%[image%' OR snippet LIKE '%[img%' OR snippet LIKE '%[cid:%' OR snippet LIKE '%[inline%' OR snippet LIKE '%[picture%'
+                                OR snippet LIKE '%[photo%' OR snippet LIKE '%[bild%' OR snippet LIKE '%[imagen%' OR snippet LIKE '%[imagem%' OR snippet LIKE '%[immagine%'
+                                OR snippet LIKE '%[изображение%' OR snippet LIKE '%[画像%' OR snippet LIKE '%[图片%' OR snippet LIKE '%[圖片%' OR snippet LIKE '%[hình ảnh%' OR snippet LIKE '%[ảnh%')
+                         ORDER BY rowid LIMIT 200"
+                    ))
+                    .map_err(e)?;
+                let rows = st.query_map([last], |r| Ok((r.get(0)?, r.get(1)?))).map_err(e)?.collect::<Result<Vec<_>, _>>().map_err(e)?;
+                rows
+            };
+            let Some(&(max, _)) = batch.last() else { break };
+            let tx = conn.unchecked_transaction().map_err(e)?;
+            for (rid, old) in &batch {
+                let mut new = truncate_words(&preview_text(old));
+                if new.is_empty() {
+                    let (html, text): (Option<String>, Option<String>) =
+                        tx.query_row(&format!("SELECT body_html, body_text FROM {table} WHERE rowid=?1"), [rid], |r| Ok((r.get(0)?, r.get(1)?))).map_err(e)?;
+                    new = make(text.as_deref(), html.as_deref());
+                }
+                if !new.is_empty() && new != *old {
+                    tx.execute(&format!("UPDATE {table} SET snippet=?1 WHERE rowid=?2"), params![new, rid]).map_err(e)?;
+                    changed += 1;
+                }
+            }
+            tx.commit().map_err(e)?;
+            last = max;
+        }
+    }
+    conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?1,'1')", [MARKERS_FIXED_KEY]).map_err(e)?;
+    Ok(changed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The text part of Google's "security alert" mail, as the owner saw it in the toast (the picture alt text first, then the words, then links).
+    const GOOGLE_ALERT: &str = "[image: Google]\r\nYou allowed Claude for Google Drive access to some of your Google Account data\r\n\r\nnam@example.com\r\n\r\nIf you didn't allow this, check activity: https://accounts.google.com/AccountChooser?Email=nam@example.com&continue=https://myaccount.google.com/alert/nt/1761563412?rfn%3D311%26rfnc%3D1%26eid%3D-3414%26et%3D0\r\n\r\nYou can also see security activity at\r\nhttps://myaccount.google.com/notifications\r\n";
+
+    #[test]
+    fn picture_markers_of_a_text_part_are_dropped_with_their_alt_text() {
+        let p = preview_text(GOOGLE_ALERT);
+        assert!(p.starts_with("You allowed Claude for Google Drive access to some of your Google Account data"), "{p}");
+        for bad in ["[image", "Google]", "http", "://", "accounts.google", "%3D"] {
+            assert!(!p.contains(bad), "{bad:?} in {p:?}");
+        }
+        let n = notification_preview(GOOGLE_ALERT);
+        assert!(n.starts_with("You allowed Claude") && !n.contains('[') && !n.contains("http"), "{n}");
+        assert!(n.chars().count() <= NOTIFY_PREVIEW_MAX, "{n}");
+        for (raw, want) in [
+            ("[image: Google] Hello there", "Hello there"),
+            ("[Image: Logo of the shop] Sale today", "Sale today"),
+            ("[image] Sale today", "Sale today"),
+            ("[cid:image001.png@01D9A1B2.C3D4E5F0] Dear customer, your order shipped", "Dear customer, your order shipped"),
+            ("[CID:logo.png@x] [image: a]
+[image: b] Text", "Text"),
+            ("[Bild: Firmenlogo] Ihre Rechnung ist da", "Ihre Rechnung ist da"),
+            ("[Imagen: logotipo] Su pedido ha salido", "Su pedido ha salido"),
+            ("[Image : logo] Votre commande est partie", "Votre commande est partie"),
+            ("[Изображение: логотип] Ваш заказ отправлен", "Ваш заказ отправлен"),
+            ("[画像: ロゴ] ご注文を発送しました", "ご注文を発送しました"),
+            ("[画像：ロゴ]ご注文を発送しました", "ご注文を発送しました"),
+            ("[Hình ảnh: logo] Đơn hàng của bạn đã được gửi", "Đơn hàng của bạn đã được gửi"),
+            ("[图片: 标志] 您的订单已发货", "您的订单已发货"),
+        ] {
+            assert_eq!(preview_text(raw), want, "{raw}");
+        }
+        // words in brackets that are not a picture marker stay
+        for keep in ["The [image 2 of 5] slider", "Use array[0] and [note] here"] {
+            let p = preview_text(keep);
+            assert!(p.contains('['), "{keep:?} -> {p:?}");
+        }
+        assert_eq!(preview_text("[Image] was uploaded"), "was uploaded");
+    }
+
+    #[test]
+    fn notification_text_is_plain_words_for_newsletters_with_many_links() {
+        let raw = "[image: Shop]\n[View in browser](https://x.example/v?u=1)\nBig <https://t.example/a?b=c> sale www.shop.example/deals?utm_source=mail today (https://t.example/zz) mailto:sales@shop.example \u{200C}\u{00A0}\u{200C}\u{00A0}\u{200C}\u{00A0}  shop now [1] [2]\n[1]: https://a.example/1\n[2]: https://b.example/2\nhttps://very.long.example/path/with/many/segments/and?query=abcdefghijklmnopqrstuvwxyz0123456789&other=1";
+        let p = preview_text(raw);
+        assert_eq!(p, "Big sale today shop now", "{p}");
+        assert_eq!(notification_preview(raw), "Big sale today shop now");
+        let v = "[image: Cửa hàng] Ưu đãi lớn cho khách hàng thân thiết https://khuyen-mai.example/abc?x=1 xem ngay";
+        assert_eq!(notification_preview(v), "Ưu đãi lớn cho khách hàng thân thiết xem ngay");
+        let j = "[画像: ロゴ] 新商品のお知らせです。詳細は https://shop.example/new をご覧ください。";
+        let n = notification_preview(j);
+        assert!(n.starts_with("新商品のお知らせです") && !n.contains("http") && !n.contains('['), "{n}");
+        // nothing readable is left: no preview line at all (the notification then shows the sender and the subject only)
+        for empty in ["[image: Google]", "[cid:a.png@b] [image: x] https://only.example/link", "  \u{200B}\u{200C}\u{00A0} ", ""] {
+            assert_eq!(notification_preview(empty), "", "{empty:?}");
+        }
+    }
+
 
     const NEWSLETTER: &str = r#"<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml"><head><meta charset="utf-8"><title>IP2Location Newsletter</title>
@@ -1803,5 +1939,27 @@ Real words here", "")), "", "alone {t:?}");
         assert_eq!(fix_stored_links(&c).unwrap(), 0);
         c.execute("DELETE FROM settings WHERE key=?1", [LINKS_FIXED_KEY]).unwrap();
         assert_eq!(fix_stored_links(&c).unwrap(), 0, "idempotent");
+    }
+
+    #[test]
+    fn stored_snippets_with_picture_markers_are_cleaned_once_and_the_body_is_untouched() {
+        let c = db();
+        put(&c, "g", "[image: Google] You allowed Claude for Google Drive access to some of your Google Account data", None, Some("[image: Google]
+You allowed Claude for Google Drive access to some of your Google Account data"));
+        put(&c, "cid", "[cid:logo.png@01D9A1B2]", None, Some("[cid:logo.png@01D9A1B2]
+Invoice 42 is ready for you"));
+        put(&c, "plain", "Hello there", None, Some("Hello there"));
+        put(&c, "word", "The [image 2 of 5] slider shows the album", None, None);
+        put(&c, "only", "[image: Google]", None, None);
+        c.execute("DELETE FROM settings WHERE key=?1", [MARKERS_FIXED_KEY]).unwrap();
+        assert_eq!(fix_stored_markers(&c).unwrap(), 2, "the two rows with a marker and words");
+        assert_eq!(snippet_of(&c, "g"), "You allowed Claude for Google Drive access to some of your Google Account data");
+        assert_eq!(snippet_of(&c, "cid"), "Invoice 42 is ready for you", "left empty: made again from the stored text");
+        assert_eq!(snippet_of(&c, "plain"), "Hello there");
+        assert_eq!(snippet_of(&c, "word"), "The [image 2 of 5] slider shows the album");
+        assert_eq!(snippet_of(&c, "only"), "[image: Google]", "nothing readable and no body: untouched");
+        let body: String = c.query_row("SELECT body_text FROM messages WHERE id='g'", [], |r| r.get(0)).unwrap();
+        assert!(body.starts_with("[image: Google]"), "the stored body keeps the marker (search text)");
+        assert_eq!(fix_stored_markers(&c).unwrap(), 0, "done once");
     }
 }
