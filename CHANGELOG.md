@@ -4,6 +4,7 @@
 
 ### Changed
 
+- The app now ships its own font (Inter) so that text looks and wraps the same on Windows, macOS and Linux (Chinese and Japanese keep the system fonts)
 - Windows: starting Hey Look! with Windows now shows the window, like any other start. Before, it started hidden in the tray, and the hidden window could leave a white rectangle on the desktop. The window is made when the desktop is ready (taskbar, display and web view runtime), so it does not come up blank while Windows is still signing in
 - Windows: the start-with-Windows entry of an existing install is rewritten at the first start of this version from `"<path>" --minimized` (or the older unquoted form) to `"<path>"`, so the update changes your next sign-in to a visible start. An entry of another program and one that you turned off in Task Manager are left alone
 - The new-mail notification sound is quieter (9 dB lower, same sound)
