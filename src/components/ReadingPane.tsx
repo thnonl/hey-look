@@ -668,12 +668,15 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
           {(notice === "held" || notice === "heldFailed") && (
             <>
               <button className="link" data-trust="stop" title={t("reading.trust.stopTitle", { email: sender ?? m.fromEmail })} onClick={() => void removeSender(true)}>{t("reading.trust.stop")}</button>
-              {" · "}
+              {notice === "held" && " · "}
             </>
           )}
-          <button className="link" onClick={() => setDialog({ type: "settings", tab: "mb:all", focus: "loadRemote" })}>
-            {t("reading.body.alwaysLoad")}
-          </button>
+          {/* (a mail whose sender check failed is no place to offer "always load": the notice is the warning, and it must fit in 3 lines in a pane of 490 px with a wide font) */}
+          {notice !== "heldFailed" && (
+            <button className="link" onClick={() => setDialog({ type: "settings", tab: "mb:all", focus: "loadRemote" })}>
+              {t("reading.body.alwaysLoad")}
+            </button>
+          )}
         </div>
       )}
       {notice === "auto" && (

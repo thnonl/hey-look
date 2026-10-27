@@ -157,7 +157,7 @@ try {
   await open('trF');
   n = await notice();
   ok(n.cls === 'notice' && /sender check failed/.test(n.text), `failed check: its own text (${n.text})`);
-  eq(n.links.map((l) => l.trust), [null, 'stop', null], 'failed check: the Stop link is the middle one');
+  eq(n.links.map((l) => l.trust), [null, 'stop'], 'failed check: Load content and Stop (no Settings link on a failed check)');
   f = await frame();
   ok(f.boxes > 0 && f.imgs === 0, 'failed check: not loaded');
   // "Load content" still loads this one message
@@ -309,10 +309,14 @@ try {
       // the narrowest real notices: a Mac window of 960 with the side menu open had a notice of 352 px (the reading pane is at least 440 px wide plus the page's own padding and the
       // size of the system font); the width is set on the notice itself, which wraps exactly as it would in a pane that narrow. Only once per language and variant (at 1280).
       if (w === 1280 && theme === 'light') {
-        for (const nw of [400, 352]) {
+        // The fonts of the real platforms are wider than the Windows ones this test usually runs on (Segoe UI here; SF on a Mac and DejaVu / Noto / Cantarell on Linux measured 8 to 15 %
+        // wider): every case is measured again in a notice 12 % narrower than the width it stands for (the same as a text 12 % wider), and must keep the same limit.
+        // [real notice width, lines allowed]: 352 and 400 the narrowest panes of a Mac with the side menu open, 492 and 544 the notice of a page of 1244 and 1296 px.
+        for (const [nw0, limit] of [[352, 4], [400, 4], [492, 3], [544, 3]]) for (const margin of [1, 1.12]) {
+          const nw = Math.round(nw0 / margin);
           const k = await evaluate(`(() => { const n = document.querySelector('.rp-msg.open .notice'); if (!n) return null; n.style.width = '${nw}px'; n.style.boxSizing = 'border-box'; const rg = document.createRange(); rg.selectNodeContents(n); const tops = []; for (const q of [...rg.getClientRects(), ...[...n.querySelectorAll('button.link')].flatMap((b) => [...b.getClientRects()])]) { if (q.height < 4) continue; const y = Math.round(q.top); if (!tops.some((v) => Math.abs(v - y) < 5)) tops.push(y); } const r = n.getBoundingClientRect(); const inside = [...n.querySelectorAll('button.link')].every((b) => { const x = b.getBoundingClientRect(); return x.left >= r.left - 1 && x.right <= r.right + 1; }); const out = { lines: tops.length, clip: n.scrollWidth > n.clientWidth + 1, inside }; n.style.width = ''; n.style.boxSizing = ''; return out; })()`);
-          ok(k && k.lines <= 4 && !k.clip && k.inside, `${lang} ${nw}px notice ${state}: at most 4 lines, nothing clipped (${JSON.stringify(k)})`);
-          report.push(`${lang} ${nw}px ${state}: ${k && k.lines}`);
+          ok(k && k.lines <= limit && !k.clip && k.inside, `${lang} ${nw0}px (measured at ${nw}px) notice ${state}: at most ${limit} lines, nothing clipped (${JSON.stringify(k)})`);
+          report.push(`${lang} ${nw0}px${margin > 1 ? '+12%' : ''} ${state}: ${k && k.lines}`);
         }
       }
       if (!m) continue;
