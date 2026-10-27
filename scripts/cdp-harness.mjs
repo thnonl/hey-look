@@ -134,6 +134,9 @@ export async function startHarness(name, { vitePort0 = 5480 } = {}) {
   /** Loads the dev preview (`hash` without the #) in a window of w x h and waits for the app. */
   const openApp = async (hash, w, h) => {
     await cdp('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: false });
+    // the tests are written for a screen with animations on: the browser would take prefers-reduced-motion from the OS (a Windows session with 'Show animations' off, a Mac with 'Reduce motion'),
+    // which hides the busy ring, ends transitions at once and so on. HEYLOOK_REDUCED_MOTION=reduce runs a test in that mode on purpose.
+    await cdp('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: process.env.HEYLOOK_REDUCED_MOTION === 'reduce' ? 'reduce' : 'no-preference' }] });
     // the first request of a fresh dev server may reload the page once while vite optimises its dependencies: wait for the store
     for (let attempt = 0; attempt < 5; attempt++) {
       await cdp('Page.navigate', { url: 'about:blank' }); // a change of the hash alone would keep the page (and the mock's memory)
