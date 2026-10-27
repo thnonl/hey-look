@@ -45,9 +45,21 @@ pub fn max_uid(c: &Connection, account_id: &str, role: &str) -> u32 {
     crate::db::get_setting(c, &max_key(account_id, role)).and_then(|v| v.parse().ok()).unwrap_or(0)
 }
 
-/// Record the highest UID seen. `reset`: the folder was renumbered, the old value means nothing and is replaced; otherwise it only grows.
+/// A sync of this folder has finished and recorded where it stopped (also when the folder was empty: the value is then 0, which `max_uid` alone cannot tell from "never synced").
+pub fn recorded(c: &Connection, account_id: &str, role: &str) -> bool {
+    crate::db::get_setting(c, &max_key(account_id, role)).is_some()
+}
+
+/// Is this sync the first one of the folder, the one whose messages are only a taste and never new mail? Not when the folder has rows or a recorded highest UID, and not when
+/// an earlier sync finished with the folder empty (a new account whose Inbox is empty: its first mail is new mail, 1.0.10); a renumbered folder is read like a first sync.
+pub fn is_first_sync(max_uid: u32, recorded: bool, reset: bool) -> bool {
+    reset || (max_uid == 0 && !recorded)
+}
+
+/// Record the highest UID seen. `reset`: the folder was renumbered, the old value means nothing and is replaced; otherwise it only grows. The first call for a folder always
+/// writes (even 0), so that an empty folder counts as synced (`recorded`).
 pub fn note_max_uid(c: &Connection, account_id: &str, role: &str, top: u32, reset: bool) -> R<()> {
-    if reset || top > max_uid(c, account_id, role) {
+    if reset || top > max_uid(c, account_id, role) || !recorded(c, account_id, role) {
         crate::db::set_setting(c, &max_key(account_id, role), &top.to_string())?;
     }
     Ok(())

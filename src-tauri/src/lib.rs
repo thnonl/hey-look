@@ -1044,7 +1044,7 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
     let mut to_rule: Vec<RuleInput> = vec![]; // the new Inbox mail the rules look at
     for role in roles {
         let Some(name) = map.get(&role) else { continue };
-        let (max_uid, min_uid, known): (u32, u32, folderstate::Known) = {
+        let (max_uid, min_uid, known, was_recorded): (u32, u32, folderstate::Known, bool) = {
             let c = lock(db);
             let seen_max = folderstate::max_uid(&c, account_id, &role);
             let (max_uid, min_uid): (u32, u32) = c
@@ -1055,7 +1055,7 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
                 )
                 .map_err(err)?;
             // (no local row left, but the folder was read before: where the sync stopped counts, so what arrived since is new mail and not a "first sync")
-            (max_uid.max(seen_max), min_uid, folderstate::known(folderstate::get(&c, account_id, &role).as_ref(), name))
+            (max_uid.max(seen_max), min_uid, folderstate::known(folderstate::get(&c, account_id, &role).as_ref(), name), folderstate::recorded(&c, account_id, &role))
         };
         // (F-16/F-17) flags of messages an action changes while this fetch runs are not written back: see `flagguard`
         let flags_started = flagguard::GUARD.epoch();
@@ -1066,6 +1066,8 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
         };
         // (W6.1) the server renumbered the folder: what is stored of it is dropped below and the folder is read like a first sync
         let (max_uid, min_uid) = if ff.reset { (0, 0) } else { (max_uid, min_uid) };
+        // the first sync of a folder is a taste, not new mail; an earlier sync that found the folder empty is not a first sync (the first mail of a new account is new mail)
+        let first_sync = folderstate::is_first_sync(max_uid, was_recorded, ff.reset);
         let c = lock(db);
         c.execute_batch("BEGIN").map_err(err)?;
         if ff.reset {
@@ -1090,11 +1092,11 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
             let tid = insert_parsed(&c, &acc, &role, p)?;
             result.added += 1;
             fresh.insert(format!("{}:{}:{}", acc.id, role, p.uid));
-            let is_new = newmail::counts_as_new(&role, max_uid == 0, p.seen, &p.from_email, &own, moved);
+            let is_new = newmail::counts_as_new(&role, first_sync, p.seen, &p.from_email, &own, moved);
             if is_new {
                 tally.arrivals.push((role.clone(), tid.clone()));
             }
-            if role == "inbox" && max_uid > 0 {
+            if role == "inbox" && !first_sync {
                 if is_new {
                     result.new_inbox.push(NewMsg {
                         thread_id: tid.clone(),

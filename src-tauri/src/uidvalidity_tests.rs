@@ -419,3 +419,32 @@ fn the_test_seam_of_the_sync_is_read_by_debug_builds_only() {
     assert!(f.contains("if !cfg!(debug_assertions) {\n        return 0;"), "{f}");
     assert!(f.contains("HEYLOOK_TEST_SYNC_DELAY_MS"));
 }
+
+/// 1.0.10 (Sandbox QA): a new account whose Inbox is empty gave no toast for its FIRST mail, because "nothing stored, nothing recorded" was read as "first sync" again at the
+/// next sync. A sync that finished with the folder empty records that (value 0); the first mail after it is new mail, while a folder never synced is still a taste.
+#[test]
+fn the_first_mail_of_an_empty_synced_inbox_is_new_mail() {
+    test_guard::within(60, || {
+        let (db, _acc) = setup("uidv-empty-first", "inbox", &[], Some(1));
+        let own = newmail::own_set(["me@example.com"]);
+        let first = |c: &rusqlite::Connection| folderstate::is_first_sync(folderstate::max_uid(c, ACC, "inbox"), folderstate::recorded(c, ACC, "inbox"), false);
+        // before any sync: a first sync, nothing in it is new mail (an old mailbox never floods)
+        assert!(first(&lock(&db)));
+        assert!(!newmail::counts_as_new("inbox", first(&lock(&db)), false, "a@x.com", &own, false));
+        // the first sync finds the Inbox empty and records it
+        folderstate::note_max_uid(&lock(&db), ACC, "inbox", 0, false).unwrap();
+        assert!(folderstate::recorded(&lock(&db), ACC, "inbox"));
+        assert_eq!(folderstate::max_uid(&lock(&db), ACC, "inbox"), 0);
+        assert!(!first(&lock(&db)), "an earlier sync finished with the folder empty");
+        assert!(newmail::counts_as_new("inbox", first(&lock(&db)), false, "a@x.com", &own, false), "the first mail is new mail");
+        assert!(!newmail::counts_as_new("inbox", first(&lock(&db)), true, "a@x.com", &own, false), "a seen message is not");
+        assert!(!newmail::counts_as_new("inbox", first(&lock(&db)), false, "me@example.com", &own, false), "nor the person's own");
+        // per folder, and a renumbered folder is a first sync again
+        assert!(folderstate::is_first_sync(0, false, false) && !folderstate::is_first_sync(7, false, false) && folderstate::is_first_sync(0, true, true));
+        assert!(!folderstate::recorded(&lock(&db), ACC, "archive"));
+        // the value only grows afterwards, and a later write of 0 does not lower it
+        folderstate::note_max_uid(&lock(&db), ACC, "inbox", 12, false).unwrap();
+        folderstate::note_max_uid(&lock(&db), ACC, "inbox", 0, false).unwrap();
+        assert_eq!(folderstate::max_uid(&lock(&db), ACC, "inbox"), 12);
+    });
+}
