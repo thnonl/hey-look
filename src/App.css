@@ -559,9 +559,20 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
 .empty-art { width: 76px; height: 76px; border-radius: 50%; background: var(--bg2); color: var(--muted); display: grid; place-items: center; margin-bottom: 4px; }
 .empty-title { font-weight: 650; font-size: 1.1em; }
 .skeleton-list { padding: 4px 0; }
-/* the old rows stay while a search / tab / filter loads (W13.14): a pill over the top of the list, in a zero-height sticky wrapper so that no row moves */
-.ml-loadwrap { position: sticky; top: 0; height: 0; z-index: 3; display: flex; justify-content: center; pointer-events: none; }
-.ml-loadpill { margin-top: 8px; display: inline-flex; align-items: center; gap: 7px; padding: 4px 12px; border-radius: 999px; background: var(--bg2); border: 1px solid var(--border); box-shadow: var(--shadow); color: var(--muted); font-size: .88em; }
+/* the old rows stay while a search / tab / filter loads (W13.14; 1.0.10): after 200 ms a 2 px bar runs along the top edge of the list (a zero-height sticky wrapper, so that no row moves and the
+   bar stays at the top while the list is scrolled), and the old rows are dimmed and ignore the pointer until the new ones come; the text "Loading…" is for screen readers only */
+.ml-loadwrap { position: sticky; top: 0; height: 0; z-index: 4; pointer-events: none; }
+.ml-loadbar { position: absolute; left: 0; right: 0; top: 0; height: 2px; overflow: hidden; opacity: 0; transition: opacity .12s linear; }
+.ml-loadbar.on { opacity: 1; }
+.ml-loadbar::before { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 38%; background: var(--accent); border-radius: 2px; animation: ml-slide 1.15s cubic-bezier(.45, 0, .55, 1) infinite; }
+.ml-loadbar:not(.on)::before { animation-play-state: paused; }
+@keyframes ml-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(263%); } }
+.ml-body > :not(.ml-loadwrap):not(.sr-only) { transition: opacity .12s linear; }
+.ml-body.is-reloading > :not(.ml-loadwrap):not(.sr-only) { opacity: .6; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) {
+  .ml-loadbar::before { animation: none; width: 100%; opacity: .55; border-radius: 0; }
+  .ml-loadbar, .ml-body > :not(.ml-loadwrap):not(.sr-only) { transition: none; }
+}
 .ml-firstsync { display: flex; align-items: center; gap: 9px; padding: 12px 16px 4px; color: var(--muted); font-size: .92em; }
 .sk-row { display: flex; gap: 12px; padding: 11px 14px; }
 .sk { border-radius: 6px; background: linear-gradient(90deg, var(--bg2) 25%, var(--bg3) 37%, var(--bg2) 63%); background-size: 400% 100%; animation: shimmer 1.4s ease-in-out infinite; }

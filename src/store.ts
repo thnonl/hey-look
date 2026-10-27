@@ -1081,7 +1081,8 @@ export const useStore = create<State>((set, get) => ({
         const { threads, kept } = holdOpenThread(fresh, now.threads, now.selected, view === listKey);
         listKey = view;
         heldOpen = kept;
-        set({ threads });
+        // the rows are here: the list stops being "loading" now, not after the folder counts and the outbox have answered too (they only update their own numbers)
+        set({ threads, loading: false });
       }
       await Promise.all([foldersP, outboxP]);
     } finally {

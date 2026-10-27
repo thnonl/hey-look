@@ -7,7 +7,7 @@ export const LIST_FOOT_JS = `(() => {
   const foot = body.querySelector('.ml-foot'); const r = (e) => { if (!e) return null; const b = e.getBoundingClientRect(); return { top: Math.round(b.top), bottom: Math.round(b.bottom), left: Math.round(b.left), right: Math.round(b.right), w: Math.round(b.width), h: Math.round(b.height) }; };
   return JSON.stringify({
     body: true, bodyRect: r(body), scrollX: body.scrollWidth > body.clientWidth + 1,
-    rows: body.querySelectorAll('.ml-row').length, spinners: body.querySelectorAll('.spin').length, pill: !!body.querySelector('.ml-loadpill'),
+    rows: body.querySelectorAll('.ml-row').length, spinners: body.querySelectorAll('.spin').length, pill: !!body.querySelector('.ml-loadbar.on'),
     empty: body.querySelector('.empty-state .empty-title')?.textContent || null,
     foot: foot ? { text: foot.textContent.replace(/\\s+/g, ' ').trim(), rect: r(foot), buttons: [...foot.querySelectorAll('button')].map((b) => ({ text: b.textContent.trim(), rect: r(b) })), muted: [...foot.querySelectorAll('.muted')].map((m) => ({ text: m.textContent.trim(), rect: r(m) })) } : null,
   });
@@ -18,7 +18,7 @@ export function footVerdict(p, want) {
   const bad = [];
   if (!p.body) return ['no .ml-body'];
   if (p.spinners !== 0) bad.push(`${p.spinners} spinner(s) in the list`);
-  if (p.pill) bad.push('the Loading pill is up');
+  if (p.pill) bad.push('the loading bar is up');
   if (p.scrollX) bad.push('the list scrolls sideways');
   const f = p.foot;
   if (p.rows === 0) { if (!p.empty) bad.push('no rows and no empty state'); return bad; }

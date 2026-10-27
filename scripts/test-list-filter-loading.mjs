@@ -22,7 +22,7 @@ const assert = (cond, msg) => { if (!cond) throw new Error(msg); };
 const waitFor = async (js, ms = 20000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { try { if (await evaluate(js)) return true; } catch { /* between two renders */ } await sleep(60); } return false; };
 const state = () => evaluate(`(() => { const s = window.__store.getState(); const foot = document.querySelector('.ml-foot'); return JSON.stringify({
   rows: document.querySelectorAll('.ml-row').length, threads: s.threads.length, loading: s.loading, loadingMore: s.loadingMore, moreError: s.moreError, calls: window.__mockMail.calls.length,
-  spinners: document.querySelectorAll('.ml-body .spin').length, pill: !!document.querySelector('.ml-loadpill'),
+  spinners: document.querySelectorAll('.ml-body .spin').length, pill: !!document.querySelector('.ml-loadbar.on'),
   empty: document.querySelector('.empty-state .empty-title')?.textContent || '', foot: foot ? foot.textContent.replace(/\\s+/g, ' ').trim() : null, footButtons: foot ? [...foot.querySelectorAll('button')].map((b) => b.textContent.trim()) : [] }); })()`).then(JSON.parse);
 const open = async (hash, view = "'inbox', null") => {
   await H.openApp(hash, 1000, 700);

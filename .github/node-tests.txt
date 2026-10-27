@@ -514,3 +514,5 @@ ui-b | node scripts/test-ui-polish-1010.mjs --require-browser
 static | node --experimental-strip-types scripts/test-trusted-rule.mjs
 # 1.0.10 trusted senders in the dev preview: the notice and its links, load now, Undo, the next message, held messages, Stop, the quote of a reply (T-C1..C7, C10), the Settings list and 8 languages x 2 sizes (T-C8, C11)
 ui-c | node scripts/test-trusted-senders.mjs --require-browser
+# 1.0.10 the loading indicator of the message list (a 2 px bar after 200 ms and the dim instead of the pill over the rows; the list stops loading when its rows are here): markup, timing, dim, overlap, reduced motion, light and dark
+ui-d | node scripts/test-list-loading-indicator.mjs --require-browser

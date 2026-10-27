@@ -248,8 +248,9 @@ export function MessageList({ hidden = false }: { hidden?: boolean } = {}) {
     prefs, focus, setFocus, filter, setFilter, accounts, loading, loadMore, loadingMore, moreFail, exhausted, limited, backfill, firstSync, setDialog, folders, openingDraft,
   } = useStore();
   const scrollRef = useRef<HTMLDivElement>(null);
-  // (W13.14 A6 / A7) a search, a tab or a filter was asked for and the new rows are not here yet while the old ones are: "Loading…" over the top of the list after 100 ms, no layout shift
-  const reloading = useDelayedFlag(loading && threads.length > 0);
+  // (W13.14 A6 / A7, 1.0.10) a search, a tab or a filter was asked for and the new rows are not here yet while the old ones are: after 200 ms a 2 px bar runs along the top of the
+  // list and the old rows are dimmed (no text over the rows, no layout shift); a fast answer shows nothing at all
+  const reloading = useDelayedFlag(loading && threads.length > 0, 200, 200);
   const ctxMenu = useRowContextMenu(); // right-click / ContextMenu key on a row (components/ListContextMenu.tsx)
   const searching = search.trim().length > 0;
   const title = searching ? tr("mail.list.searchResults") : folderLabelIn(folders, folder, accountId);
@@ -490,12 +491,11 @@ export function MessageList({ hidden = false }: { hidden?: boolean } = {}) {
         )}
       </div>
 
-      <div className="ml-body" ref={scrollRef} role="listbox" aria-label={title} aria-multiselectable {...ctxMenu.handlers}>
-        {reloading && (
-          <div className="ml-loadwrap">
-            <div className="ml-loadpill" role="status" aria-busy="true"><span className="spin" aria-hidden /> {tr("common.loading")}</div>
-          </div>
-        )}
+      <div className={`ml-body${reloading ? " is-reloading" : ""}`} ref={scrollRef} role="listbox" aria-label={title} aria-multiselectable aria-busy={reloading || undefined} {...ctxMenu.handlers}>
+        <div className="ml-loadwrap" aria-hidden>
+          <div className={`ml-loadbar${reloading ? " on" : ""}`} />
+        </div>
+        <span className="sr-only" role="status">{reloading ? tr("common.loading") : ""}</span>
         {folder === "scheduled" ? (
           <ScheduledList />
         ) : (loading || firstHere) && threads.length === 0 ? (

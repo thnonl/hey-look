@@ -5,7 +5,7 @@
 //       send itself, and it is replaced by the Undo toast / the "Message sent" toast; the button does not change its width
 //   A10 Print: "Preparing to print…" over the body area is painted BEFORE the print call (a blocking call would hide it), a second press does nothing
 //   A5  Save all attachments from the More menu with several files: "Loading…" after 300 ms, replaced by the result
-//   A6/A7 a search, a tab or a filter while the old rows are there: the "Loading…" pill over the top of the list within 150 ms, no row moves; a folder switch shows the skeleton rows at once
+//   A6/A7 a search, a tab or a filter while the old rows are there: a 2 px bar along the top of the list after 200 ms (no flash for a fast answer), the old rows dimmed, "Loading…" for screen readers only, no row moves; a folder switch shows the skeleton rows at once
 //   A15 the Check mail button is aria-busy while it syncs
 // and the texts of `app.busy.many` / `reading.print.preparing` in the 8 languages at 960x560 and 1280x800. The rule as a table: scripts/test-pending-core.mjs.
 //   node scripts/test-busy-actions.mjs [--require-browser]
@@ -185,25 +185,25 @@ try {
   });
 
   // ---------------------------------------------------------------- A6 / A7
-  await check('A6/A7: a search with the old rows on screen shows the pill by 150 ms without moving a row; a tab switch too; a folder switch shows the skeleton at once', async () => {
+  await check('A6/A7: a search with the old rows on screen shows the bar after 200 ms without moving a row; a tab switch too; a folder switch shows the skeleton at once', async () => {
     await evaluate(`window.__store.getState().select(null); window.__store.getState().setView('inbox', window.__store.getState().accounts[0].id); 1`);
     await sleep(500);
     await evaluate(`window.__mockDelays = { cmds: { list_threads: 900 } }; 1`);
     const top = `(() => { const r = document.querySelector('.ml-row'); return r ? Math.round(r.getBoundingClientRect().top) : null; })()`;
     const before = await evaluate(top);
     const tl = await timeline(`window.__store.getState().setSearch('road', false);`, {
-      pill: `(() => { const p = document.querySelector('.ml-loadpill'); return !!p && p.getAttribute('role') === 'status' && /Loading…/.test(p.textContent) && !!p.querySelector('.spin'); })()`,
+      pill: `(() => { const bar = document.querySelector('.ml-loadbar.on'); const st = document.querySelector('.ml-body > [role=status].sr-only'); return !!bar && !!st && /Loading…/.test(st.textContent) && document.querySelector('.ml-body').getAttribute('aria-busy') === 'true' && !document.querySelector('.ml-loadpill'); })()`,
       moved: `(() => { const t = ${top}; return t !== null && Math.abs(t - ${before}) > 1; })()`,
     }, 2000);
-    assert.ok(tl.pill.on !== null && tl.pill.on <= 220, `the pill at ${tl.pill.on}`);
-    assert.ok(tl.pill.off !== null && tl.pill.off >= tl.pill.on + 290, 'the pill stayed its minimum');
-    assert.equal(tl.moved.on, null, 'a row moved because of the pill (RULE-6)');
+    assert.ok(tl.pill.on !== null && tl.pill.on >= 180 && tl.pill.on <= 330, `the loading bar at ${tl.pill.on} (not before 200 ms: no flash for a fast answer)`);
+    assert.ok(tl.pill.off !== null && tl.pill.off >= tl.pill.on + 190, 'the bar stayed its minimum');
+    assert.equal(tl.moved.on, null, 'a row moved because of the bar (RULE-6)');
     // a tab switch (Focused / Other): the same
     await evaluate(`window.__mockDelays = {}; window.__store.getState().setSearch('', false); 1`);
     await sleep(900);
     await evaluate(`window.__mockDelays = { cmds: { list_threads: 900 } }; 1`);
-    const tl2 = await timeline(`window.__store.getState().setFilter('unread');`, { pill: `!!document.querySelector('.ml-loadpill')` }, 1800);
-    assert.ok(tl2.pill.on !== null && tl2.pill.on <= 220, `the filter pill at ${tl2.pill.on}`);
+    const tl2 = await timeline(`window.__store.getState().setFilter('unread');`, { pill: `!!document.querySelector('.ml-loadbar.on')` }, 1800);
+    assert.ok(tl2.pill.on !== null && tl2.pill.on >= 180 && tl2.pill.on <= 330, `the filter bar at ${tl2.pill.on}`);
     await evaluate(`window.__store.getState().setFilter('all'); window.__mockDelays = {}; 1`);
     await sleep(500);
     // a folder switch: the old rows go and the skeleton rows are there in the first frame; never a blank list
@@ -283,7 +283,8 @@ await check('the wiring: A8 threshold, A9 wrapper and gap toasts, A10 paint firs
   assert.ok(/await paint\(\);\s*win\.print\(\);/.test(p), 'A10: painted first');
   const rp = read('src/components/ReadingPane.tsx');
   assert.ok(/pendingToast\("save-all", \(\) => t\("common\.loading"\), 300\)/.test(rp), 'A5');
-  assert.ok(/useDelayedFlag\(loading && threads\.length > 0\)/.test(read('src/components/MessageList.tsx')), 'A6/A7');
+  assert.ok(/useDelayedFlag\(loading && threads\.length > 0, 200, 200\)/.test(read('src/components/MessageList.tsx')), 'A6/A7: 200 ms before the bar, 200 ms minimum');
+  assert.ok(/set\(\{ threads, loading: false \}\)/.test(read('src/store.ts')), 'A6/A7: the list stops loading when its rows are here, not when the folder counts have answered');
   assert.ok(/aria-busy=\{syncing \|\| undefined\}/.test(read('src/components/TopBar.tsx')), 'A15');
 });
 
