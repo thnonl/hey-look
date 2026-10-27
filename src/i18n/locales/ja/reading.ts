@@ -152,7 +152,7 @@ export default defineLocale<typeof ns.en>({
   "reading.trust.addTitle": "{email}のリモートコンテンツを常に読み込む",
   "reading.trust.stopTitle": "{email}のリモートコンテンツを読み込まない",
   "reading.trust.loaded": "この送信者のリモートコンテンツは自動的に読み込まれます。",
-  "reading.trust.failedCheck": "リモートコンテンツはブロックされています。送信者の確認に失敗しました。",
+  "reading.trust.failedCheck": "リモートコンテンツをブロック。送信者確認失敗、なりすましの可能性あり。",
   "reading.trust.added": "{email}のリモートコンテンツを常に読み込みます。",
   "reading.trust.removed": "{email}のリモートコンテンツは自動的に読み込まれなくなります。",
   "reading.trust.full": "追加できる送信者は最大{max}件です。先に設定でいくつか削除してください。",
