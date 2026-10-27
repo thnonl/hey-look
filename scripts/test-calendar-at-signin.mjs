@@ -340,8 +340,8 @@ try {
     await showSidebar(peek);
   };
   const emailInfo = () => evaluate(`(() => { const e = document.querySelector('.cal-offer .cal-email'); if (!e) return null; const cs = getComputedStyle(e); const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.3; return { title: e.getAttribute('title'), text: e.textContent, nowrap: cs.whiteSpace === 'nowrap', ellipsis: cs.textOverflow === 'ellipsis' && cs.overflow === 'hidden', cut: e.scrollWidth > e.clientWidth, lines: Math.round(e.getBoundingClientRect().height / lh), width: e.getBoundingClientRect().width }; })()`);
-const offerInfo = () => evaluate(`(() => { const n = document.querySelector('.cal-offer'); if (!n) return null; const b = n.getBoundingClientRect(); const p = n.parentElement.getBoundingClientRect(); const lh = parseFloat(getComputedStyle(n).lineHeight) || parseFloat(getComputedStyle(n).fontSize) * 1.3; const cs = getComputedStyle(n);
-    return { text: n.textContent.replace(/\\s+/g, ' ').trim(), role: n.getAttribute('role'), cls: n.className, links: [...n.querySelectorAll('button.link')].map((x) => x.textContent.trim()), over: n.scrollWidth - n.clientWidth, right: b.right, paneRight: p.right, left: b.left, paneLeft: p.left, lines: Math.round((b.height - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)) / lh), height: b.height }; })()`);
+const offerInfo = () => evaluate(`(() => { const realLines = (n) => { const rg = document.createRange(); rg.selectNodeContents(n); const tops = []; for (const q of rg.getClientRects()) { if (q.height < 4) continue; const y = Math.round(q.top + q.height / 2); if (!tops.some((v) => Math.abs(v - y) < 8)) tops.push(y); } return tops.length; }; const n = document.querySelector('.cal-offer'); if (!n) return null; const b = n.getBoundingClientRect(); const p = n.parentElement.getBoundingClientRect(); const lh = parseFloat(getComputedStyle(n).lineHeight) || parseFloat(getComputedStyle(n).fontSize) * 1.3; const cs = getComputedStyle(n);
+    return { text: n.textContent.replace(/\\s+/g, ' ').trim(), role: n.getAttribute('role'), cls: n.className, links: [...n.querySelectorAll('button.link')].map((x) => x.textContent.trim()), over: n.scrollWidth - n.clientWidth, right: b.right, paneRight: p.right, left: b.left, paneLeft: p.left, lines: Math.round((b.height - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)) / lh), real: realLines(n), height: b.height, lh }; })()`);
   await openApp('lang=en&light&persist', 960, 560);
   await evaluate(`localStorage.removeItem('hl-mock-settings'); 1`);
   await calendarOpen('lang=en&light&persist');
@@ -463,7 +463,7 @@ const offerInfo = () => evaluate(`(() => { const n = document.querySelector('.ca
       ok(o && o.text === want, `${tag}: the notice says the agreed words ("${o?.text}")`);
       ok(o && !/\{\w+\}|calendar\.side\./.test(o.text), `${tag}: no raw key or placeholder`);
       ok(o && o.over <= 1 && o.left >= o.paneLeft - 1 && o.right <= o.paneRight + 1, `${tag}: a long address wraps inside the sidebar (over ${o?.over}, ${o?.left}..${o?.right} of ${o?.paneLeft}..${o?.paneRight})`);
-      ok(o && o.lines <= 4, `${tag}: ${o?.lines} lines with the 50 character address (at most 4: the address is one line of its own, D-066)`);
+      ok(o && o.lines <= 4, `${tag}: ${o?.lines} lines (real ${o?.real}, lh ${o?.lh}, h ${o?.height}) with the 50 character address (at most 4: the address is one line of its own, D-066)`);
       // D-066: the address is its own element, one line, an ellipsis when it does not fit, the whole address in the title and in the text
       const e = await emailInfo();
       ok(e && e.title === LONG && e.text === LONG && e.nowrap && e.lines === 1, `${tag}: the address is one non-wrapping element with the whole address as title and text (${JSON.stringify(e)})`);

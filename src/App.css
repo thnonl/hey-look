@@ -622,7 +622,8 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
 .rp-msg-body { padding: 0 0 16px 52px; }
 @media (max-width: 1100px) { .rp-msg-body { padding-left: 0; } }
 .rp-reply-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
-.notice { background: color-mix(in srgb, var(--warn), transparent 90%); border-left: 3px solid var(--warn); padding: 8px 12px; border-radius: var(--r-sm); font-size: .92em; line-height: 1.4; margin-bottom: 10px; }
+.notice { background: color-mix(in srgb, var(--warn), transparent 90%); border-left: 3px solid var(--warn); padding: 8px 12px; border-radius: var(--r-sm); font-size: .92em; margin-bottom: 10px; }
+.notice:lang(ja), .notice:lang(zh-Hans) { line-height: 1.4; } /* (the kana and Han glyphs come from a system font taller than Inter: one line height for every line of the notice; Latin lines keep the normal one, which the narrow sidebar offer needs to stay in 4 lines) */
 .msg-frame { width: 100%; border: 0; min-height: 40px; background: transparent; display: block; }
 .atts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; align-items: center; }
 .att-chip { display: inline-flex; align-items: center; gap: 7px; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 5px 10px; max-width: 300px; transition: background .12s, border-color .12s; }
