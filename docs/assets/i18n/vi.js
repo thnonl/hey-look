@@ -109,10 +109,10 @@
   "story.cal_tentative": "Tạm chấp nhận. Sự kiện nằm trong lịch của bạn và một phản hồi được gửi đi từ đúng hộp thư.",
   "story.cal_note": "Đồng bộ với lịch Google, Microsoft hoặc CalDAV là tùy chọn, đặt riêng cho từng hộp thư.",
 
-  "story.img_loaded": "Đã tải nội dung. Ứng dụng đã tự tải ảnh về nếu có thể, nên giờ người gửi thấy một yêu cầu.",
-  "story.img_blocked": "Nội dung từ xa đã bị chặn. Không có yêu cầu nào được gửi tới người gửi.",
-  "story.img_loaded_say": "Đã tải nội dung từ xa.",
-  "story.img_blocked_say": "Nội dung từ xa lại bị chặn.",
+  "story.img_loaded": "Đã hiện ảnh. Ứng dụng đã tự tải ảnh về nếu có thể, nên máy chủ lưu ảnh đã nhận được một yêu cầu.",
+  "story.img_blocked": "Ảnh đã được ẩn. Không có yêu cầu nào được gửi tới người gửi.",
+  "story.img_loaded_say": "Đã hiện ảnh.",
+  "story.img_blocked_say": "Ảnh lại bị ẩn.",
   "story.newsletter": "Đã mở bản tin.",
 
   "nf.title": "Không tìm thấy trang - Hey Look!",

@@ -109,10 +109,10 @@
   "story.cal_tentative": "Provisional. Está en tu calendario y se envía una respuesta desde el buzón correcto.",
   "story.cal_note": "La sincronización con un calendario de Google, Microsoft o CalDAV es opcional, por buzón.",
 
-  "story.img_loaded": "Contenido cargado. La aplicación descargó las imágenes ella misma cuando pudo, así que el remitente ve ahora una solicitud.",
-  "story.img_blocked": "El contenido remoto está bloqueado. No se le ha pedido nada al remitente.",
-  "story.img_loaded_say": "Contenido remoto cargado.",
-  "story.img_blocked_say": "Contenido remoto bloqueado de nuevo.",
+  "story.img_loaded": "Imágenes mostradas. La aplicación las descargó ella misma cuando pudo, así que el servidor que las aloja vio ahora una solicitud.",
+  "story.img_blocked": "Las imágenes están ocultas. No se le ha pedido nada al remitente.",
+  "story.img_loaded_say": "Imágenes mostradas.",
+  "story.img_blocked_say": "Imágenes ocultas de nuevo.",
   "story.newsletter": "Boletín abierto.",
 
   "nf.title": "Página no encontrada - Hey Look!",

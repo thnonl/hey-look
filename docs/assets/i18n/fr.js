@@ -109,10 +109,10 @@
   "story.cal_tentative": "Provisoire. L’événement est dans votre calendrier et une réponse part de la bonne boîte aux lettres.",
   "story.cal_note": "La synchronisation avec un calendrier Google, Microsoft ou CalDAV est facultative, boîte aux lettres par boîte aux lettres.",
 
-  "story.img_loaded": "Contenu chargé. L’application a téléchargé elle-même les images quand elle le pouvait, donc l’expéditeur voit désormais une requête.",
-  "story.img_blocked": "Le contenu distant est bloqué. Rien n’a été demandé à l’expéditeur.",
-  "story.img_loaded_say": "Contenu distant chargé.",
-  "story.img_blocked_say": "Contenu distant de nouveau bloqué.",
+  "story.img_loaded": "Images affichées. L’application a téléchargé elle-même les images quand elle le pouvait, donc le serveur qui les héberge a reçu une requête.",
+  "story.img_blocked": "Les images sont masquées. Rien n’a été demandé à l’expéditeur.",
+  "story.img_loaded_say": "Images affichées.",
+  "story.img_blocked_say": "Images de nouveau masquées.",
   "story.newsletter": "Newsletter ouverte.",
 
   "nf.title": "Page introuvable - Hey Look!",

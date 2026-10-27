@@ -109,10 +109,10 @@
   "story.cal_tentative": "Mit Vorbehalt zugesagt. Der Termin ist in Ihrem Kalender, und eine Antwort geht vom passenden Postfach aus.",
   "story.cal_note": "Die Synchronisierung mit einem Google-, Microsoft- oder CalDAV-Kalender ist optional, je Postfach.",
 
-  "story.img_loaded": "Inhalte geladen. Die App hat die Bilder, wo es ging, selbst heruntergeladen, sodass der Absender jetzt eine Anfrage sieht.",
-  "story.img_blocked": "Externe Inhalte sind blockiert. Beim Absender wurde nichts angefragt.",
-  "story.img_loaded_say": "Externe Inhalte geladen.",
-  "story.img_blocked_say": "Externe Inhalte wieder blockiert.",
+  "story.img_loaded": "Bilder angezeigt. Die App hat sie, wo es ging, selbst heruntergeladen, sodass der Server, der sie bereitstellt, jetzt eine Anfrage sieht.",
+  "story.img_blocked": "Bilder sind ausgeblendet. Beim Absender wurde nichts angefragt.",
+  "story.img_loaded_say": "Bilder angezeigt.",
+  "story.img_blocked_say": "Bilder wieder ausgeblendet.",
   "story.newsletter": "Newsletter geöffnet.",
 
   "nf.title": "Seite nicht gefunden - Hey Look!",

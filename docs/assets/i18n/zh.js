@@ -107,10 +107,10 @@
   "story.cal_tentative": "已暂定。事件已加入您的日历，回复会从对应的邮箱发出。",
   "story.cal_note": "与Google、Microsoft或CalDAV日历同步是可选的，按邮箱分别设置。",
 
-  "story.img_loaded": "内容已加载。应用在可能的情况下自己下载了图片，所以发件人现在能看到一次请求。",
-  "story.img_blocked": "远程内容已被阻止。没有向发件人发出任何请求。",
-  "story.img_loaded_say": "远程内容已加载。",
-  "story.img_blocked_say": "远程内容再次被阻止。",
+  "story.img_loaded": "图片已显示。应用在可能的情况下自己下载了图片，所以托管这些图片的服务器看到了一次请求。",
+  "story.img_blocked": "图片已隐藏。没有向发件人发出任何请求。",
+  "story.img_loaded_say": "图片已显示。",
+  "story.img_blocked_say": "图片再次隐藏。",
   "story.newsletter": "已打开订阅邮件。",
 
   "nf.title": "找不到页面 - Hey Look!",
