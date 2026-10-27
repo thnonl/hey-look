@@ -59,7 +59,37 @@ pub fn add(c: &Connection, raw: &str, now_ms: i64) -> Result<Added, String> {
         return Ok(Added::Full);
     }
     c.execute("INSERT OR IGNORE INTO remote_ok(email, added) VALUES(?1, ?2)", params![email, now_ms]).map_err(sql_err)?;
+    // "always show" and "not automatically" contradict each other: the newer choice wins
+    c.execute("DELETE FROM remote_noauto WHERE email=?1", [&email]).map_err(sql_err)?;
     Ok(Added::New)
+}
+
+/// The senders whose pictures are NOT shown automatically (the list of the people you wrote to / well-known services the person turned off): same form as the list above.
+pub fn noauto_list(c: &Connection) -> rusqlite::Result<Vec<Entry>> {
+    let mut st = c.prepare("SELECT email, added FROM remote_noauto ORDER BY email")?;
+    let rows = st.query_map([], |r| Ok(Entry { email: r.get(0)?, added: r.get(1)? }))?.collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+pub fn noauto_add(c: &Connection, raw: &str, now_ms: i64) -> Result<Added, String> {
+    let email = normalize(raw).ok_or_else(|| "this is not an address the list can take".to_string())?;
+    let sql_err = |e: rusqlite::Error| e.to_string();
+    let exists: bool = c.query_row("SELECT EXISTS(SELECT 1 FROM remote_noauto WHERE email=?1)", [&email], |r| r.get(0)).map_err(sql_err)?;
+    if exists {
+        return Ok(Added::Already);
+    }
+    let n: i64 = c.query_row("SELECT COUNT(*) FROM remote_noauto", [], |r| r.get(0)).map_err(sql_err)?;
+    if n as usize >= MAX {
+        return Ok(Added::Full);
+    }
+    c.execute("INSERT OR IGNORE INTO remote_noauto(email, added) VALUES(?1, ?2)", params![email, now_ms]).map_err(sql_err)?;
+    // the two lists would contradict each other
+    c.execute("DELETE FROM remote_ok WHERE email=?1", [&email]).map_err(sql_err)?;
+    Ok(Added::New)
+}
+
+pub fn noauto_remove(c: &Connection, raw: &str) -> rusqlite::Result<usize> {
+    c.execute("DELETE FROM remote_noauto WHERE email=?1", [raw.trim()])
 }
 
 pub fn remove(c: &Connection, raw: &str) -> rusqlite::Result<usize> {
@@ -72,6 +102,7 @@ pub fn clear(c: &Connection) -> rusqlite::Result<usize> {
 
 /// Blocking a sender takes the address off the list (the two lists would contradict each other). `from_email` values of the messages are matched without case.
 pub fn forget_blocked(c: &Connection) -> rusqlite::Result<usize> {
+    let _ = c.execute("DELETE FROM remote_noauto WHERE email IN (SELECT lower(trim(email)) FROM blocked)", []);
     c.execute("DELETE FROM remote_ok WHERE email IN (SELECT lower(trim(email)) FROM blocked)", [])
 }
 
@@ -170,5 +201,36 @@ mod tests {
 
     fn migrate_only(c: &Connection) {
         crate::db::migrate(c).unwrap();
+    }
+
+    /// T-R5: the list of senders whose pictures are not shown automatically.
+    #[test]
+    fn the_noauto_list_is_a_list_of_its_own_and_the_two_lists_never_contradict_each_other() {
+        let c = db();
+        assert_eq!(noauto_add(&c, "A@Example.COM", 100).unwrap(), Added::New);
+        assert_eq!(noauto_add(&c, "a@example.com", 200).unwrap(), Added::Already, "without case, once");
+        assert_eq!(noauto_list(&c).unwrap(), vec![Entry { email: "a@example.com".into(), added: 100 }]);
+        assert!(noauto_add(&c, "nonsense", 1).is_err());
+        // "always show" takes the sender off the noauto list, and "not automatically" takes it off the always list
+        assert_eq!(add(&c, "a@example.com", 300).unwrap(), Added::New);
+        assert!(noauto_list(&c).unwrap().is_empty());
+        assert_eq!(list(&c).unwrap().len(), 1);
+        assert_eq!(noauto_add(&c, "a@example.com", 400).unwrap(), Added::New);
+        assert!(list(&c).unwrap().is_empty());
+        assert_eq!(noauto_remove(&c, "A@example.com").unwrap(), 1, "without case");
+        assert_eq!(noauto_add(&c, "a@example.com", 450).unwrap(), Added::New);
+        assert_eq!(noauto_remove(&c, "a@example.com").unwrap(), 1);
+        // the limit
+        for i in 0..MAX {
+            assert_eq!(noauto_add(&c, &format!("u{i}@x.org"), i as i64).unwrap(), Added::New);
+        }
+        assert_eq!(noauto_add(&c, "one-more@x.org", 1).unwrap(), Added::Full);
+        assert_eq!(noauto_add(&c, "U3@x.org", 1).unwrap(), Added::Already);
+        // blocking a sender drops both
+        add(&c, "b@x.org", 1).unwrap();
+        c.execute("INSERT INTO blocked(email) VALUES('b@x.org'),('u1@x.org')", []).unwrap();
+        forget_blocked(&c).unwrap();
+        assert!(!list(&c).unwrap().iter().any(|e| e.email == "b@x.org"));
+        assert!(!noauto_list(&c).unwrap().iter().any(|e| e.email == "u1@x.org"));
     }
 }

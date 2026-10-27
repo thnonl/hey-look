@@ -17,6 +17,7 @@ pub fn open(path: &Path) -> R<Connection> {
     let _ = crate::snippet::fix_stored(&conn);
     let _ = crate::snippet::fix_stored_links(&conn);
     let _ = crate::snippet::fix_stored_markers(&conn);
+    let _ = crate::autoload::backfill(&conn); // (the addresses written to, once per mailbox: autoload.rs)
     Ok(conn)
 }
 
@@ -36,6 +37,8 @@ pub fn migrate(conn: &Connection) -> R<()> {
            thread_id TEXT PRIMARY KEY, pinned INTEGER NOT NULL DEFAULT 0, snoozed_until INTEGER
          );
          CREATE TABLE IF NOT EXISTS blocked(email TEXT PRIMARY KEY);
+         CREATE TABLE IF NOT EXISTS remote_noauto(email TEXT PRIMARY KEY COLLATE NOCASE, added INTEGER NOT NULL); -- senders whose pictures are not shown automatically (people written to, well-known services), remote_ok.rs
+         CREATE TABLE IF NOT EXISTS written_to(email TEXT NOT NULL COLLATE NOCASE, account_id TEXT NOT NULL, PRIMARY KEY(email, account_id)); -- the addresses a mailbox has sent mail to (autoload.rs)
          CREATE TABLE IF NOT EXISTS remote_ok(email TEXT PRIMARY KEY COLLATE NOCASE, added INTEGER NOT NULL); -- senders whose remote content always loads (remote_ok.rs)
          CREATE TABLE IF NOT EXISTS templates(
            id TEXT PRIMARY KEY, name TEXT NOT NULL, subject TEXT NOT NULL, body TEXT NOT NULL
@@ -340,6 +343,7 @@ pub fn remove_account(c: &Connection, id: &str) -> R<()> {
     c.execute("DELETE FROM events WHERE account_id=?1 OR calendar_id=?2", params![id, format!("invites:{id}")]).map_err(err)?;
     crate::calsync::store::forget_account(c, id)?;
     c.execute("DELETE FROM accounts WHERE id=?1", [id]).map_err(err)?;
+    crate::autoload::forget_account(c, id);
     // its mail: the whole file goes (never row by row through the view)
     crate::shard::drop_account(c, id)?;
     // the account's rules / signatures / templates, folder map, hidden-calendar mark and preferences

@@ -111,6 +111,72 @@ pub fn verdict(raw: &[u8]) -> Auth {
     headers.iter().find(|(name, _)| name.eq_ignore_ascii_case("Authentication-Results")).map(|(_, v)| verdict_of(v)).unwrap_or(Auth::Unknown)
 }
 
+/// What the topmost `Authentication-Results` header proves about the domain of the From address (1.0.10, spec ba-v1010-written-to-and-placeholders.md D-A4): a passing DMARC
+/// (and the domain it was checked for, `header.from`) and the signing domains of the passing DKIM signatures (`header.d`, or the domain of `header.i`). SPF alone proves
+/// nothing about the From address (it checks the envelope sender), so it is not kept. Stored in `messages.auth_ev` as JSON; NULL = no header, nothing passed, or a message
+/// from before this was kept.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Evidence {
+    pub dmarc_pass: bool,
+    /// `header.from` of the passing DMARC result, lower case (None: the header did not say)
+    pub dmarc_from: Option<String>,
+    pub dkim_d: Vec<String>,
+}
+
+fn domain_of(v: &str) -> String {
+    v.rsplit('@').next().unwrap_or("").trim().trim_end_matches('.').to_ascii_lowercase()
+}
+
+/// The evidence of one header value. The value is cut into its results at ';' (comments and quoted strings are gone first, so a comment that says "dkim=pass" counts for
+/// nothing); each result is `method=result` followed by its `ptype.property=value` tokens.
+pub fn evidence_of(value: &str) -> Evidence {
+    let mut ev = Evidence::default();
+    for piece in strip_comments_and_quotes(value).split(';') {
+        let toks: Vec<&str> = piece.split_whitespace().collect();
+        let Some(first) = toks.iter().position(|t| t.contains('=')) else { continue };
+        let Some((method, result)) = toks[first].split_once('=') else { continue };
+        if !result.eq_ignore_ascii_case("pass") {
+            continue;
+        }
+        let prop = |name: &str| toks[first + 1..].iter().find_map(|t| t.split_once('=').filter(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v));
+        match method.to_ascii_lowercase().as_str() {
+            "dmarc" => {
+                ev.dmarc_pass = true;
+                if let Some(f) = prop("header.from").map(domain_of).filter(|d| !d.is_empty()) {
+                    ev.dmarc_from = Some(f);
+                }
+            }
+            "dkim" => {
+                let d = prop("header.d").map(domain_of).filter(|d| !d.is_empty()).or_else(|| prop("header.i").map(domain_of).filter(|d| !d.is_empty()));
+                if let Some(d) = d {
+                    if d.contains('.') && !ev.dkim_d.contains(&d) {
+                        ev.dkim_d.push(d);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    ev
+}
+
+/// The evidence of a raw message: its first (topmost) `Authentication-Results` header; none = nothing.
+pub fn evidence(raw: &[u8]) -> Evidence {
+    let (headers, _) = crate::pgpmail::parse_headers(raw);
+    headers.iter().find(|(name, _)| name.eq_ignore_ascii_case("Authentication-Results")).map(|(_, v)| evidence_of(v)).unwrap_or_default()
+}
+
+impl Evidence {
+    /// Value of `messages.auth_ev`: NULL when nothing passed.
+    pub fn to_db(&self) -> Option<String> {
+        (self.dmarc_pass || !self.dkim_d.is_empty()).then(|| serde_json::to_string(self).unwrap_or_default()).filter(|s| !s.is_empty())
+    }
+
+    pub fn from_db(v: Option<&str>) -> Option<Evidence> {
+        v.and_then(|s| serde_json::from_str(s).ok())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,5 +253,46 @@ mod tests {
     fn the_verdict_is_stored_as_text_and_null_means_unknown() {
         assert_eq!((Auth::Pass.to_db(), Auth::Fail.to_db(), Auth::Unknown.to_db()), (Some("pass"), Some("fail"), None));
         assert_eq!((Auth::from_db(Some("pass")), Auth::from_db(Some("fail")), Auth::from_db(None), Auth::from_db(Some("junk"))), (Auth::Pass, Auth::Fail, Auth::Unknown, Auth::Unknown));
+    }
+
+    fn ev(dmarc: bool, from: Option<&str>, dkim: &[&str]) -> Evidence {
+        Evidence { dmarc_pass: dmarc, dmarc_from: from.map(String::from), dkim_d: dkim.iter().map(|d| d.to_string()).collect() }
+    }
+
+    /// T-R1: what the topmost header proves about the From domain.
+    #[test]
+    fn evidence_keeps_a_passing_dmarc_and_the_signing_domains_of_passing_dkim_only() {
+        let cases: &[(&str, &str, Evidence)] = &[
+            ("gmail dkim", "mx.google.com; dkim=pass header.i=@example.org header.s=sel header.b=AbCd; spf=pass smtp.mailfrom=a@example.org; dmarc=pass (p=NONE sp=NONE dis=NONE) header.from=example.org", ev(true, Some("example.org"), &["example.org"])),
+            ("m365", "spf=pass (sender IP is 1.2.3.4) smtp.mailfrom=example.org; dkim=pass (signature was verified) header.d=Example.ORG; dmarc=pass action=none header.from=EXAMPLE.org; compauth=pass reason=100", ev(true, Some("example.org"), &["example.org"])),
+            ("dmarc without header.from", "mx.example; dmarc=pass", ev(true, None, &[])),
+            ("two signatures", "mx.example; dkim=pass header.d=a.example; dkim=pass header.d=b.example header.d=a.example; dkim=fail header.d=c.example", ev(false, None, &["a.example", "b.example"])),
+            ("spf alone", "mx.example; spf=pass smtp.mailfrom=a@example.org", ev(false, None, &[])),
+            ("neutral, softfail, temperror, none", "mx.example; dkim=neutral header.d=a.example; spf=softfail; dmarc=temperror header.from=a.example; dkim=none header.d=b.example", ev(false, None, &[])),
+            ("dkim fail and dmarc fail", "mx.example; dkim=fail header.d=a.example; dmarc=fail header.from=a.example", ev(false, None, &[])),
+            ("a comment that says pass", "mx.example; dkim=fail (dkim=pass header.d=evil.example) header.d=a.example; dmarc=fail (dmarc=pass header.from=a.example)", ev(false, None, &[])),
+            ("a quoted reason that says pass", "mx.example; dkim=fail reason=\"dkim=pass header.d=evil.example\" header.d=a.example", ev(false, None, &[])),
+            ("header.i only, with a local part", "mx.example; dkim=pass header.i=news@mail.example.org", ev(false, None, &["mail.example.org"])),
+            ("no dot in the signing domain", "mx.example; dkim=pass header.d=com", ev(false, None, &[])),
+            ("empty", "", ev(false, None, &[])),
+        ];
+        for (name, value, want) in cases {
+            assert_eq!(&evidence_of(value), want, "{name}");
+        }
+        assert_eq!(ev(false, None, &[]).to_db(), None, "nothing passed: NULL");
+        let e = ev(true, Some("example.org"), &["example.org"]);
+        assert_eq!(Evidence::from_db(e.to_db().as_deref()), Some(e));
+        assert_eq!(Evidence::from_db(None), None);
+        assert_eq!(Evidence::from_db(Some("junk")), None);
+    }
+
+    #[test]
+    fn evidence_reads_the_topmost_header_only_and_no_header_proves_nothing() {
+        let forged_below = msg(&["Authentication-Results: mx.real; dkim=fail header.d=example.org; dmarc=fail header.from=example.org", "Authentication-Results: mx.forged; dkim=pass header.d=example.org; dmarc=pass header.from=example.org"]);
+        assert_eq!(evidence(&forged_below), Evidence::default());
+        let real_on_top = msg(&["Authentication-Results: mx.real; dkim=pass header.d=example.org; dmarc=pass header.from=example.org", "Authentication-Results: mx.old; dkim=pass header.d=evil.example"]);
+        assert_eq!(evidence(&real_on_top), ev(true, Some("example.org"), &["example.org"]));
+        assert_eq!(evidence(&msg(&["X-Other: dkim=pass header.d=example.org"])), Evidence::default());
+        assert_eq!(evidence(&msg(&["ARC-Authentication-Results: i=1; mx; dkim=pass header.d=example.org"])), Evidence::default());
     }
 }

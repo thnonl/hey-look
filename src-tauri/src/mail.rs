@@ -773,6 +773,10 @@ pub struct Parsed {
     pub importance: crate::importance::Importance,
     /// What the receiving server's topmost `Authentication-Results` says about the sender (calendar updates need a passing check, W7.3)
     pub auth: crate::authres::Auth,
+    /// What that header proves about the From domain (authres::Evidence as JSON), None when nothing passed (1.0.10, the pictures of people you wrote to and of services)
+    pub auth_ev: Option<String>,
+    /// The message has a List-Id or List-Post header (a mailing list: never "written to" mail)
+    pub list_hdr: bool,
     /// The headers an answer needs (Reply-To, Message-ID, References, From / To / Cc with names) as JSON, kept with the message so that Reply makes no call to the server (W13.13)
     pub reply_hdr: Option<String>,
 }
@@ -1203,6 +1207,8 @@ pub fn parse(uid: u32, raw: &[u8], seen: bool, flagged: bool, fallback_date: i64
         cal_method,
         importance: crate::importance::from_raw(raw),
         auth: crate::authres::verdict(raw),
+        auth_ev: crate::authres::evidence(raw).to_db(),
+        list_hdr: m.header_raw("List-Id").is_some() || m.header_raw("List-Post").is_some(),
         reply_hdr: crate::replyhdr::to_db(&crate::replyhdr::from_message(&m)),
     })
 }

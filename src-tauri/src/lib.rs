@@ -27,6 +27,7 @@ mod identity;
 #[cfg(any(feature = "qa-secrets", test))]
 mod qasecrets;
 mod authres;
+mod autoload;
 mod remote_ok;
 mod importance;
 mod idle;
@@ -908,10 +909,13 @@ fn draft_thread_id(acc_id: &str, raw: &[u8]) -> Option<String> {
 
 fn insert_parsed(c: &Connection, acc: &Account, role: &str, p: &mail::Parsed) -> R<String> {
     let thread_id = thread_id_of(&acc.id, role, p);
+    if role == "sent" {
+        autoload::note_written(c, &acc.id, &p.to.join(","), &p.cc.join(","));
+    }
     c.execute(
         "INSERT OR REPLACE INTO messages(id,account_id,folder,uid,message_id,thread_id,subject,from_name,from_email,
-           to_addrs,cc_addrs,date,snippet,body_html,body_text,seen,flagged,has_attach,attachments,list_unsub,list_unsub_post,pgp,pgp_raw,ics,cal_method,importance,auth_result,reply_hdr)
-         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22 | COALESCE((SELECT pgp FROM messages WHERE id=?1),0),?23,?24,?25,?26,?27,?28)",
+           to_addrs,cc_addrs,date,snippet,body_html,body_text,seen,flagged,has_attach,attachments,list_unsub,list_unsub_post,pgp,pgp_raw,ics,cal_method,importance,auth_result,reply_hdr,auth_ev,list_hdr)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22 | COALESCE((SELECT pgp FROM messages WHERE id=?1),0),?23,?24,?25,?26,?27,?28,?29,?30)",
         params![
             format!("{}:{}:{}", acc.id, role, p.uid),
             acc.id,
@@ -941,7 +945,9 @@ fn insert_parsed(c: &Connection, acc: &Account, role: &str, p: &mail::Parsed) ->
             p.cal_method,
             p.importance.to_db(),
             p.auth.to_db(),
-            p.reply_hdr
+            p.reply_hdr,
+            p.auth_ev,
+            p.list_hdr as i64
         ],
     )
     .map_err(err)?;
@@ -3109,13 +3115,21 @@ pub(crate) struct MessageFull {
     importance: importance::Importance,
     /// the sender check of the server (`Authentication-Results`, authres.rs): "pass", "fail" or none (not checked, or a message from before the app kept it)
     auth: Option<String>,
+    /// why the pictures of this message may show without a click (autoload.rs): "wrote" (you have written to this address), "service" (a well-known service) or none; the page
+    /// adds the exclusions it knows (the global switch, the senders turned off)
+    auto_reason: Option<String>,
+    /// what the sender check proves about the From domain, and the mailing-list headers: read by `finish_message` for `auto_reason`, not sent to the page
+    #[serde(skip)]
+    auth_ev: Option<String>,
+    #[serde(skip)]
+    list_hdr: bool,
 }
 
 const MESSAGE_COLS: &str = "id,account_id,folder,message_id,subject,from_name,from_email,to_addrs,cc_addrs,date,body_html,body_text,
-                    seen,flagged,attachments,list_unsub,pgp,pgp_raw,ics,importance,auth_result";
+                    seen,flagged,attachments,list_unsub,pgp,pgp_raw,ics,importance,auth_result,auth_ev,list_hdr";
 /// `MESSAGE_COLS` without the body, the invitation and the kept PGP data (same positions: `row_message` reads both).
 const MESSAGE_COLS_LIGHT: &str = "id,account_id,folder,message_id,subject,from_name,from_email,to_addrs,cc_addrs,date,NULL,NULL,
-                    seen,flagged,attachments,list_unsub,pgp,NULL,NULL,importance,auth_result";
+                    seen,flagged,attachments,list_unsub,pgp,NULL,NULL,importance,auth_result,auth_ev,list_hdr";
 
 /// `messages.auth_result` as the page gets it: "pass", "fail", or nothing (not checked, an older message, or a value this version does not know).
 fn auth_for_page(v: Option<String>) -> Option<String> {
@@ -3152,6 +3166,9 @@ fn row_message(r: &rusqlite::Row) -> rusqlite::Result<(MessageFull, i64, Option<
             invite: None,
             importance: importance::Importance::from_db(r.get(19)?),
             auth: auth_for_page(r.get::<_, Option<String>>(20)?),
+            auto_reason: None,
+            auth_ev: r.get(21)?,
+            list_hdr: r.get::<_, i64>(22)? != 0,
         },
         pgp,
         r.get(17)?,
@@ -3163,9 +3180,20 @@ fn row_message(r: &rusqlite::Row) -> rusqlite::Result<(MessageFull, i64, Option<
 /// waits for the lock waited with it).
 fn finish_message<A: pgpstore::Access + ?Sized>(a: &A, m: &mut MessageFull, pgp: i64, raw: Option<Vec<u8>>) {
     apply_pgp(a, m, pgp, raw);
+    note_auto_reason(a, m, pgp);
     if let Some(ics) = m.ics.clone() {
         m.invite = Some(a.with(|c| calendar::invite_for(c, &m.account_id, &m.id, &m.folder, &m.from_email, &ics, pgp & pgpmail::FLAG_ENCRYPTED as i64 != 0)));
     }
+}
+
+/// `MessageFull.auto_reason`: the pictures of people you wrote to and of well-known services (autoload.rs). Only a message that has the evidence of the sender check can have one.
+fn note_auto_reason<A: pgpstore::Access + ?Sized>(a: &A, m: &mut MessageFull, pgp: i64) {
+    if m.auth_ev.is_none() {
+        return;
+    }
+    let encrypted = pgp & pgpmail::FLAG_ENCRYPTED as i64 != 0;
+    let (auth, ev, from, folder, list_hdr, unsub) = (m.auth.clone(), m.auth_ev.clone(), m.from_email.clone(), m.folder.clone(), m.list_hdr, m.can_unsubscribe);
+    m.auto_reason = a.with(|c| autoload::reason_for(c, &from, &folder, encrypted, auth.as_deref(), ev.as_deref(), list_hdr, unsub)).map(String::from);
 }
 
 /// A signature inside an encrypted message cannot be seen before it is decrypted, so the sync step only stored "encrypted".
@@ -3958,6 +3986,31 @@ fn remote_ok_add(app: tauri::AppHandle, state: tauri::State<AppState>, email: St
     .to_string())
 }
 
+/// The senders whose pictures are not shown automatically (remote_ok.rs).
+#[tauri::command]
+fn list_remote_noauto(state: tauri::State<AppState>) -> R<Vec<remote_ok::Entry>> {
+    remote_ok::noauto_list(&lock(&state.db)).map_err(err)
+}
+
+#[tauri::command]
+fn remote_noauto_add(app: tauri::AppHandle, state: tauri::State<AppState>, email: String) -> R<String> {
+    let r = remote_ok::noauto_add(&lock(&state.db), &email, chrono::Utc::now().timestamp_millis())?;
+    let _ = app.emit("remote-ok-changed", ());
+    Ok(match r {
+        remote_ok::Added::New => "added",
+        remote_ok::Added::Already => "already",
+        remote_ok::Added::Full => "full",
+    }
+    .into())
+}
+
+#[tauri::command]
+fn remote_noauto_remove(app: tauri::AppHandle, state: tauri::State<AppState>, email: String) -> R<()> {
+    remote_ok::noauto_remove(&lock(&state.db), &email).map_err(err)?;
+    let _ = app.emit("remote-ok-changed", ());
+    Ok(())
+}
+
 #[tauri::command]
 fn remote_ok_remove(app: tauri::AppHandle, state: tauri::State<AppState>, email: String) -> R<()> {
     remote_ok::remove(&lock(&state.db), &email).map_err(err)?;
@@ -4558,6 +4611,8 @@ fn send_now(db: &Db, d: &smtp::Draft, on_accepted: &dyn Fn(&[u8])) -> R<()> {
     let (wire, raw) = smtp::as_data(&raw);
     smtp::send_raw(&acc, &smtp_secret(db, &acc)?, &env, wire)?;
     on_accepted(&raw);
+    // the To and Cc addresses (not Bcc) are people you have written to: their pictures show without a click from now on (autoload.rs)
+    autoload::note_written(&lock(db), &acc.id, &d.to.join(","), &d.cc.join(","));
     // the message is out: the one it answers or forwards gets its flag on its own server (in the background; a failure is a line in the log, never the send's)
     flag_original(db, d);
     if !server_stores_sent_copy(&acc) {
@@ -6929,6 +6984,9 @@ pub fn run() {
             list_blocked,
             unblock,
             list_remote_ok,
+            list_remote_noauto,
+            remote_noauto_add,
+            remote_noauto_remove,
             remote_ok_add,
             remote_ok_remove,
             remote_ok_clear,
@@ -8248,7 +8306,7 @@ mod backfill_tests {
         mail::Parsed {
             uid, message_id: None, refs: vec![], subject: "s".into(), from_name: "n".into(), from_email: "e@example.com".into(), to: vec![], cc: vec![],
             date: uid as i64, snippet: String::new(), html: None, text: Some("t".into()), seen: true, flagged: false, attachments: vec![],
-            list_unsub: None, list_unsub_post: false, pgp: 0, pgp_raw: None, ics: None, cal_method: None, importance: importance::Importance::Normal, auth: authres::Auth::Unknown, reply_hdr: None,
+            list_unsub: None, list_unsub_post: false, pgp: 0, pgp_raw: None, ics: None, cal_method: None, importance: importance::Importance::Normal, auth: authres::Auth::Unknown, auth_ev: None, list_hdr: false, reply_hdr: None,
         }
     }
 
