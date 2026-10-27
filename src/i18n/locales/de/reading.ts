@@ -148,7 +148,7 @@ export default defineLocale<typeof ns.en>({
   "reading.body.loadContent": "Bilder anzeigen",
   "reading.body.alwaysLoad": "Bilder immer anzeigen (Einstellungen)",
   "reading.trust.add": "Immer für diesen Absender anzeigen",
-  "reading.trust.stop": "Für diesen Absender nicht mehr anzeigen",
+  "reading.trust.stop": "Für Absender nicht mehr anzeigen",
   "reading.trust.addTitle": "Bilder von {email} immer anzeigen",
   "reading.trust.stopTitle": "Bilder von {email} nicht mehr anzeigen",
   "reading.trust.loaded": "Bilder werden für diesen Absender automatisch angezeigt.",
