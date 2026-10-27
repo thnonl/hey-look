@@ -4,6 +4,7 @@
 
 ### Changed
 
+- The text says "pictures" instead of "remote content" ("Show pictures", "Always show pictures from this sender", "Always show pictures" in Settings), in all eight languages
 - Windows: starting Hey Look! with Windows now shows the window, like any other start. Before, it started hidden in the tray, and the hidden window could leave a white rectangle on the desktop. The window is made when the desktop is ready (taskbar, display and web view runtime), so it does not come up blank while Windows is still signing in
 - Windows: the start-with-Windows entry of an existing install is rewritten at the first start of this version from `"<path>" --minimized` (or the older unquoted form) to `"<path>"`, so the update changes your next sign-in to a visible start. An entry of another program and one that you turned off in Task Manager are left alone
 - The new-mail notification sound is quieter (9 dB lower, same sound)
@@ -11,6 +12,8 @@
 
 ### Added
 
+- Pictures show without a click in messages from people you have written to (any of your mailboxes) and from a built-in list of well-known services (for example Google, Microsoft, Apple, Amazon, GitHub), but only when the message passes the sender check (the result your mail provider writes into the message), and never in Junk, in encrypted messages or after a failed check. A line above the message says why, with "Stop showing pictures from this sender" (with Undo); Settings > Reading lists the senders turned off
+- A hidden picture is now a visible box with a shield, "Picture hidden for privacy" and how to show it. Click it, press Enter, or right-click it (Shift+F10 with the keyboard) for "Show this picture", "Show all pictures in this message" and "Always show pictures from this sender"
 - The app now ships its own font (Inter) so that text looks and wraps the same on Windows, macOS and Linux (Chinese and Japanese keep the system fonts; the font adds about 57 KB to the app)
 - Senders whose remote content always loads: a third link in the notice above a message whose content is blocked, "Always load remote content from this sender", loads it at once and for every later message from that exact address (not in Junk, not for encrypted messages, not when the sender check failed, never for your own addresses). "Stop loading remote content from this sender" is in the same place, with Undo. The list is in Settings > Mailboxes > Reading, with search, Remove and Remove all; Block sender takes the address off it
 - Windows: Settings > Notifications has a new switch, "Start in the tray", under "Start Hey Look! when I sign in to Windows" (shown while that one is on; off by default; in all eight languages). Turning it on makes the entry `"<path>" --minimized` again: the app starts in the tray icon and the window stays hidden until you open it. Turning it off, or the start-with-Windows switch off, writes the entry at once
