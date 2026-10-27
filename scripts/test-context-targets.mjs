@@ -104,7 +104,7 @@ async function mainCases(theme) {
 
   // ---- outside the reading pane, nothing selected yet
   await expectOn('list row', '.ml-row', 'prevented', 1);
-  await expectOn('folder label', '.fp-lbl', 'prevented');
+  await expectOn('folder label', '.fp-row:not([data-own-menu]) .fp-lbl', 'prevented'); // (One Inbox has a menu of its own since 1.0.10)
   const mb = await evaluate(`document.querySelectorAll('[data-own-menu]').length`);
   ok(mb >= 1, 'no element marked data-own-menu');
   await expectOn('ribbon button', '.ribbon-row .rb, .ribbon-row button', 'prevented', 0);
@@ -231,11 +231,11 @@ async function composeWindowCases(theme) {
 async function switchCases() {
   tag = 'switch';
   await app('light', 1280, 800, 'lang=en'); // no switch: the dev preview keeps the native menu
-  await expectOn('preview default, label', '.fp-lbl', 'native', 0);
+  await expectOn('preview default, label', '.fp-row:not([data-own-menu]) .fp-lbl', 'native', 0);
   await app('light', 1280, 800, 'lang=en&nativemenu=on');
-  await expectOn('nativemenu=on, label', '.fp-lbl', 'native', 0);
+  await expectOn('nativemenu=on, label', '.fp-row:not([data-own-menu]) .fp-lbl', 'native', 0);
   await app('light', 1280, 800, 'lang=en&nativemenu=off');
-  await expectOn('nativemenu=off, label', '.fp-lbl', 'prevented');
+  await expectOn('nativemenu=off, label', '.fp-row:not([data-own-menu]) .fp-lbl', 'prevented');
   // a PDF in the engine's viewer: the guard leaves it alone (a synthetic event on the host element: the viewer itself is not in this document)
   const plugin = await evaluate(`(() => { const out = {}; for (const tagName of ['object', 'embed']) { const e = document.createElement(tagName); e.setAttribute('type', 'application/pdf'); document.body.appendChild(e); const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true }); e.dispatchEvent(ev); out[tagName] = ev.defaultPrevented; e.remove(); } return out; })()`);
   ok(plugin.object === false && plugin.embed === false, `a PDF host (<object>, <embed>): the engine's menu stays (${JSON.stringify(plugin)})`);

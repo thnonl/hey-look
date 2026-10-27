@@ -32,7 +32,7 @@ const target = (name, el, want) => {
   const prevented = fire(document, el, 20, 12);
   out.push({ name, found: true, prevented, want, ok: prevented === want });
 };
-target('folder label', q('.fp-lbl'), true);
+target('folder label', q('.fp-row:not([data-own-menu]) .fp-lbl'), true); // (1.0.10: One Inbox, the first row, has a menu of its own)
 target('ribbon button', q('.ribbon-row button'), true);
 // (not the top bar: on a custom-frame window - Windows - a right click there opens the system's window menu, a modal native menu that blocks the host's message loop and with it the bridge)
 target('reading-pane header', q('.rp-head h2'), true);
