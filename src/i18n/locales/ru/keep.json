@@ -2,5 +2,15 @@
   "calendar.time.am",
   "calendar.time.pm",
   "compose.sec.encryptionValue",
-  "settings.server.push"
+  "settings.server.push",
+  "reading.autoinfo.label",
+  "reading.autoinfo.tip.wrote",
+  "reading.autoinfo.more.wrote",
+  "reading.autoinfo.tip.service",
+  "reading.autoinfo.more.service",
+  "reading.autoinfo.tip.list",
+  "reading.autoinfo.tip.global",
+  "reading.autoinfo.privacy",
+  "reading.autoinfo.removeList",
+  "reading.autoinfo.openSettings"
 ]

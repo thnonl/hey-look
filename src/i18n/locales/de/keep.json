@@ -38,5 +38,15 @@
   "compose.emoji.smileys",
   "compose.insert.symbol",
   "settings.calendar.calName",
-  "settings.test.details"
+  "settings.test.details",
+  "reading.autoinfo.label",
+  "reading.autoinfo.tip.wrote",
+  "reading.autoinfo.more.wrote",
+  "reading.autoinfo.tip.service",
+  "reading.autoinfo.more.service",
+  "reading.autoinfo.tip.list",
+  "reading.autoinfo.tip.global",
+  "reading.autoinfo.privacy",
+  "reading.autoinfo.removeList",
+  "reading.autoinfo.openSettings"
 ]

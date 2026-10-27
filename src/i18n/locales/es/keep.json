@@ -11,5 +11,15 @@
   "settings.profile.color",
   "settings.reading.minutes",
   "settings.server.push",
-  "compose.fmt.style.normal"
+  "compose.fmt.style.normal",
+  "reading.autoinfo.label",
+  "reading.autoinfo.tip.wrote",
+  "reading.autoinfo.more.wrote",
+  "reading.autoinfo.tip.service",
+  "reading.autoinfo.more.service",
+  "reading.autoinfo.tip.list",
+  "reading.autoinfo.tip.global",
+  "reading.autoinfo.privacy",
+  "reading.autoinfo.removeList",
+  "reading.autoinfo.openSettings"
 ]
