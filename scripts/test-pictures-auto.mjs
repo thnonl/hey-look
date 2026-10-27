@@ -2,7 +2,7 @@
 // 1.0.10: pictures that show without a click (people you wrote to, well-known services) and the box of a hidden picture with its menu
 // (spec E:\hey-mail\reports\v1-0-1\ba-v1010-written-to-and-placeholders.md), in the dev preview (src/devMock.ts: a message can carry `autoReason`, the senders turned off are
 // `window.__mockRemoteNoauto`, the fetches of pictures are `window.__remoteFetchCalls`).
-//   T-C1/C2 S8 and S9: the notice, the pictures show, one link (Stop)         T-C3 Stop: hidden again, the offer, focus, the toast, Undo, Settings list, Remove
+//   T-C1/C2 S8 and S9 (no notice bar: the info button in the header says why, its popover has the action; keyboard)   T-C3 Stop: hidden again, the offer, focus, toast, Undo, Settings list, Remove
 //   T-C4 AC-10/11/12/13: the senders and messages that do NOT show by themselves; a trusted sender with the rule: Stop really stops
 //   T-C6 AC-15..18 the box: size, text, aria, tiers, nothing for pixels and for what the mail hides      T-C7 AC-19/20 the menu: right-click, Shift+F10, Esc, in a link, confidential
 //   T-C8 AC-21..25 show one picture (one fetch, the CSP stays, focus), show all, reopen                  T-C12 colours and the print rule
@@ -20,6 +20,7 @@ const eq = (a, b, m) => ok(JSON.stringify(a) === JSON.stringify(b), `${m}: got $
 const until = async (expr, ms = 6000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { let v = false; try { v = await evaluate(expr); } catch { /* between renders */ } if (v) return true; await sleep(40); } return false; };
 const key = async (k, code, vk, modifiers = 0) => {
   await cdp('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: k, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk, modifiers });
+  if (k === 'Enter') await cdp('Input.dispatchKeyEvent', { type: 'char', key: k, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk, text: '\r' });
   await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: k, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk, modifiers });
   await sleep(60);
 };
@@ -67,6 +68,10 @@ const calls = () => evaluate(`JSON.stringify(window.__remoteFetchCalls || [])`).
 const toast = () => evaluate(`(() => { const t = document.querySelector('.toast, .toasts .toast'); return t ? t.textContent.replace(/\\s+/g, ' ').trim() : null; })()`);
 const noauto = () => evaluate(`JSON.stringify([...window.__mockRemoteNoauto.keys()])`).then(JSON.parse);
 const trusted = () => evaluate(`JSON.stringify([...window.__mockRemoteOk.keys()])`).then(JSON.parse);
+const info = () => evaluate(`(() => { const b = document.querySelector('.rp-msg.open .autoinfo-btn'); return b ? { title: b.title, aria: b.getAttribute('aria-label'), kind: b.dataset.kind, expanded: b.getAttribute('aria-expanded') } : null; })()`);
+const popover = () => evaluate(`(() => { const p = document.querySelector('.autoinfo-pop'); if (!p) return null; const r = p.getBoundingClientRect(); return { text: [...p.querySelectorAll('p')].map((x) => x.textContent.trim()), buttons: [...p.querySelectorAll('button')].map((b) => b.textContent.trim()), label: p.getAttribute('aria-label'), inside: r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight, overflow: p.scrollWidth > p.clientWidth + 1, focusOn: document.activeElement ? document.activeElement.textContent.trim() : null }; })()`);
+const openInfo = async () => { await evaluate(`document.querySelector('.rp-msg.open .autoinfo-btn').click(); 1`); return until(`!!document.querySelector('.autoinfo-pop')`, 2000); };
+const infoAction = async () => { await openInfo(); await evaluate(`document.querySelector('.autoinfo-pop button').click(); 1`); };
 const clearLists = () => evaluate(`window.__mockRemoteOk.clear(); window.__mockRemoteNoauto.clear(); window.__mockEmit('remote-ok-changed', null).then(() => 1)`);
 const clickLink = (sel) => evaluate(`(() => { const b = document.querySelector('.rp-msg.open .notice ${sel}'); if (!b) return false; b.click(); return true; })()`);
 const boxPoint = (i) => evaluate(`(() => { const f = ${FR}, d = f.contentDocument, b = d.querySelectorAll('.hl-bp[data-hl-pic]')[${i}]; b.scrollIntoView({ block: 'center' }); const q = b.getBoundingClientRect(), fr = f.getBoundingClientRect(); return [fr.left + q.left + Math.min(q.width / 2, 40), fr.top + q.top + Math.min(q.height / 2, 20)]; })()`);
@@ -81,29 +86,49 @@ const start = async (theme = 'light') => {
   await clearLists();
 };
 
+let n;
 try {
   await start();
 
   // ======================================================================== T-C1 / T-C2: S8 and S9
   tag = 'S8';
   await open('pW');
-  let n = await notice();
-  ok(n && n.cls.includes('info') && n.text.startsWith('Pictures shown: you have written to this address.'), `the S8 notice: ${JSON.stringify(n)}`);
-  eq(n.links, ['Stop showing pictures from this sender'], 'one link: Stop');
+  eq(await notice(), null, 'no notice bar above a message whose pictures show by themselves');
+  let ic = await info();
+  const S8 = 'Pictures in this message are shown automatically because you have written to this address before.';
+  ok(ic && ic.kind === 'wrote' && ic.title === S8 && ic.aria === S8 && ic.expanded === 'false', `the info button says why in one sentence: ${JSON.stringify(ic)}`);
   let p = await pics();
   ok(p.boxes === 0 && p.imgs >= 1, `the picture shows by itself: ${JSON.stringify(p)}`);
   ok((await calls()).length > 0, 'it came through the backend');
+  ok(await openInfo(), 'the button opens the popover');
+  let po = await popover();
+  eq(po.text, [`${S8} Hey Look! also checked that the message really comes from this sender.`, 'When pictures are shown, the sender’s server can see that you opened the message and roughly when.'], 'the reason, then what the sender can see');
+  eq(po.buttons, ['Stop showing pictures from this sender'], 'one action');
+  ok(po.inside && !po.overflow && po.label === 'Why are pictures shown?', `the popover is inside the window and named: ${JSON.stringify(po)}`);
+  ok(po.focusOn === 'Stop showing pictures from this sender', 'the focus is on its action');
+  await key('Escape', 'Escape', 27);
+  ok(!(await popover()) && (await evaluate(`document.activeElement && document.activeElement.classList.contains('autoinfo-btn')`)), 'Esc closes it and the focus returns to the button');
+  // the keyboard: Enter on the button opens it (a button does by itself), Esc closes
+  await evaluate(`document.querySelector('.rp-msg.open .autoinfo-btn').focus(); 1`);
+  await key('Enter', 'Enter', 13);
+  ok(await until(`!!document.querySelector('.autoinfo-pop')`, 1500), 'Enter on the button opens the popover');
+  await key('Escape', 'Escape', 27);
   tag = 'S9';
   await open('pS');
-  n = await notice();
-  ok(n && n.cls.includes('info') && n.text.startsWith('Pictures shown: the sender is a well-known service.'), `the S9 notice: ${JSON.stringify(n)}`);
+  eq(await notice(), null, 'no notice bar');
+  ic = await info();
+  ok(ic && ic.kind === 'service' && ic.title === 'Pictures in this message are shown automatically because it comes from accounts.google.com, a well-known service.', `the service reason names the domain: ${JSON.stringify(ic)}`);
+  await openInfo();
+  po = await popover();
+  ok(po.text[0].endsWith('Hey Look! checked that it really comes from there.'), `the popover adds what was checked: ${po.text[0]}`);
+  await key('Escape', 'Escape', 27);
   p = await pics();
   ok(p.boxes === 0 && p.imgs >= 1, 'the pictures show');
 
   // ======================================================================== T-C3: Stop, Undo, Settings
   tag = 'stop';
   await open('pW');
-  ok(await clickLink('button.link[data-trust="stop"]'), 'the Stop link is there');
+  await infoAction();
   ok(await until(`${FR}.contentDocument.querySelectorAll('.hl-bp').length > 0`, 4000), 'Stop: the pictures are hidden again');
   n = await notice();
   ok(n && n.cls === 'notice' && n.links.length === 3 && n.links[1] === 'Always show pictures from this sender', `Stop: the offer is back: ${JSON.stringify(n)}`);
@@ -119,13 +144,13 @@ try {
   await clickLink('button.link[data-trust="add"]'); // (not the Undo: leave a clean list state first)
   await clearLists();
   await open('pW');
-  await clickLink('button.link[data-trust="stop"]');
+  await infoAction();
   await until(`!!document.querySelector('.toast button, .toasts .toast button')`, 3000);
   await evaluate(`(() => { const b = [...document.querySelectorAll('.toast button, .toasts .toast button')].find((x) => /undo/i.test(x.textContent)); if (b) b.click(); return !!b; })()`);
-  ok(await until(`${FR}.contentDocument.querySelectorAll('.hl-bp').length === 0 && !!document.querySelector('.rp-msg.open .notice.info')`, 4000), 'Undo: shown again, the info line is back');
+  ok(await until(`${FR}.contentDocument.querySelectorAll('.hl-bp').length === 0 && !!document.querySelector('.rp-msg.open .autoinfo-btn')`, 4000), 'Undo: shown again, the info button is back');
   eq(await noauto(), [], 'Undo: the list is empty again');
   // Settings: the list of the senders turned off, Remove brings the pictures back
-  await clickLink('button.link[data-trust="stop"]');
+  await infoAction();
   await sleep(300);
   await evaluate(`window.__store.getState().setDialog({ type: 'settings', tab: 'mb:all', section: 'reading', nonce: Date.now() }); 1`);
   ok(await until(`!!document.querySelector('[data-testid=noauto-list] .list-row')`, 8000), 'Settings > Reading lists the sender turned off');
@@ -137,8 +162,7 @@ try {
   await evaluate(`window.__store.getState().setDialog(null); 1`);
   await sleep(300);
   await open('pW');
-  n = await notice();
-  ok(n && n.cls.includes('info') && n.text.startsWith('Pictures shown: you have written'), 'after Remove the message shows by itself again');
+  ok(!(await notice()) && (await info()) && (await info()).kind === 'wrote', 'after Remove the message shows by itself again (the info button)');
 
   // ======================================================================== T-C4: what does not show by itself
   tag = 'not-auto';
@@ -153,13 +177,23 @@ try {
   await evaluate(`window.__store.getState().setPrefs({ loadRemote: true }); 1`);
   await open('pW');
   ok((await notice()) === null, 'AC-13: the global switch is on: no notice');
+  ic = await info();
+  ok(ic && ic.kind === 'global' && ic.title === 'Pictures are shown in every message because “Always show pictures” is turned on in Settings.', `the global switch: the info button says so (${JSON.stringify(ic)})`);
+  await openInfo();
+  eq((await popover()).buttons, ['Open Settings'], 'its action opens Settings');
+  await evaluate(`document.querySelector('.autoinfo-pop button').click(); 1`);
+  ok(await until(`!!document.querySelector('[role=dialog][aria-label], .modal')`, 4000), 'Settings opens');
+  await evaluate(`window.__store.getState().setDialog(null); 1`);
+  await sleep(300);
   await evaluate(`window.__store.getState().setPrefs({ loadRemote: false }); 1`);
   // a sender on the list AND the rule: the manual list wins, and Stop really stops
   await evaluate(`window.__mockRemoteOk.set('alerts@accounts.google.com', 1); window.__mockEmit('remote-ok-changed', null).then(() => 1)`);
   await open('pT');
-  n = await notice();
-  ok(n && n.text.startsWith('Pictures are shown automatically for this sender.'), `AC-11: on the list: the S4 line (${n && n.text})`);
-  await clickLink('button.link[data-trust="stop"]');
+  ic = await info();
+  ok(!(await notice()) && ic && ic.kind === 'list', `AC-11: on the list: the info button, kind list (${JSON.stringify(ic)})`);
+  await openInfo();
+  eq((await popover()).buttons, ['Remove from always-show list'], 'the list has its own action');
+  await evaluate(`document.querySelector('.autoinfo-pop button').click(); 1`);
   ok(await until(`${FR}.contentDocument.querySelectorAll('.hl-bp').length > 0`, 4000), 'AC-11: Stop: the pictures are hidden, not shown by the rule');
   n = await notice();
   ok(n && n.cls === 'notice', 'AC-11: the notice is the offer, not S8/S9');
@@ -171,6 +205,23 @@ try {
   eq(await noauto(), [], 'Always show: off the list of senders turned off');
   eq(await trusted(), ['alerts@accounts.google.com'], 'Always show: on the list');
   await clearLists();
+
+  // the popover fits the window in every language (full sentences, no line limit; never clipped)
+  tag = 'popover-fit';
+  const { languageJs } = await import('./cdp-harness.mjs');
+  for (const [w, h] of [[960, 560], [1280, 800]]) for (const lang of ['en', 'de', 'es', 'fr', 'ja', 'ru', 'vi', 'zh-Hans']) {
+    await H.openApp(`light&lang=en&nativemenu=off`, w, h);
+    await evaluate(`${THREADS.map(([id, subject, over]) => `window.__mockAddThread(${JSON.stringify(id)}, ${JSON.stringify(subject)}, ${JSON.stringify(over)});`).join(' ')} window.__store.getState().setPrefs({ loadRemote: false }); window.__store.getState().refresh().then(() => 1)`);
+    await sleep(200);
+    await evaluate(languageJs(lang));
+    await open('pS');
+    ok(await openInfo(), `${lang} ${w}x${h}: the popover opens`);
+    const fit = await popover();
+    ok(fit && fit.inside && !fit.overflow && fit.text.every((x) => x.length > 20), `${lang} ${w}x${h}: inside the window, nothing clipped: ${JSON.stringify(fit && { inside: fit.inside, overflow: fit.overflow })}`);
+    const ib = await info();
+    ok(ib && ib.aria === ib.title && !/\{|reading\.autoinfo/.test(ib.title + fit.text.join(' ')), `${lang}: the button is named by its tooltip, no raw key or placeholder`);
+  }
+  await start();
 
   // ======================================================================== T-C6: the box
   tag = 'box';

@@ -68,6 +68,9 @@ const open = async (id) => {
 const notice = () => evaluate(`(() => { const n = document.querySelector('.rp-msg.open .notice'); if (!n) return null; return { cls: n.className, text: n.firstChild ? n.textContent.replace(/\\s+/g, ' ').trim() : '', links: [...n.querySelectorAll('button.link')].map((b) => ({ text: b.textContent.trim(), title: b.title, trust: b.dataset.trust || null })) }; })()`);
 /** The pictures of the open message: boxes (blocked) and real images in its frame. */
 const frame = () => evaluate(`(() => { const d = document.querySelector('.rp-msg.open iframe.msg-frame')?.contentDocument; if (!d) return null; return { boxes: d.querySelectorAll('.hl-bp, [data-hl-blocked]').length, imgs: [...d.querySelectorAll('img')].filter((i) => (i.getAttribute('src') || '').startsWith('data:image')).length }; })()`);
+/** The info button of pictures shown by themselves (1.0.10: it replaced the info line above the message) of the open message. */
+const info = () => evaluate(`(() => { const b = document.querySelector('.rp-msg.open .autoinfo-btn'); return b ? { title: b.title, aria: b.getAttribute('aria-label'), kind: b.dataset.kind } : null; })()`);
+const infoFocused = () => evaluate(`!!document.activeElement && document.activeElement.classList.contains('autoinfo-btn')`);
 const calls = () => evaluate(`JSON.stringify(window.__remoteFetchCalls || [])`).then(JSON.parse);
 const toast = () => evaluate(`(() => { const t = document.querySelector('.toast, .toasts .toast'); return t ? t.textContent.replace(/\\s+/g, ' ').trim() : null; })()`);
 const setList = (emails) => evaluate(`(() => { const m = window.__mockRemoteOk; m.clear(); for (const e of ${JSON.stringify(emails)}) m.set(e, 1761000000000); return window.__mockEmit('remote-ok-changed', null).then(() => 1); })()`);
@@ -119,10 +122,10 @@ try {
   ok(await until(`(window.__remoteFetchCalls || []).length > 0`, 2000), 'the backend fetched the pictures');
   ok(await until(`(() => { const d = document.querySelector('.rp-msg.open iframe.msg-frame')?.contentDocument; return !!d && d.querySelectorAll('.hl-bp, [data-hl-blocked]').length === 0 && d.querySelectorAll('img[src^="data:image"]').length > 0; })()`, 2500), 'the pictures show within 2 s, no box left');
   n = await notice();
-  ok(n && n.cls.includes('info') && /Pictures are shown automatically for this sender\./.test(n.text), `the info line: ${JSON.stringify(n)}`);
-  eq(n.links.map((l) => l.text), ['Stop showing pictures from this sender'], 'one link: Stop');
-  ok(n.links[0].title === `Stop showing pictures from ${SENDER}`, 'the Stop tooltip has the address');
-  eq((await focused()).trust, 'stop', 'after an add by Enter the focus is on the Stop link');
+  eq(n, null, 'no notice bar above a message whose pictures show by themselves');
+  const ic = await info();
+  ok(ic && ic.kind === 'list' && ic.title === 'Pictures from this sender are always shown because you chose to show them.' && ic.aria === ic.title, `the info button says why: ${JSON.stringify(ic)}`);
+  ok(await infoFocused(), 'after an add by Enter the focus is on the info button');
   ok((await toast() || '').includes(`Pictures from ${SENDER} will always be shown.`), `the toast: ${await toast()}`);
   eq([...(await evaluate(`[...window.__mockRemoteOk.keys()]`))], [SENDER], 'the list has the sender, lower case');
   // Undo
@@ -140,7 +143,7 @@ try {
     await open(id);
     ok(await until(`(() => { const d = document.querySelector('.rp-msg.open iframe.msg-frame')?.contentDocument; return !!d && d.querySelectorAll('img[src^="data:image"]').length > 0; })()`, 2500), `${id}: the pictures load by themselves`);
     n = await notice();
-    ok(n && n.cls.includes('info') && !/blocked/.test(n.text), `${id}: no warning, the info line (${n && n.cls})`);
+    ok(n === null && (await info()), `${id}: no warning, the info button (${JSON.stringify(n)})`);
   }
   await open('trN');
   n = await notice();
@@ -174,13 +177,17 @@ try {
   // ======================================================================== T-C5 + Stop (T-C7)
   section = 'stop';
   await open('tr1');
-  ok((await notice()).cls.includes('info'), 'tr1 is trusted: the info line');
+  ok(!(await notice()) && (await info()), 'tr1 is trusted: the info button, no notice');
   // another window removes the sender (the event reaches this one)
   await setList([]);
   ok(await until(`(() => { const n = document.querySelector('.rp-msg.open .notice'); return !!n && !n.classList.contains('info') && n.querySelectorAll('button.link').length === 3; })()`, 1500), 'another window removed the sender: this message is blocked again within 1.5 s');
   await setList([SENDER]);
-  ok(await until(`!!document.querySelector('.rp-msg.open .notice.info')`, 1500), 'another window added the sender: this message loads within 1.5 s');
-  await evaluate(`window.__remoteFetchCalls = []; document.querySelector('.rp-msg.open .notice button[data-trust="stop"]').click(); 1`);
+  ok(await until(`!!document.querySelector('.rp-msg.open .autoinfo-btn')`, 1500), 'another window added the sender: this message loads within 1.5 s');
+  // Stop: the info button opens its popover, the action there removes the sender from the list
+  await evaluate(`window.__remoteFetchCalls = []; document.querySelector('.rp-msg.open .autoinfo-btn').click(); 1`);
+  ok(await until(`!!document.querySelector('.autoinfo-pop')`, 1500), 'the popover opens');
+  eq(await evaluate(`[...document.querySelectorAll('.autoinfo-pop button')].map((b) => b.textContent.trim())`), ['Remove from always-show list'], 'its one action');
+  await evaluate(`document.querySelector('.autoinfo-pop button').click(); 1`);
   ok(await until(`(() => { const n = document.querySelector('.rp-msg.open .notice'); return !!n && !n.classList.contains('info') && n.querySelectorAll('button.link').length === 3; })()`, 2000), 'Stop: blocked again at once');
   f = await frame();
   ok(f.boxes > 0 && f.imgs === 0, `Stop: boxes, no picture (a cached picture is not shown) ${JSON.stringify(f)}`);
@@ -297,7 +304,7 @@ try {
     await sleep(300);
     // the three notices of the spec: the offer (S1), the blocked notice of a trusted sender held back in Junk (S5) and the one for a failed sender check (S6, the longest text)
     // both states of each variant (the sender on the list: the Stop link; not on it: the add link or none): offer, Junk, failed sender check
-    for (const [id, state, onList] of [['trN', 'offer', false], ['trL', 'offer', false], ['trJ', 'held', true], ['trJ', 'plainJunk', false], ['trF', 'heldFailed', true], ['trF', 'plainFailed', false], ['trW', 'autoWrote', false], ['trS', 'autoService', false], ['tr1', 'auto', true]]) {
+    for (const [id, state, onList] of [['trN', 'offer', false], ['trL', 'offer', false], ['trJ', 'held', true], ['trJ', 'plainJunk', false], ['trF', 'heldFailed', true], ['trF', 'plainFailed', false]]) {
       await setList(onList ? [SENDER] : []);
       await open(id);
       const m = await evaluate(`(() => {

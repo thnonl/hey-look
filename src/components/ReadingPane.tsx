@@ -6,7 +6,8 @@ import { openUpdateLink } from "../updates";
 import { guardFrame, type PictureMenu } from "../contextGuard";
 import { isMacControlClick } from "../contextPolicy";
 import { guardFrameQuitKey } from "../quitKey";
-import { Archive, Clock, ExternalLink, Flag, Forward, MailX, MoreHorizontal, Moon, Pin, Reply, ReplyAll, Sparkles, Sun, Trash2, ChevronsDownUp, ChevronsUpDown, Mail, ShieldAlert, AlertTriangle } from "lucide-react";
+import { createPortal } from "react-dom";
+import { Archive, Clock, ExternalLink, Info, Flag, Forward, MailX, MoreHorizontal, Moon, Pin, Reply, ReplyAll, Sparkles, Sun, Trash2, ChevronsDownUp, ChevronsUpDown, Mail, ShieldAlert, AlertTriangle } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { mailFrameStats, writeMailDocument } from "../mailFrame";
 import { aiAvailability } from "../aiAvailability";
@@ -57,7 +58,7 @@ import { pendingToast } from "../pendingToast";
 import { announceFrame, isHeavy, RpBody, useCanvasDark, useOpeningPending } from "../openStatus";
 import { ImportanceMark } from "./Importance";
 import { EncCard, importKeyFromMessage, isKeyAttachment, needsCard, SecBadges } from "./Pgp";
-import { Avatar, Dropdown } from "./ui";
+import { Avatar, Dropdown, useOutside } from "./ui";
 import { openReader } from "../popout/openReader";
 import { readerAllowed } from "../popout/readerLogic";
 
@@ -331,7 +332,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
       const r = await addTrusted(m.fromEmail);
       if (r === "full") return showToast(() => t("reading.trust.full", { max: 1000 }), undefined, "error");
       if (r === "invalid") return;
-      setFocusLink("stop");
+      focusSoon(".rp-msg.open .autoinfo-btn");
       showToast(() => t("reading.trust.added", { email: sender ?? m.fromEmail }), () => void removeSender(false), "success");
     } catch (e) {
       showToast(() => t("reading.trust.saveFailed", { error: friendlyError(e) }), undefined, "error");
@@ -362,7 +363,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
         else {
           try {
             await removeNoAuto(m.fromEmail);
-            setFocusLink("stop");
+            focusSoon(".rp-msg.open .autoinfo-btn");
           } catch (e) {
             showToast(() => t("reading.trust.saveFailed", { error: friendlyError(e) }), undefined, "error");
           }
@@ -799,12 +800,6 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
           )}
         </div>
       )}
-      {(notice === "auto" || notice === "autoWrote" || notice === "autoService") && (
-        <div className="notice info" ref={noticeRef}>
-          {notice === "autoWrote" ? t("reading.auto.wrote") : notice === "autoService" ? t("reading.auto.service") : t("reading.trust.loaded")}{" "}
-          <button className="link" data-trust="stop" title={t("reading.trust.stopTitle", { email: sender ?? m.fromEmail })} onClick={() => void removeSender(true)}>{t("reading.trust.stop")}</button>
-        </div>
-      )}
       {/* no script can run (CSP script-src none; on Chromium the sandbox forbids scripts too); allow-same-origin only lets us read height / hook links */}
       <iframe
         ref={frameRef}
@@ -949,6 +944,128 @@ const headClickIsSelection = (e: React.MouseEvent<HTMLElement>): boolean => {
   return !!sel && !sel.isCollapsed && sel.toString().trim().length > 0 && (head.contains(sel.anchorNode) || head.contains(sel.focusNode));
 };
 
+/** Focuses the first element that matches `selector` as soon as it exists (a few frames: the state it depends on is being rendered). */
+function focusSoon(selector: string): void {
+  let n = 0;
+  const go = () => {
+    const el = document.querySelector<HTMLElement>(selector);
+    if (el) el.focus();
+    else if (n++ < 20) requestAnimationFrame(go);
+  };
+  requestAnimationFrame(go);
+}
+
+type AutoKind = "wrote" | "service" | "list" | "global";
+
+/** Why this message's pictures are shown without a click, or null (nothing to explain: no picture in it, or they are hidden). The same rule as the notice above the message. */
+function useAutoKind(m: MessageFull): AutoKind | null {
+  const prefs = useStore((s) => s.prefs);
+  const trusted = useTrusted((s) => s.emails);
+  const off = useTrusted((s) => s.noAuto);
+  useEffect(() => ensureTrustedLoaded(), []);
+  if (!hasFrame(m)) return null;
+  const sender = normSender(m.fromEmail);
+  const global = eff(prefs, m.accountId, "loadRemote");
+  if (global) return /(?:src|background)\s*=\s*["']?(?:https?:)?\/\/|url\(\s*["']?(?:https?:)?\/\//i.test(m.html ?? "") ? "global" : null; // (cheap look: no second cleaning of every message)
+  const st = noticeState({ global, trusted: !!sender && trusted.has(sender), autoReason: m.autoReason, noAuto: !!sender && off.has(sender), folder: m.folder, encrypted: !!m.security?.encrypted, auth: m.auth, allow: false }, true, false);
+  const kind: AutoKind | null = st === "autoWrote" ? "wrote" : st === "autoService" ? "service" : st === "auto" ? "list" : null;
+  return kind && cleanOf(m, false).blocked > 0 ? kind : null;
+}
+
+/**
+ * The quiet explanation of pictures that show by themselves (1.0.10): a small info button in the message's header row; its tooltip says why in one sentence; it opens a small popover with the
+ * whole reason, what the sender can see, and the one action that fits (stop for this sender, remove from the list, open Settings). Replaces the notice bar above the message.
+ */
+function AutoPicturesInfo({ m }: { m: MessageFull }) {
+  const t = useT();
+  const kind = useAutoKind(m);
+  const showToast = useStore((s) => s.showToast);
+  const setDialog = useStore((s) => s.setDialog);
+  const [open, setOpen] = useState(false);
+  const [at, setAt] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const btn = useRef<HTMLButtonElement>(null);
+  const pop = useRef<HTMLDivElement>(null);
+  useOutside([btn, pop], () => setOpen(false), open);
+  useEffect(() => {
+    if (open) pop.current?.querySelector<HTMLElement>("button")?.focus();
+  }, [open]);
+  useEffect(() => {
+    if (!kind) setOpen(false);
+  }, [kind]);
+  if (!kind) return null;
+  const email = normSender(m.fromEmail) ?? m.fromEmail;
+  const domain = email.split("@").pop() ?? "";
+  const tip = kind === "wrote" ? t("reading.autoinfo.tip.wrote") : kind === "service" ? t("reading.autoinfo.tip.service", { domain }) : kind === "list" ? t("reading.autoinfo.tip.list") : t("reading.autoinfo.tip.global");
+  const more = kind === "wrote" ? t("reading.autoinfo.more.wrote") : kind === "service" ? t("reading.autoinfo.more.service") : "";
+  const fail = (e: unknown) => showToast(() => t("reading.trust.saveFailed", { error: friendlyError(e) }), undefined, "error");
+  const close = (refocus: boolean) => {
+    setOpen(false);
+    if (refocus) btn.current?.focus();
+  };
+  const toggle = () => {
+    if (open) return close(false);
+    const r = btn.current?.getBoundingClientRect();
+    const w = Math.min(340, window.innerWidth - 16);
+    if (r) setAt({ top: r.bottom + 6, left: Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) });
+    setOpen(true);
+  };
+  const act = async () => {
+    close(false);
+    try {
+      if (kind === "global") return setDialog({ type: "settings", tab: "mb:all", focus: "loadRemote" });
+      if (kind === "list") {
+        await removeTrusted(m.fromEmail);
+        if (m.autoReason) await addNoAuto(m.fromEmail); // (the rule would show it again: Stop must stop)
+      } else {
+        const r = await addNoAuto(m.fromEmail);
+        if (r === "full") return showToast(() => t("reading.trust.full", { max: 1000 }), undefined, "error");
+      }
+      focusSoon(".rp-msg.open .notice [data-trust=add]");
+      const undo = async () => {
+        try {
+          if (kind === "list") await addTrusted(m.fromEmail);
+          else await removeNoAuto(m.fromEmail);
+          focusSoon(".rp-msg.open .autoinfo-btn");
+        } catch (e) {
+          fail(e);
+        }
+      };
+      showToast(() => t("reading.trust.removed", { email }), () => void undo(), "info");
+    } catch (e) {
+      fail(e);
+    }
+  };
+  const label = kind === "global" ? t("reading.autoinfo.openSettings") : kind === "list" ? t("reading.autoinfo.removeList") : t("reading.trust.stop");
+  return (
+    <>
+      <button ref={btn} className="icon-btn autoinfo-btn" title={tip} aria-label={tip} aria-haspopup="dialog" aria-expanded={open} data-kind={kind} onClick={toggle}>
+        <Info size={16} />
+      </button>
+      {open &&
+        createPortal(
+          <div
+            ref={pop}
+            className="popover autoinfo-pop"
+            role="dialog"
+            aria-label={t("reading.autoinfo.label")}
+            style={{ position: "fixed", top: at.top, left: at.left }}
+            onKeyDown={(e) => {
+              if (e.key !== "Escape") return;
+              e.preventDefault();
+              e.stopPropagation();
+              close(true);
+            }}
+          >
+            <p>{more ? `${tip} ${more}` : tip}</p>
+            <p className="muted small">{t("reading.autoinfo.privacy")}</p>
+            <button className="btn small" onClick={() => void act()}>{label}</button>
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
 export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onToggle: () => void }) {
   const t = useT();
   const { showToast, setDialog, prefs } = useStore();
@@ -1055,6 +1172,7 @@ export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boole
         </div>
         {open && (
           <div className="rp-msg-actions" onClick={(e) => e.stopPropagation()}>
+            <AutoPicturesInfo m={m} />
             <button className="icon-btn" data-intent="editor" title={t("reading.msg.reply")} aria-label={t("reading.msg.reply")} aria-busy={reBusy || undefined} onClick={() => replyTo(m, false)}>{reBusy ? ring : <Reply size={16} />}</button>
             <button className="icon-btn" data-intent="editor" title={t("reading.msg.replyAll")} aria-label={t("reading.msg.replyAll")} aria-busy={raBusy || undefined} onClick={() => replyTo(m, true)}>{raBusy ? ring : <ReplyAll size={16} />}</button>
             <button className="icon-btn" data-intent="editor" title={conf ? t("reading.msg.forwardBlocked") : t("reading.msg.forward")} aria-label={t("reading.msg.forward")} aria-busy={fwBusy || undefined} disabled={conf} onClick={() => forward(m)}>{fwBusy ? ring : <Forward size={16} />}</button>

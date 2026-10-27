@@ -616,6 +616,9 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
 .rp-msg-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 12px 0; cursor: pointer; }
 .rp-meta { flex: 1 1 140px; min-width: 0; }
 .rp-msg-actions { display: flex; gap: 0; }
+.autoinfo-btn { color: var(--muted); }
+.autoinfo-pop { z-index: var(--z-menu); width: min(340px, calc(100vw - 16px)); box-sizing: border-box; gap: 8px; align-items: flex-start; }
+.autoinfo-pop p { margin: 0; }
 /* a wide mail makes its row wider than the pane; the header, actions, notices and reply row stay pane-wide and stuck to the left edge */
 .rp-msg > .rp-msg-head, .rp-msg-body > :not(.msg-frame) { position: sticky; left: 24px; width: min(100%, var(--rp-cw, 100%)); box-sizing: border-box; }
 .rp-date { flex: none; }
