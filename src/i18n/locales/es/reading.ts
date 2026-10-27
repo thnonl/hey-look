@@ -144,7 +144,7 @@ export default defineLocale<typeof ns.en>({
   "reading.lang.spanish": "español",
   "reading.lang.russian": "ruso",
   // ---- message body (blocked content, links, pictures that are not embedded)
-  "reading.body.blocked": "Se bloqueó contenido del mensaje para evitar el rastreo.",
+  "reading.body.blocked": "Se bloqueó parte del contenido para evitar el rastreo.",
   "reading.body.loadContent": "Cargar contenido",
   "reading.body.alwaysLoad": "Cargar siempre contenido remoto (Configuración)",
   "reading.trust.add": "Cargar siempre de este remitente",
