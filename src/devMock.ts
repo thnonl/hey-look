@@ -679,6 +679,9 @@ const mockRemoteOk = new Map<string, number>(
   (hashTokens().get("trusted") ?? "").split(",").filter(Boolean).map((e, i) => [e.toLowerCase(), 1761000000000 + i * 86400000] as [string, number]),
 );
 (window as unknown as { __mockRemoteOk: Map<string, number> }).__mockRemoteOk = mockRemoteOk;
+/** the senders whose pictures are not shown automatically (`window.__mockRemoteNoauto` for a check) */
+const mockRemoteNoauto = new Map<string, number>();
+(window as unknown as { __mockRemoteNoauto: Map<string, number> }).__mockRemoteNoauto = mockRemoteNoauto;
 const UPDATE_SAMPLE_NOTES = [
   "## Highlights", "- Faster search in large mailboxes", "* **Bold** item with `code`", "[a link](https://example.com)", "",
   "### Fixes", "| Area | Fix |", "|---|---|", "| Sync | Fewer retries |", "<img src=x onerror=alert(1)>", "x".repeat(200),
@@ -1598,9 +1601,22 @@ export function installMock() {
         if (mockRemoteOk.has(e)) return "already";
         if (mockRemoteOk.size >= 1000) return "full";
         mockRemoteOk.set(e, Date.now());
+        mockRemoteNoauto.delete(e); // the two lists never contradict each other
         void emit("remote-ok-changed", null);
         return "added";
       }
+      case "list_remote_noauto": return [...mockRemoteNoauto.entries()].map(([email, added]) => ({ email, added })).sort((x, y) => (x.email < y.email ? -1 : 1));
+      case "remote_noauto_add": {
+        const e = String(a.email ?? "").trim().toLowerCase();
+        if (!e || e.split("@").length !== 2 || e.startsWith("@") || e.endsWith("@") || e.length > 320) throw "this is not an address the list can take";
+        if (mockRemoteNoauto.has(e)) return "already";
+        if (mockRemoteNoauto.size >= 1000) return "full";
+        mockRemoteNoauto.set(e, Date.now());
+        mockRemoteOk.delete(e);
+        void emit("remote-ok-changed", null);
+        return "added";
+      }
+      case "remote_noauto_remove": mockRemoteNoauto.delete(String(a.email ?? "").trim().toLowerCase()); void emit("remote-ok-changed", null); return null;
       case "remote_ok_remove": mockRemoteOk.delete(String(a.email ?? "").trim().toLowerCase()); void emit("remote-ok-changed", null); return null;
       case "remote_ok_clear": mockRemoteOk.clear(); void emit("remote-ok-changed", null); return null;
       case "thread_action": {

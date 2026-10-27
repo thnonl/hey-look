@@ -9,6 +9,13 @@ import { decideContextMenu, emailAtOffset, isMacControlClick, fieldKind, INTERAC
 import { usePlatform } from "./platform";
 import { selectionQuery } from "./selectionSearch";
 
+/** What the menu of a hidden picture can do (the reading pane gives these to `guardFrame`): show this one (null: it has no address to fetch), show all, and "always show from this sender" (null: not offered). */
+export interface PictureMenu {
+  showOne: (() => void) | null;
+  showAll: () => void;
+  always: (() => void) | null;
+}
+
 export interface GuardMenu {
   at: { x: number; y: number };
   /** opened with the keyboard: the first entry is focused */
@@ -25,6 +32,8 @@ export interface GuardMenu {
   subject: string | null;
   /** the search for the selected text (the "Search mail for ..." entry, W8.1); null outside the reading areas or with nothing selected */
   search: string | null;
+  /** the box of a hidden picture under the pointer or at the focus (Show this picture, Show all pictures, Always show from this sender); null elsewhere */
+  picture: PictureMenu | null;
   /** where the focus goes when the menu closes */
   returnTo: HTMLElement | null;
 }
@@ -77,7 +86,7 @@ const selectable = (win: Window, el: Element) => {
  * What is under the pointer (`pt`), or at the focus when the menu was asked for with the keyboard (`pt` null: the selection, the focused link or
  * the focused read-only field).
  */
-function probe(doc: Document, target: EventTarget | null, pt: Pt | null, inMessageFrame = false) {
+function probe(doc: Document, target: EventTarget | null, pt: Pt | null, inMessageFrame = false, pictureOf?: (box: HTMLElement) => PictureMenu | null) {
   const View = (doc.defaultView ?? window) as Window & typeof globalThis;
   const sel = doc.getSelection();
   const asEl = (n: Node | null | undefined): Element | null => (n instanceof View.Element ? n : (n?.parentElement ?? null));
@@ -109,9 +118,11 @@ function probe(doc: Document, target: EventTarget | null, pt: Pt | null, inMessa
   // (header, subject, sender line, the AI box) and a reader window's message area (it is a reading pane too)
   const subject = field === "none" ? (el?.closest("[data-subject]")?.getAttribute("data-subject") ?? null) : null;
   const searchArea = field === "none" && (inMessageFrame || !!el?.closest(".reading-pane, [data-mail-search]"));
+  const picBox = field === "none" && pictureOf ? (el?.closest(".hl-bp[data-hl-pic]") as HTMLElement | null) : null;
+  const picture = picBox && pictureOf ? pictureOf(picBox) : null;
   const scope = field === "readonly" ? null : doc !== document ? doc.body : ((el?.closest(SELECT_SCOPE) as HTMLElement | null) ?? doc.body);
   return {
-    field, a, href, text, email, onText, el, subject, searchArea,
+    field, a, href, text, email, onText, el, subject, searchArea, picture,
     own: !!el?.closest("[data-own-menu]"),
     plugin: !!el?.closest(PLUGIN_HOST),
     locked: !!el?.closest(".confidential, [data-no-copy]"),
@@ -132,12 +143,12 @@ function probe(doc: Document, target: EventTarget | null, pt: Pt | null, inMessa
 let keyAt = 0;
 
 /** `frame`: set for a message's frame - where it sits in the window. (The pointer position of an event in the frame is in the frame's own viewport pixels, also when a wide mail is zoomed out to fit: checked in the preview.) */
-function handle(doc: Document, e: MouseEvent, frame?: HTMLIFrameElement, searchable = false) {
+function handle(doc: Document, e: MouseEvent, frame?: HTMLIFrameElement, searchable = false, pictureOf?: (box: HTMLElement) => PictureMenu | null) {
   if (nativeMenuStays()) return;
   try {
-    const p = probe(doc, e.target, { x: e.clientX, y: e.clientY }, searchable);
+    const p = probe(doc, e.target, { x: e.clientX, y: e.clientY }, searchable, pictureOf);
     // (the subject heading is text to the menu even where the engine would not select it: a reader window's title is draggable)
-    const policy = decideContextMenu({ dev: false, field: p.field, locked: p.locked, link: p.href, email: p.email, selection: p.text.length > 0, onText: p.onText || p.subject !== null, plugin: p.plugin });
+    const policy = decideContextMenu({ dev: false, field: p.field, locked: p.locked, link: p.href, picture: !!p.picture, email: p.email, selection: p.text.length > 0, onText: p.onText || p.subject !== null, plugin: p.plugin });
     if (policy === "native") return;
     e.preventDefault();
     if (p.own || policy === "block" || isKeyEcho(keyAt, Date.now())) return;
@@ -168,6 +179,7 @@ function show(p: ReturnType<typeof probe>, at: Pt, keyboard: boolean) {
       selectAll: p.selectAll,
       subject: p.subject,
       search: p.searchArea && p.text ? selectionQuery(p.text) : null,
+      picture: p.picture,
       returnTo: (document.activeElement as HTMLElement | null) ?? null,
     },
   });
@@ -190,10 +202,10 @@ function keyAnchor(doc: Document, el: Element | null, frame?: HTMLIFrameElement)
   return r ? { x: (off?.left ?? 0) + r.left, y: (off?.top ?? 0) + r.bottom } : null;
 }
 
-function handleKey(doc: Document, e: KeyboardEvent, frame?: HTMLIFrameElement, searchable = false) {
+function handleKey(doc: Document, e: KeyboardEvent, frame?: HTMLIFrameElement, searchable = false, pictureOf?: (box: HTMLElement) => PictureMenu | null) {
   if (!isContextMenuKey(e) || nativeMenuStays()) return;
-  const p = probe(doc, null, null, searchable);
-  const policy = decideContextMenu({ dev: false, field: p.field, locked: p.locked, link: p.href, email: p.email, selection: p.text.length > 0, onText: p.subject !== null });
+  const p = probe(doc, null, null, searchable, pictureOf);
+  const policy = decideContextMenu({ dev: false, field: p.field, locked: p.locked, link: p.href, picture: !!p.picture, email: p.email, selection: p.text.length > 0, onText: p.subject !== null });
   if (policy === "native" || p.own) return; // a field answers its own key; the mail list does too
   e.preventDefault();
   keyAt = Date.now();
@@ -226,10 +238,10 @@ export function installContextGuard(): () => void {
  * The same for the document of a message's frame (same origin, filled with `srcDoc`). "Open link" clicks the anchor itself, which runs the reading
  * pane's own click handler: the look-alike-link warning, then the safe external opener - the webview never navigates. Returns the remover.
  */
-export function guardFrame(frame: HTMLIFrameElement, doc: Document, opts?: { search?: boolean }): () => void {
+export function guardFrame(frame: HTMLIFrameElement, doc: Document, opts?: { search?: boolean; picture?: (box: HTMLElement) => PictureMenu | null }): () => void {
   const searchable = !!opts?.search; // (the frame of a message: its selection can be searched for, W8.1; the frame of an attachment preview cannot)
-  const onContext = (e: MouseEvent) => handle(doc, e, frame, searchable);
-  const onKey = (e: KeyboardEvent) => handleKey(doc, e, frame, searchable);
+  const onContext = (e: MouseEvent) => handle(doc, e, frame, searchable, opts?.picture);
+  const onKey = (e: KeyboardEvent) => handleKey(doc, e, frame, searchable, opts?.picture);
   const close = (e: KeyboardEvent) => isContextMenuKey(e) || closeGuardMenu();
   const closeAny = () => closeGuardMenu();
   // a press in the frame never reaches the window's document: tell the popovers of the main window (their outside-press listeners are on document, capture phase)

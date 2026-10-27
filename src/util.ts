@@ -78,7 +78,12 @@ export function sanitizeHtml(html: string, allowRemote: boolean): { html: string
           node.removeAttribute(attr);
           blocked++;
           // a picture whose address was removed is drawn as a box of its size (ReadingPane.tsx pictureHtml, blockedPicture.ts)
-          if (attr === "src" && node.tagName === "IMG") node.setAttribute("data-hl-blocked", "1");
+          if (attr === "src" && node.tagName === "IMG") {
+            node.setAttribute("data-hl-blocked", "1");
+            // the address stays in an attribute nothing loads (the frame's CSP is img-src data:), so that "Show this picture" can fetch exactly this one through the backend
+            const abs = v.startsWith("//") ? `https:${v}` : v;
+            if (abs.length <= 4096) node.setAttribute("data-hl-src", abs);
+          }
         }
       }
       const st = node.getAttribute?.("style");

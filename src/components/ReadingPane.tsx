@@ -1,9 +1,10 @@
 import { unsubscribeMailto } from "../unsubscribeMailto";
-import { blockedPictureBox } from "../blockedPicture";
+import { hiddenPictureBox } from "../blockedPicture";
 import { cachedImage, cachedImageCount, hasCachedImage, loadRemoteImages } from "../remoteImages";
 import { frameCsp, frameSandbox } from "../frameSandbox";
 import { openUpdateLink } from "../updates";
-import { guardFrame } from "../contextGuard";
+import { guardFrame, type PictureMenu } from "../contextGuard";
+import { isMacControlClick } from "../contextPolicy";
 import { guardFrameQuitKey } from "../quitKey";
 import { Archive, Clock, ExternalLink, Flag, Forward, MailX, MoreHorizontal, Moon, Pin, Reply, ReplyAll, Sparkles, Sun, Trash2, ChevronsDownUp, ChevronsUpDown, Mail, ShieldAlert, AlertTriangle } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -28,7 +29,7 @@ import { useAppDark } from "../useAppDark";
 import { MAIL_FRAME_CSS, MAIL_FRAME_SPIN_CSS } from "../mailFrameCss";
 import { reapply as reapplyColorScheme, rewriteMailHtml } from "../colorSchemeMedia";
 import { eff } from "../prefs";
-import { addTrusted, canOffer, ensureTrustedLoaded, normSender, noticeState, remoteAllowed, remoteAllowedFor, removeTrusted, useTrusted, type RemoteInput } from "../trustedSenders";
+import { addNoAuto, addTrusted, canOffer, ensureTrustedLoaded, normSender, noticeState, remoteAllowed, remoteAllowedFor, removeNoAuto, removeTrusted, useTrusted, type RemoteInput } from "../trustedSenders";
 import { CONFIDENTIAL_FRAME_CSS, lockDocument, useContentProtection } from "../protect";
 import { accountsOf, canMoveToJunk } from "../junk";
 import { friendlyError, useStore } from "../store";
@@ -104,7 +105,7 @@ function remoteImageUrls(html: string): string[] {
  * same string comes back and nothing is parsed. One entry per cleaned result; the result is dropped from CLEANED by size and count, and the entry goes with it.
  */
 const SHOWN = new WeakMap<object, { key: string; html: string }>();
-function shownHtml(clean: { html: string }, allowed: boolean, m: MessageFull, loaded: Record<string, string>, state: Record<string, { status: "loading" | "failed"; error?: string }>, lang: string, version: number): string {
+function shownHtml(clean: { html: string }, allowed: boolean, m: MessageFull, loaded: Record<string, string>, state: Record<string, { status: "loading" | "failed"; error?: string }>, lang: string, version: number, shown: Record<string, string>): string {
   const key = [
     allowed ? 1 : 0,
     allowed ? version : 0,
@@ -112,31 +113,59 @@ function shownHtml(clean: { html: string }, allowed: boolean, m: MessageFull, lo
     m.attachments.filter((a) => a.cid).map((a) => `${a.cid}:${a.name}:${a.size}`).join(","),
     Object.entries(loaded).map(([k, v]) => `${k}:${v.length}`).join(","),
     Object.entries(state).map(([k, v]) => `${k}:${v.status}:${v.error ?? ""}`).join(","),
+    Object.entries(shown).map(([k, v]) => `${k}:${v.length}`).join(","),
   ].join("|");
   const hit = SHOWN.get(clean);
   if (hit && hit.key === key) return hit.html;
-  const out = pictureHtml(allowed ? inlineImages(clean.html) : clean.html, m, loaded, state);
+  const out = pictureHtml(allowed ? inlineImages(clean.html) : clean.html, m, loaded, state, shown);
   SHOWN.set(clean, { key, html: out });
   return out;
 }
 
 /** Pictures the sync did not embed: loaded ones become data: URIs, the rest become click-to-load placeholders. */
-function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string>, state: Record<string, { status: "loading" | "failed"; error?: string }>): string {
+function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string>, state: Record<string, { status: "loading" | "failed"; error?: string }>, shown: Record<string, string>): string {
   const doc = new DOMParser().parseFromString(html, "text/html");
-  // a remote picture that is blocked: a box of the size the mail gave it with an icon and the alt text (nothing at all for a tracking pixel); not announced, not clickable -
-  // the banner above the message ("Load content") is the way to load them
+  // a remote picture that is blocked (1.0.10): a button-like box of the size the mail gave it - a shield with a picture in it, "Picture hidden for privacy", how to show it, the alt text;
+  // nothing at all for a tracking pixel or a picture the mail hides itself. Enter / Space / a click show this one picture, the right-click menu has "Show all" (ReadingPane `hookDoc`).
+  // A picture that was shown one by one earlier (`shown`) comes back as the picture when the frame is built again.
+  const mac = osNow() === "macos";
   doc.querySelectorAll("img[data-hl-blocked]").forEach((img) => {
-    const size = blockedPictureBox({ width: img.getAttribute("width"), height: img.getAttribute("height"), style: img.getAttribute("style") });
+    const url = img.getAttribute("data-hl-src") ?? "";
+    if (url && shown[url]) {
+      img.removeAttribute("data-hl-blocked");
+      img.removeAttribute("data-hl-src");
+      img.setAttribute("src", shown[url]);
+      return;
+    }
+    const size = hiddenPictureBox({ width: img.getAttribute("width"), height: img.getAttribute("height"), style: img.getAttribute("style"), hidden: img.hasAttribute("hidden") });
     if (size.hidden) return img.remove();
+    const alt = (img.getAttribute("alt") ?? "").trim();
     const box = doc.createElement("span");
-    box.className = "hl-bp";
-    box.setAttribute("aria-hidden", "true");
+    box.className = "hl-bp hl-bpx";
+    box.setAttribute("data-hl-pic", "1");
+    box.setAttribute("data-tier", size.tier);
+    if (url) box.setAttribute("data-src", url);
+    for (const a of ["width", "height", "style", "alt"] as const) {
+      const v = img.getAttribute(a);
+      if (v) box.setAttribute(`data-img-${a}`, v);
+    }
+    box.setAttribute("role", "button");
+    box.setAttribute("tabindex", "0");
+    box.setAttribute("aria-label", alt ? t("reading.pic.hiddenLabel", { alt }) : t("reading.pic.hiddenLabelNoAlt"));
     box.style.width = size.width;
     box.style.height = size.height;
+    box.style.minHeight = size.minHeight;
+    box.style.maxHeight = size.maxHeight;
     const ico = doc.createElement("span");
     ico.className = "hl-bp-ico";
-    box.append(ico);
-    const alt = (img.getAttribute("alt") ?? "").trim();
+    ico.setAttribute("aria-hidden", "true");
+    const main = doc.createElement("span");
+    main.className = "hl-bp-main";
+    main.textContent = t("reading.pic.hidden");
+    const hint = doc.createElement("span");
+    hint.className = "hl-bp-hint";
+    hint.textContent = t(mac ? "reading.pic.hiddenHintMac" : "reading.pic.hiddenHint");
+    box.append(ico, main, hint);
     if (alt) {
       const label = doc.createElement("span");
       label.className = "hl-bp-alt";
@@ -270,13 +299,16 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   const [allow, setAllow] = useState(false);
   // senders whose remote content always loads (1.0.10, trustedSenders.ts): the one rule decides here, in the pop-out, in print and in the quote of a reply
   const trustedSet = useTrusted((s) => s.emails);
+  const noAutoSet = useTrusted((s) => s.noAuto);
   const accounts = useStore((s) => s.accounts);
   const showToast = useStore((s) => s.showToast);
   useEffect(() => ensureTrustedLoaded(), []);
   const sender = normSender(m.fromEmail);
-  const rin: RemoteInput = { global: loadRemote, trusted: !!sender && trustedSet.has(sender), folder: m.folder, encrypted: !!m.security?.encrypted, auth: m.auth, allow };
+  const rin: RemoteInput = { global: loadRemote, trusted: !!sender && trustedSet.has(sender), autoReason: m.autoReason, noAuto: !!sender && noAutoSet.has(sender), folder: m.folder, encrypted: !!m.security?.encrypted, auth: m.auth, allow };
   const [version, setVersion] = useState(0); // bumps when images arrive from the backend
   const [loadedPics, setLoadedPics] = useState<Record<string, string>>({});
+  // pictures shown one by one (address -> data: URI): put into the frame in place, and remembered here so a rebuilt frame (a language change, a sync) keeps them; gone with the message
+  const shownRef = useRef<Record<string, string>>({});
   const [picState, setPicState] = useState<Record<string, { status: "loading" | "failed"; error?: string }>>({});
   const allowed = remoteAllowed(rin);
   const clean = useMemo(() => cleanOf(m, allowed), [m, allowed]);
@@ -305,11 +337,37 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
       showToast(() => t("reading.trust.saveFailed", { error: friendlyError(e) }), undefined, "error");
     }
   };
+  // "Stop showing pictures": a sender on the list leaves it; pictures that showed by the rule of the backend (written to, a well-known service) are turned off for this sender
+  // (also for a sender on the list whose mail the rule would show, or Stop would change nothing); the Undo puts back what this took away
+  // what the menu of a hidden picture does (ReadingPane `hookDoc` gives it to the context guard): this picture, all of them, and "always" while the notice offers it
+  const picMenuRef = useRef<(box: HTMLElement) => PictureMenu>(() => ({ showOne: null, showAll: () => undefined, always: null }));
+  picMenuRef.current = (box) => ({
+    showOne: box.getAttribute("data-src") ? () => void showOneRef.current(box) : null,
+    showAll: () => setAllow(true),
+    always: notice === "offer" ? () => void addSender() : null,
+  });
   const removeSender = async (announce: boolean) => {
+    const wasListed = notice === "auto";
+    const byRule = notice === "autoWrote" || notice === "autoService" || (wasListed && !!m.autoReason);
     try {
-      await removeTrusted(m.fromEmail);
+      if (wasListed || !byRule) await removeTrusted(m.fromEmail);
+      if (byRule) {
+        const r = await addNoAuto(m.fromEmail);
+        if (r === "full") return showToast(() => t("reading.trust.full", { max: 1000 }), undefined, "error");
+      }
       setFocusLink("add");
-      if (announce) showToast(() => t("reading.trust.removed", { email: sender ?? m.fromEmail }), () => void addSender(), "info");
+      const undo = async () => {
+        if (wasListed) await addSender();
+        else {
+          try {
+            await removeNoAuto(m.fromEmail);
+            setFocusLink("stop");
+          } catch (e) {
+            showToast(() => t("reading.trust.saveFailed", { error: friendlyError(e) }), undefined, "error");
+          }
+        }
+      };
+      if (announce) showToast(() => t("reading.trust.removed", { email: sender ?? m.fromEmail }), () => void undo(), "info");
     } catch (e) {
       showToast(() => t("reading.trust.saveFailed", { error: friendlyError(e) }), undefined, "error");
     }
@@ -317,7 +375,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   const html = useMemo(
     () => {
       hlMark("open:pics:start");
-      const out = shownHtml(clean, allowed, m, loadedPics, picState, lang, version);
+      const out = shownHtml(clean, allowed, m, loadedPics, picState, lang, version, shownRef.current);
       hlMark("open:pics:end");
       return out;
     },
@@ -344,6 +402,49 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   );
   const loadRef = useRef(loadPicture);
   loadRef.current = loadPicture;
+  // "Show this picture" (1.0.10): fetch exactly this address through the backend, then put the picture where the box is - in the frame itself, without writing the frame again, so the
+  // scroll position and the focus stay. Every box of the same address changes. A failure is said in the box and Enter asks again.
+  const showOne = useCallback(
+    async (box: HTMLElement) => {
+      const url = box.getAttribute("data-src");
+      const doc = box.ownerDocument;
+      if (!url || box.hasAttribute("data-pending")) return;
+      const main = box.querySelector<HTMLElement>(".hl-bp-main");
+      const original = main?.textContent ?? "";
+      box.setAttribute("data-pending", "1");
+      box.setAttribute("aria-busy", "true");
+      box.classList.remove("bad");
+      if (main) main.textContent = t("reading.pic.showing");
+      await loadRemoteImages([url], true);
+      const data = cachedImage(url);
+      if (!data) {
+        box.removeAttribute("data-pending");
+        box.removeAttribute("aria-busy");
+        box.classList.add("bad");
+        if (main) main.textContent = t("reading.pic.failed");
+        box.setAttribute("data-failed-text", original);
+        return;
+      }
+      shownRef.current = { ...shownRef.current, [url]: data };
+      const all = Array.from(doc.querySelectorAll<HTMLElement>(".hl-bp[data-src]"));
+      const after = all.find((b) => b !== box && b.getAttribute("data-src") !== url && (box.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0) ?? all.find((b) => b.getAttribute("data-src") !== url);
+      for (const b of all.filter((x) => x.getAttribute("data-src") === url)) {
+        const img = doc.createElement("img");
+        img.setAttribute("src", data);
+        for (const a of ["width", "height", "style", "alt"] as const) {
+          const v = b.getAttribute(`data-img-${a}`);
+          if (v) img.setAttribute(a, v);
+        }
+        b.replaceWith(img);
+      }
+      // the focus goes on to the next hidden picture, or stays in the message
+      if (after) after.focus({ preventScroll: true });
+      else frameRef.current?.focus({ preventScroll: true });
+    },
+    [t, frameRef],
+  );
+  const showOneRef = useRef(showOne);
+  showOneRef.current = showOne;
   const onPicturesRef = useRef(onPictures);
   onPicturesRef.current = onPictures;
 
@@ -548,7 +649,15 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     // (after the warning of linkCheck where it applies); remote pictures stay blocked until "Show pictures"; an email link starts a new message that does not carry the Confidential content.
     const onClick = (e: MouseEvent) => {
       if (e.type === "auxclick" && e.button !== 1) return; // (auxclick is every button but the left one: only the middle button opens a link; the right one is the menu's)
+      if (isMacControlClick(osNow(), e)) return; // (macOS: Control-click is the right-click, the menu's)
       const target = e.target as HTMLElement;
+      // a hidden picture: a click shows this one picture; inside a link the click stays the link's (the menu and Enter show the picture)
+      const bp = target.closest?.(".hl-bp[data-hl-pic]") as HTMLElement | null;
+      if (bp && !bp.closest("a")) {
+        e.preventDefault();
+        void showOneRef.current(bp);
+        return;
+      }
       const ph = target.closest?.(".hl-ph[data-cid]") as HTMLElement | null;
       if (ph) {
         e.preventDefault();
@@ -583,6 +692,15 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     };
     doc.addEventListener("click", onClick);
     doc.addEventListener("auxclick", onClick); // middle click on a link opens it in the browser too (REQ-50)
+    // Enter and Space on a hidden picture show it (the box is a button for the keyboard and for screen readers)
+    const onPicKey = (e: KeyboardEvent) => {
+      if ((e.key !== "Enter" && e.key !== " ") || e.altKey || e.ctrlKey || e.metaKey) return;
+      const bp = (e.target as Element | null)?.closest?.(".hl-bp[data-hl-pic]") as HTMLElement | null;
+      if (!bp) return;
+      e.preventDefault();
+      void showOneRef.current(bp);
+    };
+    doc.addEventListener("keydown", onPicKey);
     // print is always light (W5.5): the rules of the mail that follow the dark background are put back to the light ones while the page is printed
     const win = doc.defaultView;
     const beforePrint = () => void reapplyColorScheme(doc, false);
@@ -592,7 +710,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     const unlock = lockedNow.current ? lockDocument(doc) : undefined;
     // no native webview menu in the mail either: Copy on selected text, Open link / Copy link address on a link (confidential mail has no menu at all)
     // (Confidential mail has no menu at all, but the frame still passes Ctrl+Q on Linux: a key pressed in a frame never reaches the window, D-112)
-    const unguard = lockedNow.current ? guardFrameQuitKey(doc) : guardFrame(frame, doc, { search: true });
+    const unguard = lockedNow.current ? guardFrameQuitKey(doc) : guardFrame(frame, doc, { search: true, picture: (box) => picMenuRef.current(box) });
     stopObserve.current = () => {
       unlock?.();
       unguard?.();
@@ -605,6 +723,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
       window.removeEventListener("resize", measure);
       doc.removeEventListener("click", onClick);
       doc.removeEventListener("auxclick", onClick);
+      doc.removeEventListener("keydown", onPicKey);
       win?.removeEventListener("beforeprint", beforePrint);
       win?.removeEventListener("afterprint", afterPrint);
     };
@@ -679,9 +798,9 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
           )}
         </div>
       )}
-      {notice === "auto" && (
+      {(notice === "auto" || notice === "autoWrote" || notice === "autoService") && (
         <div className="notice info" ref={noticeRef}>
-          {t("reading.trust.loaded")}{" "}
+          {notice === "autoWrote" ? t("reading.auto.wrote") : notice === "autoService" ? t("reading.auto.service") : t("reading.trust.loaded")}{" "}
           <button className="link" data-trust="stop" title={t("reading.trust.stopTitle", { email: sender ?? m.fromEmail })} onClick={() => void removeSender(true)}>{t("reading.trust.stop")}</button>
         </div>
       )}

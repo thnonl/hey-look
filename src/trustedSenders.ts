@@ -15,14 +15,16 @@ export * from "./trustedRule";
 /** The rule for a message outside a component (the heavy-message wait, the quote of a reply): the setting of its mailbox, the list, its folder, the sender check. */
 export function remoteAllowedFor(m: MessageFull, allow = false): boolean {
   const e = normSender(m.fromEmail);
-  return remoteAllowed({ global: eff(useStore.getState().prefs, m.accountId, "loadRemote"), trusted: !!e && useTrusted.getState().emails.has(e), folder: m.folder, encrypted: !!m.security?.encrypted, auth: m.auth, allow });
+  return remoteAllowed({ global: eff(useStore.getState().prefs, m.accountId, "loadRemote"), trusted: !!e && useTrusted.getState().emails.has(e), autoReason: m.autoReason, noAuto: !!e && useTrusted.getState().noAuto.has(e), folder: m.folder, encrypted: !!m.security?.encrypted, auth: m.auth, allow });
 }
 
 interface TrustedState {
   emails: Set<string>;
+  /** the senders whose pictures are not shown automatically (people written to, well-known services) */
+  noAuto: Set<string>;
   loaded: boolean;
 }
-export const useTrusted = create<TrustedState>(() => ({ emails: new Set(), loaded: false }));
+export const useTrusted = create<TrustedState>(() => ({ emails: new Set(), noAuto: new Set(), loaded: false }));
 
 let started = false;
 /** Reads the list and keeps it current: every window that shows a message or the list calls this once. */
@@ -35,8 +37,8 @@ export function ensureTrustedLoaded(): void {
 
 export async function reloadTrusted(): Promise<void> {
   try {
-    const rows = await api.listRemoteOk();
-    useTrusted.setState({ emails: new Set(rows.map((r) => r.email.toLowerCase())), loaded: true });
+    const [rows, off] = await Promise.all([api.listRemoteOk(), api.listRemoteNoauto()]);
+    useTrusted.setState({ emails: new Set(rows.map((r) => r.email.toLowerCase())), noAuto: new Set(off.map((r) => r.email.toLowerCase())), loaded: true });
   } catch {
     /* the list stays as it was */
   }
@@ -47,8 +49,37 @@ export async function addTrusted(email: string): Promise<"added" | "already" | "
   const e = normSender(email);
   if (!e) return "invalid";
   const r = (await api.remoteOkAdd(e)) as "added" | "already" | "full";
-  if (r !== "full") useTrusted.setState((s) => ({ emails: new Set(s.emails).add(e), loaded: s.loaded }));
+  if (r !== "full") useTrusted.setState((s) => {
+    const off = new Set(s.noAuto);
+    off.delete(e); // "always show" takes the sender off the other list
+    return { emails: new Set(s.emails).add(e), noAuto: off, loaded: s.loaded };
+  });
   return r;
+}
+
+/** "Stop showing pictures" for a sender whose pictures showed by the rule of the backend (written to, a well-known service): the outcome as `addTrusted`. */
+export async function addNoAuto(email: string): Promise<"added" | "already" | "full" | "invalid"> {
+  const e = normSender(email);
+  if (!e) return "invalid";
+  const r = (await api.remoteNoautoAdd(e)) as "added" | "already" | "full";
+  if (r !== "full")
+    useTrusted.setState((s) => {
+      const on = new Set(s.emails);
+      on.delete(e);
+      return { emails: on, noAuto: new Set(s.noAuto).add(e), loaded: s.loaded };
+    });
+  return r;
+}
+
+export async function removeNoAuto(email: string): Promise<void> {
+  const e = normSender(email);
+  if (!e) return;
+  await api.remoteNoautoRemove(e);
+  useTrusted.setState((s) => {
+    const n = new Set(s.noAuto);
+    n.delete(e);
+    return { emails: s.emails, noAuto: n, loaded: s.loaded };
+  });
 }
 
 export async function removeTrusted(email: string): Promise<void> {
@@ -58,6 +89,6 @@ export async function removeTrusted(email: string): Promise<void> {
   useTrusted.setState((s) => {
     const n = new Set(s.emails);
     n.delete(e);
-    return { emails: n, loaded: s.loaded };
+    return { emails: n, noAuto: s.noAuto, loaded: s.loaded };
   });
 }

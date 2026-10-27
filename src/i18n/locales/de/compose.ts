@@ -281,7 +281,7 @@ export default defineLocale<typeof ns.en>({
   "compose.quote.remove": "Zitierten Text entfernen",
   "compose.quote.hide": "Zitierten Text ausblenden",
   "compose.quote.show": "Zitierten Text einblenden",
-  "compose.quote.remote": "Bilder aus dem Web werden beim Schreiben nicht geladen. Sie bleiben in der gesendeten Nachricht erhalten.",
+  "compose.quote.remote": "Bilder aus dem Web werden beim Schreiben nicht angezeigt. Sie bleiben in der gesendeten Nachricht erhalten.",
   "compose.quote.cut": "[… der Rest des zitierten Textes wurde wegen seiner Länge weggelassen …]",
   "compose.link.open": "Link öffnen",
   "compose.link.edit": "Link bearbeiten",

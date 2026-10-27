@@ -25,16 +25,24 @@ export interface RemoteInput {
   encrypted: boolean;
   /** the server's sender check: "pass", "fail", or nothing (not checked) */
   auth: "pass" | "fail" | null | undefined;
-  /** "Load content" was pressed for this message */
+  /** "Show pictures" was pressed for this message */
   allow: boolean;
+  /** why the backend lets the pictures show without a click (people you wrote to, a well-known service; autoload.rs), when it does */
+  autoReason?: "wrote" | "service" | null;
+  /** the sender is on the list of senders whose pictures are NOT shown automatically */
+  noAuto?: boolean;
 }
 
 /** The list loads a message's content by itself: the sender is on it, and the message is not in Junk, not encrypted and did not fail the sender check. */
 export const autoOk = (i: Pick<RemoteInput, "trusted" | "folder" | "encrypted" | "auth">): boolean =>
   i.trusted && i.folder !== "junk" && !i.encrypted && i.auth !== "fail";
 
+/** The rule of the backend (people you wrote to, well-known services) applies, and the person did not turn it off for this sender; never in Junk, for an encrypted message or after a failed check. */
+export const ruleAuto = (i: Pick<RemoteInput, "autoReason" | "noAuto" | "folder" | "encrypted" | "auth">): boolean =>
+  !!i.autoReason && !i.noAuto && i.folder !== "junk" && !i.encrypted && i.auth !== "fail";
+
 /** The one rule for the reading pane, the pop-out reader, printing and the quote of a reply. */
-export const remoteAllowed = (i: RemoteInput): boolean => i.global || autoOk(i) || i.allow;
+export const remoteAllowed = (i: RemoteInput): boolean => i.global || autoOk(i) || ruleAuto(i) || i.allow;
 
 /** May the notice offer to add this sender: a valid address that is not one of the person's own, and the message is one the list would load (not Junk, not encrypted, not failed). */
 export function canOffer(fromEmail: string | null | undefined, ownEmails: readonly string[], m: Pick<RemoteInput, "folder" | "encrypted" | "auth">): boolean {
@@ -44,13 +52,15 @@ export function canOffer(fromEmail: string | null | undefined, ownEmails: readon
   return !ownEmails.some((o) => normSender(o) === e);
 }
 
-/** What the notice above a message shows (spec §5): none; the blocked notice with the offer (S1), without it (S2), for a trusted sender that is held back (S5, S6); the info line (S4). */
-export type NoticeState = "none" | "offer" | "plain" | "held" | "heldFailed" | "auto";
+/** What the notice above a message shows (spec §5): none; the blocked notice with the offer (S1), without it (S2), for a trusted sender that is held back (S5, S6); the info line (S4);
+ * the info line of pictures shown because you wrote to the sender (S8) or because it is a well-known service (S9). */
+export type NoticeState = "none" | "offer" | "plain" | "held" | "heldFailed" | "auto" | "autoWrote" | "autoService";
 
 export function noticeState(i: RemoteInput, hasRemote: boolean, offer: boolean): NoticeState {
   if (i.global || !hasRemote) return "none";
   if (autoOk(i)) return "auto";
-  if (remoteAllowed(i)) return "none"; // "Load content" for this message (S3)
+  if (ruleAuto(i)) return i.autoReason === "wrote" ? "autoWrote" : "autoService";
+  if (remoteAllowed(i)) return "none"; // "Show pictures" for this message (S3)
   if (i.trusted) return i.auth === "fail" ? "heldFailed" : "held";
   return offer ? "offer" : "plain";
 }

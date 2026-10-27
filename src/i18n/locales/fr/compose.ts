@@ -283,7 +283,7 @@ export default defineLocale<typeof ns.en>({
   "compose.quote.remove": "Supprimer le texte cité",
   "compose.quote.hide": "Masquer le texte cité",
   "compose.quote.show": "Afficher le texte cité",
-  "compose.quote.remote": "Les images du web ne sont pas chargées pendant la rédaction. Elles restent dans le message envoyé.",
+  "compose.quote.remote": "Les images du web ne sont pas affichées pendant la rédaction. Elles restent dans le message envoyé.",
   "compose.quote.cut": "[… la suite du texte cité a été omise car elle est très longue …]",
   "compose.link.open": "Ouvrir le lien",
   "compose.link.edit": "Modifier le lien",

@@ -272,7 +272,7 @@ export default defineLocale<typeof ns.en>({
   "compose.quote.remove": "删除引用文字",
   "compose.quote.hide": "隐藏引用文字",
   "compose.quote.show": "显示引用文字",
-  "compose.quote.remote": "撰写时不会加载来自网络的图片，但它们仍会包含在发送的邮件中。",
+  "compose.quote.remote": "撰写时不会显示来自网络的图片，但它们仍会包含在发送的邮件中。",
   "compose.quote.cut": "[… 引用的文字过长，其余部分已省略 …]",
   "compose.link.open": "打开链接",
   "compose.link.edit": "编辑链接",

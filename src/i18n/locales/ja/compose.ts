@@ -273,7 +273,7 @@ export default defineLocale<typeof ns.en>({
   "compose.quote.remove": "引用文を削除",
   "compose.quote.hide": "引用文を非表示",
   "compose.quote.show": "引用文を表示",
-  "compose.quote.remote": "Web上の画像は作成中には読み込まれません。送信するメッセージにはそのまま含まれます。",
+  "compose.quote.remote": "Web上の画像は作成中には表示されません。送信するメッセージにはそのまま含まれます。",
   "compose.quote.cut": "[… 引用文が非常に長いため、残りは省略されました …]",
   "compose.link.open": "リンクを開く",
   "compose.link.edit": "リンクの編集",

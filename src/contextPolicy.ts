@@ -7,6 +7,7 @@
  * - `link`: the app's link menu (Open link, Copy link address, and Copy when text is selected).
  * - `text`: the app's text menu: Copy (greyed when nothing is selected), Select all, and Copy email address when an address is under the pointer.
  *   Also the menu of a read-only field (Copy / Select all of the field).
+ * - `picture`: the menu of a picture the reading pane hides (Show this picture, Show all pictures in this message, the link entries when the picture is a link).
  * - `block`: nothing; the right-click is swallowed.
  *
  * Fields that take text and can be changed (inputs, textareas, contenteditable: the compose body, the search box, every setting) keep the native
@@ -15,7 +16,7 @@
  * `navigator.clipboard.readText()` asks the user for a permission in WebView2, is refused in WebKitGTK and in WKWebView outside a trusted paste,
  * and `document.execCommand("paste")` is blocked by Chromium for web content. Cut / Copy / Select all would work, Paste would not.
  */
-export type MenuPolicy = "native" | "link" | "text" | "block";
+export type MenuPolicy = "native" | "link" | "text" | "picture" | "block";
 
 /**
  * What kind of control the pointer is on:
@@ -43,6 +44,8 @@ export interface Probe {
   onText: boolean;
   /** the pointer is on a document the engine draws itself (a PDF in its viewer): its menu (Rotate, Print, Save as ...) stays */
   plugin?: boolean;
+  /** the pointer (or the focus) is on the box of a picture the reading pane hides */
+  picture?: boolean;
 }
 
 export function decideContextMenu(p: Probe): MenuPolicy {
@@ -55,6 +58,7 @@ export function decideContextMenu(p: Probe): MenuPolicy {
     case "secret":
     case "disabled": return "block";
   }
+  if (p.picture) return "picture";
   if (p.link) return "link";
   if (p.email || p.selection || p.onText) return "text";
   return "block";

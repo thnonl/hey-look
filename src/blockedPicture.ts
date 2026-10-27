@@ -9,6 +9,34 @@ export const TRACKING_PIXEL_MAX = 2;
 
 export type BlockedBox = { hidden: true } | { hidden: false; width: string; height: string };
 
+/** How much the box of the reading pane says (1.0.10): the whole text (width 140 px or more and height 64 px or more), the main line only (96 / 40), or just the icon. */
+export type PictureTier = "full" | "mid" | "small";
+export type HiddenPictureBox = { hidden: true } | { hidden: false; width: string; height: string; minHeight: string; tier: PictureTier; maxHeight: string };
+
+/** The side of the box when the mail gives no width / no height (px), and its smallest height. */
+export const HIDDEN_PICTURE_WIDTH = 240;
+export const HIDDEN_PICTURE_MIN_HEIGHT = 96;
+export const HIDDEN_PICTURE_MAX_HEIGHT = 480;
+
+/**
+ * The box of a picture the reading pane hides for privacy (spec ba-v1010-written-to-and-placeholders.md section 6): the size the mail gave (at most 480 px high, the frame's own CSS
+ * caps the width), 240 px wide and at least 96 px high when it gave none; nothing for a tracking pixel or a picture the mail hides itself. The tier says how much text fits.
+ */
+export function hiddenPictureBox(a: { width?: string | null; height?: string | null; style?: string | null; hidden?: boolean }): HiddenPictureBox {
+  const base = blockedPictureBox(a);
+  if (base.hidden) return base;
+  const w = parseSize(fromStyle(a.style, "width")) ?? parseSize(a.width);
+  const h = parseSize(fromStyle(a.style, "height")) ?? parseSize(a.height);
+  const wPx = w ? ("px" in w ? w.px : null) : HIDDEN_PICTURE_WIDTH; // (a width in percent: a wide box)
+  const hPx = h && "px" in h ? h.px : null; // (no height, or one in percent: the minimum, and text for it)
+  const width = w ? ("px" in w ? `${w.px}px` : `${w.pct}%`) : `${HIDDEN_PICTURE_WIDTH}px`;
+  const height = hPx !== null ? `${Math.min(hPx, HIDDEN_PICTURE_MAX_HEIGHT)}px` : "auto";
+  const effW = wPx ?? 600;
+  const effH = hPx ?? HIDDEN_PICTURE_MIN_HEIGHT;
+  const tier: PictureTier = effW >= 140 && effH >= 64 ? "full" : effW >= 96 && effH >= 40 ? "mid" : "small";
+  return { hidden: false, width, height, minHeight: hPx !== null ? "0" : `${HIDDEN_PICTURE_MIN_HEIGHT}px`, maxHeight: `${HIDDEN_PICTURE_MAX_HEIGHT}px`, tier };
+}
+
 type Size = { px: number } | { pct: number } | null;
 
 /** "600", "600px", "12.5", "50%" -> a size; anything else (auto, em, calc ...) -> null. */
@@ -32,9 +60,12 @@ function fromStyle(style: string | null | undefined, prop: "width" | "height"): 
  * The box for a blocked picture from its own `width` / `height` attributes and inline style (the style wins, as it does for a picture): the size the mail gave it, 48 px
  * for a side it did not give, and hidden when a side is 2 px or less. The box is capped at the width of the frame by the page's CSS (`max-width: 100%`).
  */
-export function blockedPictureBox(a: { width?: string | null; height?: string | null; style?: string | null }): BlockedBox {
+export function blockedPictureBox(a: { width?: string | null; height?: string | null; style?: string | null; hidden?: boolean }): BlockedBox {
   const w = parseSize(fromStyle(a.style, "width")) ?? parseSize(a.width);
   const h = parseSize(fromStyle(a.style, "height")) ?? parseSize(a.height);
+  // a picture the mail itself hides (a hidden attribute, display:none, visibility:hidden, opacity:0) is not drawn either
+  const hiddenByStyle = /(^|;)\s*(display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0(\.0+)?)\s*(!important\s*)?(;|$)/i.test(a.style ?? "");
+  if (a.hidden || hiddenByStyle) return { hidden: true };
   if ((w && "px" in w && w.px <= TRACKING_PIXEL_MAX) || (h && "px" in h && h.px <= TRACKING_PIXEL_MAX)) return { hidden: true };
   const side = `${BLOCKED_PICTURE_SIDE}px`;
   return {

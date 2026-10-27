@@ -21,7 +21,7 @@ import { hostLabel, keyIsSent, originOf, otherServer, resolveModelsUrl } from ".
 import { normalizeSidebar } from "../sidebarState";
 import { folderVisible, ruleTargetProblem } from "../junk";
 import { cutAtWord, friendlyError, useStore } from "../store";
-import { ensureTrustedLoaded, reloadTrusted, removeTrusted, useTrusted } from "../trustedSenders";
+import { ensureTrustedLoaded, reloadTrusted, removeNoAuto, removeTrusted, useTrusted } from "../trustedSenders";
 import { credStore, kbd, riskyHint, usePlatform } from "../platform";
 import { portFromText, portText } from "../portField";
 import { addBlocked, applyFix, badHosts, type Block, changedWhileChecking, cooldown, type ConnForm, fieldValue, type FieldId, fixMsg, type Fix, needReason, NO_STREAK, nextStreak, parseAccountCheck, type PartReport, preHints, say, sigsOf, streakKey, type Streak } from "../connHints";
@@ -1433,17 +1433,21 @@ function TrustedSenders({ global }: { global: boolean }) {
   const confirm = useStore((x) => x.confirm);
   const showToast = useStore((x) => x.showToast);
   const list = useTrusted((x) => x.emails);
+  const off = useTrusted((x) => x.noAuto);
   const [added, setAdded] = useState<Record<string, number>>({});
+  const [addedOff, setAddedOff] = useState<Record<string, number>>({});
   const [q, setQ] = useState("");
   useEffect(() => ensureTrustedLoaded(), []);
   // the dates come with the list; read again whenever the list changes (another window, the notice above a message)
   useEffect(() => {
     let live = true;
     void api.listRemoteOk().then((rows) => live && setAdded(Object.fromEntries(rows.map((r) => [r.email.toLowerCase(), r.added])))).catch(() => undefined);
+    void api.listRemoteNoauto().then((rows) => live && setAddedOff(Object.fromEntries(rows.map((r) => [r.email.toLowerCase(), r.added])))).catch(() => undefined);
     return () => {
       live = false;
     };
-  }, [list]);
+  }, [list, off]);
+  const allOff = [...off].sort();
   const all = [...list].sort();
   const needle = q.trim().toLowerCase();
   const shown = needle ? all.filter((e) => e.includes(needle)) : all;
@@ -1485,6 +1489,21 @@ function TrustedSenders({ global }: { global: boolean }) {
           </div>
         ))}
         {all.length > 8 && shown.length === 0 && <div className="muted">{t("settings.reading.trustedNoMatch", { q: q.trim() })}</div>}
+      </div>
+      <div className="trusted-list" data-testid="noauto-list">
+        <div className="muted small">{t("settings.reading.autoNote")}</div>
+        {allOff.length > 0 && <div className="small trusted-sub">{t("settings.reading.noAuto")}</div>}
+        {allOff.map((e) => (
+          <div key={e} className="list-row">
+            <div className="lr-name">
+              <span className="lr-title" title={e}>{e}</span>
+              <span className="small muted">{t("settings.reading.trustedAdded", { date: day(addedOff[e]) })}</span>
+            </div>
+            <button className="btn small" aria-label={t("settings.reading.trustedRemoveLabel", { email: e })} onClick={() => void removeNoAuto(e).catch(fail)}>
+              {t("common.remove")}
+            </button>
+          </div>
+        ))}
       </div>
     </>
   );

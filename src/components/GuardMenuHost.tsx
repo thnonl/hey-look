@@ -1,4 +1,4 @@
-import { AtSign, Copy, ExternalLink, Link, Search, TextSelect, Type } from "lucide-react";
+import { AtSign, Copy, ExternalLink, Eye, Images, Link, Search, ShieldCheck, TextSelect, Type } from "lucide-react";
 import { copyToClipboard } from "../open";
 import { useT } from "../i18n/react";
 import { closeGuardMenu, useGuardMenu } from "../contextGuard";
@@ -34,7 +34,24 @@ export function GuardMenuHost() {
         onClick: () => void copyToClipboard(menu.subject!).then((ok) => (ok ? useStore.getState().showToast(() => t("reading.msg.copied"), undefined, "success") : fail())),
       }, { divider: true }]
     : [];
-  const items: CtxItem[] = link
+  const pic = menu.picture;
+  const picItems: CtxItem[] = pic
+    ? [
+        { label: t("reading.pic.showOne"), icon: <Eye size={14} />, disabled: !pic.showOne, onClick: () => pic.showOne?.() },
+        { label: t("reading.pic.showAll"), icon: <Images size={14} />, onClick: pic.showAll },
+        ...(pic.always ? [{ label: t("reading.trust.add"), icon: <ShieldCheck size={14} />, onClick: pic.always }] : []),
+        ...(link
+          ? [
+              { divider: true } as CtxItem,
+              { label: t("reading.body.linkWarnConfirm"), icon: <ExternalLink size={14} />, onClick: link.open },
+              { label: mail ? t("mail.ctx.copyEmail") : t("mail.link.copy"), icon: mail ? <AtSign size={14} /> : <Link size={14} />, onClick: () => copy(link.href.replace(/^mailto:/i, "").split("?")[0]) },
+            ]
+          : []),
+      ]
+    : [];
+  const items: CtxItem[] = pic
+    ? picItems
+    : link
     ? [
         { label: t("reading.body.linkWarnConfirm"), icon: <ExternalLink size={14} />, onClick: link.open },
         { label: mail ? t("mail.ctx.copyEmail") : t("mail.link.copy"), icon: mail ? <AtSign size={14} /> : <Link size={14} />, onClick: () => copy(link.href.replace(/^mailto:/i, "").split("?")[0]) },
@@ -48,5 +65,5 @@ export function GuardMenuHost() {
         ...(menu.selectAll ? [{ label: t("mail.ctx.selectAll"), icon: <TextSelect size={14} />, hint: kbd("Ctrl+A"), onClick: menu.selectAll }] : []),
         ...search,
       ];
-  return <ContextMenu key={`${menu.at.x},${menu.at.y},${menu.keyboard}`} at={menu.at} items={items} label={t("mail.ctx.textMenu")} keyboard={menu.keyboard} returnTo={menu.returnTo} onClose={closeGuardMenu} />;
+  return <ContextMenu key={`${menu.at.x},${menu.at.y},${menu.keyboard}`} at={menu.at} items={items} label={pic ? t("reading.pic.menuLabel") : t("mail.ctx.textMenu")} keyboard={menu.keyboard} returnTo={menu.returnTo} onClose={closeGuardMenu} />;
 }

@@ -283,7 +283,7 @@ export default defineLocale<typeof ns.en>({
   "compose.quote.remove": "Xóa văn bản trích dẫn",
   "compose.quote.hide": "Ẩn văn bản trích dẫn",
   "compose.quote.show": "Hiện văn bản trích dẫn",
-  "compose.quote.remote": "Ảnh từ web không được tải khi bạn soạn thư. Chúng vẫn nằm trong thư bạn gửi.",
+  "compose.quote.remote": "Ảnh từ web không hiện khi bạn soạn thư. Chúng vẫn nằm trong thư bạn gửi.",
   "compose.quote.cut": "[… phần còn lại của văn bản trích dẫn đã bị lược bỏ vì quá dài …]",
   "compose.link.open": "Mở liên kết",
   "compose.link.edit": "Sửa liên kết",

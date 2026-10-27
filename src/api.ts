@@ -102,6 +102,8 @@ export interface MessageFull {
   importance?: Importance;
   /** the sender check of the server (Authentication-Results): "pass", "fail", or nothing when it was not checked */
   auth?: "pass" | "fail" | null;
+  /** why the pictures may show without a click (autoload.rs): you have written to this address, or a well-known service whose check passed; the page adds its own exclusions */
+  autoReason?: "wrote" | "service" | null;
 }
 
 export type SigStatus = "valid" | "invalid" | "unknown_key" | "expired_key" | "revoked_key";
@@ -775,6 +777,10 @@ export const api = {
   remoteOkAdd: (email: string) => invoke<string>("remote_ok_add", { email }),
   remoteOkRemove: (email: string) => invoke<void>("remote_ok_remove", { email }),
   remoteOkClear: () => invoke<void>("remote_ok_clear"),
+  /** the senders whose pictures are NOT shown automatically (people written to, well-known services): the list, add ("added" | "already" | "full"), remove */
+  listRemoteNoauto: () => invoke<{ email: string; added: number }[]>("list_remote_noauto"),
+  remoteNoautoAdd: (email: string) => invoke<string>("remote_noauto_add", { email }),
+  remoteNoautoRemove: (email: string) => invoke<void>("remote_noauto_remove", { email }),
   listRules: () => invoke<Rule[]>("list_rules"),
   saveRule: (rule: Rule) => invoke<void>("save_rule", { rule }),
   deleteRule: (id: string) => invoke<void>("delete_rule", { id }),

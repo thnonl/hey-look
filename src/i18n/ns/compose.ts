@@ -290,7 +290,7 @@ export default define({
     "compose.quote.remove": "Remove quoted text",
     "compose.quote.hide": "Hide quoted text",
     "compose.quote.show": "Show quoted text",
-    "compose.quote.remote": "Pictures from the web are not loaded while you write. They are still in the message you send.",
+    "compose.quote.remote": "Pictures from the web are not shown while you write. They are still in the message you send.",
     "compose.quote.cut": "[… the rest of the quoted text was left out because it is very long …]",
     "compose.link.open": "Open link",
     "compose.link.edit": "Edit link",

@@ -11,6 +11,13 @@ const probe = (over = {}) => ({ dev: false, field: "none", locked: false, link: 
 
 // release build: everything is swallowed unless the app has a menu for it
 assert.equal(decideContextMenu(probe()), "block", "plain click (a button, a picture, empty space): nothing");
+// 1.0.10 T-U3: the box of a picture the reading pane hides has its own menu (also when the picture is a link: the menu then adds the link entries); confidential mail has none; a field keeps its own
+assert.equal(decideContextMenu(probe({ picture: true })), "picture", "a hidden picture: its menu");
+assert.equal(decideContextMenu(probe({ picture: true, link: "https://x.example/" })), "picture", "a hidden picture in a link: the picture menu (with the link entries)");
+assert.equal(decideContextMenu(probe({ picture: true, locked: true })), "block", "confidential mail: no menu at all");
+assert.equal(decideContextMenu(probe({ picture: true, dev: true })), "native", "a developer build keeps the engine's menu");
+assert.equal(decideContextMenu(probe({ picture: true, field: "editable" })), "native", "a field that takes text keeps its own");
+assert.equal(decideContextMenu(probe({ picture: true, selection: true })), "picture", "text selected elsewhere does not change it");
 assert.equal(decideContextMenu(probe({ selection: true })), "text", "selected text: the app's text menu (Copy)");
 assert.equal(decideContextMenu(probe({ onText: true })), "text", "text without a selection: the text menu too (Select all; Copy greyed)");
 assert.equal(decideContextMenu(probe({ email: "a@b.com" })), "text", "an address (a recipient chip): the text menu with Copy email address");
@@ -162,8 +169,8 @@ assert.match(guard, /doc\.addEventListener\("contextmenu", onContext, true\)/, "
 assert.match(guard, /window\.addEventListener\("keydown", onKey, true\)/, "the ContextMenu key / Shift+F10 in the window");
 assert.match(guard, /doc\.addEventListener\("keydown", onKey, true\)/, "and in a message's frame");
 assert.match(guard, /fieldKind\(/, "the field case is decided by contextPolicy");
-assert.match(guard, /decideContextMenu\(\{ dev: false, field: p\.field, locked: p\.locked, link: p\.href, email: p\.email, selection: p\.text\.length > 0, onText: p\.onText \|\| p\.subject !== null, plugin: p\.plugin \}\)/, "the decision function is the one tested here (mouse)");
-assert.match(guard, /decideContextMenu\(\{ dev: false, field: p\.field, locked: p\.locked, link: p\.href, email: p\.email, selection: p\.text\.length > 0, onText: p\.subject !== null \}\)/, "and the keyboard asks the same question");
+assert.match(guard, /decideContextMenu\(\{ dev: false, field: p\.field, locked: p\.locked, link: p\.href, picture: !!p\.picture, email: p\.email, selection: p\.text\.length > 0, onText: p\.onText \|\| p\.subject !== null, plugin: p\.plugin \}\)/, "the decision function is the one tested here (mouse)");
+assert.match(guard, /decideContextMenu\(\{ dev: false, field: p\.field, locked: p\.locked, link: p\.href, picture: !!p\.picture, email: p\.email, selection: p\.text\.length > 0, onText: p\.subject !== null \}\)/, "and the keyboard asks the same question");
 assert.match(guard, /if \(nativeMenuStays\(\)\) return;/, "dev / debug builds keep the native menu");
 assert.match(guard, /import\.meta\.env\.DEV/, "the dev detection is Vite's");
 assert.match(guard, /nativeMenuWanted\(window\.location\.hash, import\.meta\.env\.DEV, usePlatform\.getState\(\)\.testData !== null\)/, "a debug build of the app is told by the backend's test-data folder; the rule is nativeMenuWanted (tested above)");
@@ -175,7 +182,7 @@ assert.match(guard, /closest\("\.confidential, \[data-no-copy\]"\)/, "confidenti
 assert.match(guard, /e\.preventDefault\(\);\s*\n\s*if \(p\.own \|\| policy === "block" \|\| isKeyEcho\(keyAt, Date\.now\(\)\)\) return;/, "swallowed first, then the app's menu if there is one (and not twice for one key press)");
 assert.match(guard, /if \(policy === "native" \|\| p\.own\) return;/, "a field answers its own key, the mail list answers its own");
 // the screens
-assert.match(read("src/components/ReadingPane.tsx"), /lockedNow\.current \? guardFrameQuitKey\(doc\) : guardFrame\(frame, doc, \{ search: true \}\)/, "the message frame has it (and its selection can be searched for), confidential mail has no menu at all (only the Ctrl+Q handler, D-112)");
+assert.match(read("src/components/ReadingPane.tsx"), /lockedNow\.current \? guardFrameQuitKey\(doc\) : guardFrame\(frame, doc, \{ search: true, picture: \(box\) => picMenuRef\.current\(box\) \}\)/, "the message frame has it (and its selection can be searched for), confidential mail has no menu at all (only the Ctrl+Q handler, D-112)");
 // W8.1: Copy subject and Search mail for the selection - in the reading areas only, never for locked content, never in an attachment preview
 assert.match(read("src/components/ReadingPane.tsx"), /<h2 data-subject=\{subjectText\(summ\.subject\)\}>/, "the subject heading of the reading pane is marked");
 assert.match(read("src/popout/ReaderView.tsx"), /data-subject=\{title\}/, "and the one of a reader window");
