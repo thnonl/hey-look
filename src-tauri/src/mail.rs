@@ -2056,7 +2056,7 @@ Content-Type: text/html; charset=utf-8
                     Ưu đãi lớn cho khách hàng thân thiết. Xem chi tiết tại https://shop.example/offer?id=77\r\n\r\n[Unsubscribe](https://ecafgcd.r.af.d.sendibt2.com/unsub/abc)\r\n";
         let raw = format!("From: CellphoneS <hi@cellphones.example>\r\nSubject: =?utf-8?B?8J+UpSBN4bufIMSQ4bq3dCBD4buNYyBpUGhvbmUgRHVv?=\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{text}");
         let p = parse(20, raw.as_bytes(), false, false, 0).unwrap();
-        assert_eq!(p.snippet, "Ưu đãi lớn cho khách hàng thân thiết. Xem chi tiết tại");
+        assert_eq!(p.snippet, "Ưu đãi lớn cho khách hàng thân thiết. Xem chi tiết");
         let stored = p.text.unwrap();
         for word in ["View in browser", "sendibt2.com", "khách hàng thân thiết", "shop.example/offer?id=77", "Unsubscribe"] {
             assert!(stored.contains(word), "search text keeps {word:?}");

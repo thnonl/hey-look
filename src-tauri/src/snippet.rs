@@ -858,6 +858,28 @@ fn drop_url_in_token(tok: &str) -> String {
     tok.to_string()
 }
 
+/// Words that only point at an address ("at", "visit", "see", "go to", "unter", "sur", "tại", "на"): the obvious ones of the app's languages that are written with spaces
+/// (Japanese and Chinese attach their particles to the word before, so nothing is dropped there). Lower case, without a closing colon or comma.
+const POINTER_WORDS: [&str; 23] = [
+    "at", "on", "to", "via", "visit", "see", "open", "unter", "auf", "bei", "en", "visita", "visite", "sur", "à", "visitez", "tại", "на", "по", "go to", "truy cập", "besuchen sie", "ir a",
+];
+
+/// Takes the pointer word (or the two that make one: "go to", "truy cập") off the end of the kept words. Only called after an address was removed, so a sentence without one is never touched.
+fn drop_pointer_word(kept: &mut Vec<String>) {
+    let word = |t: &String| t.trim_end_matches([':', ',']).to_lowercase();
+    let n = kept.len();
+    if n >= 2 {
+        let two = format!("{} {}", word(&kept[n - 2]), word(&kept[n - 1]));
+        if POINTER_WORDS.contains(&two.as_str()) {
+            kept.truncate(n - 2);
+            return;
+        }
+    }
+    if n >= 1 && POINTER_WORDS.contains(&word(&kept[n - 1]).as_str()) {
+        kept.pop();
+    }
+}
+
 /// A character of a rule, frame or bullet row ("-----", "=====", "_____", "* * *", "┄┄┄").
 fn rule_char(c: char) -> bool {
     matches!(c, '-' | '_' | '=' | '*' | '#' | '~' | '+' | '|' | '<' | '>' | '^' | '/' | '\\' | '.' | '·' | '•' | '—' | '–' | '\u{2500}'..='\u{259F}')
@@ -935,7 +957,24 @@ fn trim_junk(s: &str) -> &str {
 
 /// One line of the text, after the links of the whole text were handled: no addresses, rules or boilerplate.
 fn line_text(line: &str) -> String {
-    let s = line.split_whitespace().map(drop_url_in_token).filter(|t| !t.is_empty()).collect::<Vec<_>>().join(" ");
+    let mut kept: Vec<String> = Vec::new();
+    let mut removed = false;
+    for tok in line.split_whitespace() {
+        let t = drop_url_in_token(tok);
+        if t.is_empty() {
+            // an address was taken out: the word that only pointed at it ("... apps at <address> for details") goes with it
+            removed = true;
+            drop_pointer_word(&mut kept);
+        } else {
+            kept.push(t);
+        }
+    }
+    let mut s = kept.join(" ");
+    if removed {
+        for p in [" ,", " .", " ;", " :", " !", " ?"] {
+            s = s.replace(p, &p[1..]);
+        }
+    }
     let s = clean_text(&drop_empty_brackets(&collapse_rules(&s)));
     if s.is_empty() || is_boilerplate(&s) {
         return String::new();
@@ -1671,9 +1710,9 @@ Real words here", "")), "", "alone {t:?}");
             ("Hello (https://a.example/x) world", "Hello world"),
             ("Visit <https://a.example/x?y=1> today", "Visit today"),
             ("Mail <mailto:a@b.example> today", "Mail today"),
-            ("Go to HTTP://A.EXAMPLE/X now, ftp://f.example/file or www.example.com/page.", "Go to now, or"),
+            ("Go to HTTP://A.EXAMPLE/X now, ftp://f.example/file or www.example.com/page.", "now, or"),
             ("see:https://a.example/x done", "see: done"),
-            ("Track at ecafgcd.r.af.d.sendibt2.com/tr/mr/Tri_95Hx3VW now", "Track at now"),
+            ("Track at ecafgcd.r.af.d.sendibt2.com/tr/mr/Tri_95Hx3VW now", "Track now"),
             ("Token Tri_95Hx3VWzJfQSa7ggBekbb0Elk9qsx0y6UH1lWEQ8lP4o2bJ6 end", "Token end"),
             ("Path /a/b/c/d/e/f/g/h/i/j/k/l/m/n/o?x=1&y=2 end", "Path end"),
             ("tel:+84901234567 or mailto:x@y.example", "or"),
@@ -1923,11 +1962,11 @@ Real words here", "")), "", "alone {t:?}");
         assert_eq!(n, 3 + 450, "f27, html, mid and the bulk rows");
         assert_eq!(snippet_of(&c, "f27"), "\u{1F525} Mở Đặt Cọc iPhone Duo Ưu đãi lớn cho khách hàng thân thiết, số lượng có hạn.");
         assert_eq!(snippet_of(&c, "html"), "Summer sale words");
-        assert_eq!(snippet_of(&c, "mid"), "Visit for details about the new plan");
+        assert_eq!(snippet_of(&c, "mid"), "for details about the new plan");
         assert_eq!(snippet_of(&c, "plain"), "Hello there");
         assert_eq!(snippet_of(&c, "bracket"), "[External] Please review the attached file today");
         assert_eq!(snippet_of(&c, "nobody"), "[View in browser](https://v.example/t?u=1", "nothing readable and no body: untouched");
-        assert_eq!(snippet_of(&c, "bulk449"), "Bulk 449 see for the details of this message");
+        assert_eq!(snippet_of(&c, "bulk449"), "Bulk 449 for the details of this message");
         // the stored body is the search text: untouched, so every word and the address are still found
         let body: String = c.query_row("SELECT body_text FROM messages WHERE id='f27'", [], |r| r.get(0)).unwrap();
         assert_eq!(body, raw);
@@ -1961,5 +2000,41 @@ Invoice 42 is ready for you"));
         let body: String = c.query_row("SELECT body_text FROM messages WHERE id='g'", [], |r| r.get(0)).unwrap();
         assert!(body.starts_with("[image: Google]"), "the stored body keeps the marker (search text)");
         assert_eq!(fix_stored_markers(&c).unwrap(), 0, "done once");
+    }
+
+    #[test]
+    fn the_word_that_pointed_at_a_removed_address_goes_with_it() {
+        let g = "You allowed Claude for Google Drive access to some of your Google Account data. Review your connected apps at https://myaccount.google.com/connections?utm_source=alert for details.";
+        assert_eq!(preview_text(g), "You allowed Claude for Google Drive access to some of your Google Account data. Review your connected apps for details.");
+        assert!(notification_preview(g).starts_with("You allowed Claude for Google Drive access"), "{}", notification_preview(g));
+        for (raw, want) in [
+            ("Open the app, go to https://a.example/x and sign in", "Open the app, and sign in"),
+            ("Visit https://a.example/x today", "today"),
+            ("See here https://a.example/x now", "See here now"),
+            ("See: https://a.example/x , thanks", "thanks"),
+            ("Your invoice is ready, see https://a.example/i/42.", "Your invoice is ready"),
+            ("Mehr Infos unter https://a.example/x lesen Sie hier", "Mehr Infos lesen Sie hier"),
+            ("Consulte su pedido en https://a.example/x hoy", "Consulte su pedido hoy"),
+            ("Détails sur https://a.example/x ici", "Détails ici"),
+            ("Xem chi tiết tại https://a.example/x ngay", "Xem chi tiết ngay"),
+            ("Подробности на https://a.example/x здесь", "Подробности здесь"),
+            ("Truy cập https://a.example/x để xem", "để xem"),
+        ] {
+            assert_eq!(preview_text(raw), want, "{raw}");
+        }
+        // no address removed: nothing is dropped, whatever the words are
+        for same in [
+            "Meet me at noon on Monday to talk, see you there",
+            "The meeting is at 10 and we open the doors on time",
+            "Ưu đãi lớn cho khách hàng thân thiết tại cửa hàng của chúng tôi",
+            "Подробности на сайте магазина по телефону",
+            "ご注文を発送しました。詳細はこちらをご覧ください",
+            "您的订单已发货，请在应用中查看详情",
+        ] {
+            assert_eq!(preview_text(same), same, "{same}");
+        }
+        // an address that is the whole sentence leaves nothing; a pointer word that is not before an address stays
+        assert_eq!(preview_text("at https://a.example/x"), "");
+        assert_eq!(preview_text("Look at the https://a.example/x link and come back at five"), "Look at the link and come back at five");
     }
 }
