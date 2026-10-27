@@ -302,21 +302,22 @@ try {
         const cs = getComputedStyle(n), lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.4, r = n.getBoundingClientRect(), pane = n.closest('.rp-msg').parentElement;
         const links = [...n.querySelectorAll('button.link')].map((b) => { const q = b.getBoundingClientRect(); const own = parseFloat(getComputedStyle(b).lineHeight) || lh; return { text: b.textContent.trim(), lines: Math.round(q.height / own), h: Math.round(q.height), inside: q.left >= r.left - 1 && q.right <= r.right + 1, tall: b.scrollWidth > b.clientWidth + 1 }; });
         const sc = [...document.querySelectorAll('.rp-msg.open, .reading-pane, .reader, .rp-scroll')].some((e) => e.scrollWidth > e.clientWidth + 1);
-        const rg = document.createRange(); rg.selectNodeContents(n); const tops = []; for (const q of [...rg.getClientRects(), ...[...n.querySelectorAll('button.link')].flatMap((b) => [...b.getClientRects()])]) { if (q.height < 4) continue; const y = Math.round(q.top); if (!tops.some((v) => Math.abs(v - y) < 5)) tops.push(y); }
+        const rg = document.createRange(); rg.selectNodeContents(n); const tops = []; for (const q of [...rg.getClientRects(), ...[...n.querySelectorAll('button.link')].flatMap((b) => [...b.getClientRects()])]) { if (q.height < 4) continue; const y = Math.round(q.top + q.height / 2); if (!tops.some((v) => Math.abs(v - y) < 8)) tops.push(y); }
         return { lines: tops.length, width: Math.round(r.width), clip: n.scrollWidth > n.clientWidth + 1, hscroll: sc || document.documentElement.scrollWidth > innerWidth, links, text: n.textContent, right: Math.round(r.right), vw: innerWidth };
       })()`);
       ok(m, `${lang} ${w}x${h} ${id}: the notice shows`);
       // the narrowest real notices: a Mac window of 960 with the side menu open had a notice of 352 px (the reading pane is at least 440 px wide plus the page's own padding and the
       // size of the system font); the width is set on the notice itself, which wraps exactly as it would in a pane that narrow. Only once per language and variant (at 1280).
       if (w === 1280 && theme === 'light') {
-        // The fonts of the real platforms are wider than the Windows ones this test usually runs on (Segoe UI here; SF on a Mac and DejaVu / Noto / Cantarell on Linux measured 8 to 15 %
-        // wider): every case is measured again in a notice 12 % narrower than the width it stands for (the same as a text 12 % wider), and must keep the same limit.
+        // The app ships its own font (Inter) for Latin, Cyrillic and Vietnamese, so those widths are the same everywhere; the margin of 6 % is for the engines' rounding of glyph
+        // advances. Chinese and Japanese come from a system font that differs per platform (Yu Gothic UI, Hiragino, Noto CJK): 12 %. Every case is measured again in a notice
+        // that much narrower than the width it stands for (the same as a text that much wider) and must keep the same limit.
         // [real notice width, lines allowed]: 352 and 400 the narrowest panes of a Mac with the side menu open, 492 and 544 the notice of a page of 1244 and 1296 px.
-        for (const [nw0, limit] of [[352, 4], [400, 4], [492, 3], [544, 3]]) for (const margin of [1, 1.12]) {
+        for (const [nw0, limit] of [[352, 4], [400, 4], [492, 3], [508, 3], [528, 3], [544, 3]]) for (const margin of [1, ['ja', 'zh-Hans'].includes(lang) ? 1.12 : 1.06]) {
           const nw = Math.round(nw0 / margin);
-          const k = await evaluate(`(() => { const n = document.querySelector('.rp-msg.open .notice'); if (!n) return null; n.style.width = '${nw}px'; n.style.boxSizing = 'border-box'; const rg = document.createRange(); rg.selectNodeContents(n); const tops = []; for (const q of [...rg.getClientRects(), ...[...n.querySelectorAll('button.link')].flatMap((b) => [...b.getClientRects()])]) { if (q.height < 4) continue; const y = Math.round(q.top); if (!tops.some((v) => Math.abs(v - y) < 5)) tops.push(y); } const r = n.getBoundingClientRect(); const inside = [...n.querySelectorAll('button.link')].every((b) => { const x = b.getBoundingClientRect(); return x.left >= r.left - 1 && x.right <= r.right + 1; }); const out = { lines: tops.length, clip: n.scrollWidth > n.clientWidth + 1, inside }; n.style.width = ''; n.style.boxSizing = ''; return out; })()`);
+          const k = await evaluate(`(() => { const n = document.querySelector('.rp-msg.open .notice'); if (!n) return null; n.style.width = '${nw}px'; n.style.boxSizing = 'border-box'; const rg = document.createRange(); rg.selectNodeContents(n); const tops = []; for (const q of [...rg.getClientRects(), ...[...n.querySelectorAll('button.link')].flatMap((b) => [...b.getClientRects()])]) { if (q.height < 4) continue; const y = Math.round(q.top + q.height / 2); if (!tops.some((v) => Math.abs(v - y) < 8)) tops.push(y); } const r = n.getBoundingClientRect(); const inside = [...n.querySelectorAll('button.link')].every((b) => { const x = b.getBoundingClientRect(); return x.left >= r.left - 1 && x.right <= r.right + 1; }); const out = { lines: tops.length, clip: n.scrollWidth > n.clientWidth + 1, inside }; n.style.width = ''; n.style.boxSizing = ''; return out; })()`);
           ok(k && k.lines <= limit && !k.clip && k.inside, `${lang} ${nw0}px (measured at ${nw}px) notice ${state}: at most ${limit} lines, nothing clipped (${JSON.stringify(k)})`);
-          report.push(`${lang} ${nw0}px${margin > 1 ? '+12%' : ''} ${state}: ${k && k.lines}`);
+          report.push(`${lang} ${nw0}px${margin > 1 ? '+margin' : ''} ${state}: ${k && k.lines}`);
         }
       }
       if (!m) continue;
