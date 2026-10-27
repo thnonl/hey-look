@@ -151,7 +151,7 @@ export default defineLocale<typeof ns.en>({
   "reading.trust.addTitle": "Luôn tải nội dung từ xa cho {email}",
   "reading.trust.stopTitle": "Ngừng tải nội dung từ xa cho {email}",
   "reading.trust.loaded": "Nội dung từ xa của người gửi này được tải tự động.",
-  "reading.trust.failedCheck": "Nội dung từ xa đã bị chặn: thư này không qua bước kiểm tra người gửi nên có thể không thực sự đến từ người gửi này.",
+  "reading.trust.failedCheck": "Nội dung từ xa bị chặn: thư không qua bước kiểm tra người gửi, có thể không phải từ họ.",
   "reading.trust.added": "Nội dung từ xa của {email} sẽ luôn được tải.",
   "reading.trust.removed": "Nội dung từ xa của {email} sẽ không còn được tải tự động.",
   "reading.trust.full": "Bạn có thể thêm tối đa {max} người gửi. Hãy xóa bớt trong Cài đặt trước.",

@@ -145,8 +145,8 @@ export default defineLocale<typeof ns.en>({
   "reading.lang.russian": "русский",
   // ---- message body (blocked content, links, pictures that are not embedded)
   "reading.body.blocked": "Часть содержимого этого письма заблокирована, чтобы предотвратить отслеживание.",
-  "reading.body.loadContent": "Загрузить содержимое",
-  "reading.body.alwaysLoad": "Всегда загружать внешнее содержимое (Настройки)",
+  "reading.body.loadContent": "Загрузить",
+  "reading.body.alwaysLoad": "Всегда загружать содержимое (Настройки)",
   "reading.trust.add": "Всегда загружать для отправителя",
   "reading.trust.stop": "Отключить для отправителя",
   "reading.trust.addTitle": "Всегда загружать внешнее содержимое от {email}",

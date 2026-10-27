@@ -306,6 +306,15 @@ try {
         return { lines: tops.length, width: Math.round(r.width), clip: n.scrollWidth > n.clientWidth + 1, hscroll: sc || document.documentElement.scrollWidth > innerWidth, links, text: n.textContent, right: Math.round(r.right), vw: innerWidth };
       })()`);
       ok(m, `${lang} ${w}x${h} ${id}: the notice shows`);
+      // the narrowest real notices: a Mac window of 960 with the side menu open had a notice of 352 px (the reading pane is at least 440 px wide plus the page's own padding and the
+      // size of the system font); the width is set on the notice itself, which wraps exactly as it would in a pane that narrow. Only once per language and variant (at 1280).
+      if (w === 1280 && theme === 'light') {
+        for (const nw of [400, 352]) {
+          const k = await evaluate(`(() => { const n = document.querySelector('.rp-msg.open .notice'); if (!n) return null; n.style.width = '${nw}px'; n.style.boxSizing = 'border-box'; const rg = document.createRange(); rg.selectNodeContents(n); const tops = []; for (const q of [...rg.getClientRects(), ...[...n.querySelectorAll('button.link')].flatMap((b) => [...b.getClientRects()])]) { if (q.height < 4) continue; const y = Math.round(q.top); if (!tops.some((v) => Math.abs(v - y) < 5)) tops.push(y); } const r = n.getBoundingClientRect(); const inside = [...n.querySelectorAll('button.link')].every((b) => { const x = b.getBoundingClientRect(); return x.left >= r.left - 1 && x.right <= r.right + 1; }); const out = { lines: tops.length, clip: n.scrollWidth > n.clientWidth + 1, inside }; n.style.width = ''; n.style.boxSizing = ''; return out; })()`);
+          ok(k && k.lines <= 4 && !k.clip && k.inside, `${lang} ${nw}px notice ${state}: at most 4 lines, nothing clipped (${JSON.stringify(k)})`);
+          report.push(`${lang} ${nw}px ${state}: ${k && k.lines}`);
+        }
+      }
       if (!m) continue;
       ok(!m.clip && !m.hscroll, `${theme} ${lang} ${w}x${h} ${id}: not clipped, no horizontal scroll (${JSON.stringify({ clip: m.clip, hscroll: m.hscroll })})`);
       ok(m.links.every((l) => l.inside && !l.tall), `${lang} ${w}x${h} ${id}: every link inside the notice ${JSON.stringify(m.links.filter((l) => !l.inside || l.tall))}`);
