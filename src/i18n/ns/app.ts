@@ -11,7 +11,7 @@ export default define({
     "app.welcome.other.title": "Other email account",
     "app.welcome.other.text": "iCloud (app password), Yahoo or any IMAP / SMTP server",
     "app.welcome.point.passwords": "Passwords stay in {store}",
-    "app.welcome.point.privacy": "Remote images and trackers are blocked by default",
+    "app.welcome.point.privacy": "Pictures and trackers are hidden by default",
     "app.welcome.point.tray": "Keeps checking mail from the tray, with Undo for every move",
     "app.welcome.point.menuBar": "Keeps checking mail from the menu bar, with Undo for every move",
     "app.welcome.point.noTray": "Keeps checking mail while Hey Look! is open, with Undo for every move",

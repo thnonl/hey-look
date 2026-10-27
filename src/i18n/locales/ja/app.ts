@@ -11,7 +11,7 @@ export default defineLocale<typeof ns.en>({
   "app.welcome.other.title": "その他のメールアカウント",
   "app.welcome.other.text": "iCloud（アプリパスワード）、Yahoo、または任意のIMAP / SMTPサーバー",
   "app.welcome.point.passwords": "パスワードは{store}に保管されます",
-  "app.welcome.point.privacy": "リモート画像とトラッカーは、既定でブロックされます",
+  "app.welcome.point.privacy": "画像とトラッカーは、既定で非表示になります",
   "app.welcome.point.tray": "トレイに常駐してメールを確認し続け、どの移動も元に戻せます",
   "app.welcome.point.menuBar": "メニューバーでメールを確認し続け、どの移動も元に戻せます",
   "app.welcome.point.noTray": "Hey Look!を開いている間はメールを確認し続け、どの移動も元に戻せます",

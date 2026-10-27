@@ -11,7 +11,7 @@ export default defineLocale<typeof ns.en>({
   "app.welcome.other.title": "Tài khoản email khác",
   "app.welcome.other.text": "iCloud (mật khẩu ứng dụng), Yahoo hoặc máy chủ IMAP / SMTP bất kỳ",
   "app.welcome.point.passwords": "Mật khẩu được lưu trong {store}",
-  "app.welcome.point.privacy": "Ảnh từ xa và trình theo dõi bị chặn theo mặc định",
+  "app.welcome.point.privacy": "Ảnh và trình theo dõi bị ẩn theo mặc định",
   "app.welcome.point.tray": "Vẫn kiểm tra thư từ khay hệ thống, có Hoàn tác cho mọi thao tác di chuyển",
   "app.welcome.point.menuBar": "Vẫn kiểm tra thư từ thanh menu, có Hoàn tác cho mọi thao tác di chuyển",
   "app.welcome.point.noTray": "Vẫn kiểm tra thư khi Hey Look! đang mở, có Hoàn tác cho mọi thao tác di chuyển",

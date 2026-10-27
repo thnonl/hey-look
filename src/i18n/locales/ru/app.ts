@@ -11,7 +11,7 @@ export default defineLocale<typeof ns.en>({
   "app.welcome.other.title": "Другая почтовая учётная запись",
   "app.welcome.other.text": "iCloud (пароль приложения), Yahoo или любой сервер IMAP / SMTP",
   "app.welcome.point.passwords": "Пароли хранятся в {store}",
-  "app.welcome.point.privacy": "Внешние изображения и трекеры по умолчанию блокируются",
+  "app.welcome.point.privacy": "Изображения и трекеры по умолчанию скрываются",
   "app.welcome.point.tray": "Проверяет почту из трея, любое перемещение можно отменить",
   "app.welcome.point.menuBar": "Проверяет почту из строки меню, любое перемещение можно отменить",
   "app.welcome.point.noTray": "Проверяет почту, пока открыт Hey Look!, любое перемещение можно отменить",

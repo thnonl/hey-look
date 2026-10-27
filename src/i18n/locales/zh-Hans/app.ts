@@ -11,7 +11,7 @@ export default defineLocale<typeof ns.en>({
   "app.welcome.other.title": "其他电子邮件账户",
   "app.welcome.other.text": "iCloud（应用专用密码）、Yahoo或任何IMAP / SMTP服务器",
   "app.welcome.point.passwords": "密码保存在{store}中",
-  "app.welcome.point.privacy": "默认阻止远程图片和跟踪器",
+  "app.welcome.point.privacy": "默认隐藏图片和跟踪器",
   "app.welcome.point.tray": "在托盘中持续检查邮件，每次移动邮件都可撤销",
   "app.welcome.point.menuBar": "在菜单栏中持续检查邮件，每次移动邮件都可撤销",
   "app.welcome.point.noTray": "Hey Look!打开期间持续检查邮件，每次移动邮件都可撤销",
