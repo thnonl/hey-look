@@ -35,7 +35,7 @@ const walk = (dir) => {
     const rel = `${dir}/${e.name}`;
     if (e.isDirectory()) { if (!['node_modules', 'target', '.git'].includes(e.name)) walk(rel); continue; }
     if (/\.(ya?ml|json|toml|cjs|mjs|js|sh|ps1|cmd|bat|rb|py)$/i.test(e.name) || e.name === 'Makefile') {
-      if (rel === 'scripts/test-qa-secrets-off.mjs') continue;
+      if (['scripts/test-qa-secrets-off.mjs', 'scripts/check-rust-warnings.mjs', 'scripts/test-rust-warnings-gate.mjs'].includes(rel)) continue; // (the local Rust gate only runs cargo check with the feature, to keep it free of warnings)
       if (/qa-secrets/.test(fs.readFileSync(path.join(ROOT, rel), 'utf8'))) forbidden.push(rel);
     }
   }

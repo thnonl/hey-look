@@ -3,6 +3,7 @@ static | node --experimental-strip-types scripts/test-frame-sandbox.mjs
 static | node --experimental-strip-types scripts/test-pdf-frame.mjs
 static | node scripts/test-qa-secrets-off.mjs
 static | node scripts/test-svg-data-uri.mjs
+static | node scripts/test-rust-warnings-gate.mjs
 static | node --experimental-strip-types scripts/test-addresses.mjs
 static | node --experimental-strip-types scripts/test-recipients.mjs
 static | node --experimental-strip-types scripts/test-reply-targets.mjs

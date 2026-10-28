@@ -9,6 +9,7 @@ use rusqlite::{params, Connection};
 use std::collections::HashSet;
 
 /// Raise when the list below changes.
+#[cfg(test)] // (read by the test that keeps it in step with the list; the app does not need it)
 pub const SERVICE_LIST_VERSION: u32 = 1;
 
 /// Well-known services: a From domain that equals one of these or is a subdomain of it, with a passing check for that domain. Lower case, sorted, one entry per line.
@@ -186,10 +187,7 @@ pub fn reason(i: &Input) -> Option<&'static str> {
 
 // ---- the addresses the person has written to ----
 
-pub fn create_table(c: &Connection) -> rusqlite::Result<()> {
-    c.execute_batch("CREATE TABLE IF NOT EXISTS written_to(email TEXT NOT NULL COLLATE NOCASE, account_id TEXT NOT NULL, PRIMARY KEY(email, account_id));")
-}
-
+/// (the table `written_to` is made with the others in db.rs `migrate`)
 /// The addresses of a `to_addrs` / `cc_addrs` text (bare addresses joined by `,`), lower case, valid ones only.
 pub fn addresses(joined: &str) -> Vec<String> {
     joined

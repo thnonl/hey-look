@@ -29,10 +29,6 @@ pub fn normalize(raw: &str) -> Option<String> {
     Some(e)
 }
 
-pub fn create_table(c: &Connection) -> rusqlite::Result<()> {
-    c.execute_batch("CREATE TABLE IF NOT EXISTS remote_ok(email TEXT PRIMARY KEY COLLATE NOCASE, added INTEGER NOT NULL);")
-}
-
 pub fn list(c: &Connection) -> rusqlite::Result<Vec<Entry>> {
     let mut st = c.prepare("SELECT email, added FROM remote_ok ORDER BY email")?;
     let rows = st.query_map([], |r| Ok(Entry { email: r.get(0)?, added: r.get(1)? }))?.collect::<Result<Vec<_>, _>>()?;
