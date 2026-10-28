@@ -27,7 +27,7 @@ import { fmtNumber } from "../i18n/format";
 import { tx } from "../i18n/rich";
 import { DARK_CANVAS, frameBaseCss, frameRootClass, pressCanvas } from "../mailCanvas";
 import { useAppDark } from "../useAppDark";
-import { HIDDEN_PICTURE_DARK_CSS, MAIL_FRAME_CSS, MAIL_FRAME_SPIN_CSS } from "../mailFrameCss";
+import { HIDDEN_PICTURE_DARK_CSS, HIDDEN_PICTURE_SHIELD_SVG, MAIL_FRAME_CSS, MAIL_FRAME_SPIN_CSS } from "../mailFrameCss";
 import { reapply as reapplyColorScheme, rewriteMailHtml } from "../colorSchemeMedia";
 import { eff } from "../prefs";
 import { addNoAuto, addTrusted, canOffer, ensureTrustedLoaded, normSender, noticeState, remoteAllowed, remoteAllowedFor, removeNoAuto, removeTrusted, useTrusted, type RemoteInput } from "../trustedSenders";
@@ -160,6 +160,7 @@ function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string
     const ico = doc.createElement("span");
     ico.className = "hl-bp-ico";
     ico.setAttribute("aria-hidden", "true");
+    ico.innerHTML = HIDDEN_PICTURE_SHIELD_SVG;
     const main = doc.createElement("span");
     main.className = "hl-bp-main";
     main.textContent = t("reading.pic.hidden");

@@ -255,15 +255,15 @@ try {
 
   // the shield of the box (1.0.10 P3: it was hardly visible): at least 28 px in a full box, and a stroke with at least 3:1 against the box, light and dark (the dark mail background)
   tag = 'shield';
-  const shield = () => evaluate(`(() => { const d = ${FR}.contentDocument, b = d.querySelector('.hl-bp[data-hl-pic]'); const i = b.querySelector('.hl-bp-ico'); const cs = getComputedStyle(i); const img = decodeURIComponent(cs.backgroundImage); const m = /stroke='(#[0-9a-fA-F]{6})'/.exec(img); const hex = (h) => [1, 3, 5].map((k) => parseInt(h.slice(k, k + 2), 16)); const lum = (c) => { const v = c.map((x) => { const q = x / 255; return q <= 0.03928 ? q / 12.92 : ((q + 0.055) / 1.055) ** 2.4; }); return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]; }; const bg = getComputedStyle(b).backgroundColor.match(/\\d+/g).slice(0, 3).map(Number); const x = lum(hex(m[1])), y = lum(bg); return { size: Math.round(i.getBoundingClientRect().width), stroke: m[1], bg, ratio: (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05) }; })()`);
+  const shield = () => evaluate(`(() => { const d = ${FR}.contentDocument, b = d.querySelector('.hl-bp[data-hl-pic]'); const i = b.querySelector('.hl-bp-ico'); const svg = i.querySelector('svg'); if (!svg) return { size: 0, ratio: 0, stroke: 'no svg', bg: [] }; const ps = getComputedStyle(svg.querySelector('path')); const num = (c) => c.match(/[\\d.]+/g).slice(0, 3).map(Number); const lum = (c) => { const v = c.map((x) => { const q = x / 255; return q <= 0.03928 ? q / 12.92 : ((q + 0.055) / 1.055) ** 2.4; }); return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]; }; const bg = num(getComputedStyle(b).backgroundColor); const sc = num(ps.stroke); const x = lum(sc), y = lum(bg); const r = svg.getBoundingClientRect(); return { size: Math.round(r.width), height: Math.round(r.height), stroke: ps.stroke, bg, ratio: (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05), painted: ps.stroke !== 'none' && r.width > 0 && r.height > 0 }; })()`);
   await open('pM');
   let sh = await shield();
-  ok(sh.size >= 28 && sh.ratio >= 3, `light: the shield is ${sh.size} px with a contrast of ${sh.ratio.toFixed(1)} (${sh.stroke} on ${sh.bg})`);
+  ok(sh.size >= 28 && sh.painted && sh.ratio >= 3, `light: the shield is ${sh.size} px with a contrast of ${sh.ratio.toFixed(1)} (${sh.stroke} on ${sh.bg})`);
   ok(await evaluate(`(() => { const b = document.querySelector('.rp-msg.open .rp-msg-actions .icon-btn[aria-pressed]'); if (!b) return false; b.click(); return true; })()`), 'the dark mail background button is there');
   ok(await until(`${FR}.contentDocument.documentElement.classList.contains('hm-dark')`, 3000), 'the frame is dark');
   await sleep(300);
   sh = await shield();
-  ok(sh.size >= 28 && sh.ratio >= 3, `dark: the shield is ${sh.size} px with a contrast of ${sh.ratio.toFixed(1)} (${sh.stroke} on ${sh.bg})`);
+  ok(sh.size >= 28 && sh.painted && sh.ratio >= 3, `dark: the shield is ${sh.size} px with a contrast of ${sh.ratio.toFixed(1)} (${sh.stroke} on ${sh.bg})`);
   await evaluate(`document.querySelector('.rp-msg.open .rp-msg-actions .icon-btn[aria-pressed]').click(); 1`);
   await sleep(300);
 
