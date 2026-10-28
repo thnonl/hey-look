@@ -47,6 +47,8 @@ export default defineLocale<typeof ns.en>({
   "backend.SCHEDULE_IN_PAST": "その時刻は過ぎています。もっと後の時刻を選ぶか、今すぐ送信してください。",
   "backend.SCHEDULE_TOO_FAR": "1年以内の日付を選んでください。",
   "backend.NOTIFY_NO_SERVICE": "このデスクトップ環境では通知サービスが動作していません。",
+  "backend.NOTIFY_MAC_NOT_ALLOWED": "このアプリには通知が許可されていません。システム設定の「通知」でオンにしてください。",
+  "backend.NOTIFY_MAC_NO_BUNDLE": "通知にはインストール済みのアプリが必要です。このコピーはアプリケーションバンドルから実行されていません。",
   "backend.PGP_LOCKED_OUT": "試行回数が多すぎます。30秒待ってください。",
   "backend.PGP_NO_KEY": "{email}用のPGP鍵がありません。",
   "backend.PGP_BAD_PASSPHRASE": "パスフレーズが正しくありません。",

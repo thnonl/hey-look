@@ -36,7 +36,7 @@ mod legacy_names;
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod linuxopen;
 mod linuxview;
-// macOS notification diagnostic (HEYLOOK_MAC_NOTIFY); compiled everywhere so that its rules are tested everywhere
+// macOS notifications (permission and delivery through UNUserNotificationCenter); compiled everywhere so that its rules are tested everywhere
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod linuxtheme;
 mod macnotify;
@@ -6866,6 +6866,13 @@ pub fn run() {
                 // the second sign of a session end (the first is the reason of the quit Apple event, read in the hook)
                 let noticed = macquit::observe_power_off();
                 startup::stage(Some(app.handle()), &format!("macos: power-off notice (log out / restart / shut down): {}", noticed.err().unwrap_or_else(|| "observed".into())));
+            }
+            // macOS: the delegate of the notification centre (a click on a notification; the test notification in front) must be set before the app has finished launching
+            #[cfg(target_os = "macos")]
+            {
+                let click_app = app.handle().clone();
+                let set = macnotify::install(Box::new(move |click| shell::mac_notify_click(&click_app, click)));
+                startup::stage(Some(app.handle()), &format!("macos: notification centre delegate: {}", set.err().unwrap_or_else(|| "installed".into())));
             }
             // macOS: the notification permission is read (logged) and, with an account and a reason to notify, asked for (W5.10)
             #[cfg(target_os = "macos")]

@@ -47,6 +47,8 @@ export default defineLocale<typeof ns.en>({
   "backend.SCHEDULE_IN_PAST": "Это время уже прошло. Выберите более позднее время или отправьте письмо сейчас.",
   "backend.SCHEDULE_TOO_FAR": "Выберите дату не позднее чем через год.",
   "backend.NOTIFY_NO_SERVICE": "В этой среде рабочего стола не запущена служба уведомлений.",
+  "backend.NOTIFY_MAC_NOT_ALLOWED": "Для этого приложения уведомления не разрешены. Включите их в Системных настройках > Уведомления.",
+  "backend.NOTIFY_MAC_NO_BUNDLE": "Для уведомлений нужно установленное приложение: эта копия запущена не из пакета приложения.",
   "backend.PGP_LOCKED_OUT": "Слишком много попыток. Подождите 30 секунд.",
   "backend.PGP_NO_KEY": "У вас нет ключа PGP для {email}.",
   "backend.PGP_BAD_PASSPHRASE": "Неверная парольная фраза.",
