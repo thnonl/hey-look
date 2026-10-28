@@ -41,7 +41,7 @@ export function pageMeta(text) {
 }
 /** "Features - Hey Look!" -> "Features" (the brand is last; the dash is - or the em dash) */
 export const pageName = (title) => title.replace(/\s*[-—–]\s*Hey Look!$/, '').trim();
-/** the version the English home page shows (<span data-version>1.0.9</span>); the live page replaces it with the latest release */
+/** the version the English home page shows (<span data-version>1.0.10</span>); the live page replaces it with the latest release */
 export const versionOf = (englishIndexText) => (/<span data-version>([^<]+)<\/span>/.exec(englishIndexText) || [])[1];
 
 /** JSON-LD objects for one page (an array: one <script> each is not needed, they go into one @graph) */
