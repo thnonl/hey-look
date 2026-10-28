@@ -716,6 +716,4 @@ export default defineLocale<typeof ns.en>({
   "settings.test.hint.noAuth": "送信メールには通常、ポート587（STARTTLS）か、ポート465（SSL/TLS）を使います。",
   "settings.test.err.unknown": "テストに失敗しました。",
   "settings.test.hint.unknown": "サーバーからの応答は「詳細」で確認できます。",
-  "settings.reading.autoNote": "メールを送ったことがある相手や広く知られたサービスからの画像も自動的に表示されますが、送信者確認に通ったメッセージのみで、迷惑メールや暗号化されたメッセージでは表示されません。",
-  "settings.reading.noAuto": "画像を自動的に表示しない送信者",
 });

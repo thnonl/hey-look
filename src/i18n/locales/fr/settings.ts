@@ -717,6 +717,4 @@ export default defineLocale<typeof ns.en>({
   "settings.test.hint.noAuth": "Le courrier sortant utilise généralement le port 587 avec STARTTLS ou le port 465 avec SSL/TLS.",
   "settings.test.err.unknown": "Le test a échoué.",
   "settings.test.hint.unknown": "Consultez les détails pour voir la réponse du serveur.",
-  "settings.reading.autoNote": "Les images s’affichent aussi automatiquement pour les personnes à qui vous avez écrit et pour les services connus, mais seulement si le message passe la vérification de l’expéditeur, jamais dans Courrier indésirable ni pour les messages chiffrés.",
-  "settings.reading.noAuto": "Expéditeurs dont les images ne s’affichent pas automatiquement",
 });

@@ -37,8 +37,13 @@ export function ensureTrustedLoaded(): void {
 
 export async function reloadTrusted(): Promise<void> {
   try {
-    const [rows, off] = await Promise.all([api.listRemoteOk(), api.listRemoteNoauto()]);
-    useTrusted.setState({ emails: new Set(rows.map((r) => r.email.toLowerCase())), noAuto: new Set(off.map((r) => r.email.toLowerCase())), loaded: true });
+    // one list that cannot be read must not drop the other
+    const [a, b] = await Promise.allSettled([api.listRemoteOk(), api.listRemoteNoauto()]);
+    useTrusted.setState((s) => ({
+      emails: a.status === "fulfilled" ? new Set(a.value.map((r) => r.email.toLowerCase())) : s.emails,
+      noAuto: b.status === "fulfilled" ? new Set(b.value.map((r) => r.email.toLowerCase())) : s.noAuto,
+      loaded: true,
+    }));
   } catch {
     /* the list stays as it was */
   }

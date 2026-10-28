@@ -717,6 +717,4 @@ export default defineLocale<typeof ns.en>({
   "settings.test.hint.noAuth": "Ausgehende Post nutzt meist Port 587 mit STARTTLS oder Port 465 mit SSL/TLS.",
   "settings.test.err.unknown": "Der Test ist fehlgeschlagen.",
   "settings.test.hint.unknown": "Die Antwort des Servers finden Sie unter Details.",
-  "settings.reading.autoNote": "Bilder von Personen, denen Sie geschrieben haben, und von bekannten Diensten werden ebenfalls automatisch angezeigt, jedoch nur, wenn die Nachricht die Absenderprüfung besteht – nie im Spam-Ordner und nie bei verschlüsselten Nachrichten.",
-  "settings.reading.noAuto": "Absender, deren Bilder nicht automatisch angezeigt werden",
 });

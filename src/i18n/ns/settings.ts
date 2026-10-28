@@ -716,7 +716,5 @@ export default define({
     "settings.test.hint.noAuth": "Outgoing mail usually uses port 587 with STARTTLS or 465 with SSL/TLS.",
     "settings.test.err.unknown": "The test failed.",
     "settings.test.hint.unknown": "See Details for the server’s reply.",
-    "settings.reading.autoNote": "Pictures are also shown automatically from people you have written to and from well-known services, but only when the message passes the sender check, and never in Junk or for encrypted messages.",
-    "settings.reading.noAuto": "Senders whose pictures are not shown automatically",
   },
 });

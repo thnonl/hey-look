@@ -717,6 +717,4 @@ export default defineLocale<typeof ns.en>({
   "settings.test.hint.noAuth": "Thư đi thường dùng cổng 587 với STARTTLS hoặc cổng 465 với SSL/TLS.",
   "settings.test.err.unknown": "Kiểm tra không thành công.",
   "settings.test.hint.unknown": "Xem Chi tiết để biết phản hồi của máy chủ.",
-  "settings.reading.autoNote": "Ảnh cũng được hiện tự động từ những người bạn đã gửi thư cho và từ các dịch vụ phổ biến, nhưng chỉ khi thư qua bước kiểm tra người gửi, và không bao giờ trong Thư rác hay với thư được mã hóa.",
-  "settings.reading.noAuto": "Người gửi không tự động hiện ảnh",
 });

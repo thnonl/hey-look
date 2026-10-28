@@ -716,6 +716,4 @@ export default defineLocale<typeof ns.en>({
   "settings.test.hint.noAuth": "发送邮件通常使用587端口（STARTTLS）或465端口（SSL/TLS）。",
   "settings.test.err.unknown": "测试失败。",
   "settings.test.hint.unknown": "请查看详情了解服务器的回复。",
-  "settings.reading.autoNote": "对于您曾发过邮件的联系人和知名服务发来的邮件，图片也会自动显示，但仅限通过发件人验证的邮件，垃圾邮件和加密邮件除外。",
-  "settings.reading.noAuto": "不自动显示图片的发件人",
 });
