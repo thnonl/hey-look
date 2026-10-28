@@ -525,4 +525,52 @@ mod tests {
         note_written(&c, "a1", "me@mine.example", "");
         assert_eq!(reason_for(&c, "me@mine.example", "inbox", false, Some("pass"), me.as_deref(), false, false), None, "your own address");
     }
+
+    /// 1.0.11 (owner report on 1.0.10: many mails of accounts.google.com and microsoft.com were not shown): the whole way from the RAW header of real providers to the reason, so a format
+    /// the parser does not read shows up here and not in a mailbox.
+    #[test]
+    fn real_provider_headers_end_in_the_reason_of_a_service() {
+        let own: (HashSet<String>, HashSet<String>) = (["me@mine.example".to_string()].into_iter().collect(), ["mine.example".to_string()].into_iter().collect());
+        let reason_of = |from: &str, headers: &str, list_unsub: bool| {
+            let raw = format!("{headers}
+From: {from}
+Subject: s
+
+body
+");
+            let ev = crate::authres::evidence(raw.as_bytes()).to_db();
+            let auth = crate::authres::verdict(raw.as_bytes()).to_db();
+            reason(&Input { from_email: from.rsplit(['<', ' ']).next().unwrap_or(from).trim_end_matches('>'), folder: "inbox", encrypted: false, auth_result: auth, auth_ev: ev.as_deref(), list_hdr: false, list_unsub, written: false, own_addrs: &own.0, own_domains: &own.1 })
+        };
+        // Gmail, as the owner's example
+        let gmail = "Authentication-Results: mx.google.com;
+       dkim=pass header.i=@accounts.google.com header.s=20230601 header.b=abc;
+       spf=pass (google.com: domain of 3xyz@accounts.google.com designates 209.85.220.69 as permitted sender) smtp.mailfrom=3xyz@accounts.google.com;
+       dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=accounts.google.com";
+        assert_eq!(reason_of("no-reply@accounts.google.com", gmail, false), Some("service"), "Gmail: folded, DKIM by header.i, DMARC with a comment");
+        assert_eq!(reason_of("no-reply@accounts.google.com", gmail, true), Some("service"), "a List-Unsubscribe does not stop a service");
+        // Microsoft 365 / Outlook.com
+        let m365 = "Authentication-Results: spf=pass (sender IP is 1.2.3.4) smtp.mailfrom=email.microsoft.com; dkim=pass (signature was verified) header.d=microsoft.com;dmarc=pass action=none header.from=microsoft.com;compauth=pass reason=100";
+        assert_eq!(reason_of("Microsoft <microsoft@microsoft.com>", m365, false), Some("service"), "Microsoft: no space after the semicolons");
+        assert_eq!(reason_of("Microsoft account team <account-security-noreply@accountprotection.microsoft.com>", "Authentication-Results: spf=pass smtp.mailfrom=accountprotection.microsoft.com; dkim=pass header.d=accountprotection.microsoft.com; dmarc=pass action=none header.from=accountprotection.microsoft.com", false), Some("service"), "a subdomain of microsoft.com signing for itself");
+        // DKIM only, the signing domain under the service; header.d missing, header.i present
+        assert_eq!(reason_of("no-reply@accounts.google.com", "Authentication-Results: mx.example; dkim=pass header.i=@accounts.google.com", false), Some("service"), "header.i alone");
+        assert_eq!(reason_of("noreply@github.com", "Authentication-Results: mx.example; dkim=pass header.d=github.com header.i=@github.com; spf=pass", false), Some("service"));
+        // upper case everywhere
+        assert_eq!(reason_of("no-reply@accounts.google.com", "Authentication-Results: MX.GOOGLE.COM; DKIM=PASS HEADER.D=ACCOUNTS.GOOGLE.COM; DMARC=PASS HEADER.FROM=ACCOUNTS.GOOGLE.COM", false), Some("service"));
+        // the result glued to a comment
+        assert_eq!(reason_of("no-reply@accounts.google.com", "Authentication-Results: mx.example; dmarc=pass(p=reject) header.from=accounts.google.com", false), Some("service"));
+        // two Authentication-Results headers: the topmost counts (the receiving server's own), an older one below is not read
+        let two = format!("{m365}
+Authentication-Results: mx.old; dkim=pass header.d=evil.example");
+        assert_eq!(reason_of("Microsoft <microsoft@microsoft.com>", &two, false), Some("service"));
+        let forged_top = "Authentication-Results: mx.forged; dkim=pass header.d=evil.example
+Authentication-Results: mx.real; dkim=pass header.d=microsoft.com; dmarc=pass header.from=microsoft.com";
+        assert_eq!(reason_of("Microsoft <microsoft@microsoft.com>", forged_top, false), None, "the top header is the one that counts, even when a lower one would pass");
+        // ARC is a different header and is not read
+        assert_eq!(reason_of("no-reply@accounts.google.com", "ARC-Authentication-Results: i=1; mx.google.com; dkim=pass header.i=@accounts.google.com; dmarc=pass header.from=accounts.google.com", false), None);
+        // the From domain is the DMARC domain, and a look-alike is not
+        assert_eq!(reason_of("no-reply@accounts.google.com", "Authentication-Results: mx; dmarc=pass header.from=evil.example", false), None);
+        assert_eq!(reason_of("no-reply@accounts.google.com.evil.example", gmail, false), None);
+    }
 }
