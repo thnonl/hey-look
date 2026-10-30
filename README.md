@@ -8,20 +8,31 @@ A desktop mail client for Windows, macOS and Linux. Free and open source, with n
 
 ## Download
 
-Get the latest version from the [download page](https://heylook.namthai.site/download.html) or from [GitHub Releases](https://github.com/thnonl/hey-look/releases/latest): Windows 10 and 11 (`.exe` or `.msi`), macOS 11 or later, Apple silicon and Intel (`.dmg`), and Linux (`.AppImage`, `.deb` or `.rpm`). A copy from the website updates itself after you agree (only a correctly signed update is installed); a copy from the Microsoft Store has no updater of its own and is updated only by the Store. On Windows you can also get it from the [Microsoft Store](https://apps.microsoft.com/store/detail/9NS9H9T204HD?cid=DevShareMCLPCS); the Store installs it and keeps it up to date, and it gets each release after Microsoft has approved it. APT repository and Snap Store: not available in this release (see [PACKAGING.md](PACKAGING.md)).
+Get the latest version from the [download page](https://heylook.namthai.site/download.html) or from [GitHub Releases](https://github.com/thnonl/hey-look/releases/latest):
 
-The installers are not code-signed with a publisher certificate and the macOS app is not notarized, so the first start needs one extra step: see [First start on macOS](https://heylook.namthai.site/download.html#install-notes) and the [Help](https://heylook.namthai.site/help.html#g-install) for Windows and Linux.
+- Windows 10 and 11, 64-bit: `.exe` installer (recommended) or `.msi` (for managed installs)
+- macOS 11 or later, Apple silicon and Intel: `.dmg` (one universal app)
+- Linux: `.AppImage` (any distro), `.deb` (Debian, Ubuntu) or `.rpm` (Fedora, openSUSE)
+
+A copy from the website or GitHub updates itself after you agree, and only a correctly signed update is installed.
+
+On Windows you can also get Hey Look! from the [Microsoft Store](https://apps.microsoft.com/store/detail/9NS9H9T204HD?cid=DevShareMCLPCS). The Store copy has no updater of its own: the Store installs and updates it. Each release reaches the Store after Microsoft has approved it, so the Store can be a little behind GitHub. The Store copy keeps its own mail, accounts and settings, so use either the Store copy or the website copy on a computer, not both.
+
+The APT repository and the Snap Store are not available yet (see [PACKAGING.md](PACKAGING.md)).
+
+The installers are not code-signed with a publisher certificate, and the macOS app is self-signed but not notarized, so the first start needs one extra step: see [First start on macOS](https://heylook.namthai.site/download.html#install-notes) and the [Help](https://heylook.namthai.site/help.html#g-install) for Windows and Linux.
 
 ## What it does
 
-- Many mailboxes in one place: Google and Microsoft, iCloud, Yahoo and any IMAP/SMTP server, with push for new mail where the server supports it
+- Many mailboxes in one place: Google and Microsoft, iCloud, Yahoo and any IMAP/SMTP server, with push for new mail where the server supports it. Test connection checks a new account's servers before you add it and says which setting to fix
 - An Outlook-like editor, undo send, send later, snooze, rules, signatures and templates, and a window of its own for writing or reading
+- Pictures in mail stay hidden until you allow them, so tracking pixels stay blocked. They show without a click only in mail from people you have written to and from well-known services, and only when the message passes the sender check (DMARC or a matching DKIM signature); an info button in the message header says why, and "Stop showing pictures from this sender" turns it off for that address
 - A local calendar for invitations, with optional two-way sync with Google Calendar, Outlook / Microsoft 365 and CalDAV calendars (iCloud, Fastmail, Nextcloud and others)
 - OpenPGP encryption and signing, and Confidential mail that cannot be copied or printed (and, on Windows and macOS, not captured on screen)
-- An optional AI Assistant that uses your own endpoint and sends text only when you press a button
+- An optional AI Assistant that uses an OpenAI-compatible service and key that you set up yourself, and sends text only when you press a button
 - Eight languages: English, Tiếng Việt, Français, 中文（简体）, Español, 日本語, Deutsch and Русский; light and dark themes
 
-Your mail stays on your computer and your passwords in your system's credential store. Every feature and its known limits: [Features](https://heylook.namthai.site/features.html) and [Known limitations](https://heylook.namthai.site/features.html#limits).
+There is no Hey Look! server in the middle: the app talks straight to your mail provider. Copies of your mail stay on your computer, and passwords and sign-in tokens are kept in your system's credential store. Every feature and its known limits: [Features](https://heylook.namthai.site/features.html) and [Known limitations](https://heylook.namthai.site/features.html#limits).
 
 ## Known notes
 
