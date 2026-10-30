@@ -1,10 +1,48 @@
 # Changelog
 
-## Unreleased (1.0.11)
+## 1.0.11 — unreleased
+
+### Added
+
+- Settings > Mailboxes > Reading & sync has a switch for the automatic picture rule: "Show pictures automatically for people I have written to and for well-known services". It is on by default (as in 1.0.10) and applies to all mailboxes. With it off, pictures show without a click only from the senders whose pictures you chose to always show. While "Always show pictures" is on, the switch cannot be changed, because pictures from every sender are shown anyway
+- In the same place, "Senders whose pictures are not shown automatically" lists the senders you turned off with "Stop showing pictures from this sender", with the date each one was added, a Remove button and a search box once the list is long. Removing a sender lets the automatic rule show their pictures again
+- "Show the list of well-known services" shows the built-in list of services whose mail can show pictures automatically, with the number of services. A service counts only when the sender check passes (DMARC or a DKIM signature from the same domain). The list cannot be edited
+- Compose: after you press Send, the message stays on screen, locked, until it has gone, in the main window as well as in a window of its own. Undo, or a send that fails, unlocks the same message where it is. When the message has been sent, a check mark and "Message sent" show for about a second, then the compose closes
+- macOS: when macOS puts Hey Look!'s notifications in Notification Center without showing a banner, Settings > Notifications says so and has an "Open System Settings" button, so that you can choose Banners or Alerts for Hey Look!
 
 ### Fixed
 
-- macOS: notifications now work (new mail and Send test). Hey Look! shows them through the system notification centre (UserNotifications) and asks macOS for permission on the first Send test or the first new-mail alert, where before it used a method that recent macOS versions ignore and nothing was shown. Send test also shows while Hey Look! is in front. If macOS refuses, the message says so with its own words ("Notifications are not allowed for this application") and points to System Settings > Notifications. Clicking a notification brings Hey Look! forward and opens the conversation. Alerts are still skipped while a Hey Look! window is in front. Windows and Linux are unchanged
+- Pictures that give both a single address and a list of sizes (`srcset`) no longer show as broken after Show pictures, Show all pictures, "Always show pictures from this sender" or the automatic rule. Hey Look! now loads only the single address and leaves out the list of sizes and the extra sources of a `<picture>`. A picture that gives only a list of sizes uses its first entry and stays hidden, like any other picture, until you allow it
+- A message you move or delete now shows up, and is counted, in the folder it went to at once, not only after the Undo time and the next sync
+- Calendar: a calendar named after the account's address (such as the main Google calendar) shows that address once instead of twice
+- macOS: notifications now work (new mail and Send test). Hey Look! shows them through the macOS notification system (UserNotifications) and asks macOS for permission at the first Send test or the first new-mail alert. Before, it used a method that recent macOS versions ignore, so nothing was shown. Send test also shows while Hey Look! is in front. If macOS refuses, the message gives the macOS reason ("Notifications are not allowed for this application") and points to System Settings > Notifications. Clicking a notification brings Hey Look! forward and opens the conversation. New-mail alerts are still skipped while a Hey Look! window is in front. Windows and Linux are unchanged
+- The status line of an encrypted message in Compose reads more naturally, for example "Encrypted for you and 2 recipients. The subject is not encrypted." (English, German, Spanish, Japanese, Russian and Vietnamese)
+- Spanish: the weekday letters above the small calendar are the Spanish ones, with X for Wednesday (before, the letters were lower case and Wednesday was "m")
+- Russian: the name of a rule made for a sender no longer puts a case ending on the sender's name
+- Vietnamese: Confidential mail is labelled "Bảo mật" instead of "Thư mật"
+- Chinese: a space now separates Latin words (such as Hey Look!, Google or a domain) from the Chinese text around them
+- Spanish: "Stop showing pictures from this sender" reads "Dejar de mostrar imágenes de este remitente", and the hints of the rule values read "basta con una"
+
+### Known limitations
+
+- APT repository and Snap Store: not available in this release (download Hey Look! from GitHub or the website; it updates itself)
+- Microsoft Store: Hey Look! is in the Store; the Store gets this release after Microsoft has approved it, so the Store version can be behind GitHub for a while
+- Not tested by the project's QA with real accounts or real hardware; the owner checks these after the release and what he finds goes into the next version:
+  - Google and Microsoft sign-in (mail and calendar) was tested with simulated sign-in servers, not with real Google or Microsoft accounts
+  - Calendar: CalDAV sync was tested against simulated servers, not against real servers (iCloud, Fastmail, Baikal, Nextcloud, Radicale)
+  - Confidential mail: hiding the window from screen capture (Windows Print Screen and Snipping Tool, macOS screenshots and screen recording) was not tested end to end with the real tools
+  - [TODO-QA-1011: replace this bracket with the test statement from the 1.0.11 QA reports: "The changes of 1.0.11 were tested on ..." (Windows, Mac and Linux machines, systems and builds exactly as the reports name them, and which steps used real input)]. The downloadable macOS app and the Linux packages (AppImage, .deb, .rpm) were not installed or tested. Windows 10, Intel Macs and macOS 11 and 12 are supported but were not tested on this release, and neither were real sign-in, audible sound, the system's own tooltips on Windows and touch input.
+  - Rules were tested with simulated mail servers, not with real Gmail, Outlook or iCloud mailboxes (Gmail labels in particular)
+- Windows 11 puts the icon of a new app in the hidden-icons flyout of the notification area; to see it in the bar, drag it out or turn it on in Windows Settings > Personalization > Taskbar
+- macOS: each pop-out window you close keeps a small empty system window (about 0.2 MB) until Hey Look! quits
+- macOS: the first time you print, macOS may ask whether Hey Look! may find devices on your local network; the system print window asks it, to find your printers, and Hey Look! uses the local network for nothing else
+- Confidential mail: Linux has no screenshot blocking (the window is hidden from screen capture and recording on Windows and macOS only)
+- Linux: notification buttons need a desktop whose notification service draws them, and the tray icon has no click action (use Open Hey Look! in its menu)
+- Linux: the x86_64 release packages (AppImage, .deb, .rpm) were not installed or tested
+- Calendar: some work or school organisations only let an administrator approve the Microsoft calendar permission
+- Rules: there is no "Mailing list" condition yet; a rule for all mailboxes that moves mail in several mailboxes gives one "moved" notice with Undo per mailbox
+- There is no plain-text-only mode when writing a message
+- Folders can be created but not renamed or deleted in Hey Look!
 
 ## 1.0.10 — 2026-10-28
 
