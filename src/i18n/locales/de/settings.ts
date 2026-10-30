@@ -437,7 +437,7 @@ export default defineLocale<typeof ns.en>({
   "settings.tray.titleMenuBar": "Benachrichtigungen & Menüleiste",
   "settings.tray.macDenied": "Mitteilungen für Hey Look! sind in macOS deaktiviert, daher werden weder Banner noch das Badge am Dock-Symbol angezeigt. Aktivieren Sie sie in den Systemeinstellungen unter „Mitteilungen“.",
   "settings.tray.macOpenSettings": "Systemeinstellungen öffnen",
-  "settings.tray.macQuiet": "Benachrichtigungen werden still zugestellt. Um Banner zu sehen, wählen Sie unter Systemeinstellungen > Mitteilungen > Hey Look! „Banner“ oder „Hinweise“.",
+  "settings.tray.macQuiet": "Mitteilungen erscheinen nur in der Mitteilungszentrale, ohne Banner. Für Banner öffnen Sie Systemeinstellungen > Mitteilungen > Hey Look! und wählen „Banner“ oder „Hinweise“.",
   "settings.tray.introWindows": "Welche E-Mails eine Benachrichtigung auslösen, welcher Ton abgespielt wird und welche Schaltflächen angezeigt werden, legen Sie pro Postfach fest (Postfächer → Benachrichtigungen).",
   "settings.tray.intro": "Welche E-Mails eine Benachrichtigung auslösen und welcher Ton abgespielt wird, legen Sie pro Postfach fest (Postfächer → Benachrichtigungen).",
   "settings.tray.test": "Testbenachrichtigung",

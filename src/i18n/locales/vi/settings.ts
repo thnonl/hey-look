@@ -437,7 +437,7 @@ export default defineLocale<typeof ns.en>({
   "settings.tray.titleMenuBar": "Thông báo & thanh menu",
   "settings.tray.macDenied": "Thông báo của Hey Look! đang bị tắt trong macOS, nên biểu ngữ và huy hiệu Dock không xuất hiện. Hãy bật chúng trong Cài đặt hệ thống > Thông báo.",
   "settings.tray.macOpenSettings": "Mở Cài đặt hệ thống",
-  "settings.tray.macQuiet": "Thông báo được gửi âm thầm. Để thấy biểu ngữ, hãy chọn Biểu ngữ hoặc Cảnh báo trong Cài đặt hệ thống > Thông báo > Hey Look!.",
+  "settings.tray.macQuiet": "Thông báo chỉ vào Trung tâm thông báo, không hiện biểu ngữ. Để thấy biểu ngữ, hãy mở Cài đặt hệ thống > Thông báo > Hey Look! và chọn Biểu ngữ hoặc Cảnh báo.",
   "settings.tray.introWindows": "Thư nào kích hoạt thông báo, âm thanh và các nút của thông báo được đặt riêng cho từng hộp thư (Hộp thư → Thông báo).",
   "settings.tray.intro": "Thư nào kích hoạt thông báo và âm thanh của thông báo được đặt riêng cho từng hộp thư (Hộp thư → Thông báo).",
   "settings.tray.test": "Thông báo thử",

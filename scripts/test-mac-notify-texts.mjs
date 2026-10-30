@@ -30,6 +30,17 @@ const T = {
     en: "Open System Settings", vi: "Mở Cài đặt hệ thống", fr: "Ouvrir les Réglages Système", "zh-Hans": "打开系统设置",
     es: "Abrir Ajustes del Sistema", ja: "システム設定を開く", de: "Systemeinstellungen öffnen", ru: "Открыть Системные настройки",
   },
+  // 1.0.11 quiet note (alert style None): the macOS names of Notification Center and of the Banners / Alerts styles per language
+  quiet: {
+    en: ["Notification Center", "Banners", "Alerts"],
+    vi: ["Trung tâm thông báo", "Biểu ngữ", "Cảnh báo"],
+    fr: ["Centre de notifications", "Bannières", "Alertes"],
+    "zh-Hans": ["通知中心", "“横幅”", "“提醒”"],
+    es: ["Centro de notificaciones", "Tiras", "Alertas"],
+    ja: ["通知センター", "「バナー」", "「通知パネル」"],
+    de: ["Mitteilungszentrale", "„Banner“", "„Hinweise“"],
+    ru: ["Центр уведомлений", "«Баннеры»", "«Предупреждения»"],
+  },
 };
 let n = 0;
 const check = (label, fn) => {
@@ -52,6 +63,12 @@ for (const c of CODES) {
       assert.notEqual(d[c]["settings.tray.macDenied"], d.en["settings.tray.macDenied"]);
       assert.notEqual(d[c]["settings.tray.macOpenSettings"], d.en["settings.tray.macOpenSettings"]);
     }
+  });
+  check(`${c}: the quiet note uses the macOS names`, () => {
+    const q = d[c]["settings.tray.macQuiet"];
+    for (const term of T.quiet[c]) assert.ok(q.includes(term), `${term} in ${q}`);
+    assert.ok(q.includes("Hey Look!"), q);
+    assert.ok(!q.includes("Hey Look!."), "no Hey Look!. at the end");
   });
 }
 check("French keeps the no-break space before the colon", () => assert.ok(d.fr["settings.tray.macDenied"].includes(`macOS${NB}: `)));
