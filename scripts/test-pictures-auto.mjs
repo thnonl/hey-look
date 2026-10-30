@@ -330,6 +330,26 @@ try {
   ok(z84.w <= 190 && z84.h <= 56 && z84.tier === 'small', `the 280 x 84 box drawn as ${z84.w} x ${z84.h} on screen is the icon only (it says "${z84.tier}")`);
   ok(zr[1].tier === 'small' && zr[2].tier === 'full', `168 x 50 icon only, 503 x 210 whole: ${JSON.stringify(zr.map((x) => x.tier))}`);
   sane(zr, 'zoomed mail');
+  // Mac QA (WKWebView): a SYNTHETIC contextmenu event on a hidden-picture box did nothing. A mouse event always targets an element, a script's may target the icon, the svg path inside it or the TEXT NODE
+  // of the line (no closest(): the box was not found and the menu blocked), may be built in the page or in the frame, and the frame may be zoomed. Every one of them opens the menu of the box.
+  tag = 'ctx-synthetic';
+  const fire = (kind, realm, zoom) => evaluate(`(() => { const f = ${FR}, d = f.contentDocument, b = d.querySelector('.hl-bp[data-hl-pic]'); d.documentElement.style.zoom = ${JSON.stringify(zoom)};
+    const target = { box: b, icon: b.querySelector('.hl-bp-ico'), svg: b.querySelector('.hl-bp-ico svg path') || b.querySelector('.hl-bp-ico svg'), line: b.querySelector('.hl-bp-main'), text: b.querySelector('.hl-bp-main').firstChild }[${JSON.stringify(kind)}];
+    if (!target) return 'no target';
+    const W = ${JSON.stringify(realm)} === 'frame' ? d.defaultView : window; const r = target.nodeType === 1 ? target.getBoundingClientRect() : b.getBoundingClientRect();
+    target.dispatchEvent(new W.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, buttons: 2, clientX: Math.round(r.left + r.width / 2), clientY: Math.round(r.top + r.height / 2) }));
+    return 'sent'; })()`);
+  for (const [kind, realm, zoom] of [['box', 'page', ''], ['icon', 'page', ''], ['svg', 'page', ''], ['line', 'page', ''], ['text', 'page', ''], ['text', 'frame', ''], ['svg', 'frame', ''], ['box', 'page', '0.6'], ['text', 'page', '0.6'], ['svg', 'frame', '0.6']]) {
+    await open('pB');
+    const sent = await fire(kind, realm, zoom);
+    const rows = sent === 'sent' ? await menuOpen() : null;
+    ok(rows && rows.rows.some((r) => /^Show this picture/.test(r.text ?? r)), `synthetic contextmenu on ${kind} (${realm} event, zoom ${zoom || '1'}): the menu of the box opens: ${JSON.stringify(rows)}`);
+    if (kind === 'text' && realm === 'page' && !zoom) {
+      ok(await chooseRow('Show this picture'), 'the entry is there');
+      ok(await until(`${FR}.contentDocument.querySelectorAll('img[src^="data:image"]').length === 1`, 4000), 'Show this picture, from the synthetic event on the text node: the picture shows');
+    }
+    await closeMenu();
+  }
   tag = 'no-page-request';
   for (const id of ['pW', 'pS']) {
     H.net.reset();

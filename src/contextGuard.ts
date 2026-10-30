@@ -92,7 +92,10 @@ function probe(doc: Document, target: EventTarget | null, pt: Pt | null, inMessa
   const View = (doc.defaultView ?? window) as Window & typeof globalThis;
   const sel = doc.getSelection();
   const asEl = (n: Node | null | undefined): Element | null => (n instanceof View.Element ? n : (n?.parentElement ?? null));
-  let el = target instanceof View.Element ? target : null;
+  // (a contextmenu event of a mouse always has an element as its target; a synthetic one - the QA bridge, a script - may be dispatched on a text node, which has no closest(): WebKit then lost the box
+  // and the menu was blocked. A text node counts as its parent element; a node of another realm is looked up by the point.)
+  let el = target instanceof View.Element ? target : target instanceof View.Node ? asEl(target as Node) : null;
+  if (!el && pt && target) el = doc.elementFromPoint(pt.x, pt.y);
   if (!pt) {
     // with the keyboard: the focused element, else where the selection ends
     const ae = doc.activeElement;
