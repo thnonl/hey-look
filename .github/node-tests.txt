@@ -147,6 +147,7 @@ ui-e | node scripts/test-site-appearance.mjs --only=apt --require-browser --spac
 ui-c | node scripts/test-ai-tab-layout.mjs --quick --require-browser
 # WP15: Settings > About of a copy updated by apt (and by the Snap Store): the dictionary sentence with the command in <code>, no Check for updates button, no switch, nothing clipped, light and dark (English, German, Japanese at 960 x 560; the full run is `node --experimental-strip-types scripts/test-about-managed.mjs`, 8 languages x 2 sizes)
 ui-c | node --experimental-strip-types scripts/test-about-managed.mjs --quick --require-browser
+ui-f | node scripts/test-friendly-error.mjs --require-browser
 # the AI Assistant problem toast through every entry point (not set up, 401, 404, timeout ...): stays 20 s, leads to Settings > AI Assistant, Esc / X close it, and a new request removes the old problem toast at once (full run: `node scripts/test-ai-guide.mjs`)
 ui-f | node scripts/test-ai-guide.mjs --quick --require-browser
 # Settings > Add account and Calendar stand still while a sign-in runs and ends (two of the combinations; the full run is `node scripts/test-settings-layout.mjs`)

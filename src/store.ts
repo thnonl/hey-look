@@ -260,6 +260,9 @@ export function friendlyError(e: unknown): string {
     return t("errors.signIn");
   if (/no stored (password|\w+ token)/i.test(raw)) return t("errors.noCredentials");
   if (/timed out|timeout|10060|did not properly respond/i.test(raw)) return t("errors.timeout");
+  // the connection was refused / reset / has no route (a mail server that is down, a network that is gone): the operating system's words ("No connection could be made because the target machine actively
+  // refused it. (os error 10061)") are not shown (1.0.11 RC1 QA O-2: the failed move of a message)
+  if (/os error (10061|10054|10051|10065|10053|111|104|113|101)|actively refused|connection (refused|reset|aborted)|network is unreachable|host is unreachable/i.test(raw)) return t("errors.unreachable");
   if (/lookup|dns|no such host|name or service not known|11001/i.test(raw)) return t("errors.unreachable");
   if (/certificate|tls|ssl/i.test(raw) && /invalid|verify|unknown|expired/i.test(raw)) return t("errors.certificate");
   // the server (or the connection to it) refused the message in words only a mail server writes ("response error: incomplete response"): a sentence a person can use
