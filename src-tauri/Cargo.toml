@@ -90,13 +90,13 @@ keyring = { version = "3", features = ["apple-native"] }
 objc2 = "0.6"
 # macquit.rs: the block for the power-off notice (already in the lock file, tao and muda use it)
 block2 = "0.6"
-# macnotify.rs (W5.10): the permission for notifications and the Dock badge (UNUserNotificationCenter); versions already in the lock file (wry / tauri-plugin use them)
+# macnotify.rs (W5.10, 1.0.11): the permission for notifications and the Dock badge, and the notifications themselves (UNUserNotificationCenter); versions already in the lock file (wry / tauri-plugin use them)
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSBundle", "NSString", "NSError", "NSURL"] }
 # macprint.rs (W5.3): the window-less print view and the print sheet; the versions wry already pulls in (same features as wry plus the few it does not use)
 objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "objc2-app-kit", "objc2-core-foundation", "WKWebView", "WKWebViewConfiguration", "WKWebpagePreferences", "WKNavigation"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSWindow", "NSView", "NSResponder", "NSPrintInfo", "NSPrintOperation"] }
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes"] }
-objc2-user-notifications = { version = "0.3", default-features = false, features = ["std", "block2", "UNUserNotificationCenter", "UNNotificationSettings"] }
+objc2-user-notifications = { version = "0.3", default-features = false, features = ["std", "block2", "UNUserNotificationCenter", "UNNotificationSettings", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationSound", "UNNotificationTrigger"] }
 
 # quit watchdog (lib.rs `exit_watchdog`): a last way to end the process that skips the exit handlers of the libraries; already in the lock file
 [target.'cfg(unix)'.dependencies]

@@ -15,6 +15,7 @@ const run = (args) => {
   const r = spawnSync('cargo', args, { cwd: dir, env, stdio: 'inherit', shell: process.platform === 'win32' });
   if (r.status !== 0) { console.error(`check-rust-warnings: FAILED: cargo ${args.join(' ')}`); process.exit(r.status || 1); }
 };
+run(['check', '--locked', '--lib']); // (without --tests: code that only the tests or one OS use is dead here, as in the app build of CI)
 run(['check', '--locked', '--lib', '--tests']);
 run(['check', '--locked', '--lib', '--tests', '--features', 'gui-subsystem,qa-secrets']);
 run(['check', '--locked', '--lib', '--tests', '--features', 'qa-secrets']);

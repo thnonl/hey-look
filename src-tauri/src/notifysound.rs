@@ -11,7 +11,7 @@
 //!     sounds there, so no Hey Look! sound can be given through the toast) and the app plays the embedded WAV with `PlaySoundW(SND_MEMORY | SND_ASYNC | SND_NODEFAULT)`
 //!     when Windows accepts notifications (`QUNS_ACCEPTS_NOTIFICATIONS`: not presentation mode, no full-screen app, not quiet time / Focus / Do not disturb) and the
 //!     toast notifier of the app is enabled.
-//!   - macOS: the notification is not shown for the ad-hoc signed app (owner decision), so the sound is the only signal: `NSSound` from the embedded bytes, on the main thread.
+//!   - macOS: the notification is silent (macnotify.rs) and the app plays the sound, so it is also heard when the banners are off: `NSSound` from the embedded bytes, on the main thread.
 //!   - Linux: the notification carries the hints `sound-file` and `sound-name`; a notification server without the capability "sound" does not play it, then the app
 //!     plays the file with the first of `pw-play`, `paplay`, `aplay` found in PATH (no shell, the path as one argument).
 //! The decisions (on / off, throttle, which player, the file on disk) are plain functions below, with tests; the calls into the OS are small.

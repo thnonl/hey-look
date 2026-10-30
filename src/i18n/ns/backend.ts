@@ -46,6 +46,8 @@ export default define({
     "backend.SCHEDULE_IN_PAST": "That time has passed. Pick a later time, or send now.",
     "backend.SCHEDULE_TOO_FAR": "Pick a date within a year.",
     "backend.NOTIFY_NO_SERVICE": "No notification service is running in this desktop environment.",
+    "backend.NOTIFY_MAC_NOT_ALLOWED": "Notifications are not allowed for this application. Turn them on in System Settings > Notifications.",
+    "backend.NOTIFY_MAC_NO_BUNDLE": "Notifications need the installed app: this copy does not run from an app bundle.",
     "backend.PGP_LOCKED_OUT": "Too many attempts. Wait 30 seconds.",
     "backend.PGP_NO_KEY": "You have no PGP key for {email}.",
     "backend.PGP_BAD_PASSPHRASE": "Wrong passphrase.",

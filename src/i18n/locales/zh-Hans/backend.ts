@@ -47,6 +47,8 @@ export default defineLocale<typeof ns.en>({
   "backend.SCHEDULE_IN_PAST": "该时间已过。请选择更晚的时间，或立即发送。",
   "backend.SCHEDULE_TOO_FAR": "请选择一年以内的日期。",
   "backend.NOTIFY_NO_SERVICE": "此桌面环境中没有运行通知服务。",
+  "backend.NOTIFY_MAC_NOT_ALLOWED": "此应用不允许发送通知。请在“系统设置 → 通知”中开启。",
+  "backend.NOTIFY_MAC_NO_BUNDLE": "通知需要已安装的应用：此副本不是从应用包中运行的。",
   "backend.PGP_LOCKED_OUT": "尝试次数过多。请等待30秒。",
   "backend.PGP_NO_KEY": "您没有{email}的PGP密钥。",
   "backend.PGP_BAD_PASSPHRASE": "密码短语错误。",

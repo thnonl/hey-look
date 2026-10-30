@@ -447,6 +447,7 @@ export default defineLocale<typeof ns.en>({
   "settings.tray.titleMenuBar": "通知とメニューバー",
   "settings.tray.macDenied": "macOSでHey Look!の通知がオフになっているため、バナーとDockのバッジは表示されません。システム設定の「通知」でオンにしてください。",
   "settings.tray.macOpenSettings": "システム設定を開く",
+  "settings.tray.macQuiet": "通知はバナーなしで通知センターに届きます。バナーを表示するには、システム設定の「通知」>「Hey Look!」で「バナー」または「通知パネル」を選んでください。",
   "settings.tray.introWindows": "どのメールで通知するか、通知音、通知のボタンは、メールボックスごとに設定します（メールボックス → 通知）。",
   "settings.tray.intro": "どのメールで通知するかと通知音は、メールボックスごとに設定します（メールボックス → 通知）。",
   "settings.tray.test": "テスト通知",

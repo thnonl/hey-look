@@ -863,8 +863,10 @@ fn toast(app: &AppHandle, thread: String, title: &str, line1: &str, line2: &str,
     shown
 }
 
-/// macOS: a plain native notification (no buttons; clicking it has the system's default effect only). Linux: the notification carries the mailbox's buttons and a click on its body opens the
-/// conversation when the service draws buttons (W5.4, linuxnotify.rs). `sound` is "pop" (the Hey Look! sound, W13.8), "reminder" (an event reminder: the system's notification sound) or "none".
+/// macOS: a notification of the notification centre (no buttons; a click on it brings the window forward and opens the conversation, macnotify.rs). It is handed over on a thread of its own: the first one
+/// may have to ask macOS for the permission, and the system dialog blocks until the person answers (the sync round that raised it must not wait). A refusal is only logged here, as for every other
+/// notification except "Send test" (`test_notification` reports it). Linux: the notification carries the mailbox's buttons and a click on its body opens the conversation when the service draws buttons
+/// (W5.4, linuxnotify.rs). `sound` is "pop" (the Hey Look! sound, W13.8), "reminder" (an event reminder: the system's notification sound) or "none".
 #[cfg(not(windows))]
 fn toast(app: &AppHandle, thread: String, title: &str, line1: &str, line2: &str, sound: &str, actions: &[String]) -> Result<(), String> {
     #[cfg(target_os = "linux")]
@@ -873,28 +875,27 @@ fn toast(app: &AppHandle, thread: String, title: &str, line1: &str, line2: &str,
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = (&thread, actions); // (macOS notifications have no buttons)
-        // macOS: the hidden diagnostic (HEYLOOK_MAC_NOTIFY in a debug build, see macnotify.rs); off = the unchanged path below. The notification is silent, the app plays the sound
-        // (a new-mail sound is the only signal on a Mac where the notification itself is not shown, W13.8)
-        #[cfg(target_os = "macos")]
-        if let Some(mode) = crate::macnotify::mode() {
-            let shown = crate::macnotify::show(app, mode, title, &notification_body(line1, line2), if sound == "reminder" { "reminder" } else { "none" });
-            if sound == "pop" {
-                crate::notifysound::play_new_mail(app);
+        let _ = actions; // (macOS notifications have no buttons)
+        let (app, title, body, sound) = (app.clone(), title.to_string(), notification_body(line1, line2), sound.to_string());
+        std::thread::spawn(move || {
+            // (the notification is silent; the app plays the sound, a new-mail sound is the only signal for a person who has turned the banners off)
+            let origin = crate::macnotify::Origin::Mail { thread };
+            if let Err(e) = crate::macnotify::deliver(&app, &origin, crate::macnotify::Trigger::NewMail, (1, true, false), &title, &body, &sound) {
+                eprintln!("notification failed: {e}");
+                crate::startup::line("notify", &format!("notification failed: {e}"));
             }
-            return shown;
-        }
-        use tauri_plugin_notification::NotificationExt;
-        let mut n = app.notification().builder().title(title).body(notification_body(line1, line2));
-        if sound == "reminder" {
-            n = n.sound("default");
-        }
-        let shown = n.show().map_err(|e| e.to_string().chars().take(120).collect());
-        #[cfg(target_os = "macos")]
-        if sound == "pop" {
-            crate::notifysound::play_new_mail(app);
-        }
-        shown
+        });
+        Ok(())
+    }
+}
+
+/// macOS: a click on a notification: the main window comes forward, and opens the conversation when the notification had one (the same as a click on the Windows toast, `handle_activation`).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn mac_notify_click(app: &AppHandle, click: crate::macnotify::Click) {
+    use crate::macnotify::Click;
+    match click {
+        Click::Focus => show_main(app),
+        Click::OpenThread(thread) => handle_activation(app, &thread, None),
     }
 }
 
@@ -1241,30 +1242,40 @@ pub fn notify_permission(db: &Db, ask: bool) -> crate::macnotify::State {
 }
 
 pub fn test_notification(app: &AppHandle, db: &Db) -> Result<(), String> {
-    // macOS: macOS is asked for permission first when it never was (REQ-5.10.5); with the permission turned off nothing is sent (the page shows the note)
+    // macOS: the real path (macnotify.rs): macOS is asked for permission first when it never was (REQ-5.10.5), and the answer of macOS is the answer here: Ok once the notification centre has taken
+    // the notification, else the error of macOS ("Notifications are not allowed for this application ...") for the toast of the page. The test is drawn even while the app is in front.
     #[cfg(target_os = "macos")]
     {
         let (accounts, notify, dock) = mac_notify_flags(db);
-        if crate::macnotify::ensure(crate::macnotify::Trigger::SendTest, accounts, notify, dock) == crate::macnotify::State::Denied {
-            crate::startup::line("notify", "macos: send test skipped (notifications are turned off in macOS)");
-            return Ok(());
-        }
+        let p = prefs(db);
+        return crate::macnotify::deliver(
+            app,
+            &crate::macnotify::Origin::Test,
+            crate::macnotify::Trigger::SendTest,
+            (accounts, notify, dock),
+            crate::i18n::tr(crate::i18n::K::TestTitle),
+            &notification_body(crate::i18n::tr(crate::i18n::K::TestLine1), crate::i18n::tr(crate::i18n::K::TestLine2)),
+            if crate::notifysound::on_for(&p, "") { "pop" } else { "none" },
+        );
     }
     // Linux (W5.6): ask the bus first; no notification service and none that can be started is the answer at once, not after the 5 s wait
-    #[cfg(target_os = "linux")]
-    if crate::linuxnotify::send_test_plan() == crate::linuxnotify::ServicePlan::FailNow {
-        return Err(NO_NOTIFICATION_SERVICE.into());
+    #[cfg(not(target_os = "macos"))]
+    {
+        #[cfg(target_os = "linux")]
+        if crate::linuxnotify::send_test_plan() == crate::linuxnotify::ServicePlan::FailNow {
+            return Err(NO_NOTIFICATION_SERVICE.into());
+        }
+        let p = prefs(db);
+        toast(
+            app,
+            String::new(),
+            crate::i18n::tr(crate::i18n::K::TestTitle),
+            crate::i18n::tr(crate::i18n::K::TestLine1),
+            crate::i18n::tr(crate::i18n::K::TestLine2),
+            if crate::notifysound::on_for(&p, "") { "pop" } else { "none" },
+            &notify_actions(&p),
+        )
     }
-    let p = prefs(db);
-    toast(
-        app,
-        String::new(),
-        crate::i18n::tr(crate::i18n::K::TestTitle),
-        crate::i18n::tr(crate::i18n::K::TestLine1),
-        crate::i18n::tr(crate::i18n::K::TestLine2),
-        if crate::notifysound::on_for(&p, "") { "pop" } else { "none" },
-        &notify_actions(&p),
-    )
 }
 
 /// Does a plain "New mail" open a window of its own? (Settings > Composing, `prefs.popoutCompose`, default off.) Read from the stored
@@ -1460,7 +1471,7 @@ mod platform_tests {
         let send = &send[..send.find("
 }
 ").unwrap()];
-        assert!(send.contains("Trigger::SendTest") && send.contains("State::Denied"), "Send test asks, and sends nothing when macOS refuses: {send}");
+        assert!(send.contains("Trigger::SendTest") && send.contains("macnotify::deliver("), "Send test asks and takes the real path; the answer of macOS is its answer: {send}");
         assert!(!shell.contains(concat!("NOTIFY_MAC", "_UNAVAILABLE")));
         let lib = crate::test_guard::non_test_code(include_str!("lib.rs"));
         assert!(lib.contains("shell::mac_notify_start(&db)"), "start and every sync round");
@@ -1574,10 +1585,12 @@ mod platform_tests {
         // BUG-L2: the plugin's show() drops the bus error, so "Send test" could never report it. The Linux branch of `toast` must
         // call `toast_linux` (which waits for the answer) before it reaches the plugin.
         let src = include_str!("shell.rs");
-        let toast = &src[src.find("fn toast(app: &AppHandle, thread: String").unwrap()..];
-        let linux = toast.find("toast_linux(").unwrap();
-        let plugin = toast.find(concat!("builder", "()")).unwrap();
-        assert!(linux < plugin, "the Linux branch comes first and returns");
+        let toast = &src[src.find("#[cfg(not(windows))]
+fn toast(app: &AppHandle, thread: String").unwrap()..];
+        let toast = &toast[..toast.find("
+}
+").unwrap()];
+        assert!(toast.contains("toast_linux(") && !toast.contains("NotificationExt") && !toast.contains(concat!("builder", "()")), "no branch of toast uses the plugin: {toast}");
         let body = &src[src.find("fn toast_linux").unwrap()..];
         let body = &body[..body.find("\n}\n").unwrap()];
         assert!(body.contains(".show()") && body.contains("recv_timeout") && !body.contains("NotificationExt"), "{body}");

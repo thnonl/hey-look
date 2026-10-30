@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased (1.0.11)
+
+### Fixed
+
+- macOS: notifications now work (new mail and Send test). Hey Look! shows them through the system notification centre (UserNotifications) and asks macOS for permission on the first Send test or the first new-mail alert, where before it used a method that recent macOS versions ignore and nothing was shown. Send test also shows while Hey Look! is in front. If macOS refuses, the message says so with its own words ("Notifications are not allowed for this application") and points to System Settings > Notifications. Clicking a notification brings Hey Look! forward and opens the conversation. Alerts are still skipped while a Hey Look! window is in front. Windows and Linux are unchanged
+
 ## 1.0.10 — 2026-10-28
 
 ### Changed

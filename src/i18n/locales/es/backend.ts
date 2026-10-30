@@ -47,6 +47,8 @@ export default defineLocale<typeof ns.en>({
   "backend.SCHEDULE_IN_PAST": "Esa hora ya pasó. Elige una posterior o envía el mensaje ahora.",
   "backend.SCHEDULE_TOO_FAR": "Elige una fecha dentro del próximo año.",
   "backend.NOTIFY_NO_SERVICE": "No hay ningún servicio de notificaciones en ejecución en este entorno de escritorio.",
+  "backend.NOTIFY_MAC_NOT_ALLOWED": "No se permiten notificaciones para esta aplicación. Actívalas en Ajustes del Sistema > Notificaciones.",
+  "backend.NOTIFY_MAC_NO_BUNDLE": "Las notificaciones requieren la aplicación instalada: esta copia no se ejecuta desde un paquete de aplicación.",
   "backend.PGP_LOCKED_OUT": "Demasiados intentos. Espera 30 segundos.",
   "backend.PGP_NO_KEY": "No tienes ninguna clave PGP para {email}.",
   "backend.PGP_BAD_PASSPHRASE": "Frase de contraseña incorrecta.",
