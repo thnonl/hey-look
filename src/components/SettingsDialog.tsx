@@ -21,7 +21,7 @@ import { hostLabel, keyIsSent, originOf, otherServer, resolveModelsUrl } from ".
 import { normalizeSidebar } from "../sidebarState";
 import { folderVisible, ruleTargetProblem } from "../junk";
 import { cutAtWord, friendlyError, useStore } from "../store";
-import { ensureTrustedLoaded, reloadTrusted, removeTrusted, useTrusted } from "../trustedSenders";
+import { ensureTrustedLoaded, reloadTrusted, removeNoAuto, removeTrusted, setAutoPictures, useTrusted } from "../trustedSenders";
 import { credStore, kbd, riskyHint, usePlatform } from "../platform";
 import { portFromText, portText } from "../portField";
 import { addBlocked, applyFix, badHosts, type Block, changedWhileChecking, cooldown, type ConnForm, fieldValue, type FieldId, fixMsg, type Fix, needReason, NO_STREAK, nextStreak, parseAccountCheck, type PartReport, preHints, say, sigsOf, streakKey, type Streak } from "../connHints";
@@ -1493,6 +1493,97 @@ function TrustedSenders({ global }: { global: boolean }) {
   );
 }
 
+/** The automatic picture rule (autoload.rs): one global switch, and the built-in list of well-known services, read-only. */
+function AutoPictures({ global }: { global: boolean }) {
+  const t = useT();
+  const showToast = useStore((x) => x.showToast);
+  const on = useTrusted((x) => x.autoOn);
+  const [open, setOpen] = useState(false);
+  const [domains, setDomains] = useState<string[] | null>(null);
+  useEffect(() => {
+    ensureTrustedLoaded();
+    void reloadTrusted();
+  }, []);
+  useEffect(() => {
+    if (!open || domains) return;
+    let live = true;
+    void api.listServiceDomains().then((d) => live && setDomains(d)).catch(() => live && setDomains([]));
+    return () => {
+      live = false;
+    };
+  }, [open, domains]);
+  const change = (v: boolean) => void setAutoPictures(v).catch((e) => showToast(() => t("reading.trust.saveFailed", { error: friendlyError(e) }), undefined, "error"));
+  return (
+    <>
+      <Row id="autoPics" label={t("settings.reading.autoPics")} hint={global ? t("settings.reading.autoPicsGlobalOn") : t("settings.reading.autoPicsHint")}>
+        <Switch checked={on} disabled={global} onChange={change} />
+      </Row>
+      <div className="auto-domains">
+        <button className="btn small" aria-expanded={open} aria-controls="service-domains" onClick={() => setOpen((v) => !v)}>
+          {open ? t("settings.reading.domainsHide") : t("settings.reading.domainsShow")}
+        </button>
+        {open && (
+          <div id="service-domains" className="service-domains">
+            <div className="muted small">{t("settings.reading.domainsNote")}</div>
+            {domains && <div className="muted small">{t("settings.reading.domainsCount", { n: domains.length })}</div>}
+            <ul className="service-domains-list" tabIndex={0} aria-label={t("settings.reading.domainsShow")}>
+              {(domains ?? []).map((d) => <li key={d}>{d}</li>)}
+            </ul>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+/** The senders the person turned off with "Stop showing pictures from this sender" (remote_ok.rs `noauto_*`): the same list as TrustedSenders, Remove puts the sender back under the rule. */
+function NoAutoSenders() {
+  const t = useT();
+  const showToast = useStore((x) => x.showToast);
+  const list = useTrusted((x) => x.noAuto);
+  const [added, setAdded] = useState<Record<string, number>>({});
+  const [q, setQ] = useState("");
+  useEffect(() => {
+    ensureTrustedLoaded();
+    void reloadTrusted();
+  }, []);
+  useEffect(() => {
+    let live = true;
+    void api.listRemoteNoauto().then((rows) => live && setAdded(Object.fromEntries(rows.map((r) => [r.email.toLowerCase(), r.added])))).catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [list]);
+  const all = [...list].sort();
+  const needle = q.trim().toLowerCase();
+  const shown = needle ? all.filter((e) => e.includes(needle)) : all;
+  const day = (ms?: number) => (ms ? new Intl.DateTimeFormat(intlLocale(), { year: "numeric", month: "short", day: "numeric" }).format(new Date(ms)) : "");
+  const fail = (e: unknown) => showToast(() => t("reading.trust.saveFailed", { error: friendlyError(e) }), undefined, "error");
+  return (
+    <>
+      <Row id="noauto" label={t("settings.reading.noauto")} hint={t("settings.reading.noautoHint")}>{null}</Row>
+      <div className="trusted-list">
+        {all.length === 0 && <div className="muted">{t("settings.reading.noautoNone")}</div>}
+        {all.length > 8 && (
+          <input type="search" className="trusted-search" autoComplete="off" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("settings.reading.trustedSearch")} aria-label={t("settings.reading.trustedSearch")} />
+        )}
+        {shown.map((e) => (
+          <div key={e} className="list-row">
+            <div className="lr-name">
+              <span className="lr-title" title={e}>{e}</span>
+              <span className="small muted">{t("settings.reading.trustedAdded", { date: day(added[e]) })}</span>
+            </div>
+            <button className="btn small" aria-label={t("settings.reading.trustedRemoveLabel", { email: e })} onClick={() => void removeNoAuto(e).catch(fail)}>
+              {t("common.remove")}
+            </button>
+          </div>
+        ))}
+        {all.length > 8 && shown.length === 0 && <div className="muted">{t("settings.reading.trustedNoMatch", { q: q.trim() })}</div>}
+      </div>
+    </>
+  );
+}
+
 function ReadingPanel({ scope }: { scope: string | null }) {
   const t = useT();
   const { prefs, setPrefs } = useStore();
@@ -1504,6 +1595,8 @@ function ReadingPanel({ scope }: { scope: string | null }) {
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
       <TrustedSenders global={eff(prefs, scope, "loadRemote")} />
+      <AutoPictures global={eff(prefs, scope, "loadRemote")} />
+      <NoAutoSenders />
       <OvRow id="inlineAuto" scope={scope} k="inlineAutoLoadMB" label={t("settings.reading.inlineAuto")} hint={t("settings.reading.inlineAutoHint")}>
         {(v, set) => (
           <select value={v} onChange={(e) => set(Number(e.target.value) as Prefs["inlineAutoLoadMB"])}>

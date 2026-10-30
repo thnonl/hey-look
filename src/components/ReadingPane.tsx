@@ -307,11 +307,12 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   // senders whose remote content always loads (1.0.10, trustedSenders.ts): the one rule decides here, in the pop-out, in print and in the quote of a reply
   const trustedSet = useTrusted((s) => s.emails);
   const noAutoSet = useTrusted((s) => s.noAuto);
+  const autoOn = useTrusted((s) => s.autoOn);
   const accounts = useStore((s) => s.accounts);
   const showToast = useStore((s) => s.showToast);
   useEffect(() => ensureTrustedLoaded(), []);
   const sender = normSender(m.fromEmail);
-  const rin: RemoteInput = { global: loadRemote, trusted: !!sender && trustedSet.has(sender), autoReason: m.autoReason, noAuto: !!sender && noAutoSet.has(sender), folder: m.folder, encrypted: !!m.security?.encrypted, auth: m.auth, allow };
+  const rin: RemoteInput = { global: loadRemote, trusted: !!sender && trustedSet.has(sender), autoReason: m.autoReason, noAuto: !!sender && noAutoSet.has(sender), autoOn, folder: m.folder, encrypted: !!m.security?.encrypted, auth: m.auth, allow };
   const [version, setVersion] = useState(0); // bumps when images arrive from the backend
   const [loadedPics, setLoadedPics] = useState<Record<string, string>>({});
   // pictures shown one by one (address -> data: URI): put into the frame in place, and remembered here so a rebuilt frame (a language change, a sync) keeps them; gone with the message
@@ -356,7 +357,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   });
   const removeSender = async (announce: boolean) => {
     const wasListed = notice === "auto";
-    const byRule = notice === "autoWrote" || notice === "autoService" || (wasListed && !!m.autoReason);
+    const byRule = notice === "autoWrote" || notice === "autoService" || (wasListed && !!m.autoReason && autoOn);
     try {
       if (wasListed || !byRule) await removeTrusted(m.fromEmail);
       if (byRule) {
@@ -969,12 +970,13 @@ function useAutoKind(m: MessageFull): AutoKind | null {
   const prefs = useStore((s) => s.prefs);
   const trusted = useTrusted((s) => s.emails);
   const off = useTrusted((s) => s.noAuto);
+  const autoOn = useTrusted((s) => s.autoOn);
   useEffect(() => ensureTrustedLoaded(), []);
   if (!hasFrame(m)) return null;
   const sender = normSender(m.fromEmail);
   const global = eff(prefs, m.accountId, "loadRemote");
   if (global) return /(?:src|background)\s*=\s*["']?(?:https?:)?\/\/|url\(\s*["']?(?:https?:)?\/\//i.test(m.html ?? "") ? "global" : null; // (cheap look: no second cleaning of every message)
-  const st = noticeState({ global, trusted: !!sender && trusted.has(sender), autoReason: m.autoReason, noAuto: !!sender && off.has(sender), folder: m.folder, encrypted: !!m.security?.encrypted, auth: m.auth, allow: false }, true, false);
+  const st = noticeState({ global, trusted: !!sender && trusted.has(sender), autoReason: m.autoReason, noAuto: !!sender && off.has(sender), autoOn, folder: m.folder, encrypted: !!m.security?.encrypted, auth: m.auth, allow: false }, true, false);
   const kind: AutoKind | null = st === "autoWrote" ? "wrote" : st === "autoService" ? "service" : st === "auto" ? "list" : null;
   return kind && cleanOf(m, false).blocked > 0 ? kind : null;
 }
@@ -1022,7 +1024,7 @@ function AutoPicturesInfo({ m }: { m: MessageFull }) {
       if (kind === "global") return setDialog({ type: "settings", tab: "mb:all", focus: "loadRemote" });
       if (kind === "list") {
         await removeTrusted(m.fromEmail);
-        if (m.autoReason) await addNoAuto(m.fromEmail); // (the rule would show it again: Stop must stop)
+        if (m.autoReason && useTrusted.getState().autoOn) await addNoAuto(m.fromEmail); // (the rule would show it again: Stop must stop)
       } else {
         const r = await addNoAuto(m.fromEmail);
         if (r === "full") return showToast(() => t("reading.trust.full", { max: 1000 }), undefined, "error");

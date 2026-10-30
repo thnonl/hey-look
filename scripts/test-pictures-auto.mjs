@@ -6,6 +6,7 @@
 //   T-C4 AC-10/11/12/13: the senders and messages that do NOT show by themselves; a trusted sender with the rule: Stop really stops
 //   T-C6 AC-15..18 the box: size, text, aria, tiers, nothing for pixels and for what the mail hides      T-C7 AC-19/20 the menu: right-click, Shift+F10, Esc, in a link, confidential
 //   T-C8 AC-21..25 show one picture (one fetch, the CSP stays, focus), show all, reopen                  T-C12 colours and the print rule
+// 1.0.11 WP2 adds: the Settings list of senders turned off (Remove) and the global switch off (tag switch-off).
 //   node scripts/test-pictures-auto.mjs [--require-browser | --url=http://127.0.0.1:1420/]
 import { sleep, startHarness } from './cdp-harness.mjs';
 
@@ -149,13 +150,20 @@ try {
   await evaluate(`(() => { const b = [...document.querySelectorAll('.toast button, .toasts .toast button')].find((x) => /undo/i.test(x.textContent)); if (b) b.click(); return !!b; })()`);
   ok(await until(`${FR}.contentDocument.querySelectorAll('.hl-bp').length === 0 && !!document.querySelector('.rp-msg.open .autoinfo-btn')`, 4000), 'Undo: shown again, the info button is back');
   eq(await noauto(), [], 'Undo: the list is empty again');
-  // 1.0.10: there is no list of the senders turned off in Settings (it comes with 1.0.11); the way back is "Always show pictures from this sender" on that sender's notice
+  // 1.0.11: the list of the senders turned off is in Settings; the way back is Remove there, or "Always show pictures from this sender" on that sender's notice
   await infoAction();
   ok(await until(`${FR}.contentDocument.querySelectorAll('.hl-bp').length > 0`, 4000), 'Stop again: hidden');
   eq(await noauto(), [SENDER], 'the sender is turned off');
   await evaluate(`window.__store.getState().setDialog({ type: 'settings', tab: 'mb:all', section: 'reading', nonce: Date.now() }); 1`);
   ok(await until(`!!document.querySelector('.trusted-list')`, 8000), 'Settings > Reading & sync opens');
-  ok(!(await evaluate(`!!document.querySelector('[data-testid=noauto-list]') || /not shown automatically|shown automatically from people/.test(document.body.innerText)`)), 'no list of senders turned off, and no sentence about it, in Settings');
+  // 1.0.11: the Settings list of the senders turned off shows the sender, with its own Remove button
+  const offRows = () => evaluate(`(() => { const r = document.querySelector('#set-noauto'); const l = r && r.nextElementSibling; return l ? [...l.querySelectorAll('.list-row button')].map((b) => b.getAttribute('aria-label')) : null; })()`);
+  eq(await offRows(), [`Remove ${SENDER}`], 'Settings lists the sender turned off, with Remove');
+  await evaluate(`document.querySelector('#set-noauto').nextElementSibling.querySelector('.list-row button').click(); 1`);
+  ok(await until(`window.__mockRemoteNoauto.size === 0`, 3000), 'Remove in Settings: the backend list is empty');
+  ok(await until(`${FR}.contentDocument.querySelectorAll('.hl-bp').length === 0`, 6000), 'and the rule shows the pictures again');
+  await infoAction();
+  ok(await until(`${FR}.contentDocument.querySelectorAll('.hl-bp').length > 0`, 4000), 'Stop again: hidden');
   await evaluate(`window.__store.getState().setDialog(null); 1`);
   await sleep(300);
   ok(await clickLink('button.link[data-trust="add"]'), 'the offer on the notice is there');
@@ -166,6 +174,27 @@ try {
   await clearLists();
   await open('pW');
   ok(!(await notice()) && (await info()) && (await info()).kind === 'wrote', 'with both lists empty the message shows by itself again');
+
+  // 1.0.11 WP2: the global switch off: the rule never shows pictures (written-to and service), the normal notice with the offer, no info button; the lists still work; on again: back
+  tag = 'switch-off';
+  await evaluate(`window.__mockAutoPictures.on = false; window.__mockEmit('remote-ok-changed', null).then(() => 1)`);
+  await sleep(300);
+  await open('pW');
+  ok(await until(`${FR}.contentDocument.querySelectorAll('.hl-bp').length > 0`, 4000), 'switch off: a written-to sender\'s pictures stay hidden');
+  n = await notice();
+  ok(n && n.cls === 'notice' && n.links.length === 3, `switch off: the normal notice with the offer: ${JSON.stringify(n)}`);
+  eq(await info(), null, 'switch off: no "shown automatically" info button');
+  await open('pS');
+  ok(await until(`${FR}.contentDocument.querySelectorAll('.hl-bp').length > 0`, 4000), 'switch off: a well-known service\'s pictures stay hidden');
+  eq(await info(), null, 'switch off (service): no info button');
+  await open('pW');
+  ok(await clickLink('button.link[data-trust="add"]'), 'switch off: "Always show pictures from this sender" is offered');
+  ok(await until(`${FR}.contentDocument.querySelectorAll('.hl-bp').length === 0`, 4000), 'switch off: the always-show list still shows the pictures');
+  await clearLists();
+  await evaluate(`window.__mockAutoPictures.on = true; window.__mockEmit('remote-ok-changed', null).then(() => 1)`);
+  await sleep(300);
+  await open('pW');
+  ok(await until(`${FR}.contentDocument.querySelectorAll('.hl-bp').length === 0`, 4000), 'switch on again: shown by the rule');
 
   // ======================================================================== T-C4: what does not show by itself
   tag = 'not-auto';

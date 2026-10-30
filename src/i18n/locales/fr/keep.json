@@ -35,5 +35,6 @@
   "compose.fmt.style.normal",
   "compose.fmt.style.code",
   "compose.emoji.smileys",
-  "settings.calendar.davService"
+  "settings.calendar.davService",
+  "settings.reading.domainsCount"
 ]

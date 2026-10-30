@@ -781,6 +781,10 @@ export const api = {
   listRemoteNoauto: () => invoke<{ email: string; added: number }[]>("list_remote_noauto"),
   remoteNoautoAdd: (email: string) => invoke<string>("remote_noauto_add", { email }),
   remoteNoautoRemove: (email: string) => invoke<void>("remote_noauto_remove", { email }),
+  /** the global switch of the automatic picture rule (autoload.rs; default on), and the built-in well-known service domains (read-only, sorted) */
+  getAutoPictures: () => invoke<boolean>("get_auto_pictures"),
+  setAutoPictures: (on: boolean) => invoke<void>("set_auto_pictures", { on }),
+  listServiceDomains: () => invoke<string[]>("list_service_domains"),
   listRules: () => invoke<Rule[]>("list_rules"),
   saveRule: (rule: Rule) => invoke<void>("save_rule", { rule }),
   deleteRule: (id: string) => invoke<void>("delete_rule", { id }),

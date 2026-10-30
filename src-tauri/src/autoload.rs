@@ -285,9 +285,25 @@ pub fn own_sets(c: &Connection) -> (HashSet<String>, HashSet<String>) {
     (addrs, domains)
 }
 
-/// The reason for one stored message (reads `written_to` and the mailboxes).
+/// The key of the one global switch (table `settings`): `"0"` = the automatic rule is off, anything else or nothing = on (the 1.0.10 behaviour).
+pub const SWITCH_KEY: &str = "auto_pictures";
+
+/// Is the automatic rule (people you wrote to, well-known services) on? Default yes.
+pub fn enabled(c: &Connection) -> bool {
+    crate::db::get_setting(c, SWITCH_KEY).as_deref() != Some("0")
+}
+
+pub fn set_enabled(c: &Connection, on: bool) -> Result<(), String> {
+    crate::db::set_setting(c, SWITCH_KEY, if on { "1" } else { "0" })
+}
+
+/// The reason for one stored message (reads `written_to` and the mailboxes). With the global switch off there is never a reason; the lists of senders
+/// ("Always show", "Stop showing") are not touched by the switch.
 pub fn reason_for(c: &Connection, from_email: &str, folder: &str, encrypted: bool, auth_result: Option<&str>, auth_ev: Option<&str>, list_hdr: bool, list_unsub: bool) -> Option<&'static str> {
     auth_ev?;
+    if !enabled(c) {
+        return None;
+    }
     let (own_addrs, own_domains) = own_sets(c);
     let written = was_written(c, from_email);
     reason(&Input { from_email, folder, encrypted, auth_result, auth_ev, list_hdr, list_unsub, written, own_addrs: &own_addrs, own_domains: &own_domains })
@@ -524,5 +540,30 @@ mod tests {
         let me = Evidence { dmarc_pass: true, dmarc_from: Some("mine.example".into()), dkim_d: vec![] }.to_db();
         note_written(&c, "a1", "me@mine.example", "");
         assert_eq!(reason_for(&c, "me@mine.example", "inbox", false, Some("pass"), me.as_deref(), false, false), None, "your own address");
+    }
+
+    #[test]
+    fn the_global_switch_is_on_by_default_and_off_means_no_reason_at_all() {
+        let c = db();
+        assert!(enabled(&c), "default: on (the 1.0.10 behaviour)");
+        note_written(&c, "a1", "x@example.org", "");
+        let ev = Evidence { dmarc_pass: true, dmarc_from: Some("example.org".into()), dkim_d: vec!["example.org".into()] }.to_db();
+        let svc = SERVICE_DOMAINS[0];
+        let sev = Evidence { dmarc_pass: true, dmarc_from: Some(svc.into()), dkim_d: vec![svc.into()] }.to_db();
+        let sfrom = format!("news@{svc}");
+        assert_eq!(reason_for(&c, "x@example.org", "inbox", false, Some("pass"), ev.as_deref(), false, false), Some("wrote"));
+        assert_eq!(reason_for(&c, &sfrom, "inbox", false, Some("pass"), sev.as_deref(), false, false), Some("service"));
+        set_enabled(&c, false).unwrap();
+        assert!(!enabled(&c));
+        assert_eq!(reason_for(&c, "x@example.org", "inbox", false, Some("pass"), ev.as_deref(), false, false), None, "off: written-to sender");
+        assert_eq!(reason_for(&c, &sfrom, "inbox", false, Some("pass"), sev.as_deref(), false, false), None, "off: well-known service");
+        // the lists of senders are not the switch's business
+        crate::remote_ok::add(&c, "x@example.org", 1).unwrap();
+        assert_eq!(crate::remote_ok::list(&c).unwrap().len(), 1, "the Always-show list still holds its entry");
+        set_enabled(&c, true).unwrap();
+        assert_eq!(reason_for(&c, "x@example.org", "inbox", false, Some("pass"), ev.as_deref(), false, false), Some("wrote"), "on again");
+        // a value that is not 0 counts as on
+        crate::db::set_setting(&c, SWITCH_KEY, "garbage").unwrap();
+        assert!(enabled(&c));
     }
 }

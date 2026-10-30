@@ -681,6 +681,9 @@ const mockRemoteOk = new Map<string, number>(
 (window as unknown as { __mockRemoteOk: Map<string, number> }).__mockRemoteOk = mockRemoteOk;
 /** the senders whose pictures are not shown automatically (`window.__mockRemoteNoauto` for a check) */
 const mockRemoteNoauto = new Map<string, number>();
+/** the global switch "Show pictures automatically" (`window.__mockAutoPictures` for a check) */
+const mockAutoPictures = { on: true };
+(window as unknown as { __mockAutoPictures: { on: boolean } }).__mockAutoPictures = mockAutoPictures;
 (window as unknown as { __mockRemoteNoauto: Map<string, number> }).__mockRemoteNoauto = mockRemoteNoauto;
 const UPDATE_SAMPLE_NOTES = [
   "## Highlights", "- Faster search in large mailboxes", "* **Bold** item with `code`", "[a link](https://example.com)", "",
@@ -1619,6 +1622,10 @@ export function installMock() {
       case "remote_noauto_remove": mockRemoteNoauto.delete(String(a.email ?? "").trim().toLowerCase()); void emit("remote-ok-changed", null); return null;
       case "remote_ok_remove": mockRemoteOk.delete(String(a.email ?? "").trim().toLowerCase()); void emit("remote-ok-changed", null); return null;
       case "remote_ok_clear": mockRemoteOk.clear(); void emit("remote-ok-changed", null); return null;
+      // the global switch of the automatic picture rule and the built-in domain list (autoload.rs); a short sample stands in for the real list
+      case "get_auto_pictures": return mockAutoPictures.on;
+      case "set_auto_pictures": mockAutoPictures.on = a.on !== false; void emit("remote-ok-changed", null); return null;
+      case "list_service_domains": return ["amazon.com", "github.com", "paypal.com", "spotify.com"];
       case "thread_action": {
         // like the backend: the state changes when the server has done it (not at the call), after the IMAP time;
         // `#slowflags` makes that time random (0.2 - 1.4 s) so calls finish out of order; every call is logged for checks

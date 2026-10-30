@@ -31,6 +31,8 @@ export interface RemoteInput {
   autoReason?: "wrote" | "service" | null;
   /** the sender is on the list of senders whose pictures are NOT shown automatically */
   noAuto?: boolean;
+  /** the global switch "Show pictures automatically" (autoload.rs); only an explicit `false` turns the rule off, so older callers keep the 1.0.10 behaviour */
+  autoOn?: boolean;
 }
 
 /** The list loads a message's content by itself: the sender is on it, and the message is not in Junk, not encrypted and did not fail the sender check. */
@@ -38,8 +40,8 @@ export const autoOk = (i: Pick<RemoteInput, "trusted" | "folder" | "encrypted" |
   i.trusted && i.folder !== "junk" && !i.encrypted && i.auth !== "fail";
 
 /** The rule of the backend (people you wrote to, well-known services) applies, and the person did not turn it off for this sender; never in Junk, for an encrypted message or after a failed check. */
-export const ruleAuto = (i: Pick<RemoteInput, "autoReason" | "noAuto" | "folder" | "encrypted" | "auth">): boolean =>
-  !!i.autoReason && !i.noAuto && i.folder !== "junk" && !i.encrypted && i.auth !== "fail";
+export const ruleAuto = (i: Pick<RemoteInput, "autoReason" | "noAuto" | "autoOn" | "folder" | "encrypted" | "auth">): boolean =>
+  i.autoOn !== false && !!i.autoReason && !i.noAuto && i.folder !== "junk" && !i.encrypted && i.auth !== "fail";
 
 /** The one rule for the reading pane, the pop-out reader, printing and the quote of a reply. */
 export const remoteAllowed = (i: RemoteInput): boolean => i.global || autoOk(i) || ruleAuto(i) || i.allow;

@@ -3986,6 +3986,28 @@ fn remote_ok_add(app: tauri::AppHandle, state: tauri::State<AppState>, email: St
     .to_string())
 }
 
+/// The global switch of the automatic picture rule (autoload.rs): on unless the person turned it off.
+#[tauri::command]
+fn get_auto_pictures(state: tauri::State<AppState>) -> bool {
+    autoload::enabled(&lock(&state.db))
+}
+
+/// Turns the automatic rule on or off for every mailbox; every window is told (the lists and the notices read it again).
+#[tauri::command]
+fn set_auto_pictures(app: tauri::AppHandle, state: tauri::State<AppState>, on: bool) -> R<()> {
+    autoload::set_enabled(&lock(&state.db), on)?;
+    let _ = app.emit("remote-ok-changed", ());
+    Ok(())
+}
+
+/// The built-in well-known service domains of the automatic rule, sorted (read-only: the list is part of the app).
+#[tauri::command]
+fn list_service_domains() -> Vec<&'static str> {
+    let mut v = autoload::SERVICE_DOMAINS.to_vec();
+    v.sort_unstable();
+    v
+}
+
 /// The senders whose pictures are not shown automatically (remote_ok.rs).
 #[tauri::command]
 fn list_remote_noauto(state: tauri::State<AppState>) -> R<Vec<remote_ok::Entry>> {
@@ -6985,6 +7007,9 @@ pub fn run() {
             unblock,
             list_remote_ok,
             list_remote_noauto,
+            get_auto_pictures,
+            set_auto_pictures,
+            list_service_domains,
             remote_noauto_add,
             remote_noauto_remove,
             remote_ok_add,
@@ -8006,7 +8031,8 @@ mod capability_tests {
             assert!(!windows(&pop).iter().any(|w| w == pattern) && !windows(&main).iter().any(|w| w == pattern), "{name}: not in popout.json or default.json");
             let ok = granted(&cap);
             assert!(ok.is_subset(&handler), "{name}: granted but not a command: {:?}", ok.difference(&handler).collect::<Vec<_>>());
-            assert!(ok.len() < handler.len() / 2, "{name}: an allowlist, not everything");
+            // (the Settings window needs most of the Settings dialog's commands: a little over half of all of them, never all of them)
+            assert!(ok.len() < handler.len() * 6 / 10, "{name}: an allowlist, not everything ({} of {})", ok.len(), handler.len());
             for c in never {
                 assert!(handler.contains(c), "{c} is not a command any more: update this list");
                 assert!(!ok.contains(c), "{name}: a window of this kind may call {c}");

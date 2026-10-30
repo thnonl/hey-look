@@ -11,6 +11,7 @@
 //   T-C8  AC-16    8 languages x 960x560 / 1280x800: the labels fit (no clipping, no horizontal scroll, at most 3 lines), a long sender address does not matter
 //   T-C10 AC-19    a reply quotes the pictures of a trusted sender's message; not those of a Junk message of the same sender
 //   T-C11 AC-21..26 the list in Settings: empty, search above 8, Remove, Remove all (cancel / confirm), the note while the global switch is on
+//   T-C12 1.0.11 WP2 the switch "Show pictures automatically" (default on, disabled while Always show pictures is on), the list of senders turned off (empty, Remove, search), the read-only domain list
 //   node scripts/test-trusted-senders.mjs [--require-browser]
 import fs from 'node:fs';
 import os from 'node:os';
@@ -290,6 +291,57 @@ try {
   // the same list in one mailbox's page
   await evaluate(`window.__store.getState().setDialog({ type: 'settings', tab: 'mb:a2', section: 'reading', nonce: Date.now() }); 1`);
   ok(await until(`!!document.querySelector('.trusted-list')`, 6000), 'a mailbox page shows the same list');
+  await evaluate(`window.__store.getState().setDialog(null); 1`);
+
+  // ======================================================================== T-C12 (1.0.11 WP2): the switch, the list of senders turned off, the domain list
+  section = 'auto-settings';
+  const setOff = (emails) => evaluate(`(() => { const m = window.__mockRemoteNoauto; m.clear(); for (const e of ${JSON.stringify(emails)}) m.set(e, 1761000000000); return window.__mockEmit('remote-ok-changed', null).then(() => 1); })()`);
+  await setOff([]);
+  await evaluate(`window.__store.getState().setPrefs({ loadRemote: false }); window.__store.getState().setDialog({ type: 'settings', tab: 'mb:all', section: 'reading', nonce: Date.now() }); 1`);
+  ok(await until(`!!document.querySelector('#set-autoPics')`, 8000), 'the switch row is there');
+  const ids = await evaluate(`[...document.querySelectorAll('.settings-body .set-row')].map((r) => r.id).filter((i) => ['set-loadRemote', 'set-trusted', 'set-autoPics', 'set-noauto'].includes(i))`);
+  eq(ids, ['set-loadRemote', 'set-trusted', 'set-autoPics', 'set-noauto'], 'order of the rows');
+  const sw = () => evaluate(`(() => { const i = document.querySelector('#set-autoPics input[type=checkbox]'); return { on: i.checked, disabled: i.disabled, mock: window.__mockAutoPictures.on }; })()`);
+  eq(await sw(), { on: true, disabled: false, mock: true }, 'default: on');
+  await evaluate(`document.querySelector('#set-autoPics input[type=checkbox]').click(); 1`);
+  await sleep(300);
+  eq(await sw(), { on: false, disabled: false, mock: false }, 'click: off, and the backend (mock) knows');
+  ok(await evaluate(`window.__store.getState && true`), 'store alive');
+  await evaluate(`document.querySelector('#set-autoPics input[type=checkbox]').click(); 1`);
+  await sleep(300);
+  eq((await sw()).mock, true, 'click again: on');
+  // "Always show pictures" on: the switch is disabled with the hint
+  await evaluate(`window.__store.getState().setPrefs({ loadRemote: true }); 1`);
+  await sleep(200);
+  ok((await sw()).disabled && (await evaluate(`document.querySelector('#set-autoPics').innerText`)).includes('Not needed while'), 'Always show pictures on: the switch is disabled with the note');
+  await evaluate(`window.__store.getState().setPrefs({ loadRemote: false }); 1`);
+  await sleep(200);
+  // the list of senders turned off
+  const nl = () => evaluate(`(() => { const row = document.querySelector('#set-noauto'); let n = row && row.nextElementSibling; const l = n && n.classList.contains('trusted-list') ? n : null; if (!l) return null; return { rows: [...l.querySelectorAll('.list-row')].map((r) => r.querySelector('.lr-title').textContent), labels: [...l.querySelectorAll('.list-row button')].map((b) => b.getAttribute('aria-label')), empty: (l.querySelector(':scope > .muted') || {}).textContent || null, search: !!l.querySelector('input.trusted-search') }; })()`);
+  let nlv = await nl();
+  ok(nlv && nlv.rows.length === 0 && nlv.empty === 'No senders yet.', `empty state (${JSON.stringify(nlv)})`);
+  await setOff(['b@shop.example', 'a@shop.example']);
+  await sleep(300);
+  nlv = await nl();
+  eq(nlv.rows, ['a@shop.example', 'b@shop.example'], 'the list shows the senders turned off, sorted');
+  eq(nlv.labels, ['Remove a@shop.example', 'Remove b@shop.example'], 'a Remove button per row, named with the address');
+  await evaluate(`document.querySelector('#set-noauto').nextElementSibling.querySelector('.list-row button').click(); 1`);
+  await sleep(300);
+  eq(await evaluate(`[...window.__mockRemoteNoauto.keys()]`), ['b@shop.example'], 'Remove: off the list in the backend');
+  eq((await nl()).rows, ['b@shop.example'], 'Remove: the row is gone');
+  await setOff(['a1@x.org', 'a2@x.org', 'a3@x.org', 'a4@x.org', 'a5@x.org', 'a6@x.org', 'a7@x.org', 'a8@x.org', 'a9@x.org']);
+  await sleep(300);
+  ok((await nl()).search, 'nine senders: the search box');
+  await setOff([]);
+  // the domain list: read-only, opens and closes, count matches
+  const dom = () => evaluate(`(() => { const b = document.querySelector('.auto-domains button'); const l = document.querySelector('#service-domains'); return { expanded: b.getAttribute('aria-expanded'), n: l ? l.querySelectorAll('li').length : 0, count: l ? (l.innerText.match(/(\\d+) services?/) || [])[1] : null, inputs: l ? l.querySelectorAll('input,button').length : 0 }; })()`);
+  eq((await dom()).expanded, 'false', 'the domain list is closed at first');
+  await evaluate(`document.querySelector('.auto-domains button').click(); 1`);
+  ok(await until(`document.querySelectorAll('#service-domains li').length > 0`, 3000), 'the domain list opens');
+  const d = await dom();
+  ok(d.expanded === 'true' && d.n === 4 && d.count === '4' && d.inputs === 0, `domains: count matches the rows, nothing to edit (${JSON.stringify(d)})`);
+  await evaluate(`document.querySelector('.auto-domains button').click(); 1`);
+  eq((await dom()).expanded, 'false', 'closes again');
   await evaluate(`window.__store.getState().setDialog(null); 1`);
 
   // ======================================================================== T-C8 + T-C9: the notice in 8 languages, two sizes, both themes

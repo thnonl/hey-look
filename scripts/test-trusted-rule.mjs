@@ -107,4 +107,22 @@ assert.equal(canOffer(`${'a'.repeat(330)}@x.org`, own, inbox), false, 'too long'
   assert.equal(noticeState({ ...b, autoReason: undefined }, true, true), 'offer', 'no reason from the backend: S1');
 }
 
+// ---- 1.0.11 WP2: the global switch "Show pictures automatically" (autoOn). Only an explicit false turns the rule off; the lists of senders are not touched by it.
+{
+  const b = { global: false, trusted: false, folder: 'inbox', encrypted: false, auth: 'pass', allow: false };
+  for (const autoReason of ['wrote', 'service']) {
+    assert.equal(ruleAuto({ ...b, autoReason }), true, 'on by default (undefined = 1.0.10 behaviour)');
+    assert.equal(ruleAuto({ ...b, autoReason, autoOn: true }), true);
+    assert.equal(ruleAuto({ ...b, autoReason, autoOn: false }), false, 'switch off: the rule never applies');
+    assert.equal(remoteAllowed({ ...b, autoReason, autoOn: false }), false, 'switch off: pictures stay hidden');
+    assert.equal(noticeState({ ...b, autoReason, autoOn: false }, true, true), 'offer', 'switch off: the normal notice, no "shown automatically" info');
+    assert.equal(noticeState({ ...b, autoReason, autoOn: false }, true, false), 'plain');
+  }
+  // "Always show" for the sender and "Show pictures" for the message and the global "Always show pictures" still work with the switch off
+  assert.equal(remoteAllowed({ ...b, autoReason: 'wrote', autoOn: false, trusted: true }), true);
+  assert.equal(noticeState({ ...b, autoReason: 'wrote', autoOn: false, trusted: true }, true, true), 'auto', 'the list, not the rule');
+  assert.equal(remoteAllowed({ ...b, autoReason: 'service', autoOn: false, allow: true }), true);
+  assert.equal(remoteAllowed({ ...b, autoReason: 'service', autoOn: false, global: true }), true);
+}
+
 console.log('test-trusted-rule: ok');

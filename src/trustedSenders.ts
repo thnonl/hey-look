@@ -15,16 +15,18 @@ export * from "./trustedRule";
 /** The rule for a message outside a component (the heavy-message wait, the quote of a reply): the setting of its mailbox, the list, its folder, the sender check. */
 export function remoteAllowedFor(m: MessageFull, allow = false): boolean {
   const e = normSender(m.fromEmail);
-  return remoteAllowed({ global: eff(useStore.getState().prefs, m.accountId, "loadRemote"), trusted: !!e && useTrusted.getState().emails.has(e), autoReason: m.autoReason, noAuto: !!e && useTrusted.getState().noAuto.has(e), folder: m.folder, encrypted: !!m.security?.encrypted, auth: m.auth, allow });
+  return remoteAllowed({ global: eff(useStore.getState().prefs, m.accountId, "loadRemote"), trusted: !!e && useTrusted.getState().emails.has(e), autoReason: m.autoReason, noAuto: !!e && useTrusted.getState().noAuto.has(e), autoOn: useTrusted.getState().autoOn, folder: m.folder, encrypted: !!m.security?.encrypted, auth: m.auth, allow });
 }
 
 interface TrustedState {
   emails: Set<string>;
   /** the senders whose pictures are not shown automatically (people written to, well-known services) */
   noAuto: Set<string>;
+  /** the global switch "Show pictures automatically" (autoload.rs `enabled`); on until the backend says otherwise */
+  autoOn: boolean;
   loaded: boolean;
 }
-export const useTrusted = create<TrustedState>(() => ({ emails: new Set(), noAuto: new Set(), loaded: false }));
+export const useTrusted = create<TrustedState>(() => ({ emails: new Set(), noAuto: new Set(), autoOn: true, loaded: false }));
 
 let started = false;
 /** Reads the list and keeps it current: every window that shows a message or the list calls this once. */
@@ -38,10 +40,11 @@ export function ensureTrustedLoaded(): void {
 export async function reloadTrusted(): Promise<void> {
   try {
     // one list that cannot be read must not drop the other
-    const [a, b] = await Promise.allSettled([api.listRemoteOk(), api.listRemoteNoauto()]);
+    const [a, b, c] = await Promise.allSettled([api.listRemoteOk(), api.listRemoteNoauto(), api.getAutoPictures()]);
     useTrusted.setState((s) => ({
       emails: a.status === "fulfilled" ? new Set(a.value.map((r) => r.email.toLowerCase())) : s.emails,
       noAuto: b.status === "fulfilled" ? new Set(b.value.map((r) => r.email.toLowerCase())) : s.noAuto,
+      autoOn: c.status === "fulfilled" ? c.value !== false : s.autoOn,
       loaded: true,
     }));
   } catch {
@@ -57,7 +60,7 @@ export async function addTrusted(email: string): Promise<"added" | "already" | "
   if (r !== "full") useTrusted.setState((s) => {
     const off = new Set(s.noAuto);
     off.delete(e); // "always show" takes the sender off the other list
-    return { emails: new Set(s.emails).add(e), noAuto: off, loaded: s.loaded };
+    return { emails: new Set(s.emails).add(e), noAuto: off, autoOn: s.autoOn, loaded: s.loaded };
   });
   return r;
 }
@@ -71,7 +74,7 @@ export async function addNoAuto(email: string): Promise<"added" | "already" | "f
     useTrusted.setState((s) => {
       const on = new Set(s.emails);
       on.delete(e);
-      return { emails: on, noAuto: new Set(s.noAuto).add(e), loaded: s.loaded };
+      return { emails: on, noAuto: new Set(s.noAuto).add(e), autoOn: s.autoOn, loaded: s.loaded };
     });
   return r;
 }
@@ -83,7 +86,7 @@ export async function removeNoAuto(email: string): Promise<void> {
   useTrusted.setState((s) => {
     const n = new Set(s.noAuto);
     n.delete(e);
-    return { emails: s.emails, noAuto: n, loaded: s.loaded };
+    return { emails: s.emails, noAuto: n, autoOn: s.autoOn, loaded: s.loaded };
   });
 }
 
@@ -94,6 +97,12 @@ export async function removeTrusted(email: string): Promise<void> {
   useTrusted.setState((s) => {
     const n = new Set(s.emails);
     n.delete(e);
-    return { emails: n, noAuto: s.noAuto, loaded: s.loaded };
+    return { emails: n, noAuto: s.noAuto, autoOn: s.autoOn, loaded: s.loaded };
   });
+}
+
+/** Turns the automatic rule (people written to, well-known services) on or off for every mailbox; the other windows follow through `remote-ok-changed`. */
+export async function setAutoPictures(on: boolean): Promise<void> {
+  await api.setAutoPictures(on);
+  useTrusted.setState({ autoOn: on });
 }

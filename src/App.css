@@ -1802,3 +1802,8 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 .trusted-list .trusted-search { width: 100%; box-sizing: border-box; margin: 6px 0 10px; }
 .trusted-list .list-row { cursor: default; }
 .trusted-list .list-row .btn { flex: none; }
+.auto-domains { margin: 4px 0 14px; }
+.service-domains { margin: 8px 0 0; }
+.service-domains > .muted { margin: 4px 0; }
+.service-domains-list { list-style: none; margin: 6px 0 0; padding: 8px 10px; max-height: 220px; overflow: auto; border: 1px solid var(--border); border-radius: var(--r-sm); display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 2px 12px; font-size: 12px; }
+.service-domains-list li { overflow-wrap: anywhere; }
