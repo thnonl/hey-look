@@ -6,7 +6,7 @@ import type ns from "../../ns/mail.ts";
 export default defineLocale<typeof ns.en>({
   "mail.row.select": "Chọn",
   "mail.row.unread": "Chưa đọc",
-  "mail.row.confidential": "Thư mật",
+  "mail.row.confidential": "Bảo mật",
   "mail.importance.high": "Tầm quan trọng cao",
   "mail.importance.low": "Tầm quan trọng thấp",
   "mail.row.encrypted": "Đã mã hóa",

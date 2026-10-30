@@ -70,7 +70,7 @@ export default defineLocale<typeof ns.en>({
   "compose.bar.noKeyYet": "Tài khoản này chưa có khóa",
   "compose.bar.manageKeys": "Quản lý khóa…",
   "compose.bar.setUpEncryption": "Thiết lập mã hóa…",
-  "compose.bar.confidential": "Thư mật",
+  "compose.bar.confidential": "Bảo mật",
   "compose.bar.confidentialOnTip": "Thư mật: người nhận không thể sao chép, in, chuyển tiếp hay chụp màn hình thư trong Hey Look! (nhấp để tắt)",
   "compose.bar.confidentialOffTip": "Đánh dấu là thư mật (Độ nhạy cảm: Mật)",
   "compose.bar.importance": "Tầm quan trọng",
