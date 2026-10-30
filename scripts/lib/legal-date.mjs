@@ -1,6 +1,6 @@
 // The one place of the "Last updated" date of the four legal pages (privacy, terms, google-data, security) on the website, in all 8 languages (no dependencies).
 // To move the date (for example to the day of the merge):  node scripts/set-legal-date.mjs YYYY-MM-DD   (it rewrites this constant and the 32 pages; test-legal-dates then checks them)
-export const LEGAL_DATE = '2026-10-28';
+export const LEGAL_DATE = '2026-10-30';
 
 const M = {
   en: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
