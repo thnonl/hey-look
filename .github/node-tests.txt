@@ -225,6 +225,10 @@ ui-a | node scripts/test-new-mail-wait.mjs --require-browser
 static | node --experimental-strip-types scripts/test-top-bar-contrast.mjs
 # a blocked remote picture is a box of the size the mail gave it (48 x 48 without a size, nothing for a tracking pixel)
 static | node --experimental-strip-types scripts/test-blocked-picture.mjs
+# 1.0.11: a picture with both src and srcset showed broken after "Show pictures": the first srcset candidate (leading spaces, 1.5x / 2x), no srcset beside a shown picture
+static | node --experimental-strip-types scripts/test-picture-srcset.mjs
+# 1.0.11: the same in the dev preview with the airline newsletter fixture: sanitizeHtml blocked / allowed, <picture><source>, Show this picture, Show pictures, Show all
+ui-f | node scripts/test-picture-srcset-ui.mjs --require-browser
 # the Week view hour height (08:00 to 20:00 fit when the window allows, 32 to 48 px) and the click-to-create time that follows it
 static | node --experimental-strip-types scripts/test-week-hours.mjs
 # the labelled action row of the compose pane: resize from 1900 to 600 px and back, a language switch, the rows of More actions, a moved action works, Tab reaches More actions

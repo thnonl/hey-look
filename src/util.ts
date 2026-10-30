@@ -4,6 +4,7 @@ import blockedExt from "./blockedExt.json";
 import { fmtNumber, fmtPattern } from "./i18n/format";
 import { intlLocale, t } from "./i18n";
 import type { Prefs } from "./prefs";
+import { firstSrcsetUrl, remoteUrl } from "./pictureSrcset";
 
 let timePat = "HH:mm";
 let relative = true;
@@ -71,9 +72,22 @@ export function sanitizeHtml(html: string, allowRemote: boolean): { html: string
       node.setAttribute("target", "_blank");
       node.setAttribute("rel", "noopener noreferrer");
     }
+    // srcset / sizes never stay (1.0.11): the webview prefers srcset to src, so a picture shown from the data: URI of its src would still load the remote candidates itself. An <img> without a
+    // usable src takes the first candidate (what it would have shown) as its src, so it can be blocked, fetched through the backend and shown like any other.
+    if (node.tagName === "IMG" || node.tagName === "SOURCE") {
+      const ss = node.getAttribute("srcset");
+      if (ss !== null) {
+        const first = firstSrcsetUrl(ss);
+        node.removeAttribute("srcset");
+        node.removeAttribute("sizes");
+        if (node.tagName === "IMG" && first && !(node.getAttribute("src") ?? "").trim() && !node.hasAttribute("data-hl-src")) node.setAttribute("src", remoteUrl(first) || first);
+        else if (node.tagName === "SOURCE" && remoteUrl(first) && !allowRemote) blocked++;
+      }
+      if (node.tagName === "IMG") node.removeAttribute("sizes");
+    }
     if (!allowRemote) {
-      for (const attr of ["src", "background", "srcset"]) {
-        const v = node.getAttribute?.(attr);
+      for (const attr of ["src", "background"]) {
+        const v = node.getAttribute?.(attr)?.trim();
         if (v && /^(https?:)?\/\//i.test(v)) {
           node.removeAttribute(attr);
           blocked++;

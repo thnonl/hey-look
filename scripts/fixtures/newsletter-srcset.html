@@ -1,0 +1,9 @@
+<!-- trimmed copy of the airline newsletter template that broke in 1.0.10: <img> with both src and srcset, the srcset starting with white space; hosts are made-up -->
+<table width="600" align="center"><tr><td>
+<img alt="Logo" width="120" height="40" src="http://news.example.test/img/logo.png" srcset="   https://news.example.test/img/logo.png,   https://news.example.test/img/logo_2x.png 1.5x, https://news.example.test/img/logo_2x.png 2x" sizes="120px">
+</td></tr><tr><td>
+<img alt="Top" width="600" height="250" src="https://news.example.test/img/top.jpg" srcset="  https://news.example.test/img/top.jpg,  https://news.example.test/img/top_2x.jpg 1.5x, https://news.example.test/img/top_3x.jpg 2x">
+</td></tr><tr><td>
+<picture><source media="(min-width: 400px)" srcset=" https://news.example.test/img/wide.png 1x, https://news.example.test/img/wide_2x.png 2x"><img alt="Wide" width="300" height="100" src="https://news.example.test/img/wide.png"></picture>
+<img alt="OnlySrcset" width="200" height="60" srcset="  //news.example.test/img/only.png, //news.example.test/img/only_2x.png 2x">
+</td></tr></table>
