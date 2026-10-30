@@ -10,7 +10,7 @@
   },
   "langChunkGzip": {
     "bytes": 59500,
-    "reason": "B3. One chunk per non-English language (dictionary + date-fns locale, src/i18n/lang-<code>.ts). Measured at WP9c: 40.7 to 49.5 KB gzip (ru the largest); 55 KB leaves room for the texts the later work packages add."
+    "reason": "B3. One chunk per non-English language (dictionary + date-fns locale, src/i18n/lang-<code>.ts). Measured at WP9c: 40.7 to 49.5 KB gzip (ru the largest); the limit was 55 KB, then 58,500 B (set from the merged 1.0.10 build) and is now 59,500 B (history, 2026-10-30): the measured size plus about 1,000 B, rounded to 500."
   },
   "lazyChunkGzip": {
     "bytes": 170000,
@@ -118,7 +118,7 @@
     { "module": "src/popout/dev.ts", "reason": "dev aid that opens placeholder windows from the console; only imported when import.meta.env.DEV" }
   ],
   "history": [
-    { "date": "2026-10-30", "branch": "release/v1.0.11", "field": "langChunkGzip", "old": 58500, "new": 59500, "reason": "The WP4 language review (848975b7: ru wording, zh-Hans spacing) and the 1.0.11 texts grew the ru chunk to 58,528 B (the largest); 1,000 B of headroom. Same kind of reset as 3e901579 (set from the merged build). BA to confirm at the merge." },
+    { "date": "2026-10-30", "branch": "release/v1.0.11", "field": "langChunkGzip", "old": 58500, "new": 59500, "reason": "The WP4 language review (848975b7: ru wording, zh-Hans spacing) and the 1.0.11 texts grew the ru chunk to 58,528 B (the largest); 1,000 B of headroom. Same kind of reset as 3e901579 (set from the merged build). BA approved 2026-10-30 (measured + about 1,000 B, rounded to 500)." },
     { "date": "2026-10-27", "branch": "candidate/v1.0.10", "field": "cssGzip", "old": 26500, "new": 27000, "reason": "public/fonts/fonts.css (the three @font-face rules of Inter with their unicode-range lists, about 560 B gzip) is a stylesheet of index.html and counts here; measured 26,630 B." },
     { "date": "2026-10-27", "branch": "candidate/v1.0.10", "field": "fontsBytes", "old": null, "new": 75000, "reason": "The interface font Inter ships with the app (public/fonts: latin, vietnamese, cyrillic, 57,280 B woff2); two new entries, total and largest file." },
     { "date": "2026-10-19", "branch": "feature/v107-wp9a", "field": "all", "old": null, "new": "interim budgets", "reason": "First version: measured on the branch head (cf70a5a + W9.9) plus the allowances of spec-107-wp9 section 2.1." },
