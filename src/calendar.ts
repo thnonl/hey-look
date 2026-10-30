@@ -4,7 +4,7 @@
 import type { CalEvent } from "./api";
 import type { Prefs } from "./prefs";
 import { intlLocale, t } from "./i18n";
-import { dateFormat, fmtDayRange, fmtPattern } from "./i18n/format";
+import { dateFormat, fmtDayRange, fmtPattern, weekdayName } from "./i18n/format";
 
 export type CalView = "month" | "week" | "agenda";
 
@@ -24,7 +24,8 @@ export const fmtDayMonth = (d: Day) => fmtPattern(dayDate(d), "d MMM");
 const wdAbbr = () => dateFormat().weekdayShort ?? "EEE";
 export const wdShort = (wd: number) => fmtPattern(new Date(2021, 7, 1 + wd), "EEE", wdAbbr()); // 1 Aug 2021 = Sunday
 export const wdLong = (wd: number) => fmtPattern(new Date(2021, 7, 1 + wd), "EEEE");
-export const wdNarrow = (wd: number) => fmtPattern(new Date(2021, 7, 1 + wd), "EEEEE");
+// One letter (or the 2-letter forms of vi, ja / zh characters) from Intl: the date-fns narrow weekday of Spanish is wrong (lower case, Wednesday "m" instead of "X").
+export const wdNarrow = (wd: number) => weekdayName(wd, "narrow");
 const DAY_MS = 86_400_000;
 
 export const MY_EVENTS_COLOR = "#8764b8";

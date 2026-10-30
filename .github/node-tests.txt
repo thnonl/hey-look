@@ -537,3 +537,5 @@ static | node --experimental-strip-types scripts/test-moved-in.mjs
 ui-e | node scripts/test-send-lock.mjs --require-browser
 # 1.0.11: a moved / deleted mail is listed and counted in its target folder at once; Undo and a refused move take it out
 ui-b | node scripts/test-moved-in-ui.mjs --require-browser
+# 1.0.11: the mini calendar weekday header comes from Intl narrow (Spanish: D L M X J V S)
+static | node --experimental-strip-types scripts/test-weekday-narrow.mjs
