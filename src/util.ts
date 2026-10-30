@@ -4,7 +4,7 @@ import blockedExt from "./blockedExt.json";
 import { fmtNumber, fmtPattern } from "./i18n/format";
 import { intlLocale, t } from "./i18n";
 import type { Prefs } from "./prefs";
-import { firstSrcsetUrl, remoteUrl } from "./pictureSrcset";
+import { firstSrcsetUrl, isSchemeSource, remoteUrl } from "./pictureSrcset";
 
 let timePat = "HH:mm";
 let relative = true;
@@ -81,7 +81,12 @@ export function sanitizeHtml(html: string, allowRemote: boolean): { html: string
         node.removeAttribute("srcset");
         node.removeAttribute("sizes");
         if (node.tagName === "IMG" && first && !(node.getAttribute("src") ?? "").trim() && !node.hasAttribute("data-hl-src")) node.setAttribute("src", remoteUrl(first) || first);
-        else if (node.tagName === "SOURCE" && remoteUrl(first) && !allowRemote) blocked++;
+        else if (node.tagName === "SOURCE" && first && isSchemeSource(node)) {
+          // the <source> of a <picture> (a dark-mode logo: media="(prefers-color-scheme: dark)") keeps ONE address, no descriptors, no sizes: the reading pane replaces it by the data: URI
+          // of the fetched picture (pictureSrcset.ts `settleSources`), or drops the <source> when that is not there (the webview must not pick a picture that the CSP blocks)
+          if (remoteUrl(first) && !allowRemote) blocked++;
+          else node.setAttribute("srcset", remoteUrl(first) || first);
+        }
       }
       if (node.tagName === "IMG") node.removeAttribute("sizes");
     }

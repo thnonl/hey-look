@@ -41,4 +41,7 @@ assert.doesNotMatch(read("src/util.ts"), /\["src", "background", "srcset"\]/, "s
 assert.match(read("src/components/ReadingPane.tsx"), /dropSrcsets\(doc\)/, "inlineImages drops the srcset beside the data: URI");
 assert.match(read("src/components/ReadingPane.tsx"), /pictureAddress\(i\.getAttribute\("src"\), i\.getAttribute\("srcset"\)\)/, "remoteImageUrls takes the first candidate when src is missing");
 
+assert.ok(read("src/components/ReadingPane.tsx").includes("settleSources(doc, cachedImage)"), "inlineImages keeps a dark-mode <source> with the data: URI of its fetched picture");
+assert.ok(read("src/components/ReadingPane.tsx").includes("isSchemeSource(s)"), "the dark-mode <source> pictures are fetched too");
+
 console.log("test-picture-srcset: ok");

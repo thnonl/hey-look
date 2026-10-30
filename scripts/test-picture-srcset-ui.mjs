@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // 1.0.11: a mail whose <img> has BOTH src and srcset (an airline newsletter, scripts/fixtures/newsletter-srcset.html) showed broken pictures after "Show pictures" / "Always show" / "Show all":
-// the webview prefers srcset to src, so it fetched the remote candidates itself while the CSP (img-src data:) refused. Now no picture keeps a srcset (nor sizes), no <source> of a <picture> is left,
+// the webview prefers srcset to src, so it fetched the remote candidates itself while the CSP (img-src data:) refused. Now no picture keeps a srcset (nor sizes), no <source> of a <picture> is left (but a dark-mode one, media with prefers-color-scheme, keeps ONE data: address: S5),
 // and a picture with a srcset only is blocked and fetched through the backend by its first candidate. Checked in the dev preview (src/devMock.ts: fetches are `window.__remoteFetchCalls`).
 //   S1 sanitizeHtml blocked / allowed on the fixture      S2 the box and "Show this picture" for each picture     S3 "Show pictures" (link)     S4 "Show all pictures in this message"
 //   node scripts/test-picture-srcset-ui.mjs [--require-browser | --url=http://127.0.0.1:1420/]
@@ -93,6 +93,22 @@ try {
   ok(await until(`${FR}.contentDocument.querySelectorAll('img[src^="data:image"]').length === 4`, 6000), 'Show all: all four pictures show');
   f = await frame();
   eq([f.shown, f.boxes, f.srcsets, f.sizes, f.sources, f.remoteSrc], [4, 0, 0, 0, 0, 0], `Show all: data: sources only, no srcset (${JSON.stringify(f)})`);
+  // ======================================================================== S5: a dark-mode logo (<source media="(prefers-color-scheme: dark)">) keeps ONE data: address
+  tag = 'dark-source';
+  const DARK = '<p>logo</p><picture><source media="(prefers-color-scheme: dark)" srcset=" https://news.example.test/img/dark.png 1x, https://news.example.test/img/dark_2x.png 2x" sizes="100px"><source media="(min-width: 400px)" srcset="https://news.example.test/img/wide2.png"><img alt="Logo" width="120" height="40" src="https://news.example.test/img/light.png"></picture>';
+  await evaluate(`window.__mockAddThread('sr2', 'Newsletter dark logo', { fromName: 'Shop', fromEmail: 'news@shop.example', html: ${JSON.stringify(DARK)}, auth: 'pass' }); window.__store.getState().refresh().then(() => 1)`);
+  await sleep(300);
+  const sanD = await evaluate(`import('/src/util.ts').then((m) => { const f = (allow) => { const d = new DOMParser().parseFromString(m.sanitizeHtml(${JSON.stringify(DARK)}, allow).html, 'text/html'); return [...d.querySelectorAll('source')].map((e) => [e.getAttribute('media'), e.getAttribute('srcset'), e.hasAttribute('sizes')]); }; return JSON.stringify({ blocked: f(false), allowed: f(true) }); })`).then((x) => JSON.parse(x));
+  eq(sanD.blocked, [['(prefers-color-scheme: dark)', null, false], ['(min-width: 400px)', null, false]], 'sanitize blocked: no remote srcset on a source');
+  eq(sanD.allowed, [['(prefers-color-scheme: dark)', 'https://news.example.test/img/dark.png', false], ['(min-width: 400px)', null, false]], 'sanitize allowed: one address, no descriptor, no sizes on the dark source; no srcset on any other');
+  await open('sr2');
+  const srcState = () => evaluate(`JSON.stringify([...${FR}.contentDocument.querySelectorAll('source')].map((e) => [e.getAttribute('data-hm-orig-media') || e.getAttribute('media'), (e.getAttribute('srcset') || '').slice(0, 10)]))`).then((x) => JSON.parse(x));
+  eq((await srcState()).length, 0, 'blocked: no <source> in the frame (nothing the webview could pick and the CSP refuse)');
+  ok(await clickLink('button.link:not([data-trust])'), 'S5: the Show pictures link is there');
+  ok(await until(`${FR}.contentDocument.querySelectorAll('img[src^="data:image"]').length === 1`, 6000), 'S5: the picture shows');
+  ok(await until(`${FR}.contentDocument.querySelectorAll('source').length === 1`, 3000), 'S5: one <source> is left');
+  eq(await srcState(), [['(prefers-color-scheme: dark)', 'data:image']], 'shown: the dark source is kept with the data: address of the fetched picture, the width source is dropped');
+  ok((await calls()).includes('https://news.example.test/img/dark.png'), 'the dark logo was fetched through the backend');
 } catch (e) {
   failures.push(`[${tag}] ${e && e.stack ? e.stack : e}`);
   console.error(e);

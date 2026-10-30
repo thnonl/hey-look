@@ -1,6 +1,6 @@
 import { unsubscribeMailto } from "../unsubscribeMailto";
 import { hiddenPictureBox } from "../blockedPicture";
-import { dropSrcsets, pictureAddress } from "../pictureSrcset";
+import { dropSrcsets, firstSrcsetUrl, isSchemeSource, pictureAddress, remoteUrl, settleSources } from "../pictureSrcset";
 import { cachedImage, cachedImageCount, hasCachedImage, loadRemoteImages } from "../remoteImages";
 import { frameCsp, frameSandbox } from "../frameSandbox";
 import { openUpdateLink } from "../updates";
@@ -98,6 +98,12 @@ function remoteImageUrls(html: string): string[] {
     const u = pictureAddress(i.getAttribute("src"), i.getAttribute("srcset"));
     if (/^https?:\/\//i.test(u)) urls.add(u);
   });
+  // the picture of a dark-mode <source> (media with prefers-color-scheme) is fetched too, so the frame can show it when its media matches
+  doc.querySelectorAll("picture > source[srcset]").forEach((s) => {
+    if (!isSchemeSource(s)) return;
+    const u = remoteUrl(firstSrcsetUrl(s.getAttribute("srcset")));
+    if (u) urls.add(u);
+  });
   return Array.from(urls);
 }
 
@@ -132,7 +138,7 @@ function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string
   // nothing at all for a tracking pixel or a picture the mail hides itself. Enter / Space / a click show this one picture, the right-click menu has "Show all" (ReadingPane `hookDoc`).
   // A picture that was shown one by one earlier (`shown`) comes back as the picture when the frame is built again.
   const mac = osNow() === "macos";
-  doc.querySelectorAll("picture > source").forEach((s) => s.remove()); // a <source> picks a picture by its srcset; the one address of the <img> is what is fetched and shown
+  settleSources(doc, () => null); // a <source> that is not a data: URI (or a non-remote address) by now would be picked by its media and broken by the CSP: dropped
   doc.querySelectorAll("img[data-hl-blocked]").forEach((img) => {
     const url = img.getAttribute("data-hl-src") ?? "";
     if (url && shown[url]) {
@@ -224,6 +230,7 @@ function inlineImages(html: string): string {
     const data = cachedImage(i.getAttribute("src") ?? "");
     if (data) i.setAttribute("src", data);
   });
+  settleSources(doc, cachedImage);
   // the webview prefers srcset to src: a srcset left beside the data: URI would be fetched by the webview itself (CSP: broken picture)
   dropSrcsets(doc);
   return doc.body.innerHTML;
