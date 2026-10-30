@@ -24,7 +24,7 @@ export function pictureAddress(src: string | null | undefined, srcset: string | 
 }
 
 /** Takes the srcset away from a picture (and its sizes). */
-export function dropSrcset(img: Element): void {
+function dropSrcset(img: Element): void {
   img.removeAttribute("srcset");
   img.removeAttribute("sizes");
 }
