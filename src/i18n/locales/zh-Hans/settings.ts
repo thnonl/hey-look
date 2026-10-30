@@ -437,6 +437,7 @@ export default defineLocale<typeof ns.en>({
   "settings.tray.titleMenuBar": "通知与菜单栏",
   "settings.tray.macDenied": "macOS中已关闭Hey Look!的通知，因此不会显示横幅和程序坞角标。请在“系统设置 → 通知”中开启。",
   "settings.tray.macOpenSettings": "打开系统设置",
+  "settings.tray.macQuiet": "通知将静默送达。要显示横幅，请在“系统设置 → 通知 → Hey Look!”中选择“横幅”或“提醒”。",
   "settings.tray.introWindows": "哪些邮件会触发通知，以及通知的声音和按钮，均按邮箱设置（邮箱 → 通知）。",
   "settings.tray.intro": "哪些邮件会触发通知及其声音，均按邮箱设置（邮箱 → 通知）。",
   "settings.tray.test": "测试通知",

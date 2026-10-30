@@ -20,8 +20,11 @@ use std::sync::Mutex;
 pub enum State {
     /// authorized (also provisional or ephemeral) and banners or the badge allowed
     Granted,
-    /// refused, or allowed but with banners off and the badge off: nothing is shown
+    /// refused, or allowed but with banners, the notification centre and the badge all off: nothing is shown
     Denied,
+    /// allowed, but the alert style is "none": macOS puts the notifications in the Notification Centre without a banner (the app cannot change that; the person chooses Banners in System Settings)
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))] // (only `permission_state`, compiled for macOS and tests, builds it)
+    Quiet,
     /// macOS has never been asked
     Undetermined,
     /// not macOS, or the process does not run from an app bundle (the notification centre cannot be used)
@@ -33,6 +36,7 @@ impl State {
         match self {
             State::Granted => "granted",
             State::Denied => "denied",
+            State::Quiet => "quiet",
             State::Undetermined => "undetermined",
             State::Unsupported => "unsupported",
         }
@@ -55,15 +59,19 @@ const AUTH_EPHEMERAL: i64 = 4;
 const ALERT_STYLE_NONE: i64 = 0;
 
 /// The state for what `getNotificationSettings` reports: the authorization status, the alert style (0 none, 1 banner, 2 alert) and whether the badge
-/// is enabled. Authorized with no alerts AND no badge is as good as denied (the person turned both off in System Settings). A status this version
+/// is enabled. Authorized with alert style none: quiet delivery to the Notification Centre when that is on, else the badge alone still counts as granted, else denied (the person turned everything off in System Settings). A status this version
 /// does not know is `Unsupported` (nothing is asked, no note is shown). Pure.
 #[cfg(any(test, target_os = "macos"))]
-pub fn permission_state(auth: i64, alert_style: i64, badge_enabled: bool) -> State {
+pub fn permission_state(auth: i64, alert_style: i64, centre_enabled: bool, badge_enabled: bool) -> State {
     match auth {
         AUTH_NOT_DETERMINED => State::Undetermined,
         AUTH_DENIED => State::Denied,
         AUTH_AUTHORIZED | AUTH_PROVISIONAL | AUTH_EPHEMERAL => {
-            if alert_style != ALERT_STYLE_NONE || badge_enabled {
+            if alert_style != ALERT_STYLE_NONE {
+                State::Granted
+            } else if centre_enabled {
+                State::Quiet
+            } else if badge_enabled {
                 State::Granted
             } else {
                 State::Denied
@@ -71,6 +79,16 @@ pub fn permission_state(auth: i64, alert_style: i64, badge_enabled: bool) -> Sta
         }
         _ => State::Unsupported,
     }
+}
+
+/// One line for startup.log with what macOS reports: the raw `UNAuthorizationStatus`, `UNNotificationSetting` of alert / notification centre / lock screen / badge / sound
+/// (0 not supported, 1 disabled, 2 enabled) and `UNAlertStyle` (0 none, 1 banner, 2 alert). Pure.
+#[cfg(any(test, target_os = "macos"))]
+pub fn settings_line(auth: i64, alert: i64, style: i64, centre: i64, lock: i64, badge: i64, sound: i64) -> String {
+    let setting = |v: i64| match v { 0 => "notSupported", 1 => "disabled", 2 => "enabled", _ => "?" };
+    let auth_name = match auth { 0 => "notDetermined", 1 => "denied", 2 => "authorized", 3 => "provisional", 4 => "ephemeral", _ => "?" };
+    let style_name = match style { 0 => "none", 1 => "banner", 2 => "alert", _ => "?" };
+    format!("macos: settings: authorizationStatus {auth_name}, alertSetting {}, alertStyle {style_name}, notificationCenterSetting {}, lockScreenSetting {}, badgeSetting {}, soundSetting {}", setting(alert), setting(centre), setting(lock), setting(badge), setting(sound))
 }
 
 /// The moments at which the app may ask (REQ-5.10.2).
@@ -194,8 +212,14 @@ pub fn ensure_report(trigger: Trigger, accounts: usize, notify_any: bool, dock_b
         }
         *LAST_REQUEST.lock().unwrap_or_else(|p| p.into_inner()) = Some(asked);
     }
-    let error = LAST_REQUEST.lock().unwrap_or_else(|p| p.into_inner()).as_ref().and_then(|r| r.as_ref().err().cloned());
-    Outcome { state: read(), error }
+    let state = read();
+    // (an earlier refusal does not stand once macOS allows the app: macOS may settle the permission after the call came back)
+    let mut last = LAST_REQUEST.lock().unwrap_or_else(|p| p.into_inner());
+    if matches!(state, State::Granted | State::Quiet) {
+        *last = None;
+    }
+    let error = last.as_ref().and_then(|r| r.as_ref().err().cloned());
+    Outcome { state, error }
 }
 
 /// `ensure_report` for the callers that only want the state.
@@ -249,7 +273,7 @@ pub fn delivery_error(domain: &str, code: i64, text: &str) -> String {
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn gate(state: State, error: Option<&str>) -> Result<(), String> {
     match state {
-        State::Granted => Ok(()),
+        State::Granted | State::Quiet => Ok(()),
         State::Denied | State::Undetermined => Err(error.map(String::from).unwrap_or_else(not_allowed_error)),
         State::Unsupported => Err(error.map(String::from).unwrap_or_else(no_bundle_error)),
     }
@@ -372,7 +396,7 @@ mod native {
 
 #[cfg(target_os = "macos")]
 mod native {
-    use super::{Click, State, click_for, delivery_error, foreground_presentation, permission_state};
+    use super::{Click, State, click_for, delivery_error, foreground_presentation, permission_state, settings_line};
     use block2::{DynBlock, RcBlock};
     use objc2::rc::Retained;
     use objc2::runtime::{Bool, NSObject, NSObjectProtocol, ProtocolObject};
@@ -386,6 +410,9 @@ mod native {
     use std::sync::OnceLock;
     use std::sync::mpsc::channel;
     use std::time::Duration;
+
+    /// `UNNotificationSettingEnabled`
+    const ENABLED: i64 = 2;
 
     /// `UNUserNotificationCenter.currentNotificationCenter` raises an Objective-C exception (a crash) for a process that is not an app bundle, so the
     /// bundle is checked first: it has an identifier and its path ends in `.app`.
@@ -402,6 +429,11 @@ mod native {
     }
 
     pub fn read() -> State {
+        read_inner(false)
+    }
+
+    /// `read`, and the settings line is written whether or not it changed (every send logs what macOS thinks of the app at that moment).
+    fn read_inner(always_log: bool) -> State {
         if !bundled() {
             return State::Unsupported;
         }
@@ -410,11 +442,22 @@ mod native {
         let block = RcBlock::new(move |settings: NonNull<UNNotificationSettings>| {
             // SAFETY: the system passes a valid settings object that lives for the duration of the call; the values are copied out.
             let s = unsafe { settings.as_ref() };
-            let _ = tx.send((s.authorizationStatus().0 as i64, s.alertStyle().0 as i64, s.badgeSetting() == UNNotificationSetting::Enabled));
+            let v = |x: UNNotificationSetting| x.0 as i64;
+            let _ = tx.send([s.authorizationStatus().0 as i64, v(s.alertSetting()), s.alertStyle().0 as i64, v(s.notificationCenterSetting()), v(s.lockScreenSetting()), v(s.badgeSetting()), v(s.soundSetting())]);
         });
         center.getNotificationSettingsWithCompletionHandler(&block);
         match rx.recv_timeout(Duration::from_secs(5)) {
-            Ok((auth, style, badge)) => permission_state(auth, style, badge),
+            Ok(r) => {
+                let line = settings_line(r[0], r[1], r[2], r[3], r[4], r[5], r[6]);
+                // (written when it changes: the state is read at every focus)
+                static LAST: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+                let mut last = LAST.lock().unwrap_or_else(|p| p.into_inner());
+                if always_log || *last != line {
+                    crate::startup::line("notify", &line);
+                    *last = line;
+                }
+                permission_state(r[0], r[2], r[3] == ENABLED, r[5] == ENABLED)
+            }
             Err(_) => {
                 crate::startup::line("notify", "macos: the notification centre did not answer within 5 s");
                 State::Unsupported
@@ -453,9 +496,12 @@ mod native {
         if system_sound {
             content.setSound(Some(&UNNotificationSound::defaultSound()));
         }
+        // (causes of "handed over, no banner", in the order of the QA brief: 1 the delegate is gone, 4 alert style none or an off switch, 5 Focus is not visible to the app)
+        let center = UNUserNotificationCenter::currentNotificationCenter();
+        crate::startup::line("notify", &format!("macos: before {id}: delegate present: {}", center.delegate().is_some()));
+        read_inner(true);
         let request = UNNotificationRequest::requestWithIdentifier_content_trigger(&NSString::from_str(id), &content, None);
         let (tx, rx) = channel();
-        let center = UNUserNotificationCenter::currentNotificationCenter();
         let block = RcBlock::new(move |error: *mut NSError| {
             let _ = tx.send(error_parts(error));
         });
@@ -496,10 +542,12 @@ mod native {
             fn will_present(&self, _center: &UNUserNotificationCenter, notification: &UNNotification, completion: &DynBlock<dyn Fn(UNNotificationPresentationOptions)>) {
                 let id = notification.request().identifier().to_string();
                 let options = if foreground_presentation(&id) {
-                    UNNotificationPresentationOptions::Banner | UNNotificationPresentationOptions::List
+                    UNNotificationPresentationOptions::Banner | UNNotificationPresentationOptions::List | UNNotificationPresentationOptions::Sound
                 } else {
                     UNNotificationPresentationOptions::empty()
                 };
+                crate::startup::line("notify", &format!("macos: willPresent {id}: {}", if options.is_empty() { "not drawn in front" } else { "banner, list" }));
+                // (always answered: a delegate that does not call the handler makes macOS drop the notification)
                 completion.call((options,));
             }
 
@@ -507,6 +555,7 @@ mod native {
             fn did_receive(&self, _center: &UNUserNotificationCenter, response: &UNNotificationResponse, completion: &DynBlock<dyn Fn()>) {
                 let action = response.actionIdentifier().to_string();
                 let id = response.notification().request().identifier().to_string();
+                crate::startup::line("notify", &format!("macos: response {id}: {action}"));
                 if let (Some(click), Some(handler)) = (click_for(&action, &id), ON_CLICK.get()) {
                     handler(click);
                 }
@@ -536,7 +585,9 @@ mod native {
         }
         let _ = ON_CLICK.set(on_click);
         let held = DELEGATE.get_or_init(|| Held(Delegate::new()));
-        UNUserNotificationCenter::currentNotificationCenter().setDelegate(Some(ProtocolObject::from_ref(&*held.0)));
+        let center = UNUserNotificationCenter::currentNotificationCenter();
+        center.setDelegate(Some(ProtocolObject::from_ref(&*held.0)));
+        crate::startup::line("notify", &format!("macos: delegate set: {}", center.delegate().is_some()));
         Ok(())
     }
 }
@@ -548,17 +599,25 @@ mod tests {
     #[test]
     fn the_permission_state_follows_the_authorization_and_the_alert_and_badge_settings() {
         // (auth, alert style, badge) -> state; UNAuthorizationStatus 0 notDetermined, 1 denied, 2 authorized, 3 provisional, 4 ephemeral
-        assert_eq!(permission_state(0, 0, false), State::Undetermined);
-        assert_eq!(permission_state(0, 2, true), State::Undetermined, "not asked yet: the other values mean nothing");
-        assert_eq!(permission_state(1, 1, true), State::Denied);
+        assert_eq!(permission_state(0, 0, false, false), State::Undetermined);
+        assert_eq!(permission_state(0, 2, false, true), State::Undetermined, "not asked yet: the other values mean nothing");
+        assert_eq!(permission_state(1, 1, false, true), State::Denied);
         for auth in [2, 3, 4] {
-            assert_eq!(permission_state(auth, 1, false), State::Granted, "banners only");
-            assert_eq!(permission_state(auth, 2, false), State::Granted, "alerts only");
-            assert_eq!(permission_state(auth, 0, true), State::Granted, "badge only");
-            assert_eq!(permission_state(auth, 1, true), State::Granted);
-            assert_eq!(permission_state(auth, 0, false), State::Denied, "allowed, but banners and badge both off");
+            assert_eq!(permission_state(auth, 1, false, false), State::Granted, "banners only");
+            assert_eq!(permission_state(auth, 2, false, false), State::Granted, "alerts only");
+            assert_eq!(permission_state(auth, 0, false, true), State::Granted, "badge only");
+            assert_eq!(permission_state(auth, 1, false, true), State::Granted);
+            assert_eq!(permission_state(auth, 0, false, false), State::Denied, "allowed, but banners and badge both off");
         }
-        assert_eq!(permission_state(9, 1, true), State::Unsupported, "a status this version does not know");
+        // alert style none with the Notification Centre on: delivered quietly, and the badge does not matter
+        for auth in [2, 3, 4] {
+            assert_eq!(permission_state(auth, 0, true, false), State::Quiet);
+            assert_eq!(permission_state(auth, 0, true, true), State::Quiet);
+            assert_eq!(permission_state(auth, 1, true, false), State::Granted, "a banner style wins");
+        }
+        assert_eq!(State::Quiet.as_str(), "quiet");
+        assert_eq!(gate(State::Quiet, None), Ok(()), "quiet delivery is still delivery");
+        assert_eq!(permission_state(9, 1, false, true), State::Unsupported, "a status this version does not know");
     }
 
     #[test]
@@ -645,6 +704,16 @@ mod tests {
         assert!(nb.starts_with("NOTIFY_MAC_NO_BUNDLE: "), "{nb}");
         let na = not_allowed_error();
         assert_eq!(na, "NOTIFY_MAC_NOT_ALLOWED: Notifications are not allowed for this application. Turn them on in System Settings > Notifications.");
+    }
+
+    #[test]
+    fn the_settings_macos_reports_are_written_in_words() {
+        assert_eq!(
+            settings_line(2, 2, 0, 2, 2, 1, 2),
+            "macos: settings: authorizationStatus authorized, alertSetting enabled, alertStyle none, notificationCenterSetting enabled, lockScreenSetting enabled, badgeSetting disabled, soundSetting enabled"
+        );
+        assert!(settings_line(0, 0, 1, 0, 0, 0, 0).contains("notDetermined") && settings_line(0, 0, 1, 0, 0, 0, 0).contains("alertStyle banner"));
+        assert!(settings_line(9, 9, 9, 9, 9, 9, 9).contains("authorizationStatus ?"));
     }
 
     #[test]

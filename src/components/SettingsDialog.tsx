@@ -2125,6 +2125,12 @@ function TrayTab() {
           <button className="btn" onClick={() => void api.openNotificationSettings().catch((e) => showToast(() => friendlyError(e), undefined, "error"))}>{t("settings.tray.macOpenSettings")}</button>
         </div>
       )}
+      {os === "macos" && perm === "quiet" && (
+        <div className="mac-notify-quiet">
+          <div className="muted small">{t("settings.tray.macQuiet")}</div>
+          <button className="btn" onClick={() => void api.openNotificationSettings().catch((e) => showToast(() => friendlyError(e), undefined, "error"))}>{t("settings.tray.macOpenSettings")}</button>
+        </div>
+      )}
       <Row id="sentSound" label={t("settings.tray.sentSound")}><Switch checked={prefs.sentSound} onChange={(v) => setPrefs({ sentSound: v })} /></Row>
       <Row
         id="keepRunning"

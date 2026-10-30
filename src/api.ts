@@ -31,7 +31,7 @@ export interface Account {
   replyTo?: string;
 }
 /** What macOS lets the app do with notifications (W5.10); `unsupported` on every other system and for a process that is not an app bundle. */
-export type NotifyPermission = "granted" | "denied" | "undetermined" | "unsupported";
+export type NotifyPermission = "granted" | "quiet" | "denied" | "undetermined" | "unsupported";
 
 export type AccountInput = Omit<Account, "id" | "auth" | "color" | "replyTo">;
 

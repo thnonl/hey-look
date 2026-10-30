@@ -14,6 +14,7 @@ assert.equal((wf.match(/RUSTFLAGS:\s*"-D warnings"/g) || []).length, 2, 'both Ru
 const sc = read('scripts/check-rust-warnings.mjs');
 assert.ok(/RUSTFLAGS: '-D warnings'/.test(sc), 'the local script uses the same flag');
 for (const f of ["'--features', 'gui-subsystem,qa-secrets'", "'--features', 'qa-secrets'"]) assert.ok(sc.includes(f), `the local script also checks ${f}`);
+assert.ok(/'check', '--locked', '--lib'\]/.test(sc), 'the library is also compiled without the tests (what only the tests or one OS use is dead there)');
 assert.ok(/'test', '--locked'/.test(sc), 'and can run the tests the way CI does');
 assert.ok(/check-rust-warnings\.mjs/.test(read('CONTRIBUTING.md')), 'CONTRIBUTING names the script in the release steps');
 console.log('test-rust-warnings-gate: ok');
