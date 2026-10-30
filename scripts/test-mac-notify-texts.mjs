@@ -20,7 +20,7 @@ const T = {
     en: "Notifications for Hey Look! are turned off in macOS, so banners and the Dock badge don’t appear. Turn them on in System Settings > Notifications.",
     vi: "Thông báo của Hey Look! đang bị tắt trong macOS, nên biểu ngữ và huy hiệu Dock không xuất hiện. Hãy bật chúng trong Cài đặt hệ thống > Thông báo.",
     fr: `Les notifications de Hey Look! sont désactivées dans macOS${NB}: les bannières et la pastille du Dock n’apparaissent donc pas. Activez-les dans Réglages Système > Notifications.`,
-    "zh-Hans": "macOS中已关闭Hey Look!的通知，因此不会显示横幅和程序坞角标。请在“系统设置 → 通知”中开启。",
+    "zh-Hans": "macOS 中已关闭 Hey Look! 的通知，因此不会显示横幅和程序坞角标。请在“系统设置 → 通知”中开启。",
     es: "Las notificaciones de Hey Look! están desactivadas en macOS, por lo que no aparecen las tiras ni el globo del Dock. Actívalas en Ajustes del Sistema > Notificaciones.",
     ja: "macOSでHey Look!の通知がオフになっているため、バナーとDockのバッジは表示されません。システム設定の「通知」でオンにしてください。",
     de: "Mitteilungen für Hey Look! sind in macOS deaktiviert, daher werden weder Banner noch das Badge am Dock-Symbol angezeigt. Aktivieren Sie sie in den Systemeinstellungen unter „Mitteilungen“.",
