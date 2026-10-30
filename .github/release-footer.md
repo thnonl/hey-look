@@ -11,7 +11,7 @@
 
 The `.sig` files, `latest.json` and the `.app.tar.gz` are used by the app’s updater; you don’t need them.
 
-Already using Hey Look!? It updates itself (Settings > About).
+Already using Hey Look!? A copy from this page or the website updates itself (Settings > About); a copy from the Microsoft Store is updated by the Store.
 
 The installers are not code-signed with a publisher certificate yet (the macOS app is signed with the project’s own self-signed certificate and is not notarized).
 - Windows: if SmartScreen appears, choose "More info" > "Run anyway".
