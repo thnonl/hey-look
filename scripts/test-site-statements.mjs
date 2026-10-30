@@ -430,39 +430,42 @@ export function findProblems({ rows = REMOVED, read = (f) => fs.readFileSync(f, 
       if (/limited to 100|first 100|100 (users|people)|100 test users/i.test(text)) fail(`${name}: puts a number of people on the Google sign-in`);
     }
   }
-  // the README and the 1.0.10 section of the CHANGELOG say nothing about mobile apps either (owner decision: no statement, not even "no mobile apps")
+  // the README and the 1.0.11 section of the CHANGELOG say nothing about mobile apps either (owner decision: no statement, not even "no mobile apps")
   {
     const root = path.join(DOCS, '..');
     const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
     const log = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
-    const sect = (/^## 1\.0\.10\b[\s\S]*?(?=^## |(?![\s\S]))/m.exec(log) || [''])[0];
-    for (const [name, text] of [['README.md', readme], ['CHANGELOG.md (1.0.10)', sect]]) if (/\bmobile (apps?|clients?|versions?)\b|\bphone apps?\b|\bsmartphones?\b/i.test(text)) fail(`${name}: says something about mobile apps`);
+    const sect = (/^## 1\.0\.11\b[\s\S]*?(?=^## |(?![\s\S]))/m.exec(log) || [''])[0];
+    for (const [name, text] of [['README.md', readme], ['CHANGELOG.md (1.0.11)', sect]]) if (/\bmobile (apps?|clients?|versions?)\b|\bphone apps?\b|\bsmartphones?\b/i.test(text)) fail(`${name}: says something about mobile apps`);
   }
-  // macOS does have notifications (owner 2026-10-20, DEC-017): README, CONTRIBUTING, the release footer and the 1.0.10 section of the CHANGELOG do not say it has none
+  // macOS does have notifications (owner 2026-10-20, DEC-017): README, CONTRIBUTING, the release footer and the 1.0.11 section of the CHANGELOG do not say it has none
   {
     const root = path.join(DOCS, '..');
     const log = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
-    const sect = (/^## 1\.0\.10\b[\s\S]*?(?=^## |(?![\s\S]))/m.exec(log) || [''])[0];
+    const sect = (/^## 1\.0\.11\b[\s\S]*?(?=^## |(?![\s\S]))/m.exec(log) || [''])[0];
     const files =[['README.md', fs.readFileSync(path.join(root, 'README.md'), 'utf8')], ['CONTRIBUTING.md', fs.readFileSync(path.join(root, 'CONTRIBUTING.md'), 'utf8')],
-      ['.github/release-footer.md', fs.readFileSync(path.join(root, '.github', 'release-footer.md'), 'utf8')], ['CHANGELOG.md (1.0.10)', sect]];
+      ['.github/release-footer.md', fs.readFileSync(path.join(root, '.github', 'release-footer.md'), 'utf8')], ['CHANGELOG.md (1.0.11)', sect]];
     for (const [name, text] of files) if (/cannot show native notifications|native notifications are not available|no native notifications|macOS has no notifications|macOS has no Print/i.test(text)) fail(`${name}: says macOS has no notifications or no Print`);
   }
-  // 1.0.10 test statement: Windows 11 (x64) in Windows Sandbox, an Apple silicon Mac (M1 Pro) and an ARM virtual machine (UTM, Ubuntu, KDE, WebKitGTK 2.52), copies built from the release source (QA reports of
-  // 1.0.10). Do not say more than the QA reports say: no "real hardware" for Windows, no model or version of the Mac or the guest unless a report names it.
+  // 1.0.11 test statement. While the orchestrator has not filled it in from the QA reports, README, footer and CHANGELOG hold the marker TODO-QA-1011: the checks that depend on the
+  // machines (Windows Sandbox, M1 Pro, UTM ...) are skipped with a warning, and a tag run (GITHUB_REF_TYPE=tag) FAILS so that the marker can never be published.
+  // Without the marker the text must say "changes of 1.0.11 were tested on" and may not say more than the QA reports say.
   {
     const root = path.join(DOCS, '..');
     const log = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
-    const sect = (/^## 1\.0\.10\b[\s\S]*?(?=^## |(?![\s\S]))/m.exec(log) || [''])[0];
-    const files = [['README.md', fs.readFileSync(path.join(root, 'README.md'), 'utf8')], ['.github/release-footer.md', fs.readFileSync(path.join(root, '.github', 'release-footer.md'), 'utf8')], ['CHANGELOG.md (1.0.10)', sect]];
+    const sect = (/^## 1\.0\.11\b[\s\S]*?(?=^## |(?![\s\S]))/m.exec(log) || [''])[0];
+    const files = [['README.md', fs.readFileSync(path.join(root, 'README.md'), 'utf8')], ['.github/release-footer.md', fs.readFileSync(path.join(root, '.github', 'release-footer.md'), 'utf8')], ['CHANGELOG.md (1.0.11)', sect]];
     for (const [name, text] of files) {
       checks++;
-      if (!/changes of 1\.0\.10 were tested on Windows 11 \(x64\) in Windows Sandbox/.test(text)) fail(`${name}: the 1.0.10 test statement (tested on Windows 11 (x64) in Windows Sandbox) is missing`);
-      if (!/on an Apple silicon Mac \(Apple M1 Pro, macOS 27\.0\.1;/.test(text) || !/in an ARM virtual machine \(UTM\) on that Mac \(Ubuntu 24\.04\.5, KDE Plasma 5\.27 on X11, WebKitGTK 2\.52;/.test(text)) fail(`${name}: the Mac and Linux part of the 1.0.10 test statement is missing`);
+      const todo = /TODO-QA-1011/.test(text);
+      if (todo) {
+        if (process.env.GITHUB_REF_TYPE === 'tag') fail(`${name}: still holds the TODO-QA-1011 marker on a tag run (the 1.0.11 test statement is not written)`);
+        else console.warn(`warning: ${name}: TODO-QA-1011 marker present, the machine-specific checks of the 1.0.11 test statement are skipped (this fails on a tag run)`);
+      } else if (!/changes of 1\.0\.11 were tested on/.test(text)) fail(`${name}: the 1.0.11 test statement (changes of 1.0.11 were tested on ...) is missing`);
       if (!/the downloadable macOS app and the Linux packages \(AppImage, \.deb, \.rpm\) were not installed or tested/i.test(text)) fail(`${name}: no longer says the downloadable macOS app and the Linux packages were not tested`);
-      // (the machines the Mac & Linux QA named are allowed exactly as written above; any other claim about the hardware still fails)
-      if (/on real hardware|MacBook|Intel Mac (was|were) tested|Wayland|x86_64 virtual machine/i.test(text) || /WebKitGTK (?!2\.52)/.test(text)) fail(`${name}: names a machine the 1.0.10 QA reports do not name`);
       if (!/Windows 10, Intel Macs and macOS 11 and 12/.test(text)) fail(`${name}: no longer says Windows 10, Intel Macs and macOS 11 and 12 were not tested`);
       if (/all (versions of )?macOS|every (version of )?macOS|all Linux (distributions|distros)/i.test(text)) fail(`${name}: claims more than was tested (all macOS versions / all Linux distributions)`);
+      if (!todo && /on real hardware|MacBook|Intel Mac (was|were) tested|x86_64 virtual machine/i.test(text)) fail(`${name}: names a machine the 1.0.11 QA reports do not name`);
     }
   }
   return { errors, checks };

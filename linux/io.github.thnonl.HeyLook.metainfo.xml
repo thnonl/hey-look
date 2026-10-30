@@ -240,6 +240,12 @@
   <releases>
     <!-- The version-bump commit of a release adds its entry FIRST (the newest release is the snap's version and the one the release
          workflow checks against the tag). -->
+    <release version="1.0.11" date="2026-10-30">
+      <description>
+        <p>Settings to turn off the automatic picture rule and to see the senders turned off and the built-in services, a compose that stays on screen until the message is sent, notifications that work on macOS, and fixes for broken pictures, moved mail and calendar names.</p>
+      </description>
+      <url>https://github.com/thnonl/hey-look/releases/tag/v1.0.11</url>
+    </release>
     <release version="1.0.10" date="2026-10-28">
       <description>
         <p>The start-with-Windows entry shows the window by default, with a new switch to start in the tray; One Inbox stays in Favorites, accounts can be dragged by their whole header, and the new-mail sound is quieter.</p>
