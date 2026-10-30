@@ -350,7 +350,7 @@ export default defineLocale<typeof ns.en>({
   "settings.reading.autoPicsHint": "Para todos los buzones. Solo si el mensaje supera la comprobación del remitente; no se usa en Correo no deseado ni en mensajes cifrados. Desactivado = las imágenes se muestran sin hacer clic solo para los remitentes que elegiste mostrar siempre.",
   "settings.reading.autoPicsGlobalOn": "No hace falta mientras “Mostrar siempre las imágenes” esté activado: se muestran las imágenes de todos los remitentes.",
   "settings.reading.noauto": "Remitentes cuyas imágenes no se muestran automáticamente",
-  "settings.reading.noautoHint": "Remitentes para los que elegiste “Dejar de mostrar imágenes de este remitente”. Quita uno para que la regla automática vuelva a mostrar sus imágenes.",
+  "settings.reading.noautoHint": "Remitentes para los que elegiste “Dejar de mostrar sus imágenes”. Quita uno para que la regla automática vuelva a mostrar sus imágenes.",
   "settings.reading.noautoNone": "Aún no hay remitentes.",
   "settings.reading.domainsShow": "Mostrar la lista de servicios muy conocidos",
   "settings.reading.domainsHide": "Ocultar la lista de servicios muy conocidos",

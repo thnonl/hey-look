@@ -21,7 +21,7 @@
 - Russian: the name of a rule made for a sender no longer puts a case ending on the sender's name
 - Vietnamese: Confidential mail is labelled "Bảo mật" instead of "Thư mật"
 - Chinese: a space now separates Latin words (such as Hey Look!, Google or a domain) from the Chinese text around them
-- Spanish: "Stop showing pictures from this sender" reads "Dejar de mostrar imágenes de este remitente", and the hints of the rule values read "basta con una"
+- Spanish: "Stop showing pictures from this sender" reads "Dejar de mostrar sus imágenes", and the hints of the rule values read "basta con que coincida una"
 
 ### Known limitations
 
