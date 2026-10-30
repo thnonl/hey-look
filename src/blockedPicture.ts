@@ -9,9 +9,12 @@ export const TRACKING_PIXEL_MAX = 2;
 
 export type BlockedBox = { hidden: true } | { hidden: false; width: string; height: string };
 
-/** How much the box of the reading pane says (1.0.10): the whole text (width 140 px or more and height 64 px or more), the main line only (96 / 40), or just the icon. */
+/** How much the box of the reading pane says (1.0.10): the whole text (width 140 px or more and height 84 px or more: icon 32 + two lines 33 + gaps and padding 16; the alt text also needs 100 px, ALT_MIN_HEIGHT), the main line only (96 wide and 56 high: icon 24 + line 17 + gaps and padding 14), or just the icon (BUG-1 of the 1.0.11 RC1 QA: a 120 x 40 box cut the line off). */
 export type PictureTier = "full" | "mid" | "small";
 export type HiddenPictureBox = { hidden: true } | { hidden: false; width: string; height: string; minHeight: string; tier: PictureTier; maxHeight: string };
+
+/** The alt text is the third line of a full box: it needs this height (px) on top of the others, else it is left out (the name is in the box's label). */
+export const ALT_MIN_HEIGHT = 100;
 
 /** The side of the box when the mail gives no width / no height (px), and its smallest height. */
 const HIDDEN_PICTURE_WIDTH = 240;
@@ -33,7 +36,7 @@ export function hiddenPictureBox(a: { width?: string | null; height?: string | n
   const height = hPx !== null ? `${Math.min(hPx, HIDDEN_PICTURE_MAX_HEIGHT)}px` : "auto";
   const effW = wPx ?? 600;
   const effH = hPx ?? HIDDEN_PICTURE_MIN_HEIGHT;
-  const tier: PictureTier = effW >= 140 && effH >= 64 ? "full" : effW >= 96 && effH >= 40 ? "mid" : "small";
+  const tier: PictureTier = effW >= 140 && effH >= 84 ? "full" : effW >= 96 && effH >= 56 ? "mid" : "small";
   return { hidden: false, width, height, minHeight: hPx !== null ? "0" : `${HIDDEN_PICTURE_MIN_HEIGHT}px`, maxHeight: `${HIDDEN_PICTURE_MAX_HEIGHT}px`, tier };
 }
 

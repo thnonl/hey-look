@@ -13,7 +13,7 @@ export const HIDDEN_PICTURE_CSS = `.hl-bpx{cursor:pointer;gap:2px;padding:6px;te
 .hl-bpx:hover{background:#eceef2}.hl-bpx:focus-visible{outline:2px solid #3b6ea5;outline-offset:2px}
 .hl-bpx .hl-bp-ico{width:32px;height:32px;background:none;color:#1f4f86}.hl-bpx .hl-bp-ico svg{display:block;width:100%;height:100%}.hl-bpx .hl-bp-ico svg path:first-child{fill:#dce8f6}
 .hl-bpx[data-tier=mid] .hl-bp-ico{width:24px;height:24px}.hl-bpx[data-tier=small] .hl-bp-ico{width:20px;height:20px}
-.hl-bp-main{display:block;max-width:100%;padding:0 6px;box-sizing:border-box;font-weight:600;font-size:13px}.hl-bp-hint{display:block;max-width:100%;padding:0 6px;box-sizing:border-box;font-size:12px;color:#5b6470}
+.hl-bpx[data-tier=mid] .hl-bp-main{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.hl-bp-main{display:block;max-width:100%;padding:0 6px;box-sizing:border-box;font-weight:600;font-size:13px}.hl-bp-hint{display:block;max-width:100%;padding:0 6px;box-sizing:border-box;font-size:12px;color:#5b6470}
 .hl-bpx .hl-bp-alt{font-size:11px;color:#5b6470}
 .hl-bpx[data-tier=mid] .hl-bp-hint,.hl-bpx[data-tier=mid] .hl-bp-alt,.hl-bpx[data-tier=small] .hl-bp-main,.hl-bpx[data-tier=small] .hl-bp-hint,.hl-bpx[data-tier=small] .hl-bp-alt{display:none}
 .hl-bpx[data-tall=no] .hl-bp-alt{display:none}

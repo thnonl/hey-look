@@ -156,6 +156,24 @@ fn qa_store() -> keyring::Result<&'static crate::qasecrets::FileStore> {
     QA_STORE.get().ok_or_else(|| keyring::Error::Invalid("store".into(), "the QA file store is not initialised yet".into()))
 }
 
+/// QA kits only (cargo feature `qa-secrets`; always None in any other build): `HEYLOOK_QA_SMTP_FAIL` makes every send fail the way a server's answer does, so the send-failure path (the editor unlocks in
+/// place, the error toast) can be tried without a broken server: `refuse` (550, any other non-empty value), `auth` (535), `temp` (451). Unset or empty: nothing changes. Lives here because this file is the
+/// one place that knows about the QA feature (scripts/test-qa-secrets-off.mjs).
+pub fn qa_forced_smtp_failure() -> Option<(&'static str, &'static str)> {
+    #[cfg(feature = "qa-secrets")]
+    {
+        let mode = std::env::var("HEYLOOK_QA_SMTP_FAIL").ok()?.trim().to_lowercase();
+        return match mode.as_str() {
+            "" => None,
+            "auth" => Some(("535", "535 5.7.8 Authentication credentials invalid (forced by HEYLOOK_QA_SMTP_FAIL)")),
+            "temp" => Some(("451", "451 4.3.0 Temporary failure, try again later (forced by HEYLOOK_QA_SMTP_FAIL)")),
+            _ => Some(("550", "550 5.7.1 Message refused (forced by HEYLOOK_QA_SMTP_FAIL)")),
+        };
+    }
+    #[cfg(not(feature = "qa-secrets"))]
+    None
+}
+
 /// The credential store entry `user` of this process. The one function in the app that builds a credential.
 pub fn entry(user: &str) -> keyring::Result<Cred> {
     entry_in(keyring_service(), user)

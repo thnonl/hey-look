@@ -310,6 +310,17 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   // The send went through (1.0.11): a short "sent" mark takes the place of the locked editor, then the pane / window ends. `aliveRef`: this editor is still on screen (Send keeps
   // the inline pane too since 1.0.11, so a click on another mail or a New mail may have closed it during the Undo time: Undo then makes a new Compose, see `reopen`).
   const [sentMark, setSentMark] = useState(false);
+  // QA can see the mark: the pane has the class `sent-mark` and data-sent-mark="1" while it shows (the element is `.cp-sent`), and the performance entry `hl:sent-mark` has its length (start = the mark was drawn, end = the pane ended)
+  useEffect(() => {
+    if (!sentMark) return;
+    try { performance.mark("hl:sent-mark-start"); } catch { /* no performance API */ }
+    return () => {
+      try {
+        performance.mark("hl:sent-mark-end");
+        performance.measure("hl:sent-mark", "hl:sent-mark-start", "hl:sent-mark-end");
+      } catch { /* no performance API */ }
+    };
+  }, [sentMark]);
   const aliveRef = useRef(true);
   useEffect(() => {
     aliveRef.current = true;
@@ -2131,7 +2142,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       aria-busy={locked || movingIn || !!preparing || undefined}
       onFocusCapture={preparing ? (e) => { if (!(e.target as HTMLElement).closest(".cp-keep, .cp-prep")) prepRef.current?.focus({ preventScroll: true }); } : undefined} // (an engine without `inert`: a field that took the focus gives it back)
       data-compose-instance={recoveryId}
-      className={`compose-pane ${preparing ? "preparing" : init.afterShell ? "after-shell" : ""} ${dragging ? "dragging" : ""} ${chipOver ? "chip-over" : ""} ${compact ? "compact" : ""} ${compact && barWraps ? "bar-wraps" : ""} ${meeting ? "has-meeting" : ""}`}
+      data-sent-mark={sentMark ? "1" : undefined}
+      className={`compose-pane ${sentMark ? "sent-mark" : ""} ${preparing ? "preparing" : init.afterShell ? "after-shell" : ""} ${dragging ? "dragging" : ""} ${chipOver ? "chip-over" : ""} ${compact ? "compact" : ""} ${compact && barWraps ? "bar-wraps" : ""} ${meeting ? "has-meeting" : ""}`}
       onKeyDown={(e) => {
         if (isImeEvent(e)) return; // a key that belongs to an input method (Subject, To, Cc, Bcc): no app shortcut
         if (isAltGraph(e)) return; // AltGr (Ctrl+Alt) types a character: no app shortcut

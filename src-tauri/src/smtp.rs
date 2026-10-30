@@ -823,6 +823,10 @@ pub fn send_raw(acc: &Account, secret: &str, env: &lettre::address::Envelope, ra
 }
 
 fn send_raw_with(acc: &Account, secret: &str, env: &lettre::address::Envelope, raw: &[u8], timeout: std::time::Duration) -> R<()> {
+    // (QA kits only: HEYLOOK_QA_SMTP_FAIL, see identity::qa_forced_smtp_failure; always None otherwise)
+    if let Some((code, text)) = crate::identity::qa_forced_smtp_failure() {
+        return Err(explain_send_error(Some(code), text));
+    }
     if let Err(p) = probe_ssl_handshake(acc, timeout) {
         return Err(p.explain(&acc.smtp_host, acc.smtp_port, |detail| explain_send_error(None, detail)));
     }

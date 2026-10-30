@@ -46,6 +46,7 @@ const THREADS = [
   ['pF', 'Failed check', { fromName: 'Friend', fromEmail: 'fail@example.org', html: MAIL, auth: 'fail', autoReason: 'wrote' }],
   ['pT', 'Listed and the rule', { fromName: 'Google', fromEmail: 'alerts@accounts.google.com', html: MAIL, auth: 'pass', autoReason: 'service' }],
   ['pB', 'Boxes', { fromName: 'Shop', fromEmail: 'boxes@shop.example', html: `<p>Hi</p><img src="${u('b1')}" width="600" height="200" alt="Summer sale"><img src="${u('b2')}"><img src="${u('b3')}" width="1" height="1"><img src="${u('b4')}" hidden><img src="${u('b5')}" style="display:none"><img src="${u('b6')}" width="80" height="30" alt="Tiny"><img src="${u('b7')}" width="300" height="2">` }],
+  ['pZ', 'Small boxes', { fromName: 'Shop', fromEmail: 'small@shop.example', html: `<p>Hi</p><img src="${u('z1')}" width="120" height="40" alt="Logo"><img src="${u('z2')}" width="120" height="56" alt="Logo"><img src="${u('z3')}" width="96" height="56"><img src="${u('z4')}" width="140" height="64" alt="Logo"><img src="${u('z5')}" width="100" height="45"><img src="${u('z6')}" width="300" height="120" alt="Banner"><img src="${u('z7')}" width="200" height="84" alt="Banner"><img src="${u('z8')}" width="200" height="100" alt="Banner">` }],
   ['pM', 'Three pictures', { fromName: 'Shop', fromEmail: 'three@shop.example', html: `<p>Look</p><img src="${u('m1')}" width="200" height="80" alt="one"><img src="${u('m2')}" width="200" height="80" alt="two"><img src="${u('m3')}" width="200" height="80" alt="three">` }],
   ['pL', 'In a link', { fromName: 'Shop', fromEmail: 'link@shop.example', html: `<p>Hi</p><a id="lnk" href="https://shop.example/sale"><img src="${u('l1')}" width="200" height="80" alt="linked"></a>` }],
   ['pC', 'Confidential', { fromName: 'Shop', fromEmail: 'conf@shop.example', html: `<p>Secret</p><img src="${u('c1')}" width="200" height="80" alt="secret">`, confidential: true }],
@@ -270,6 +271,19 @@ try {
   const csp = await evaluate(`${FR}.contentDocument.querySelector('meta[http-equiv=Content-Security-Policy]').content`);
   ok(/img-src data:(;|$)/.test(csp), `the frame's CSP does not allow a remote picture: ${csp}`);
   ok((await calls()).length === 0, 'nothing was fetched');
+  // 1.0.11 RC1 BUG-1: no line of text is cut off by the edge of a small box (120 x 40 showed "Picture hidden" and clipped "for privacy"): everything that shows lies inside the box and a line is one line
+  tag = 'box-fit';
+  await open('pZ');
+  const fit = await evaluate(`(() => { const d = ${FR}.contentDocument; return [...d.querySelectorAll('.hl-bp[data-hl-pic]')].map((b) => { const r = b.getBoundingClientRect(); const shown = [...b.querySelectorAll('.hl-bp-ico, .hl-bp-main, .hl-bp-hint, .hl-bp-alt')].filter((e) => getComputedStyle(e).display !== 'none'); const out = shown.filter((e) => { const q = e.getBoundingClientRect(); return q.bottom > r.bottom + 0.5 || q.top < r.top - 0.5 || q.right > r.right + 0.5 || q.left < r.left - 0.5; }).map((e) => e.className); const main = b.querySelector('.hl-bp-main'); const mainShown = getComputedStyle(main).display !== 'none'; const cut = shown.filter((e) => e.scrollHeight > e.clientHeight + 1 && e.className !== 'hl-bp-ico').map((e) => e.className); return { w: Math.round(r.width), h: Math.round(r.height), tier: b.dataset.tier, alt: !!b.querySelector('.hl-bp-alt'), out, cut, mainShown, mainLines: mainShown ? Math.round(main.getBoundingClientRect().height / parseFloat(getComputedStyle(main).lineHeight)) : 0, title: b.getAttribute('title') }; }); })()`);
+  eq(fit.length, 8, 'eight small boxes');
+  eq(fit.map((x) => x.tier), ['small', 'mid', 'mid', 'mid', 'small', 'full', 'full', 'full'], 'tiers: 120x40 and 100x45 icon only (the line does not fit), 120x56, 96x56 and 140x64 one line, 300x120, 200x84 and 200x100 whole');
+  eq(fit.map((x) => x.alt), [false, false, false, false, false, true, false, true], 'the alt text shows from 100 px high only');
+  for (const f of fit) {
+    eq([f.out, f.cut], [[], []], `${f.w} x ${f.h} (${f.tier}): nothing outside the box, nothing cut off`);
+    if (f.tier === 'mid') ok(f.mainLines === 1, `${f.w} x ${f.h}: the line is one line (${f.mainLines})`);
+    ok(f.title === 'Picture hidden for privacy', `${f.w} x ${f.h}: the tooltip has the whole line`);
+  }
+  tag = 'box';
   // colours: light and dark (the contrast of the text >= 4.5)
   const contrast = () => evaluate(`(() => { const d = ${FR}.contentDocument, b = d.querySelector('.hl-bp[data-hl-pic]'); const lum = (c) => { const v = c.match(/\\d+(\\.\\d+)?/g).slice(0, 3).map((x) => { const s = Number(x) / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; }); return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]; }; const bg = getComputedStyle(b).backgroundColor; const fg = getComputedStyle(b.querySelector('.hl-bp-main')).color; const hint = getComputedStyle(b.querySelector('.hl-bp-hint')).color; const r = (a, c) => { const x = lum(a), y = lum(c); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); }; return { bg, fg, main: r(bg, fg), hint: r(bg, hint) }; })()`);
   let c = await contrast();
@@ -285,7 +299,7 @@ try {
   // the shield of the box (1.0.10 P3: it was hardly visible): at least 28 px in a full box, and a stroke with at least 3:1 against the box, light and dark (the dark mail background)
   tag = 'shield';
   const shield = () => evaluate(`(() => { const d = ${FR}.contentDocument, b = d.querySelector('.hl-bp[data-hl-pic]'); const i = b.querySelector('.hl-bp-ico'); const svg = i.querySelector('svg'); if (!svg) return { size: 0, ratio: 0, stroke: 'no svg', bg: [] }; const ps = getComputedStyle(svg.querySelector('path')); const num = (c) => c.match(/[\\d.]+/g).slice(0, 3).map(Number); const lum = (c) => { const v = c.map((x) => { const q = x / 255; return q <= 0.03928 ? q / 12.92 : ((q + 0.055) / 1.055) ** 2.4; }); return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]; }; const bg = num(getComputedStyle(b).backgroundColor); const sc = num(ps.stroke); const x = lum(sc), y = lum(bg); const r = svg.getBoundingClientRect(); return { size: Math.round(r.width), height: Math.round(r.height), stroke: ps.stroke, bg, ratio: (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05), painted: ps.stroke !== 'none' && r.width > 0 && r.height > 0 }; })()`);
-  await open('pM');
+  await open('pB'); // (600 x 200: a full box; 200 x 80 is a mid box since the 1.0.11 RC1 BUG-1 fix)
   let sh = await shield();
   ok(sh.size >= 28 && sh.painted && sh.ratio >= 3, `light: the shield is ${sh.size} px with a contrast of ${sh.ratio.toFixed(1)} (${sh.stroke} on ${sh.bg})`);
   ok(await evaluate(`(() => { const b = document.querySelector('.rp-msg.open .rp-msg-actions .icon-btn[aria-pressed]'); if (!b) return false; b.click(); return true; })()`), 'the dark mail background button is there');

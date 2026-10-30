@@ -1,5 +1,5 @@
 import { unsubscribeMailto } from "../unsubscribeMailto";
-import { hiddenPictureBox } from "../blockedPicture";
+import { ALT_MIN_HEIGHT, hiddenPictureBox } from "../blockedPicture";
 import { dropSrcsets, firstSrcsetUrl, isSchemeSource, pictureAddress, remoteUrl, settleSources } from "../pictureSrcset";
 import { cachedImage, cachedImageCount, hasCachedImage, loadRemoteImages } from "../remoteImages";
 import { frameCsp, frameSandbox } from "../frameSandbox";
@@ -161,6 +161,7 @@ function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string
     }
     box.setAttribute("role", "button");
     box.setAttribute("tabindex", "0");
+    box.setAttribute("title", t("reading.pic.hidden")); // (the small and mid boxes cannot hold the whole line: the tooltip has it)
     box.setAttribute("aria-label", alt ? t("reading.pic.hiddenLabel", { alt }) : t("reading.pic.hiddenLabelNoAlt"));
     box.style.width = size.width;
     box.style.height = size.height;
@@ -177,7 +178,7 @@ function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string
     hint.className = "hl-bp-hint";
     hint.textContent = t(mac ? "reading.pic.hiddenHintMac" : "reading.pic.hiddenHint");
     box.append(ico, main, hint);
-    if (alt) {
+    if (alt && size.tier === "full" && (size.height === "auto" || parseFloat(size.height) >= ALT_MIN_HEIGHT)) {
       const label = doc.createElement("span");
       label.className = "hl-bp-alt";
       label.textContent = alt;

@@ -76,12 +76,16 @@ try {
     const box = await json(`(() => { const m = document.querySelector('.cp-sent').getBoundingClientRect(); const c = document.querySelector('.compose-pane').getBoundingClientRect(); return { dw: Math.abs(m.width - c.width), dh: Math.abs(m.height - c.height), text: document.querySelector('.cp-sent-lbl').textContent }; })()`);
     assert.ok(box.dw <= 1 && box.dh <= 1, `the mark does not cover the pane: ${JSON.stringify(box)}`);
     assert.equal(box.text, 'Message sent');
+    // QA can observe the mark (README of the kit): class and attribute on the pane while it shows
+    assert.deepEqual(await json(`(() => { const p = document.querySelector('.compose-pane'); return { cls: p.classList.contains('sent-mark'), attr: p.getAttribute('data-sent-mark') }; })()`), { cls: true, attr: '1' });
   });
   const t0 = Date.now();
   assert.ok(await waitFor(`!document.querySelector('.compose-pane')`, 4000), 'the pane did not close after the mark');
   await check('the mark stays about a second (0.6 to 1.8 s) before the pane closes', async () => {
     const ms = Date.now() - t0;
     assert.ok(ms < 1800, `${ms} ms`);
+    const len = await json(`(() => { const e = performance.getEntriesByName('hl:sent-mark').pop(); return e ? Math.round(e.duration) : null; })()`);
+    assert.ok(len !== null && len >= 500 && len < 1800, `performance entry hl:sent-mark: ${len}`);
   });
 
   // ---------- no Undo time: locked from the press, sent, the mark, closed

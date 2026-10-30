@@ -48,9 +48,12 @@ same(hbox({ width: "300" }), { hidden: false, width: "300px", height: "auto", mi
 same(hbox({ width: "600", height: "900" }), { hidden: false, width: "600px", height: "480px", minHeight: "0", maxHeight: "480px", tier: "full" }, "capped at 480 high");
 same(hbox({ width: "100%" }), { hidden: false, width: "100%", height: "auto", minHeight: "96px", maxHeight: "480px", tier: "full" }, "a width in percent: a wide box");
 assert.equal(hbox({ width: "139", height: "200" }).tier, "mid", "139 wide: the main line only");
-assert.equal(hbox({ width: "140", height: "64" }).tier, "full", "140 x 64: the whole text");
-assert.equal(hbox({ width: "140", height: "63" }).tier, "mid");
-assert.equal(hbox({ width: "96", height: "40" }).tier, "mid");
+assert.equal(hbox({ width: "140", height: "84" }).tier, "full", "140 x 84: the whole text");
+assert.equal(hbox({ width: "140", height: "83" }).tier, "mid");
+assert.equal(hbox({ width: "140", height: "64" }).tier, "mid", "140 x 64 (was full: the lines were cut off)");
+assert.equal(hbox({ width: "96", height: "56" }).tier, "mid", "96 x 56: icon and one line fit");
+assert.equal(hbox({ width: "120", height: "40" }).tier, "small", "120 x 40 (BUG-1): the line does not fit, icon only");
+assert.equal(hbox({ width: "96", height: "55" }).tier, "small");
 assert.equal(hbox({ width: "95", height: "40" }).tier, "small");
 assert.equal(hbox({ width: "96", height: "39" }).tier, "small");
 assert.equal(hbox({ width: "80", height: "30" }).tier, "small", "80 x 30: only the icon");

@@ -26,4 +26,5 @@ assert.match(src, /className="cp-sent"/);
 assert.match(src, /sentMarkMs\(prefersReducedMotion\(\)\)/);
 // the pane no longer closes at Send: the lock is used for the pane as well
 assert.doesNotMatch(src, /openCompose\(null, \{ sending: wait \}\)/);
+assert.ok(src.includes('data-sent-mark={sentMark') && src.includes('hl:sent-mark'), 'QA can observe the mark (class sent-mark, data-sent-mark, performance entry)');
 console.log('PASS test-sent-mark');
