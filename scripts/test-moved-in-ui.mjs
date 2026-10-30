@@ -91,6 +91,48 @@ try {
       assert.equal((await listIds()).includes(t.id), false);
     });
   }
+
+  // ---------- RC1 round 5 observation O-r5-1 (mail that arrived while the window was open was missing from the list in one session): new mail that the sync brings (the backend event `mail-synced`
+  // and the 30 s timer both run `refresh()`) is in the Inbox list whatever moved before in the same session: during the Undo time, after the move was committed, after an Undo, after the
+  // Trash was visited, and in a burst of five.
+  await start();
+  {
+    let n = 0;
+    const arrive = async (label, count = 1) => {
+      const mine = [];
+      for (let i = 0; i < count; i++) {
+        const id = `arrived${++n}`;
+        mine.push(id);
+        await evaluate(`window.__mockAddThread(${JSON.stringify(id)}, 'Arrived ${n}', { fromName: 'New', fromEmail: 'new${n}@example.org', html: '<p>hi</p>' }); 1`);
+      }
+      await evaluate(`${st('refresh')}().then(() => 1)`);
+      await check(`${label}: ${count === 1 ? 'the new mail is' : 'all ' + count + ' new mails are'} in the Inbox list`, async () => {
+        assert.ok(await waitFor(`${JSON.stringify(mine)}.every((id) => ${st('threads')}.some((x) => x.threadId === id))`, 4000), 'missing: ' + JSON.stringify((await listIds()).filter((x) => mine.includes(x))));
+      });
+    };
+    await arrive('no move yet');
+    const t = await firstUnread();
+    await evaluate(`${st('act')}([${JSON.stringify(t.id)}], 'archive', undefined, () => 'Archived'); 1`);
+    await sleep(400);
+    await arrive('during the Undo time of an archive');
+    await sleep(7000);
+    await arrive('after the archive was committed');
+    const t2 = await firstUnread();
+    await evaluate(`${st('act')}([${JSON.stringify(t2.id)}], 'archive', undefined, () => 'Archived'); 1`);
+    await sleep(400);
+    await evaluate(`document.querySelector('.toasts .toast-undo')?.click(); 1`);
+    await sleep(700);
+    await arrive('after an archive and its Undo');
+    const t3 = await firstUnread();
+    await evaluate(`${st('act')}([${JSON.stringify(t3.id)}], 'trash', undefined, () => 'Deleted'); 1`);
+    await sleep(400);
+    await evaluate(`${st('setView')}('trash', ${JSON.stringify(t3.acc)}); 1`);
+    await sleep(600);
+    await evaluate(`${st('setView')}('inbox', ${JSON.stringify(t3.acc)}); 1`);
+    await sleep(600);
+    await arrive('after a delete, a visit to Trash and back');
+    await arrive('a burst of five', 5);
+  }
 } finally {
   await H.shutdown();
 }
