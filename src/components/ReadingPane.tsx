@@ -333,7 +333,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   const sender = normSender(m.fromEmail);
   const rin: RemoteInput = { global: loadRemote, trusted: !!sender && trustedSet.has(sender), autoReason: m.autoReason, noAuto: !!sender && noAutoSet.has(sender), autoOn, folder: m.folder, encrypted: !!m.security?.encrypted, auth: m.auth, allow };
   const [version, setVersion] = useState(0); // bumps when images arrive from the backend
-  const [settledFor, setSettledFor] = useState<object | null>(null); // the cleaned mail whose pictures the backend has answered for (all of them came, or failed)
+  const [settledFor, setSettledFor] = useState<unknown>(null); // the cleaned mail whose pictures the backend has answered for (all of them came, or failed)
   const [loadedPics, setLoadedPics] = useState<Record<string, string>>({});
   // pictures shown one by one (address -> data: URI): put into the frame in place, and remembered here so a rebuilt frame (a language change, a sync) keeps them; gone with the message
   const shownRef = useRef<Record<string, string>>({});

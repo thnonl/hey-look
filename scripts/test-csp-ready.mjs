@@ -70,7 +70,9 @@ assert.ok(dir["connect-src"].includes("ipc:") && dir["connect-src"].includes("ht
 const reading = read("src/components/ReadingPane.tsx");
 const frameCsp = /frameCsp\(allowed \? "([^"]+)" : "([^"]+)"\)/.exec(reading);
 assert.ok(frameCsp, "the message frame's CSP (ReadingPane.tsx) changed: update the proposal");
-assert.ok(/img-src data: https: http:/.test(frameCsp[1]) && /style-src 'unsafe-inline'/.test(frameCsp[1]) && /font-src data:/.test(frameCsp[1]));
+// (1.0.11 BUG-2: with pictures allowed the frame no longer asks the sender's host itself: the backend fetches them and they come in as data: URIs, so BOTH frame policies are img-src data: only)
+assert.ok(/img-src data:(;|$)/.test(frameCsp[1]) && !/img-src[^;]*https?:/.test(frameCsp[1]) && /style-src 'unsafe-inline'/.test(frameCsp[1]) && /font-src data:/.test(frameCsp[1]));
+assert.ok(/img-src data:(;|$)/.test(frameCsp[2]) && !/img-src[^;]*https?:/.test(frameCsp[2]));
 assert.ok(dir["img-src"].includes("https:") && dir["img-src"].includes("http:"), "Load content shows https: / http: pictures in the frame; an srcdoc frame inherits the page's img-src (checked in Chrome: no http: in the page = no picture)");
 assert.ok(dir["style-src"].includes("'unsafe-inline'"), "the srcdoc frame carries an inline <style>; the page's style-src applies to it as well");
 assert.ok(dir["font-src"].includes("data:"));

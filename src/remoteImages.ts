@@ -11,7 +11,6 @@ let chars = 0;
 /** The data: URI of a picture that was fetched already. */
 export const cachedImage = (url: string): string | undefined => cache.get(url);
 export const hasCachedImage = (url: string): boolean => cache.has(url);
-export const cachedImageCount = (): number => cache.size;
 
 function cacheImage(url: string, data: string): void {
   chars -= cache.get(url)?.length ?? 0;
