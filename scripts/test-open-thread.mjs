@@ -46,7 +46,7 @@ const ids = (r) => r.threads.map((t) => t.threadId);
 // 5. store.ts: `refresh` uses it (the key names every part of the view), `select` lets the held row go when another one is chosen.
 const store = readFileSync(new URL("../src/store.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 assert.match(store, /import \{ holdOpenThread \} from "\.\/openThread"/);
-assert.match(store, /holdOpenThread\(fresh, now\.threads, now\.selected, view === listKey\)/, "refresh holds the open conversation");
+assert.match(store, /holdOpenThread\(shown, now\.threads, now\.selected, view === listKey\)/, "refresh holds the open conversation");
 const key = store.match(/const view = \[([^\]]*)\]\.join/)?.[1] ?? "";
 for (const part of ["folder", "accountId", "search", "searchScope", "focus", "filter"]) assert.ok(key.includes(part), `the view key of refresh names ${part}`);
 assert.match(store, /heldOpen && heldOpen !== id/, "select: choosing another conversation (or none) lets the held row go");

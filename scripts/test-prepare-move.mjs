@@ -28,7 +28,7 @@ assert.match(act, /const todo = ids\.filter\(\(id\) => !preparing\.has\(id\)\);[
 assert.match(act, /finally \{\s*for \(const id of ids\) preparing\.delete\(id\);/, "the guard is always released");
 // the Undo window of the normal case is untouched
 assert.match(act, /api\.queueAction\(ids, real, arg \?\? null, scope \?\? null, prefs\.undoActionSeconds, verify\)/);
-assert.match(act, /void api\.cancelAction\(token\)\.then\(\(\) => get\(\)\.refresh\(\)\)/);
+assert.match(act, /void api\.cancelAction\(token\)\.then\(\(cancelled\) => \(cancelled && movedIn\.drop\(token\), get\(\)\.refresh\(\)\)\)/); // (1.0.11: Undo also takes the mail out of the folder it was shown in)
 // (BUG-1) what the look-up says (the saved list was trusted) is handed on, so the backend checks that folder during the Undo window
 assert.match(act, /verify = await api\.prepareAction\(/);
 assert.match(act, /let verify = false;/);

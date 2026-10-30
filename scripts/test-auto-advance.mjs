@@ -147,7 +147,7 @@ const tracked = (token = "tok", a = adv()) => {
   assert.match(src, /advances\.record\(token, startAdvance\(/);
   assert.match(src, /export function moveDropped[\s\S]*void st\.refresh\(\)\.then\(\(\) => mailBack\(token\)\)/, "folder check failed");
   assert.match(src, /export function moveRefused[\s\S]*void st\.refresh\(\)\.then\(\(\) => mailBack\(token\)\)/, "MOVE refused after the window");
-  assert.match(src, /\.then\(\(\) => get\(\)\.refresh\(\)\)\.then\(\(\) => mailBack\(token\)\)/, "Undo");
+  assert.match(src, /get\(\)\.refresh\(\)\)\)\.then\(\(\) => mailBack\(token\)\)/, "Undo");
   assert.match(src, /advance = queued\.queued\(token\);/);
   assert.match(src, /if \(advance && selected && ids\.includes\(selected\)\) await get\(\)\.select\(nextSel\)/);
   assert.match(src, /autoMarking = true;/);

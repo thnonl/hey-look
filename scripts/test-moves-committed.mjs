@@ -42,7 +42,7 @@ assert.match(dropBody, /if \(!get\(\)\.threads\.some/, "nothing to do when none 
 
 // 3. the page listens
 const app = read("../src/App.tsx");
-assert.match(app, /listen<\{ threadIds: string\[\] \}>\("moves-committed", \(e\) => useStore\.getState\(\)\.dropThreads\(e\.payload\.threadIds\)\)/);
+assert.match(app, /listen<\{ threadIds: string\[\] \}>\("moves-committed", \(e\) => movesCommitted\(e\.payload\.threadIds\)\)/);
 assert.match(app, /listen\("app-shown", \(\) => void useStore\.getState\(\)\.refresh\(\)\)/);
 
 // 4. the backend says it: to the main page, after the rows are changed, with the thread ids in camelCase
