@@ -296,7 +296,7 @@ export default defineLocale<typeof ns.en>({
   "settings.rules.suggestedHint": "Нажмите на слово, чтобы добавить. Подойдёт любое.",
   "settings.rules.noSuggestions": "Нет предлагаемых слов.",
   "settings.rules.doThis": "Выполнить",
-  "settings.rules.fromSender": "Письма от {sender}",
+  "settings.rules.fromSender": "Письма от отправителя {sender}",
   "settings.rules.errCondition": "Добавьте хотя бы одно условие со значением.",
   "settings.rules.errFolder": "Выберите, куда переместить письмо.",
   "settings.rules.folderMissing": "Папка не найдена",
