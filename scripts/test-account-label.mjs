@@ -3,7 +3,7 @@
 // Run: node --experimental-strip-types scripts/test-account-label.mjs
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { accountLabel } from "../src/accountLabel.ts";
+import { accountLabel, accountWithAddress } from "../src/accountLabel.ts";
 
 const ADDR = "nam@example.com";
 // a display name replaces the address; the tooltip has the name (in full) and the address
@@ -22,6 +22,12 @@ assert.ok(accountLabel({ email: ADDR, displayName: long }).tip.startsWith(long))
 // a name that merely contains the address is a name
 assert.equal(accountLabel({ email: ADDR, displayName: `Nam <${ADDR}>` }).name, `Nam <${ADDR}>`);
 
+// "Name <address>" in a select of mailboxes: the address once when the name is none or the address (BUG-3 of the RC1 QA, the event dialog showed "a <a>")
+assert.equal(accountWithAddress({ email: ADDR, displayName: "Nam Work" }), `Nam Work <${ADDR}>`);
+assert.equal(accountWithAddress({ email: ADDR, displayName: ADDR }), ADDR);
+assert.equal(accountWithAddress({ email: ADDR, displayName: ` ${ADDR.toUpperCase()} ` }), ADDR);
+assert.equal(accountWithAddress({ email: ADDR, displayName: "" }), ADDR);
+assert.equal(accountWithAddress({ email: ADDR }), ADDR);
 // the screens
 const read = (f) => readFileSync(new URL(`../src/${f}`, import.meta.url), "utf8");
 assert.match(read("components/FolderPane.tsx"), /<AcctName account=\{a\}/, "folder pane header");
@@ -30,6 +36,8 @@ assert.match(read("components/MessageList.tsx"), /accountLabel\(a\)\.text/, "lis
 assert.match(read("components/SearchBox.tsx"), /accountLabel\(a\)\.text/, "search scope");
 assert.match(read("components/CommandBar.tsx"), /accountLabel\(a\)\.text/, "command bar");
 assert.match(read("components/AcctName.tsx"), /mail\.acct\.labelAria/, "screen readers get name and address");
+assert.ok(read("components/Calendar.tsx").includes("accountWithAddress(a)"), "the event dialog Calendar select");
+assert.ok(read("components/PgpDialogs.tsx").includes("accountWithAddress(a)"), "the key dialog mailbox select");
 // what is sent is not changed: Compose's From and the picker still show / use "Name <address>"
 assert.doesNotMatch(read("components/Compose.tsx"), /accountLabel/);
 assert.doesNotMatch(read("store.ts"), /accountLabel/, "notification / toast text is not part of it");

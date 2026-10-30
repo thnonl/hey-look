@@ -17,3 +17,9 @@ export function accountLabel(a: Labelled): { text: string; name: string | null; 
   if (!name || name.toLowerCase() === a.email.trim().toLowerCase()) return { text: a.email, name: null, tip: null };
   return { text: name, name, tip: `${name}\n${a.email}` };
 }
+
+/** "Name <address>" for a select that lists mailboxes (the event dialog's Calendar, the key dialog's mailbox); the address once when there is no name or the name is the address (BUG-3 of the 1.0.11 RC1 QA: "a@x.com <a@x.com>"). */
+export function accountWithAddress(a: Labelled): string {
+  const l = accountLabel(a);
+  return l.name ? `${l.name} <${a.email}>` : a.email;
+}

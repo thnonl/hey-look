@@ -1,5 +1,6 @@
 import { Copy, FileKey, HardDriveDownload, Info, KeyRound, LoaderCircle, ShieldCheck, TriangleAlert, Trash2, Upload } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { accountWithAddress } from "../accountLabel";
 import { copyToClipboard } from "../open";
 import { api, errorCode, KeyAlgo, KeyInspect, PgpKey } from "../api";
 import { type Key } from "../i18n";
@@ -217,7 +218,7 @@ export function GenerateKeyDialog({ accountId, back }: { accountId?: string; bac
         <div className="form" style={{ marginTop: 0 }}>
           <label htmlFor="gk-for">{t("pgp.gen.for")}</label>
           <select id="gk-for" value={acct} onChange={(e) => setAcct(e.target.value)} disabled={busy}>
-            {accounts.map((a) => <option key={a.id} value={a.id}>{a.displayName ? `${a.displayName} <${a.email}>` : a.email}</option>)}
+            {accounts.map((a) => <option key={a.id} value={a.id}>{accountWithAddress(a)}</option>)}
           </select>
           <label>{t("pgp.gen.keyType")}</label>
           <div className="seg" role="radiogroup" aria-label={t("pgp.gen.keyType")} style={{ margin: 0 }}>

@@ -1,5 +1,6 @@
 import { CalendarCheck, CalendarDays, CalendarPlus, Check, ChevronLeft, ChevronRight, CircleCheck, Clock, Copy, Download, ExternalLink, FolderInput, MapPin, Mail, Pencil, Repeat, Trash2, TriangleAlert, UserRound, Video, X } from "lucide-react";
 import { ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { accountWithAddress } from "../accountLabel";
 import { api, CalEvent, CalEventDetail, CalendarInfo, errorCode, Rsvp, SeriesScope } from "../api";
 import { addDays, addMonths, chipClass, cmpDay, Day, dayKey, dayOfMs, dayStartMs, daysBetween, eventColor, eventDaySpan, eventLabel, eventsOnDay, fmtClock, fmtClockRange, fmtDayLong, fmtDayMonth, fmtDayShort, fmtRange, fmtTime, fromInputs, isUrl, joinLabel, joinShortName, layoutDay, monthGrid, monthTitle, myStatusLabel, partsOf, personName, nextHour, repeatKind, repeatRule, sameDay, today, toInputs, tzOffsetLabel, weekDays, weekStartOf, weekTitle, wdLong, wdNarrow, wdShort, CalView, MY_EVENTS_COLOR } from "../calendar";
 import { accountColor } from "../prefs";
@@ -1200,7 +1201,7 @@ export function EventDialog({ eventId, init, draft, windowed, scope, occurrenceS
           <>
             <label htmlFor="ev-from">{t("calendar.dialog.sendFrom")}</label>
             <select id="ev-from" value={accountId} onChange={(e) => (setAccountId(e.target.value), touch())}>
-              {accounts.map((a) => <option key={a.id} value={a.id}>{a.displayName ? `${a.displayName} <${a.email}>` : a.email}</option>)}
+              {accounts.map((a) => <option key={a.id} value={a.id}>{accountWithAddress(a)}</option>)}
             </select>
           </>
         )}
