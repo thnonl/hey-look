@@ -8,7 +8,7 @@
 //   T-C8 AC-21..25 show one picture (one fetch, the CSP stays, focus), show all, reopen                  T-C12 colours and the print rule
 // 1.0.11 WP2 adds: the Settings list of senders turned off (Remove) and the global switch off (tag switch-off).
 //   node scripts/test-pictures-auto.mjs [--require-browser | --url=http://127.0.0.1:1420/]
-import { sleep, startHarness } from './cdp-harness.mjs';
+import { languageJs, sleep, startHarness } from './cdp-harness.mjs';
 
 const H = await startHarness('test-pictures-auto', { vitePort0: 5740 });
 H.net.stub = (url) => (/\.png$/.test(url) ? { status: 200, type: 'image/png', body: '' } : undefined);
@@ -46,7 +46,7 @@ const THREADS = [
   ['pF', 'Failed check', { fromName: 'Friend', fromEmail: 'fail@example.org', html: MAIL, auth: 'fail', autoReason: 'wrote' }],
   ['pT', 'Listed and the rule', { fromName: 'Google', fromEmail: 'alerts@accounts.google.com', html: MAIL, auth: 'pass', autoReason: 'service' }],
   ['pB', 'Boxes', { fromName: 'Shop', fromEmail: 'boxes@shop.example', html: `<p>Hi</p><img src="${u('b1')}" width="600" height="200" alt="Summer sale"><img src="${u('b2')}"><img src="${u('b3')}" width="1" height="1"><img src="${u('b4')}" hidden><img src="${u('b5')}" style="display:none"><img src="${u('b6')}" width="80" height="30" alt="Tiny"><img src="${u('b7')}" width="300" height="2">` }],
-  ['pZ', 'Small boxes', { fromName: 'Shop', fromEmail: 'small@shop.example', html: `<p>Hi</p><img src="${u('z1')}" width="120" height="40" alt="Logo"><img src="${u('z2')}" width="120" height="56" alt="Logo"><img src="${u('z3')}" width="96" height="56"><img src="${u('z4')}" width="140" height="64" alt="Logo"><img src="${u('z5')}" width="100" height="45"><img src="${u('z6')}" width="300" height="120" alt="Banner"><img src="${u('z7')}" width="200" height="84" alt="Banner"><img src="${u('z8')}" width="200" height="100" alt="Banner">` }],
+  ['pZ', 'Small boxes', { fromName: 'Shop', fromEmail: 'small@shop.example', html: `<p>Hi</p><img src="${u('z1')}" width="120" height="40" alt="Logo"><img src="${u('z2')}" width="120" height="56" alt="Logo"><img src="${u('z3')}" width="96" height="56"><img src="${u('z4')}" width="140" height="64" alt="Logo"><img src="${u('z5')}" width="100" height="45"><img src="${u('z6')}" width="300" height="120" alt="Banner"><img src="${u('z7')}" width="200" height="84" alt="Banner"><img src="${u('z8')}" width="200" height="100" alt="Banner"><img src="${u('z9')}" width="220" height="60" alt="Logo"><img src="${u('z10')}" width="168" height="50" alt="Logo"><img src="${u('z11')}" width="110" height="60" alt="Logo"><img src="${u('z12')}" width="140" height="84" alt="Logo"><img src="${u('z13')}" width="140" height="83" alt="Logo">` }],
   ['pM', 'Three pictures', { fromName: 'Shop', fromEmail: 'three@shop.example', html: `<p>Look</p><img src="${u('m1')}" width="200" height="80" alt="one"><img src="${u('m2')}" width="200" height="80" alt="two"><img src="${u('m3')}" width="200" height="80" alt="three">` }],
   ['pL', 'In a link', { fromName: 'Shop', fromEmail: 'link@shop.example', html: `<p>Hi</p><a id="lnk" href="https://shop.example/sale"><img src="${u('l1')}" width="200" height="80" alt="linked"></a>` }],
   ['pC', 'Confidential', { fromName: 'Shop', fromEmail: 'conf@shop.example', html: `<p>Secret</p><img src="${u('c1')}" width="200" height="80" alt="secret">`, confidential: true }],
@@ -275,16 +275,30 @@ try {
   tag = 'box-fit';
   await open('pZ');
   const fit = await evaluate(`(() => { const d = ${FR}.contentDocument; return [...d.querySelectorAll('.hl-bp[data-hl-pic]')].map((b) => { const r = b.getBoundingClientRect(); const shown = [...b.querySelectorAll('.hl-bp-ico, .hl-bp-main, .hl-bp-hint, .hl-bp-alt')].filter((e) => getComputedStyle(e).display !== 'none'); const out = shown.filter((e) => { const q = e.getBoundingClientRect(); return q.bottom > r.bottom + 0.5 || q.top < r.top - 0.5 || q.right > r.right + 0.5 || q.left < r.left - 0.5; }).map((e) => e.className); const main = b.querySelector('.hl-bp-main'); const mainShown = getComputedStyle(main).display !== 'none'; const cut = shown.filter((e) => e.scrollHeight > e.clientHeight + 1 && e.className !== 'hl-bp-ico').map((e) => e.className); return { w: Math.round(r.width), h: Math.round(r.height), tier: b.dataset.tier, alt: !!b.querySelector('.hl-bp-alt'), out, cut, mainShown, mainLines: mainShown ? Math.round(main.getBoundingClientRect().height / parseFloat(getComputedStyle(main).lineHeight)) : 0, title: b.getAttribute('title') }; }); })()`);
-  eq(fit.length, 8, 'eight small boxes');
-  eq(fit.map((x) => x.tier), ['small', 'mid', 'mid', 'mid', 'small', 'full', 'full', 'full'], 'tiers: 120x40 and 100x45 icon only (the line does not fit), 120x56, 96x56 and 140x64 one line, 300x120, 200x84 and 200x100 whole');
-  eq(fit.map((x) => x.alt), [false, false, false, false, false, true, false, true], 'the alt text shows from 100 px high only');
+  eq(fit.length, 13, 'thirteen small boxes');
+  eq(fit.map((x) => x.tier), ['small', 'small', 'small', 'small', 'small', 'full', 'full', 'full', 'mid', 'small', 'small', 'mid', 'mid'], 'tiers (English): both sides count - icon only under 96 wide or 56 high (168 x 50), icon only when the line (about 150 px, two lines in a narrow box) does not fit the height (96 x 56, 110 x 60, 120 x 56, 140 x 64), the line wraps in 140 x 83 and 140 x 84 (the hint does not fit the second), 220 x 60 keeps its one line, 300 x 120, 200 x 84 and 200 x 100 are whole');
+  eq(fit.map((x) => x.alt), [false, false, false, false, false, true, false, true, false, false, false, false, false], 'the alt text shows from 100 px high only');
   for (const f of fit) {
     eq([f.out, f.cut], [[], []], `${f.w} x ${f.h} (${f.tier}): nothing outside the box, nothing cut off`);
-    if (f.tier === 'mid') ok(f.mainLines === 1, `${f.w} x ${f.h}: the line is one line (${f.mainLines})`);
+    if (f.tier === 'mid') ok(f.mainLines >= 1 && f.mainLines <= 2, `${f.w} x ${f.h}: the line is one or two lines (${f.mainLines})`);
     ok(f.title === 'Picture hidden for privacy', `${f.w} x ${f.h}: the tooltip has the whole line`);
   }
   // 1.0.11 RC1 round 2 BUG-2: a picture that shows by itself is fetched by the backend ONLY; the page (the message frame) never asks the sender's host (it did, with its own user agent and a Referer,
   // because the frame's CSP allowed img-src https: http: once the pictures were allowed). The hermetic net lists every request the page makes to a host other than this machine, also from the frame.
+  // BUG-1 reopened (round 2): the mid box (icon and one line) cut a line that was longer than the box ("Picture hidden for privacy" is about 150 px, the box 96 to 140). In each of the 8 languages, with the
+  // real text of the language and the real font of this machine, a box either shows its line WHOLE (not wider than the box) or only the icon; nothing is cut, in light and in the dark background.
+  tag = 'box-fit-lang';
+  for (const lang of ['en', 'de', 'es', 'fr', 'ja', 'ru', 'vi', 'zh-Hans']) {
+    await evaluate(languageJs(lang));
+    await open('pZ');
+    const fl = await evaluate(`(() => { const d = ${FR}.contentDocument; return [...d.querySelectorAll('.hl-bp[data-hl-pic]')].map((b) => { const r = b.getBoundingClientRect(); const main = b.querySelector('.hl-bp-main'); const shown = getComputedStyle(main).display !== 'none'; const out = [...b.querySelectorAll('.hl-bp-ico, .hl-bp-main, .hl-bp-hint, .hl-bp-alt')].filter((e) => getComputedStyle(e).display !== 'none').filter((e) => { const q = e.getBoundingClientRect(); return q.bottom > r.bottom + 0.5 || q.top < r.top - 0.5 || q.right > r.right + 0.5 || q.left < r.left - 0.5; }).length; return { w: Math.round(r.width), h: Math.round(r.height), tier: b.dataset.tier, shown, cut: shown && main.scrollWidth > main.clientWidth + 1, out, text: main.textContent }; }); })()`);
+    eq(fl.length, 13, `${lang}: thirteen boxes`);
+    for (const f of fl) {
+      ok(!f.cut && f.out === 0, `${lang} ${f.w} x ${f.h} (${f.tier}): the line is whole or not shown, nothing outside the box: ${JSON.stringify(f)}`);
+      if (f.tier === 'small') ok(!f.shown, `${lang} ${f.w} x ${f.h}: the icon-only box shows no line`);
+    }
+  }
+  await evaluate(languageJs('en'));
   tag = 'no-page-request';
   for (const id of ['pW', 'pS']) {
     H.net.reset();

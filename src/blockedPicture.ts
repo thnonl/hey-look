@@ -77,3 +77,26 @@ export function blockedPictureBox(a: { width?: string | null; height?: string | 
     height: h && "px" in h ? `${h.px}px` : side, // (a height in percent has no frame to refer to)
   };
 }
+
+/**
+ * A box says only what fits it whole (BUG-1 of the 1.0.11 RC1 QA, twice): the tier from the declared size (hiddenPictureBox) is a first guess from both sides (width AND height); after layout, with the
+ * real text of the language and the real font, a full box whose lines do not fit its height becomes the mid box (icon and one line), a mid box whose line is wider than the box becomes the small one
+ * (the icon; the tooltip has the line). German, Russian and Vietnamese lines are longer than English ones, and a font may be wider than the one measured with. Returns how many boxes changed.
+ */
+export function fitHiddenBoxes(doc: Document): number {
+  let n = 0;
+  const tooTall = (b: HTMLElement) => b.scrollHeight > b.clientHeight + 1;
+  const tooWide = (m: HTMLElement | null) => !!m && m.scrollWidth > m.clientWidth + 1;
+  doc.querySelectorAll<HTMLElement>('.hl-bpx[data-tier="full"], .hl-bpx[data-tier="mid"]').forEach((b) => {
+    const main = b.querySelector<HTMLElement>(".hl-bp-main");
+    if (b.getAttribute("data-tier") === "full" && tooTall(b)) {
+      b.setAttribute("data-tier", "mid");
+      n++;
+    }
+    if (b.getAttribute("data-tier") === "mid" && (tooWide(main) || tooTall(b))) {
+      b.setAttribute("data-tier", "small");
+      n++;
+    }
+  });
+  return n;
+}

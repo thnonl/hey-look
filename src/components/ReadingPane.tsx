@@ -1,5 +1,5 @@
 import { unsubscribeMailto } from "../unsubscribeMailto";
-import { ALT_MIN_HEIGHT, hiddenPictureBox } from "../blockedPicture";
+import { ALT_MIN_HEIGHT, fitHiddenBoxes, hiddenPictureBox } from "../blockedPicture";
 import { dropSrcsets, firstSrcsetUrl, isSchemeSource, pictureAddress, remoteUrl, settleSources } from "../pictureSrcset";
 import { cachedImage, hasCachedImage, loadRemoteImages } from "../remoteImages";
 import { frameCsp, frameSandbox } from "../frameSandbox";
@@ -660,6 +660,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     hlMark("open:dark:start");
     setMailDark(doc, darkNow.current, DARK_CANVAS, darkMailRef.current());
     hlMark("open:dark:end");
+    fitHiddenBoxes(doc); // (a mid box whose line does not fit whole becomes the icon-only box)
     measure();
     // images without a height attribute (common in newsletters) only get their size once they load
     const imgs = Array.from(doc.images);
