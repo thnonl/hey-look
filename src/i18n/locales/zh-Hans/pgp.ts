@@ -21,7 +21,7 @@ export default defineLocale<typeof ns.en>({
   "pgp.unlock.rememberSession": "记住，直到 Hey Look! 退出",
   "pgp.unlock.keepFew": "保持解锁几分钟",
   "pgp.unlock.unlocking": "正在解锁…",
-  "pgp.unlock.wait": "请等待{n}秒",
+  "pgp.unlock.wait": "请等待 {n} 秒",
   "pgp.unlock.unlock": "解锁",
   // ---- generate a key
   "pgp.expiry.2y": "2年后",
@@ -61,7 +61,7 @@ export default defineLocale<typeof ns.en>({
   "pgp.strength.strong": "密码短语强度：强",
   // ---- import a key
   "pgp.import.title": "导入密钥",
-  "pgp.import.drop": "拖入.asc 密钥文件",
+  "pgp.import.drop": "拖入 .asc 密钥文件",
   "pgp.import.orChoose": "或{link} · 或在下方粘贴 ASCII Armor 格式的密钥",
   "pgp.import.chooseFile": "选择文件",
   "pgp.import.notText": "此文件不是文本（.asc）格式。二进制密钥文件请使用“选择文件”。",
@@ -78,7 +78,7 @@ export default defineLocale<typeof ns.en>({
   "pgp.import.importing": "正在导入…",
   "pgp.import.importKey": "导入密钥",
   "pgp.import.importedOne": "已导入{name}的密钥",
-  "pgp.import.importedMany": "已导入{n}个密钥",
+  "pgp.import.importedMany": "已导入 {n} 个密钥",
   "pgp.import.wrongSecret": "此私钥的密码短语错误。",
   // ---- key details
   "pgp.details.title": "密钥详情",

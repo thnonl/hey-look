@@ -112,8 +112,8 @@ export default defineLocale<typeof ns.en>({
     other: "Verschlüsselung noch nicht möglich: kein öffentlicher Schlüssel für {addr} und {n} weitere Personen.",
   },
   "compose.sec.turnOffEncrypt": "„Verschlüsseln“ ausschalten",
-  "compose.sec.willBeEncrypted": "Wird für die von Ihnen hinzugefügten Personen und für Sie verschlüsselt. Der Betreff bleibt unverschlüsselt.",
-  "compose.sec.willBeEncryptedSigned": "Wird für die von Ihnen hinzugefügten Personen und für Sie verschlüsselt und signiert. Der Betreff bleibt unverschlüsselt.",
+  "compose.sec.willBeEncrypted": "Wird für Sie und die von Ihnen hinzugefügten Personen verschlüsselt. Der Betreff bleibt unverschlüsselt.",
+  "compose.sec.willBeEncryptedSigned": "Wird für Sie und die von Ihnen hinzugefügten Personen verschlüsselt und signiert. Der Betreff bleibt unverschlüsselt.",
   "compose.sec.encrypted": {
     one: "Für Sie und {n} Empfänger verschlüsselt. Der Betreff bleibt unverschlüsselt.",
     other: "Für Sie und {n} Empfänger verschlüsselt. Der Betreff bleibt unverschlüsselt.",

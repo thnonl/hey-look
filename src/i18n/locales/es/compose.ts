@@ -112,8 +112,8 @@ export default defineLocale<typeof ns.en>({
     other: "Todavía no se puede cifrar: falta la clave pública de {addr} y de {n} destinatarios más.",
   },
   "compose.sec.turnOffEncrypt": "Desactivar Cifrar",
-  "compose.sec.willBeEncrypted": "Se cifrará para las personas que añadas y para ti. El asunto no se cifra.",
-  "compose.sec.willBeEncryptedSigned": "Se cifrará y firmará para las personas que añadas y para ti. El asunto no se cifra.",
+  "compose.sec.willBeEncrypted": "Se cifrará para ti y para las personas que añadas. El asunto no se cifra.",
+  "compose.sec.willBeEncryptedSigned": "Se cifrará y firmará para ti y para las personas que añadas. El asunto no se cifra.",
   "compose.sec.encrypted": {
     one: "Cifrado para ti y {n} destinatario. El asunto no se cifra.",
     other: "Cifrado para ti y {n} destinatarios. El asunto no se cifra.",

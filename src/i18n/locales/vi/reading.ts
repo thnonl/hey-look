@@ -5,8 +5,8 @@ import type ns from "../../ns/reading.ts";
 
 export default defineLocale<typeof ns.en>({
   "reading.canvas.label": "Nền thư: gốc / tối",
-  "reading.protect.note": "Thư mật: đã tắt chụp màn hình, sao chép, in, chuyển tiếp và Trợ lý AI đối với thư này.",
-  "reading.protect.noteLinux": "Thư mật: đã tắt sao chép, in, chuyển tiếp và Trợ lý AI đối với thư này. Linux không thể chặn chụp màn hình.",
+  "reading.protect.note": "Thư bảo mật: đã tắt chụp màn hình, sao chép, in, chuyển tiếp và Trợ lý AI đối với thư này.",
+  "reading.protect.noteLinux": "Thư bảo mật: đã tắt sao chép, in, chuyển tiếp và Trợ lý AI đối với thư này. Linux không thể chặn chụp màn hình.",
   "reading.protect.denied": "Đây là thư mật nên thao tác đó không được phép.",
   "reading.protect.captureOff": "Đã tắt chụp màn hình đối với thư mật.",
 
@@ -72,14 +72,14 @@ export default defineLocale<typeof ns.en>({
   "reading.head.blockBody": "Thư từ người gửi này sẽ được chuyển vào Thư rác và người gửi được thêm vào Người gửi bị chặn (Cài đặt → Người gửi bị chặn), nơi bạn có thể hoàn tác.",
   "reading.head.blockConfirm": "Chặn người gửi",
   "reading.head.blocked": "Đã chặn {email}",
-  "reading.ai.noConfidential": "Thư mật không được gửi đến Trợ lý AI.",
+  "reading.ai.noConfidential": "Thư bảo mật không được gửi đến Trợ lý AI.",
   "reading.ai.unlockEncrypted": "Hãy mở khóa thư đã mã hóa trước.",
   "reading.ai.unlockThis": "Hãy mở khóa thư này trước.",
 
   "reading.msg.to": "Đến: {to}",
   "reading.msg.toCc": "Đến: {to}; Cc: {cc}",
   "reading.msg.encrypted": "Thư đã mã hóa",
-  "reading.msg.confidential": "Thư mật",
+  "reading.msg.confidential": "Bảo mật",
   "reading.msg.reply": "Trả lời",
   "reading.msg.replyAll": "Trả lời tất cả",
   "reading.msg.forward": "Chuyển tiếp",

@@ -147,7 +147,7 @@ export default defineLocale<typeof ns.en>({
   "reading.body.blocked": "Las imágenes de este mensaje están ocultas para proteger tu privacidad.",
   "reading.body.loadContent": "Mostrar imágenes",
   "reading.body.alwaysLoad": "Mostrar siempre las imágenes (Configuración)",
-  "reading.trust.add": "Mostrar siempre de este remitente",
+  "reading.trust.add": "Mostrar siempre imágenes de este remitente",
   "reading.trust.stop": "Dejar de mostrar imágenes de este remitente",
   "reading.trust.addTitle": "Mostrar siempre las imágenes de {email}",
   "reading.trust.stopTitle": "Dejar de mostrar las imágenes de {email}",

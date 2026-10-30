@@ -18,7 +18,7 @@ export default defineLocale<typeof ns.en>({
   "mail.row.pinned": "Đã ghim",
   "mail.row.flagged": "Đã gắn cờ",
   "mail.row.snoozed": "Đã tạm ẩn",
-  "mail.row.confidentialPreview": "Thư mật — mở để đọc",
+  "mail.row.confidentialPreview": "Bảo mật — mở để đọc",
 
   "mail.hover.archive": "Lưu trữ",
   "mail.hover.deleteForever": "Xóa vĩnh viễn",

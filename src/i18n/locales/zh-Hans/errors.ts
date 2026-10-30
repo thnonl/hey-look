@@ -20,9 +20,9 @@ export default defineLocale<typeof ns.en>({
   "errors.toast.withAccount": "{account}：{error}",
   "errors.toast.accountAdded": "已添加账户 {email}",
   "errors.toast.accountAddedCal": "已添加账户 {email}，并开启日历同步",
-  "errors.toast.loadedOlder": { other: "已加载{n}封较早的邮件" },
+  "errors.toast.loadedOlder": { other: "已加载 {n} 封较早的邮件" },
   "errors.toast.noOlder": "此文件夹中没有更早的邮件",
-  "errors.limit": "已达到下载上限（每个邮箱{n}封邮件）。可在“设置 > 邮箱 > 阅读与同步”中调高。",
+  "errors.limit": "已达到下载上限（每个邮箱 {n} 封邮件）。可在“设置 > 邮箱 > 阅读与同步”中调高。",
   // ---- questions of store.ts
   "errors.ask.unsentTitle": "您有一封未发送的邮件",
   "errors.ask.unsentBody": "打开另一封邮件将关闭您正在写的这封。",
