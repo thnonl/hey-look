@@ -42,12 +42,18 @@ export function isSchemeSource(s: Element): boolean {
 export function settleSources(root: ParentNode, lookup: (remote: string) => string | null | undefined): void {
   root.querySelectorAll("picture > source").forEach((s) => {
     if (!isSchemeSource(s)) return s.remove(); // any other <source> (a width or a format choice) is dropped, as the <img> alone is what is fetched and shown
-    const first = firstSrcsetUrl(s.getAttribute("srcset"));
+    const first = firstSrcsetUrl(s.getAttribute("srcset")) || (s.getAttribute("data-hl-srcset") ?? "");
     const remote = remoteUrl(first);
     const addr = remote ? lookup(remote) || lookup(first) || "" : first;
     s.removeAttribute("sizes");
-    if (addr) s.setAttribute("srcset", addr);
-    else s.remove();
+    if (addr) {
+      s.setAttribute("srcset", addr);
+      s.removeAttribute("data-hl-srcset");
+    } else if (remote && remote.length <= 4096) {
+      // not fetched yet / pictures not shown: the <source> stays WITHOUT a srcset (the webview ignores it and asks for nothing) and keeps its address for the fetch that comes with the picture
+      s.removeAttribute("srcset");
+      s.setAttribute("data-hl-srcset", remote);
+    } else s.remove();
   });
 }
 

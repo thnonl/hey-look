@@ -103,12 +103,24 @@ try {
   eq(sanD.allowed, [['(prefers-color-scheme: dark)', 'https://news.example.test/img/dark.png', false], ['(min-width: 400px)', null, false]], 'sanitize allowed: one address, no descriptor, no sizes on the dark source; no srcset on any other');
   await open('sr2');
   const srcState = () => evaluate(`JSON.stringify([...${FR}.contentDocument.querySelectorAll('source')].map((e) => [e.getAttribute('data-hm-orig-media') || e.getAttribute('media'), (e.getAttribute('srcset') || '').slice(0, 10)]))`).then((x) => JSON.parse(x));
-  eq((await srcState()).length, 0, 'blocked: no <source> in the frame (nothing the webview could pick and the CSP refuse)');
+  eq(await srcState(), [['(prefers-color-scheme: dark)', '']], 'blocked: the dark <source> waits WITHOUT a srcset (the webview asks for nothing); the width source is dropped');
+  eq(await evaluate(`${FR}.contentDocument.querySelector('source').getAttribute('data-hl-srcset')`), 'https://news.example.test/img/dark.png', 'blocked: its address waits in data-hl-srcset');
   ok(await clickLink('button.link:not([data-trust])'), 'S5: the Show pictures link is there');
   ok(await until(`${FR}.contentDocument.querySelectorAll('img[src^="data:image"]').length === 1`, 6000), 'S5: the picture shows');
   ok(await until(`${FR}.contentDocument.querySelectorAll('source').length === 1`, 3000), 'S5: one <source> is left');
   eq(await srcState(), [['(prefers-color-scheme: dark)', 'data:image']], 'shown: the dark source is kept with the data: address of the fetched picture, the width source is dropped');
   ok((await calls()).includes('https://news.example.test/img/dark.png'), 'the dark logo was fetched through the backend');
+  // the same through "Show this picture" (one by one: the Mac QA found the dark source gone there) and through "Show all pictures in this message"
+  for (const [row, what] of [['Show this picture', 'Show this picture'], ['Show all pictures in this message', 'Show all']]) {
+    await open('sr2');
+    const [bx, by] = await boxPoint(0);
+    await mouse(bx, by, 'right');
+    await menuOpen();
+    ok(await chooseRow(row), `${what}: the entry is there`);
+    ok(await until(`${FR}.contentDocument.querySelectorAll('img[src^="data:image"]').length === 1`, 6000), `${what}: the picture shows`);
+    ok(await until(`${FR}.contentDocument.querySelectorAll('source[srcset^="data:image"]').length === 1`, 4000), `${what}: the dark <source> got the data: address of its fetched picture`);
+    eq(await srcState(), [['(prefers-color-scheme: dark)', 'data:image']], `${what}: one dark source, no other`);
+  }
 } catch (e) {
   failures.push(`[${tag}] ${e && e.stack ? e.stack : e}`);
   console.error(e);

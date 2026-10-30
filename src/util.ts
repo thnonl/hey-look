@@ -84,8 +84,12 @@ export function sanitizeHtml(html: string, allowRemote: boolean): { html: string
         else if (node.tagName === "SOURCE" && first && isSchemeSource(node)) {
           // the <source> of a <picture> (a dark-mode logo: media="(prefers-color-scheme: dark)") keeps ONE address, no descriptors, no sizes: the reading pane replaces it by the data: URI
           // of the fetched picture (pictureSrcset.ts `settleSources`), or drops the <source> when that is not there (the webview must not pick a picture that the CSP blocks)
-          if (remoteUrl(first) && !allowRemote) blocked++;
-          else node.setAttribute("srcset", remoteUrl(first) || first);
+          if (remoteUrl(first) && !allowRemote) {
+            blocked++;
+            // the address waits in an attribute nothing loads, like data-hl-src of a blocked <img>: "Show this picture" fetches it with the picture, so the dark logo still switches (RC1 Mac QA)
+            const abs = remoteUrl(first);
+            if (abs.length <= 4096) node.setAttribute("data-hl-srcset", abs);
+          } else node.setAttribute("srcset", remoteUrl(first) || first);
         }
       }
       if (node.tagName === "IMG") node.removeAttribute("sizes");

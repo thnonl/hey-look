@@ -48,6 +48,7 @@ const THREADS = [
   ['pB', 'Boxes', { fromName: 'Shop', fromEmail: 'boxes@shop.example', html: `<p>Hi</p><img src="${u('b1')}" width="600" height="200" alt="Summer sale"><img src="${u('b2')}"><img src="${u('b3')}" width="1" height="1"><img src="${u('b4')}" hidden><img src="${u('b5')}" style="display:none"><img src="${u('b6')}" width="80" height="30" alt="Tiny"><img src="${u('b7')}" width="300" height="2">` }],
   ['pZ', 'Small boxes', { fromName: 'Shop', fromEmail: 'small@shop.example', html: `<p>Hi</p><img src="${u('z1')}" width="120" height="40" alt="Logo"><img src="${u('z2')}" width="120" height="56" alt="Logo"><img src="${u('z3')}" width="96" height="56"><img src="${u('z4')}" width="140" height="64" alt="Logo"><img src="${u('z5')}" width="100" height="45"><img src="${u('z6')}" width="300" height="120" alt="Banner"><img src="${u('z7')}" width="200" height="84" alt="Banner"><img src="${u('z8')}" width="200" height="100" alt="Banner"><img src="${u('z9')}" width="220" height="60" alt="Logo"><img src="${u('z10')}" width="168" height="50" alt="Logo"><img src="${u('z11')}" width="110" height="60" alt="Logo"><img src="${u('z12')}" width="140" height="84" alt="Logo"><img src="${u('z13')}" width="140" height="83" alt="Logo">` }],
   ['pY', 'Zoomed mail', { fromName: 'Shop', fromEmail: 'zoom@shop.example', html: `<div style="width:1500px"><p>Wide mail</p><img src="${u('y1')}" width="280" height="84" alt="Logo"><img src="${u('y2')}" width="168" height="50" alt="Logo"><img src="${u('y3')}" width="503" height="210" alt="Banner"></div>` }],
+  ['pDK', 'Dark logo, written to', { fromName: 'Friend', fromEmail: SENDER, html: `<p>Hi</p><picture><source media="(prefers-color-scheme: dark)" srcset="${u('dark-logo')}"><img src="${u('light-logo')}" width="200" height="60" alt="Logo"></picture>`, auth: 'pass', autoReason: 'wrote' }],
   ['pM', 'Three pictures', { fromName: 'Shop', fromEmail: 'three@shop.example', html: `<p>Look</p><img src="${u('m1')}" width="200" height="80" alt="one"><img src="${u('m2')}" width="200" height="80" alt="two"><img src="${u('m3')}" width="200" height="80" alt="three">` }],
   ['pL', 'In a link', { fromName: 'Shop', fromEmail: 'link@shop.example', html: `<p>Hi</p><a id="lnk" href="https://shop.example/sale"><img src="${u('l1')}" width="200" height="80" alt="linked"></a>` }],
   ['pC', 'Confidential', { fromName: 'Shop', fromEmail: 'conf@shop.example', html: `<p>Secret</p><img src="${u('c1')}" width="200" height="80" alt="secret">`, confidential: true }],
@@ -350,6 +351,14 @@ try {
     }
     await closeMenu();
   }
+  // the automatic rule (written to / well-known service) shows the picture AND the dark-mode <source> of its <picture>: one data: address, fetched by the backend, the page asks for nothing (Mac QA)
+  tag = 'auto-dark-source';
+  H.net.reset();
+  await open('pDK');
+  ok(await until(`${FR}.contentDocument.querySelectorAll('img[src^="data:image"]').length === 1`, 6000), 'the auto picture shows');
+  ok(await until(`${FR}.contentDocument.querySelectorAll('source[srcset^="data:image"]').length === 1`, 4000), 'the dark <source> has the data: address of its fetched picture');
+  eq(await evaluate(`[...${FR}.contentDocument.querySelectorAll('source')].filter((x) => /^(https?:)?\\/\\//.test(x.getAttribute('srcset') || '')).length`), 0, 'no remote srcset');
+  eq(H.net.requests.filter((r) => /img\.shop\.example/.test(r.url)).length, 0, 'the page asked the sender for nothing');
   tag = 'no-page-request';
   for (const id of ['pW', 'pS']) {
     H.net.reset();

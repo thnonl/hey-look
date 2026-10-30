@@ -139,7 +139,7 @@ function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string
   // nothing at all for a tracking pixel or a picture the mail hides itself. Enter / Space / a click show this one picture, the right-click menu has "Show all" (ReadingPane `hookDoc`).
   // A picture that was shown one by one earlier (`shown`) comes back as the picture when the frame is built again.
   const mac = osNow() === "macos";
-  settleSources(doc, () => null); // a <source> that is not a data: URI (or a non-remote address) by now would be picked by its media and broken by the CSP: dropped
+  settleSources(doc, (u) => shown[u]); // a dark-mode <source> keeps a data: URI (fetched, or shown one by one earlier) or waits without a srcset; any other <source> is dropped
   doc.querySelectorAll("img[data-hl-blocked]").forEach((img) => {
     const url = img.getAttribute("data-hl-src") ?? "";
     if (url && shown[url]) {
@@ -444,7 +444,9 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
       box.setAttribute("aria-busy", "true");
       box.classList.remove("bad");
       if (main) main.textContent = t("reading.pic.showing");
-      await loadRemoteImages([url], true);
+      // the dark-mode <source>s of the same <picture> come with the picture (their address waits in data-hl-srcset): the logo has to switch on the Dark background
+      const sources = Array.from(box.closest("picture")?.querySelectorAll<HTMLElement>("source[data-hl-srcset]") ?? []);
+      await loadRemoteImages([url, ...sources.map((s) => s.getAttribute("data-hl-srcset") ?? "")].filter(Boolean), true);
       const data = cachedImage(url);
       if (!data) {
         box.removeAttribute("data-pending");
@@ -455,6 +457,14 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
         return;
       }
       shownRef.current = { ...shownRef.current, [url]: data };
+      for (const s of sources) {
+        const su = s.getAttribute("data-hl-srcset") ?? "";
+        const sd = cachedImage(su);
+        if (!sd) continue;
+        s.setAttribute("srcset", sd);
+        s.removeAttribute("data-hl-srcset");
+        shownRef.current = { ...shownRef.current, [su]: sd };
+      }
       const all = Array.from(doc.querySelectorAll<HTMLElement>(".hl-bp[data-src]"));
       const after = all.find((b) => b !== box && b.getAttribute("data-src") !== url && (box.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0) ?? all.find((b) => b.getAttribute("data-src") !== url);
       for (const b of all.filter((x) => x.getAttribute("data-src") === url)) {
