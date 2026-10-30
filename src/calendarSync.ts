@@ -55,7 +55,18 @@ export const isSyncedCalendarId = (id: string) => /^(google|ms|caldav):/.test(id
 export function calendarTitle(c: { id: string; name: string }): string {
   if (c.id === "local") return t("calendar.myEvents");
   const inv = /^Invitations · (.+)$/.exec(c.name);
-  return c.id.startsWith("invites:") && inv ? t("calendar.invitationsOf", { email: inv[1] }) : c.name;
+  if (c.id.startsWith("invites:") && inv) return t("calendar.invitationsOf", { email: inv[1] });
+  // (the backend writes "address · address" no more; a label that still has the same text twice, from an older build or a mock, is shown once)
+  const twice = /^(.+) · (.+)$/.exec(c.name);
+  return twice && twice[1].trim().toLowerCase() === twice[2].trim().toLowerCase() ? twice[1] : c.name;
+}
+
+/**
+ * The sidebar label of a synced calendar: "Name · address". Google names the primary calendar after the address, so the label would say the address twice:
+ * then it is the address once. Mirrors `calendar_label` in src-tauri/src/calendar.rs.
+ */
+export function calendarLabel(name: string, email: string): string {
+  return name.trim().toLowerCase() === email.trim().toLowerCase() ? name : `${name} · ${email}`;
 }
 
 /** The calendar's own name from the sidebar label "Name · address". */

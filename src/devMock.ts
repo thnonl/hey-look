@@ -13,6 +13,7 @@ import { mockAccountCheckError, mockTestConnection } from "./devMockConn";
 import { nameInlinePicture } from "./editor/messageBody";
 import type { LangPref } from "./i18n";
 import { packThread } from "./threadPack";
+import { calendarLabel } from "./calendarSync";
 import { applyShots, type ShotsData } from "./devMockShots";
 import type { MessageFull } from "./api";
 
@@ -1109,7 +1110,7 @@ const mockCalendars = () =>
   calAccounts().flatMap((m) =>
     (calSrcs[m.account]?.calendars ?? [])
       .filter((c) => c.syncOn)
-      .map((c) => ({ id: c.id, name: `${c.name} · ${m.email}`, color: calColors[String(c.id)] ?? c.color, accountId: m.account, visible: !hiddenCals.has(String(c.id)), remote: true, writable: !c.readOnly, service: m.service, appInvites: m.kind === "caldav" && !m.dav?.scheduling, movesGuests: m.kind === "google" || (m.kind === "caldav" && !m.dav?.scheduling) })),
+      .map((c) => ({ id: c.id, name: calendarLabel(String(c.name), String(m.email)), color: calColors[String(c.id)] ?? c.color, accountId: m.account, visible: !hiddenCals.has(String(c.id)), remote: true, writable: !c.readOnly, service: m.service, appInvites: m.kind === "caldav" && !m.dav?.scheduling, movesGuests: m.kind === "google" || (m.kind === "caldav" && !m.dav?.scheduling) })),
   );
 
 export function installMock() {

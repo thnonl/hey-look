@@ -529,3 +529,5 @@ ui-c | node scripts/test-trusted-senders.mjs --require-browser
 ui-d | node scripts/test-list-loading-indicator.mjs --require-browser
 # 1.0.11: the "sent" mark after Send (time, reduced motion, pane stays locked)
 static | node --experimental-strip-types scripts/test-sent-mark.mjs
+# 1.0.11: the calendar label says the address once when the calendar is named after it
+static | node --experimental-strip-types scripts/test-calendar-label.mjs

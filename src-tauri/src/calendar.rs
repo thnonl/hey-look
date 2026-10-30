@@ -1425,6 +1425,16 @@ pub fn calendar_list_calendars(state: tauri::State<crate::AppState>) -> R<Vec<Ca
     list_calendars(&lock(&state.db))
 }
 
+/// The sidebar label of a synced calendar: "Name · address". Google names the primary calendar after the address; then the label is the address once, not twice.
+/// (Mirrors `calendarLabel` in src/calendarSync.ts.)
+fn calendar_label(name: &str, email: &str) -> String {
+    if name.trim().eq_ignore_ascii_case(email.trim()) {
+        name.to_string()
+    } else {
+        format!("{} · {}", name, email)
+    }
+}
+
 /// My events, each mailbox's invitations, then the synced calendars of the mailboxes that sync.
 pub fn list_calendars(c: &Connection) -> R<Vec<CalendarInfo>> {
     let hidden = hidden_calendars(c);
@@ -1444,7 +1454,7 @@ pub fn list_calendars(c: &Connection) -> R<Vec<CalendarInfo>> {
             let color = if shown.is_empty() { a.color.clone().unwrap_or_default() } else { shown };
             out.push(CalendarInfo {
                 visible: !hidden.contains(&cal.id),
-                name: format!("{} · {}", cal.name, a.email),
+                name: calendar_label(&cal.name, &a.email),
                 id: cal.id,
                 color,
                 account_id: Some(a.id.clone()),
@@ -1795,6 +1805,14 @@ pub fn import_text(c: &Connection, text: &str) -> R<ImportResult> {
 mod tests {
     use super::*;
     use chrono::NaiveDate;
+
+    #[test]
+    fn calendar_label_says_the_address_once() {
+        assert_eq!(calendar_label("Work", "me@gmail.com"), "Work · me@gmail.com");
+        // Google's primary calendar is named after the address
+        assert_eq!(calendar_label("thnonline@gmail.com", "thnonline@gmail.com"), "thnonline@gmail.com");
+        assert_eq!(calendar_label("Me@Gmail.com", "me@gmail.com "), "Me@Gmail.com");
+    }
 
     fn account(id: &str, email: &str) -> Account {
         Account {
