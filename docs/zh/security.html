@@ -103,7 +103,7 @@
 <h2 id="codesign">安装程序尚未经过代码签名</h2><p>Windows SmartScreen和macOS Gatekeeper会在首次启动时发出警告，因为Windows和macOS的安装程序没有经过代码签名，macOS版也没有经过公证。首次启动的步骤见<a href="download.html#install-notes">下载页面</a>。我们希望将来能为安装程序签名；想了解怎样才能帮上忙，请看<a href="support.html">支持</a>。macOS应用使用项目自己的自签名证书签名（背后没有Apple账户）；这让钥匙串在更新后仍能认出这个应用，但这不是公证。</p>
 <h2 id="report">报告漏洞</h2><p>请通过GitHub私下报告安全问题：打开<a href="https://github.com/thnonl/hey-look/security" rel="noopener">github.com/thnonl/hey-look/security</a>并选择“Report a vulnerability”（报告漏洞）。请不要公开提交议题。您也可以发邮件到<a href="mailto:namth.onl@gmail.com">namth.onl@gmail.com</a>。Hey Look!是业余时间做的，所以回复可能要等一阵子，也不承诺任何响应时间。</p>
 <h2 id="limit">已知限制</h2>
-<ul><li>当发件人地址与已存储的组织者一致时，日历邀请的更新和取消才会被接受。如果邮件服务商的发件人验证（DKIM、SPF或DMARC）未通过，更改不会生效，直到您选择“仍然应用”。没有服务商验证结果的邮件不会被检查，因此伪造的发件人地址仍可能更改或取消您收到的事件。邮件服务商通常会拒绝这类伪造。</li>
+<ul><li>当发件人地址与已存储的组织者一致时，日历邀请的更新和取消才会被接受。如果您的邮件服务商的发件人验证（DKIM、SPF或DMARC）未通过，在您选择“仍然应用”之前，更改不会生效。没有您的服务商给出验证结果的邮件不会被检查，因此伪造的发件人地址仍可能更改或取消您收到的事件。邮件服务商通常会拒绝这类伪造。</li>
 <li>发件人验证依据的是您的邮件服务商写入邮件的结果。如果某个服务商不写入此结果，伪造的邮件就可能带有假结果，其图片因此可能被自动显示。届时发件人会知道您打开了这封邮件；链接和附件仍会先询问。</li><li>OpenPGP尚未与其他OpenPGP软件做过互通测试。</li><li>AI助手会把您要询问的文字发送到您配置的端点，包括解密后的OpenPGP内容。对该端点而言，这些内容不是保密的。</li><li>“无分析”的说法是通过查看源代码确认的，而不是靠网络抓包。</li><li>不声称做过任何第三方安全审计。</li><li>标为“机密”的邮件只在Windows和macOS上对屏幕截图和录屏隐藏；它无法阻止用相机拍摄屏幕。</li></ul>
 </article></div>
 </main>
