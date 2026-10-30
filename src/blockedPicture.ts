@@ -78,25 +78,46 @@ export function blockedPictureBox(a: { width?: string | null; height?: string | 
   };
 }
 
+/** The tier a RENDERED box of this size (px as the person sees them: after the mail's zoom and the device pixel ratio) can carry: both sides count. */
+export function tierForSize(w: number, h: number): PictureTier {
+  return w >= 140 && h >= 84 ? "full" : w >= 96 && h >= 56 ? "mid" : "small";
+}
+
+const TIER_ORDER: PictureTier[] = ["small", "mid", "full"];
+
 /**
- * A box says only what fits it whole (BUG-1 of the 1.0.11 RC1 QA, twice): the tier from the declared size (hiddenPictureBox) is a first guess from both sides (width AND height); after layout, with the
- * real text of the language and the real font, a full box whose lines do not fit its height becomes the mid box (icon and one line), a mid box whose line is wider than the box becomes the small one
- * (the icon; the tooltip has the line). German, Russian and Vietnamese lines are longer than English ones, and a font may be wider than the one measured with. Returns how many boxes changed.
+ * A box says only what fits it whole (BUG-1 of the 1.0.11 RC1 QA, three times). The tier from the declared size (hiddenPictureBox) is a first guess; the one that counts is the box as it is drawn:
+ * its size after layout, the mail's zoom (a wide mail is shown at 0.6 and a 280 x 84 box is then 168 x 50 on screen) and the device pixel ratio, read with getBoundingClientRect; a box never says more than
+ * tierForSize of that size allows, and when a line still sticks out of the box (the real text of the language, the real font, a box centred in a column that cuts BOTH ends - scrollHeight does not see the
+ * part above the top) it steps down: full, mid, icon. It starts from the declared tier every time (data-tier0), so a box that grows again (the pane is widened) gets its text back. Call it after layout
+ * and again when a box or the zoom changes. Returns how many boxes changed their tier.
  */
 export function fitHiddenBoxes(doc: Document): number {
   let n = 0;
-  const tooTall = (b: HTMLElement) => b.scrollHeight > b.clientHeight + 1;
-  const tooWide = (m: HTMLElement | null) => !!m && m.scrollWidth > m.clientWidth + 1;
-  doc.querySelectorAll<HTMLElement>('.hl-bpx[data-tier="full"], .hl-bpx[data-tier="mid"]').forEach((b) => {
-    const main = b.querySelector<HTMLElement>(".hl-bp-main");
-    if (b.getAttribute("data-tier") === "full" && tooTall(b)) {
-      b.setAttribute("data-tier", "mid");
-      n++;
-    }
-    if (b.getAttribute("data-tier") === "mid" && (tooWide(main) || tooTall(b))) {
-      b.setAttribute("data-tier", "small");
-      n++;
-    }
+  doc.querySelectorAll<HTMLElement>(".hl-bpx[data-tier]").forEach((b) => {
+    const before = b.getAttribute("data-tier") ?? "small";
+    const declared = (b.getAttribute("data-tier0") ?? before) as PictureTier;
+    b.setAttribute("data-tier0", declared);
+    const r = b.getBoundingClientRect();
+    let at = Math.min(TIER_ORDER.indexOf(declared), TIER_ORDER.indexOf(tierForSize(r.width, r.height)));
+    const set = (i: number) => b.setAttribute("data-tier", TIER_ORDER[i]);
+    set(at);
+    while (at > 0 && sticksOut(b)) set(--at);
+    if (b.getAttribute("data-tier") !== before) n++;
   });
   return n;
+}
+
+/** Whether something the box shows lies (even partly) outside its edges less its padding (5 px of the 6 the CSS gives, times the mail's zoom), or its line is wider than the line box. */
+function sticksOut(b: HTMLElement): boolean {
+  const box = b.getBoundingClientRect();
+  const pad = 5 * (parseFloat(b.ownerDocument.documentElement.style.zoom) || 1);
+  const r = { top: box.top + pad, bottom: box.bottom - pad, left: box.left + pad, right: box.right - pad };
+  for (const e of Array.from(b.querySelectorAll<HTMLElement>(".hl-bp-ico, .hl-bp-main, .hl-bp-hint, .hl-bp-alt"))) {
+    if (getComputedStyle(e).display === "none") continue;
+    const q = e.getBoundingClientRect();
+    if (q.bottom > r.bottom + 0.5 || q.top < r.top - 0.5 || q.right > r.right + 0.5 || q.left < r.left - 0.5) return true;
+    if (e.scrollWidth > e.clientWidth + 1) return true;
+  }
+  return false;
 }

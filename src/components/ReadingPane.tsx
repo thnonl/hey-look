@@ -598,6 +598,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     const natural = Math.max(root.scrollWidth, doc.body.scrollWidth);
     const fit = natural > avail + 1 ? Math.max(MIN_ZOOM, avail / natural) : 1;
     if (fit < 1) root.style.zoom = String(fit);
+    fitHiddenBoxes(doc); // (the boxes of hidden pictures are judged by their size on screen, after the zoom)
     const wide = fit < 1 && natural * fit > avail + 1 ? `${Math.ceil(natural * fit)}px` : "";
     if (frame.style.width !== wide) frame.style.width = wide;
     // a wide frame widens its message row, and the header / actions stay as wide as the pane and stick to its left edge
