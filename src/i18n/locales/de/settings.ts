@@ -347,7 +347,7 @@ export default defineLocale<typeof ns.en>({
   "settings.reading.trustedRemoveAllBody": { one: "Bilder von 1 Absender werden wieder ausgeblendet.", other: "Bilder von {n} Absendern werden wieder ausgeblendet." },
   "settings.reading.trustedRemoveAllConfirm": "Alle entfernen",
   "settings.reading.autoPics": "Bilder von Personen, denen ich geschrieben habe, und von bekannten Diensten automatisch anzeigen",
-  "settings.reading.autoPicsHint": "Gilt für alle Postfächer. Nur wenn die Absenderprüfung bestanden wird; nicht im Spam-Ordner und nicht bei verschlüsselten Nachrichten. Aus = Bilder werden nur für Absender ohne Klick angezeigt, die Sie immer anzeigen lassen.",
+  "settings.reading.autoPicsHint": "Gilt für alle Postfächer. Nur wenn die Absenderprüfung bestanden wird; nicht im Spam-Ordner und nicht bei verschlüsselten Nachrichten. Aus = Ohne Klick werden nur Bilder von Absendern angezeigt, für die Sie „Immer anzeigen“ gewählt haben.",
   "settings.reading.autoPicsGlobalOn": "Nicht nötig, solange „Bilder immer anzeigen“ aktiviert ist: Bilder aller Absender werden angezeigt.",
   "settings.reading.noauto": "Absender, deren Bilder nicht automatisch angezeigt werden",
   "settings.reading.noautoHint": "Absender, für die Sie „Für Absender nicht mehr anzeigen“ gewählt haben. Entfernen Sie einen, damit die automatische Regel seine Bilder wieder anzeigt.",

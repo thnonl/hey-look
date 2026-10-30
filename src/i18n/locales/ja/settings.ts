@@ -347,7 +347,7 @@ export default defineLocale<typeof ns.en>({
   "settings.reading.trustedRemoveAllBody": { other: "{n}件の送信者の画像が再び非表示になります。" },
   "settings.reading.trustedRemoveAllConfirm": "すべて削除",
   "settings.reading.autoPics": "メールを送ったことがある相手と広く知られたサービスの画像を自動的に表示する",
-  "settings.reading.autoPicsHint": "すべてのメールボックスに適用されます。送信者の確認に通った場合のみ有効で、迷惑メールや暗号化されたメッセージでは使われません。オフにすると、常に表示すると選んだ送信者の画像だけがクリックなしで表示されます。",
+  "settings.reading.autoPicsHint": "すべてのメールボックスに適用されます。送信者の確認に通った場合のみ有効で、迷惑メールや暗号化されたメッセージでは使われません。オフにすると、画像を常に表示するよう選んだ送信者の画像だけがクリックなしで表示されます。",
   "settings.reading.autoPicsGlobalOn": "「画像を常に表示」がオンの間は不要です。すべての送信者の画像が表示されます。",
   "settings.reading.noauto": "画像を自動的に表示しない送信者",
   "settings.reading.noautoHint": "「この送信者の画像を表示しない」を選んだ送信者です。削除すると、自動ルールで再び画像が表示されます。",

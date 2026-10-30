@@ -347,7 +347,7 @@ export default defineLocale<typeof ns.en>({
   "settings.reading.trustedRemoveAllBody": { one: "Las imágenes de 1 remitente volverán a ocultarse.", other: "Las imágenes de {n} remitentes volverán a ocultarse." },
   "settings.reading.trustedRemoveAllConfirm": "Quitar todos",
   "settings.reading.autoPics": "Mostrar automáticamente las imágenes de las personas a las que he escrito y de servicios muy conocidos",
-  "settings.reading.autoPicsHint": "Para todos los buzones. Solo si la comprobación del remitente se supera; no se usa en Correo no deseado ni en mensajes cifrados. Desactivado = las imágenes se muestran sin hacer clic solo para los remitentes que elegiste mostrar siempre.",
+  "settings.reading.autoPicsHint": "Para todos los buzones. Solo si el mensaje supera la comprobación del remitente; no se usa en Correo no deseado ni en mensajes cifrados. Desactivado = las imágenes se muestran sin hacer clic solo para los remitentes que elegiste mostrar siempre.",
   "settings.reading.autoPicsGlobalOn": "No hace falta mientras “Mostrar siempre las imágenes” esté activado: se muestran las imágenes de todos los remitentes.",
   "settings.reading.noauto": "Remitentes cuyas imágenes no se muestran automáticamente",
   "settings.reading.noautoHint": "Remitentes para los que elegiste “Dejar de mostrar de este remitente”. Quita uno para que la regla automática vuelva a mostrar sus imágenes.",
