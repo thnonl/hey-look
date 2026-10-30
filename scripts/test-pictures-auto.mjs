@@ -278,8 +278,15 @@ try {
   await open('pZ');
   const fit = await evaluate(`(() => { const d = ${FR}.contentDocument; return [...d.querySelectorAll('.hl-bp[data-hl-pic]')].map((b) => { const r = b.getBoundingClientRect(); const shown = [...b.querySelectorAll('.hl-bp-ico, .hl-bp-main, .hl-bp-hint, .hl-bp-alt')].filter((e) => getComputedStyle(e).display !== 'none'); const out = shown.filter((e) => { const q = e.getBoundingClientRect(); return q.bottom > r.bottom + 0.5 || q.top < r.top - 0.5 || q.right > r.right + 0.5 || q.left < r.left - 0.5; }).map((e) => e.className); const main = b.querySelector('.hl-bp-main'); const mainShown = getComputedStyle(main).display !== 'none'; const cut = shown.filter((e) => e.scrollHeight > e.clientHeight + 1 && e.className !== 'hl-bp-ico').map((e) => e.className); return { w: Math.round(r.width), h: Math.round(r.height), tier: b.dataset.tier, alt: !!b.querySelector('.hl-bp-alt'), out, cut, mainShown, mainLines: mainShown ? Math.round(main.getBoundingClientRect().height / parseFloat(getComputedStyle(main).lineHeight)) : 0, title: b.getAttribute('title') }; }); })()`);
   eq(fit.length, 13, 'thirteen small boxes');
-  eq(fit.map((x) => x.tier), ['small', 'small', 'small', 'small', 'small', 'full', 'full', 'full', 'mid', 'small', 'small', 'mid', 'mid'], 'tiers (English): both sides count - icon only under 96 wide or 56 high (168 x 50), icon only when the line (about 150 px, two lines in a narrow box) does not fit the height (96 x 56, 110 x 60, 120 x 56, 140 x 64), the line wraps in 140 x 83 and 140 x 84 (the hint does not fit the second), 220 x 60 keeps its one line, 300 x 120, 200 x 84 and 200 x 100 are whole');
-  eq(fit.map((x) => x.alt), [false, false, false, false, false, true, false, true, false, false, false, false, false], 'the alt text shows from 100 px high only');
+  // (which of "full" / "mid" / "small" a box ends in depends on the glyph widths of the font of the machine: the CI runner is not this host. What does not: a box never says more than its declared size
+  // and its size on screen allow, a box under 96 wide or 56 high is the icon only, and nothing sticks out or is cut off.)
+  const CAP = ['small', 'mid', 'mid', 'mid', 'small', 'full', 'full', 'full', 'mid', 'small', 'mid', 'full', 'mid']; // (120x40, 120x56, 96x56, 140x64, 100x45, 300x120, 200x84, 200x100, 220x60, 168x50, 110x60, 140x84, 140x83)
+  const RK = { small: 0, mid: 1, full: 2 };
+  fit.forEach((x, k) => ok(RK[x.tier] <= RK[CAP[k]], `${x.w} x ${x.h}: "${x.tier}" is not more than its size allows ("${CAP[k]}")`));
+  eq([0, 4, 9].map((k) => fit[k].tier), ['small', 'small', 'small'], '120 x 40, 100 x 45 and 168 x 50 (under 56 high) are the icon only');
+  ok(fit[5].tier !== 'small', '300 x 120 says more than the icon');
+  fit.forEach((x) => ok(!x.alt || x.tier === 'full', `${x.w} x ${x.h}: the alt text only in a whole box (${x.tier})`));
+  ok(fit.filter((x) => x.h < 100).every((x) => !x.alt), 'the alt text shows from 100 px high only');
   for (const f of fit) {
     eq([f.out, f.cut], [[], []], `${f.w} x ${f.h} (${f.tier}): nothing outside the box, nothing cut off`);
     if (f.tier === 'mid') ok(f.mainLines >= 1 && f.mainLines <= 2, `${f.w} x ${f.h}: the line is one or two lines (${f.mainLines})`);
@@ -311,7 +318,7 @@ try {
   await cdp('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 2, mobile: false });
   await open('pZ');
   const dpr2 = await drawn();
-  eq(dpr2.map((x) => x.tier), ['small', 'small', 'small', 'small', 'small', 'full', 'full', 'full', 'mid', 'small', 'small', 'mid', 'mid'], 'devicePixelRatio 2: the same tiers as at 1');
+  eq(dpr2.map((x) => x.tier), fit.map((x) => x.tier), 'devicePixelRatio 2: the same tiers as at 1');
   ok(dpr2.find((x) => x.w === 168 && x.h === 50)?.tier === 'small', 'devicePixelRatio 2: 168 x 50 is the icon only');
   sane(dpr2, 'dpr 2');
   await cdp('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
@@ -329,7 +336,7 @@ try {
   ok(zr.length === 3 && zr.every((x) => x.zoom !== ''), `the wide mail is zoomed: ${JSON.stringify(zr.map((x) => x.zoom))}`);
   const z84 = zr[0];
   ok(z84.w <= 190 && z84.h <= 56 && z84.tier === 'small', `the 280 x 84 box drawn as ${z84.w} x ${z84.h} on screen is the icon only (it says "${z84.tier}")`);
-  ok(zr[1].tier === 'small' && zr[2].tier === 'full', `168 x 50 icon only, 503 x 210 whole: ${JSON.stringify(zr.map((x) => x.tier))}`);
+  ok(zr[1].tier === 'small' && zr[2].tier !== 'small', `168 x 50 icon only, 503 x 210 says more than the icon: ${JSON.stringify(zr.map((x) => x.tier))}`);
   sane(zr, 'zoomed mail');
   // Mac QA (WKWebView): a SYNTHETIC contextmenu event on a hidden-picture box did nothing. A mouse event always targets an element, a script's may target the icon, the svg path inside it or the TEXT NODE
   // of the line (no closest(): the box was not found and the menu blocked), may be built in the page or in the frame, and the frame may be zoomed. Every one of them opens the menu of the box.
@@ -359,6 +366,15 @@ try {
   ok(await until(`${FR}.contentDocument.querySelectorAll('source[srcset^="data:image"]').length === 1`, 4000), 'the dark <source> has the data: address of its fetched picture');
   eq(await evaluate(`[...${FR}.contentDocument.querySelectorAll('source')].filter((x) => /^(https?:)?\\/\\//.test(x.getAttribute('srcset') || '')).length`), 0, 'no remote srcset');
   eq(H.net.requests.filter((r) => /img\.shop\.example/.test(r.url)).length, 0, 'the page asked the sender for nothing');
+  // A deliberately wide font (what the Linux runner's fallback is: Verdana here, DejaVu Sans / Liberation there): the boxes are judged again and still nothing sticks out, nothing is squeezed below its text
+  // (the 200 x 100 box of the CI run: the alt line was shrunk to no height by the column and painted over the line above it)
+  tag = 'box-fit-wide-font';
+  await open('pZ');
+  for (const font of ['Verdana, "DejaVu Sans", sans-serif', '"Courier New", "DejaVu Sans Mono", monospace']) {
+    const wide = await evaluate(`import('/src/blockedPicture.ts').then((m) => { const d = ${FR}.contentDocument; d.getElementById('wide-font')?.remove(); const st = d.createElement('style'); st.id = 'wide-font'; st.textContent = '.hl-bpx, .hl-bpx * { font-family: ' + ${JSON.stringify(font)} + ' !important; letter-spacing: .6px; }'; d.head.append(st); m.fitHiddenBoxes(d); return JSON.stringify([...d.querySelectorAll('.hl-bp[data-hl-pic]')].map((b) => { const r = b.getBoundingClientRect(); const bad = [...b.querySelectorAll('.hl-bp-ico, .hl-bp-main, .hl-bp-hint, .hl-bp-alt')].filter((e) => getComputedStyle(e).display !== 'none').filter((e) => { const q = e.getBoundingClientRect(); return q.bottom > r.bottom + 0.5 || q.top < r.top - 0.5 || q.right > r.right + 0.5 || q.left < r.left - 0.5 || (!e.classList.contains('hl-bp-ico') && (e.scrollHeight > e.clientHeight + 1 || e.scrollWidth > e.clientWidth + 1)); }).length; return { w: Math.round(r.width), h: Math.round(r.height), tier: b.dataset.tier, bad, allowed: m.tierForSize(r.width, r.height) }; })); })`).then((x) => JSON.parse(x));
+    eq(wide.length, 13, `${font}: thirteen boxes`);
+    for (const f of wide) ok(f.bad === 0 && RK[f.tier] <= RK[f.allowed], `${font}: ${f.w} x ${f.h} says "${f.tier}" (allowed "${f.allowed}"), ${f.bad} parts outside or squeezed`);
+  }
   tag = 'no-page-request';
   for (const id of ['pW', 'pS']) {
     H.net.reset();

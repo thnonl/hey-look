@@ -15,6 +15,7 @@ export const HIDDEN_PICTURE_CSS = `.hl-bpx{cursor:pointer;gap:2px;padding:6px;te
 .hl-bpx[data-tier=mid] .hl-bp-ico{width:24px;height:24px}.hl-bpx[data-tier=small] .hl-bp-ico{width:20px;height:20px}
 .hl-bp-main{display:block;max-width:100%;padding:0 6px;box-sizing:border-box;font-weight:600;font-size:13px}.hl-bp-hint{display:block;max-width:100%;padding:0 6px;box-sizing:border-box;font-size:12px;color:#5b6470}
 .hl-bpx .hl-bp-alt{font-size:11px;color:#5b6470}
+.hl-bpx .hl-bp-main,.hl-bpx .hl-bp-hint,.hl-bpx .hl-bp-alt{flex:none}
 .hl-bpx[data-tier=mid] .hl-bp-hint,.hl-bpx[data-tier=mid] .hl-bp-alt,.hl-bpx[data-tier=small] .hl-bp-main,.hl-bpx[data-tier=small] .hl-bp-hint,.hl-bpx[data-tier=small] .hl-bp-alt{display:none}
 .hl-bpx[data-tall=no] .hl-bp-alt{display:none}
 .hl-bpx[data-pending]{opacity:.6;cursor:progress}.hl-bpx.bad{border-color:#c4314b;color:#c4314b}

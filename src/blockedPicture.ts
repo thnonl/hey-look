@@ -118,6 +118,7 @@ function sticksOut(b: HTMLElement): boolean {
     const q = e.getBoundingClientRect();
     if (q.bottom > r.bottom + 0.5 || q.top < r.top - 0.5 || q.right > r.right + 0.5 || q.left < r.left - 0.5) return true;
     if (e.scrollWidth > e.clientWidth + 1) return true;
+    if (e.scrollHeight > e.clientHeight + 1) return true; // (a part squeezed below its text by the column: its text is painted over the next one)
   }
   return false;
 }
