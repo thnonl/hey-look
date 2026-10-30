@@ -531,3 +531,5 @@ ui-d | node scripts/test-list-loading-indicator.mjs --require-browser
 static | node --experimental-strip-types scripts/test-sent-mark.mjs
 # 1.0.11: the calendar label says the address once when the calendar is named after it
 static | node --experimental-strip-types scripts/test-calendar-label.mjs
+# 1.0.11: mail that was just moved shows and counts in the folder it went to at once (ghost list, numbers, Undo, refused, settled)
+static | node --experimental-strip-types scripts/test-moved-in.mjs

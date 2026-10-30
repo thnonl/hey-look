@@ -18,7 +18,7 @@ import { t as tNow } from "./i18n";
 import { useT } from "./i18n/react";
 import { runQuitFlush } from "./quitFlush";
 import { nothingToKeep } from "./leaveCompose";
-import { flushSends, friendlyError, moveDropped, moveRefused, useStore } from "./store";
+import { flushSends, friendlyError, moveDropped, moveRefused, movesCommitted, movesSettled, useStore } from "./store";
 import { osNow, usePlatform } from "./platform";
 import { quitKeepKey } from "./trayWords";
 import { openUpdateLink, useUpdates } from "./updates";
@@ -168,7 +168,9 @@ function App() {
     const subs = [
       listen("mail-synced", () => void useStore.getState().refresh()),
       // an archive / delete / move whose Undo time is over has been done (also while the window was hidden to the tray): the messages leave the list now
-      listen<{ threadIds: string[] }>("moves-committed", (e) => useStore.getState().dropThreads(e.payload.threadIds)),
+      listen<{ threadIds: string[] }>("moves-committed", (e) => movesCommitted(e.payload.threadIds)),
+      // the moved mail has reached its folders here (the sync rounds after a move): what the folder showed in the meantime (movedIn.ts) is the backend's own now
+      listen<{ accountId: string }>("moves-settled", (e) => movesSettled(e.payload.accountId)),
       // a mailbox is at its download limit after a prune (W6.3): the notice at the end of its lists needs no sync
       listen<{ accountId: string; removed: number }>("mail-pruned", (e) => useStore.getState().onPruned(e.payload.accountId)),
       // the server renumbered a folder and its mail was read again (W6.1): a selection or an open conversation of it goes, the list is read again

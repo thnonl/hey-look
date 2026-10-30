@@ -7,6 +7,7 @@ import { applyBackfill } from "./backfill";
 import { holdOpenThread } from "./openThread";
 import { planOpen } from "./notifyOpen";
 import { withThreadsGone, withUnreadChange } from "./focusCounts";
+import { destOf, MovedIn, mergeMoved, withMovedCounts } from "./movedIn";
 import { hlMark } from "./perfMarks";
 import { startPending, type Pending } from "./pendingCore";
 import { addArrivals, clearByCounts, clearOnOpen, type Arrivals, type NewMap } from "./newMail";
@@ -532,6 +533,8 @@ let readingId: string | null = null;
 const preparing = new Set<string>();
 /** The re-reads of the list that are running: only the last one started lays its answer over the list (a stale answer must not bring back a moved message). */
 const listReads = new Latest();
+/** Mail that was just moved, shown in the folder it went to until the sync brings the real rows: see movedIn.ts. */
+const movedIn = new MovedIn();
 /** (BUG-1) Moves waiting out their Undo window: see queuedMoves.ts. */
 const queued = new QueuedMoves();
 
@@ -564,14 +567,27 @@ function mailBack(token: string): Promise<unknown> {
 export function moveDropped(token: string, error: string) {
   const d = queued.dropped(token);
   if (!d) return; // Undo won
+  movedIn.drop(token); // (the mail is not in the folder it was shown in)
   const st = useStore.getState();
   if (d.dismiss != null) st.dismissToast(d.dismiss);
   st.showToast(() => t("errors.toast.failed", { error: friendlyError(error) }), undefined, "error");
   void st.refresh().then(() => mailBack(token));
 }
 
+/** The backend finished these moves (moves-committed): their conversations leave the open list, except the ones this list shows as arrived, and are counted as arriving until the sync brings the copies. */
+export function movesCommitted(threadIds: string[]) {
+  movedIn.commit(threadIds, Date.now());
+  useStore.getState().dropThreads(threadIds);
+}
+
+/** The copies of the moved mail of a mailbox are in their folders here (moves-settled): the numbers and the list come from the backend alone again. */
+export function movesSettled(accountId: string) {
+  if (movedIn.settle(accountId)) void useStore.getState().refresh();
+}
+
 /** The server refused the move after the Undo window (the Undo toast is gone by then): the error is shown, the mail is back. */
 export function moveRefused(token: string, error: string) {
+  movedIn.drop(token);
   const st = useStore.getState();
   st.showToast(() => t("app.toast.actionFailed", { error: friendlyError(error) }), undefined, "error");
   void st.refresh().then(() => mailBack(token));
@@ -1049,7 +1065,13 @@ export const useStore = create<State>((set, get) => ({
     const tok = intents.begin();
     const run = listReads.start();
     const readAt = Date.now();
-    const foldersP = api.listFolders().then((folders) => {
+    // (the folder numbers wait for the list: a conversation that the list shows as really there is not counted as arriving a second time)
+    let listSettled!: () => void;
+    const listStep = new Promise<void>((r) => (listSettled = r));
+    const foldersP = api.listFolders().then(async (read) => {
+      await listStep;
+      movedIn.expire(Date.now());
+      const folders = movedIn.size ? withMovedCounts(read, movedIn.all(), prefs.countOtherMail || !prefs.focused) : read; // (mail that was just moved here is counted until the sync brings it)
       // (W13.2: a folder with no unread mail left has nothing new; an arrival noted after this read began is newer than its numbers)
       if (!intents.changedSince(tok)) set((s) => ({ folders, newMail: clearByCounts(s.newMail, folders, readAt) }));
     });
@@ -1059,6 +1081,7 @@ export const useStore = create<State>((set, get) => ({
     try {
       if (folder === "scheduled") {
         set({ threads: [] });
+        listSettled();
         await Promise.all([foldersP, outboxP]);
         return;
       }
@@ -1076,16 +1099,26 @@ export const useStore = create<State>((set, get) => ({
       // ignore a slow answer for a view the user already left
       const now = get();
       if (now.folder === folder && now.accountId === accountId && now.search === search && listReads.current(run)) {
+        // Mail that was just moved into this folder is in the list at once (movedIn.ts): the ones the read already has are really there, the others are put in by their date
+        let shown = fresh;
+        if (movedIn.size && !search.trim()) {
+          movedIn.expire(Date.now());
+          movedIn.landed(accountId, folder, new Set(fresh.map((x) => x.threadId)));
+          const tab = folder === "inbox" && prefs.focused ? focus : null;
+          shown = mergeMoved(fresh, movedIn.forView({ folder, accountId, tab, unreadOnly: filter === "unread", flaggedOnly: filter === "flagged", searching: false }), prefs.sortAsc, folder === "inbox" && !prefs.sortAsc);
+        }
         // F-12: reading the open mail can take it out of an Unread / Flagged list; it stays (and stays open) until the person leaves it
         const view = [folder, accountId, search, searchScope, focus, filter, prefs.conversations, prefs.sortAsc].join("|");
-        const { threads, kept } = holdOpenThread(fresh, now.threads, now.selected, view === listKey);
+        const { threads, kept } = holdOpenThread(shown, now.threads, now.selected, view === listKey);
         listKey = view;
         heldOpen = kept;
         // the rows are here: the list stops being "loading" now, not after the folder counts and the outbox have answered too (they only update their own numbers)
         set({ threads, loading: false });
       }
+      listSettled();
       await Promise.all([foldersP, outboxP]);
     } finally {
+      listSettled();
       intents.end(tok);
       // (only the last read ends it: an older one that was overtaken must not hide "Loading…" / the skeleton while the newer one still runs)
       if (listReads.current(run)) set({ loading: false });
@@ -1440,6 +1473,7 @@ export const useStore = create<State>((set, get) => ({
     const removing = moveLike || action === "snooze";
     let nextSel = selected;
     let nextUnread = false; // the mail the selection moves to was unread (the app marks it read as it opens)
+    let leaving: ThreadSummary[] = []; // the conversations that left the list now: the folder they go to shows them at once (movedIn.ts)
     if (removing) {
       if (selected && ids.includes(selected)) {
         const idx = threads.findIndex((t) => t.threadId === selected);
@@ -1450,6 +1484,7 @@ export const useStore = create<State>((set, get) => ({
       }
       // the row leaves the list and the unread numbers (side menu, tabs) drop with it; Undo and the refresh after it bring them back (the backend leaves a waiting conversation out of its numbers too)
       const gone = threads.filter((t) => ids.includes(t.threadId));
+      leaving = gone;
       set({ threads: threads.filter((t) => !ids.includes(t.threadId)), folders: withThreadsGone(get().folders, gone, prefs.countOtherMail || !prefs.focused), checked: new Set() });
     }
 
@@ -1461,6 +1496,12 @@ export const useStore = create<State>((set, get) => ({
         // a folder check that already failed (a fast server) has shown its error and brought the mail back: no "Archived" toast then,
         // and the person stays on the mail (nothing to move on from)
         advance = queued.queued(token);
+        // the folder the mail goes to shows it and counts it from now on, not after the Undo time, the server and the next sync (a refused or dropped move takes it out again)
+        const dest = destOf(real, arg);
+        if (advance && dest && leaving.length) {
+          const arrived = movedIn.add(token, dest, leaving, Date.now(), prefs.undoActionSeconds);
+          set({ folders: withMovedCounts(get().folders, arrived, prefs.countOtherMail || !prefs.focused) });
+        }
         if (advance && selected && ids.includes(selected)) {
           // what to put back if the move is refused or undone while the person is still on the next mail (see autoAdvance.ts)
           advances.record(token, startAdvance(selected, nextSel, nextUnread, Date.now()));
@@ -1471,7 +1512,7 @@ export const useStore = create<State>((set, get) => ({
             label, // i18n-ok: a function (Lazy) like the text of every toast
             () => {
               queued.undo(token); // Undo wins over a folder check that ends later
-              void api.cancelAction(token).then(() => get().refresh()).then(() => mailBack(token));
+              void api.cancelAction(token).then((cancelled) => (cancelled && movedIn.drop(token), get().refresh())).then(() => mailBack(token)); // (a move that is running already cannot be taken back: it stays shown where it goes)
             },
             "success",
           );
@@ -1583,7 +1624,8 @@ export const useStore = create<State>((set, get) => ({
   },
 
   dropThreads: (ids) => {
-    const gone = new Set(ids);
+    const here = get().folder;
+    const gone = new Set(ids.filter((id) => !movedIn.has(id, here))); // (a conversation this folder shows as arrived is not leaving it)
     if (!get().threads.some((x) => gone.has(x.threadId))) return;
     set((s) => ({ threads: s.threads.filter((x) => !gone.has(x.threadId)), checked: new Set([...s.checked].filter((x) => !gone.has(x))) }));
   },

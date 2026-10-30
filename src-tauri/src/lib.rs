@@ -1666,6 +1666,13 @@ struct MovesCommitted {
     thread_ids: Vec<String>,
 }
 
+/// The moved mail of a mailbox is in its folders here, or the follow-up rounds ended (`moves-settled`): the page no longer shows it as arrived on its own.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct MovesSettled {
+    account_id: String,
+}
+
 /// Mailboxes with a "read the folders again soon" waiting after a move (see `sync_after_move`).
 static AFTER_MOVE: Mutex<std::collections::BTreeSet<String>> = Mutex::new(std::collections::BTreeSet::new());
 
@@ -1742,10 +1749,15 @@ fn follow_up_rounds(app: &tauri::AppHandle, a: &str) {
         }
         startup::line("action", &format!("account {a}: reading the folders after a move (round {})", round + 1));
         let _ = run_sync(app, &db, a);
-        let _ = app.emit("mail-synced", ());
         let missing = moves_missing(&lock(&db), a, &newmail::recent_moves(a));
         startup::line("action", &format!("account {a}: {missing} moved message(s) not in their folder yet"));
-        if let Some(next) = next_follow_up(round + 1, missing) {
+        let next = next_follow_up(round + 1, missing);
+        if next.is_none() {
+            // the copies are in their folders (or the rounds are used up): the page stops showing the moved mail by itself and reads the numbers from here (src/movedIn.ts)
+            let _ = app.emit("moves-settled", MovesSettled { account_id: a.to_string() });
+        }
+        let _ = app.emit("mail-synced", ());
+        if let Some(next) = next {
             round += 1;
             pause = next;
             continue;
