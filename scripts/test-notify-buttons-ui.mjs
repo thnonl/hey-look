@@ -49,7 +49,7 @@ try {
       en: 'Notifications on this desktop have no buttons. Open Hey Look! to act on a message.',
       vi: 'Thông báo trên môi trường desktop này không có nút. Hãy mở Hey Look! để xử lý thư.',
       fr: 'Les notifications de cet environnement de bureau n’ont pas de boutons. Ouvrez Hey Look! pour agir sur un message.',
-      'zh-Hans': '此桌面环境上的通知没有按钮。请打开Hey Look!以处理邮件。',
+      'zh-Hans': '此桌面环境上的通知没有按钮。请打开 Hey Look! 以处理邮件。',
       es: 'Las notificaciones de este escritorio no tienen botones. Abre Hey Look! para actuar sobre un mensaje.',
       ja: 'このデスクトップの通知にはボタンがありません。メッセージを操作するには、Hey Look!を開いてください。',
       de: 'Benachrichtigungen auf diesem Desktop haben keine Schaltflächen. Öffnen Sie Hey Look!, um auf eine Nachricht zu reagieren.',

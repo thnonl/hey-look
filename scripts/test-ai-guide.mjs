@@ -84,7 +84,7 @@ async function clickEl(expr) {
 const byText = (scope, re) => `[...document.querySelectorAll(${JSON.stringify(scope)})].find((e) => ${re}.test(e.textContent))`;
 /** The words of the Translate entries of the menu, per language. */
 const TRANSLATE_WORDS = { en: '^Translate to', de: 'übersetzen$', ru: '^Перевести', fr: '^Traduire', es: '^Traducir', vi: '^Dịch sang', ja: '翻訳$', 'zh-Hans': '^翻译为' };
-const WRITE_WORDS = { en: 'Write with AI', de: 'Mit KI schreiben', ru: 'Написать с ИИ', fr: 'Rédiger avec l’IA', es: 'Escribir con IA', vi: 'Viết bằng AI', ja: 'AIで作成', 'zh-Hans': '用AI撰写' };
+const WRITE_WORDS = { en: 'Write with AI', de: 'Mit KI schreiben', ru: 'Написать с ИИ', fr: 'Rédiger avec l’IA', es: 'Escribir con IA', vi: 'Viết bằng AI', ja: 'AIで作成', 'zh-Hans': '用 AI 撰写' };
 let curLang = 'en';
 /** Open the "more" menu that holds the Translate entries (in `scope`) and choose "Translate to ...". */
 async function chooseTranslate(scope) {
