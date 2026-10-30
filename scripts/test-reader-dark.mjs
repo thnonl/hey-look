@@ -92,7 +92,8 @@ async function pixels(tag) {
 }
 
 /** Is a picture of the open mail still on its way? */
-const PENDING_IMG = `[...(document.querySelector('.msg-frame')?.contentDocument?.images ?? [])].some((i) => !i.complete)`;
+// (1.0.11 BUG-2: the page never asks the sender's host for a picture; a picture the backend has not brought yet is an <img> without an address, data-hl-wait, until the data: copy comes in)
+const PENDING_IMG = `[...(document.querySelector('.msg-frame')?.contentDocument?.images ?? [])].some((i) => !i.complete || i.hasAttribute('data-hl-wait'))`;
 const near = (a, b, tol = 8) => a && a.every((v, i) => Math.abs(v - b[i]) <= tol);
 const sig = (st) => JSON.stringify(st.rows.map((r) => r.slice(0, 3)));
 const BUTTON = 'button[aria-pressed][aria-label="Message background: original / dark"]';
@@ -141,7 +142,8 @@ async function darkConfig(tag, { reader, theme, id = 'dk11', origMin = 4.5 }) {
   check(tag, await evaluate(PENDING_IMG), `first open: every picture had already loaded (document ${st.rs}), so this run did not exercise a pending picture`);
   check(tag, st.cls.split(' ').includes('hm-dark') && !st.cls.includes('hm-pend'), `first open: classes "${st.cls}"`);
   check(tag, st.hmAttr > 0 || st.sheets >= 2, `first open: the dark sheet is not in the frame`);
-  check(tag, logoRequests >= 1, 'the frame did not ask for the picture (the test does not exercise a pending picture)');
+  check(tag, (await evaluate(`(window.__remoteFetchCalls || []).flat().some((u) => u.includes('/templates/logo.png'))`)) === true, 'the backend was not asked for the picture (the test does not exercise a pending picture)');
+  check(tag, logoRequests === 0, 'the frame itself asked the sender for the picture (it must not: only the backend fetches)');
   await shotTo(tag, 'first-open');
   await readable(tag, 'first open', DARK, st);
   const S1 = sig(st);
