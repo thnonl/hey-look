@@ -352,6 +352,23 @@ try {
     await shot('settings-rules');
   });
 
+  // 1.0.11 RC1 round 2 BUG-4: Settings > Rules > New rule, in the app's window with the custom title bar at 960x560 (viewport 944 x 551): the dialog is drawn inside the Settings page (its dimmed layer
+  // starts under the bar and under Settings' own header), and it was as high as 90vh of the whole window, so Cancel and Save hung out of the window. The dialog now fits its layer; its body scrolls.
+  for (const [w, h] of [[944, 551], [1440, 900]]) {
+    await check(`BUG-4 Settings > Rules > New rule at ${w}x${h} with the custom title bar: the dialog and its footer are inside the window`, async () => {
+      await openApp('rules&lang=en', w, h);
+      await evaluate(`document.documentElement.setAttribute('data-frame', 'custom'); 1`);
+      await evaluate(`${S('setDialog')}({ type: 'settings', tab: 'mb:all', section: 'filters', nonce: 1 }); 1`);
+      assert.ok(await waitFor(`!!document.querySelector('.list-row')`), 'the rules list');
+      await evaluate(`[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'New rule').click(); 1`);
+      assert.ok(await waitFor(`!!document.querySelector('.rd-form')`), 'the dialog');
+      await sleep(500);
+      const r = await evaluate(`(() => { const m = document.querySelector('.rd-form').closest('.modal'); const q = m.getBoundingClientRect(); const layer = m.parentElement.getBoundingClientRect(); const btns = [...m.querySelectorAll('.rd-actions .btn')].map((b) => { const x = b.getBoundingClientRect(); return x.bottom <= innerHeight + 1 && x.bottom <= layer.bottom + 1 && x.top >= layer.top; }); return { top: Math.round(q.top), bottom: Math.round(q.bottom), layer: [Math.round(layer.top), Math.round(layer.bottom)], vh: innerHeight, btns }; })()`);
+      assert.ok(r.btns.length >= 2 && r.btns.every(Boolean), `Cancel and Save are in view ${J(r)}`);
+      assert.ok(r.top >= r.layer[0] - 1 && r.bottom <= r.layer[1] + 1 && r.bottom <= r.vh + 1, `the dialog is inside its layer and the window ${J(r)}`);
+      await evaluate(`document.documentElement.removeAttribute('data-frame'); 1`);
+    });
+  }
   await check('REQ-8 the mailbox heading menu and the command bar open Settings > Rules', async () => {
     await openApp('rules&lang=en');
     await evaluate(`${S('setView')}('inbox', 'a1').then(() => 1)`);
@@ -477,6 +494,17 @@ try {
           return { cutSelects, open, fits: r.left >= 0 && r.right <= innerWidth + 1 && r.top >= 0 && r.bottom <= innerHeight + 1, hscroll: d.scrollWidth > d.clientWidth + 1 || m.scrollWidth > m.clientWidth + 1, clip, chipLines, bodyScroll: document.documentElement.scrollWidth > innerWidth + 1 };
         })()`);
         assert.ok(lay.fits, `the dialog is inside the window ${J(lay)}`);
+        if (w === 960) {
+          // 1.0.11 RC1 round 2 BUG-4: in the app (custom title bar: data-frame="custom", the dimmed layer starts under the bar) the dialog was as high as 90vh of the WHOLE window and its
+          // footer (Cancel, Save) hung out of the window at 960x560 (viewport 944 x 551). Now the dialog fits the layer under the bar, its body scrolls and the footer stays in view.
+          await evaluate(`document.documentElement.setAttribute('data-frame', 'custom'); 1`);
+          await cdp('Emulation.setDeviceMetricsOverride', { width: 944, height: 551, deviceScaleFactor: 1, mobile: false });
+          await sleep(300);
+          const cust = await evaluate(`(() => { const m = document.querySelector('.rd-form').closest('.modal'); const r = m.getBoundingClientRect(); const bb = document.querySelector('.modal-back').getBoundingClientRect(); const btns = [...m.querySelectorAll('.rd-actions .btn')].map((b) => { const q = b.getBoundingClientRect(); return q.top >= bb.top - 1 && q.bottom <= bb.bottom + 1 && q.bottom <= innerHeight + 1; }); const body = m.querySelector('.modal-body'); return { top: Math.round(r.top), bottom: Math.round(r.bottom), layerTop: Math.round(bb.top), layerBottom: Math.round(bb.bottom), vh: innerHeight, btns, scrolls: body.scrollHeight > body.clientHeight + 1 }; })()`);
+          assert.ok(cust.btns.length >= 2 && cust.btns.every(Boolean), `custom frame 944x551: Cancel and Save are inside the window ${J(cust)}`);
+          assert.ok(cust.top >= cust.layerTop - 1 && cust.bottom <= cust.layerBottom + 1, `custom frame 944x551: the dialog is inside the layer under the bar ${J(cust)}`);
+          await evaluate(`document.documentElement.removeAttribute('data-frame'); 1`);
+        }
         assert.equal(lay.hscroll, false, 'no horizontal scroll in the dialog');
         assert.deepEqual(lay.clip, [], `clipped: ${J(lay.clip)}`);
         assert.deepEqual(lay.cutSelects, [], `the chosen text of a select is cut: ${J(lay.cutSelects)}`);

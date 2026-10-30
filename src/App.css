@@ -861,7 +861,7 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 /* ===== modals & dialogs ===== */
 .modal-back { position: fixed; inset: 0; background: rgba(10, 14, 22, .46); backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; z-index: var(--z-modal); animation: fade .14s; }
 .modal-back.top { align-items: flex-start; padding-top: 12vh; }
-.modal { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow); width: 520px; max-width: 94vw; max-height: 90vh; display: flex; flex-direction: column; animation: pop .16s var(--ease); }
+.modal { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow); width: 520px; max-width: 94vw; max-height: 90vh; max-height: min(90vh, calc(100% - 16px)); display: flex; flex-direction: column; animation: pop .16s var(--ease); }
 .modal.wide { width: 980px; height: 82vh; }
 .modal.cmd { padding: 8px; width: 560px; }
 .modal.cmd input { width: 100%; margin-bottom: 6px; }
