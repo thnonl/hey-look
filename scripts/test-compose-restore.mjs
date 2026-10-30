@@ -241,7 +241,7 @@ try {
     assert.equal(noteCount(await saveAndRead()), 1);
   });
 
-  // ---------- D-053 (QA r5): Send + Undo in the inline pane: the body is scrolled where it was at Send from the first frame of the new pane (pop-out keeps it, D-041)
+  // ---------- D-053 (QA r5): Send + Undo in the inline pane: the body is scrolled where it was at Send in every frame (1.0.11: the pane stays locked and Undo unlocks it in place, as in a window, D-041)
   for (const top of [150, 180]) {
     await fresh('&nodefaultsig');
     await evaluate(`(() => { const ed = document.querySelector('.cp-editor .tiptap').editor; ed.commands.insertContent('<p>' + Array.from({ length: 60 }, (_, i) => 'line ' + i).join('</p><p>') + '</p>'); return 1; })()`);
@@ -256,11 +256,10 @@ try {
     const samples = await evaluate(`(cancelAnimationFrame(window.__sampler), window.__samples)`);
     await check(`D-053 the inline pane after Undo is scrolled where it was at Send (${V}), every frame`, async () => {
       const seen = samples.filter((x) => x !== null);
-      // (the first pane is in the first samples; the new pane's frames are those after the gap while the message was out)
-      const gap = samples.findIndex((x) => x === null);
-      assert.ok(gap > 0, 'the pane never closed for the Undo time');
-      const back = samples.slice(gap).filter((x) => x !== null);
-      assert.ok(back.length > 20, `few frames of the new pane: ${back.length}`);
+      // (1.0.11: the pane stays on screen, locked, for the Undo time and Undo unlocks this same editor in place: no frame without it, none off the position of Send)
+      assert.equal(samples.findIndex((x) => x === null), -1, 'the pane closed for the Undo time');
+      const back = samples.filter((x) => x !== null);
+      assert.ok(back.length > 20, `few frames of the pane: ${back.length}`);
       const out = back.filter((x) => Math.abs(x - V) > 1);
       assert.equal(out.length, 0, `${out.length} of ${back.length} frames off ${V}: ${JSON.stringify([...new Set(back)].slice(0, 8))} (${seen.length} samples)`);
     });
