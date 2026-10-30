@@ -45,6 +45,7 @@ import { cleanHeaderText } from "../headerText";
 import { fromAccountFor } from "../fromAccount";
 import { isFreshMessage, startAttachments, startRecipients, startSecurity } from "../composeStart";
 import { answerBodyHtml } from "../composeBody";
+import { prefersReducedMotion, sentMarkMs } from "../sentMark";
 import { askFreshBeforeSend, DRAFT_LIMIT, draftSize, draftTooLargeError, isSizeRefusal, sendLimit, showSizeToast, wireSize } from "../sendSize";
 import { outgoingName } from "../attachName";
 import { blockedAttachmentExt, dataUriBytes, fileToBase64, fmtClock, fmtIn, fmtSize, fmtWhen, htmlToText, imageSize, PICTURE_TYPES, playSent, resizeImage, sanitizeHtml, shortKey, userName } from "../util";
@@ -306,6 +307,16 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   const scrollsWas = useRef<[Element, number][]>([]); // and how far the header, the body and the tail were scrolled
   const sendBtnRef = useRef<HTMLButtonElement>(null);
   const [sendW, setSendW] = useState(0); // the width of the Send button before its label changed: it keeps it
+  // The send went through (1.0.11): a short "sent" mark takes the place of the locked editor, then the pane / window ends. `aliveRef`: this editor is still on screen (Send keeps
+  // the inline pane too since 1.0.11, so a click on another mail or a New mail may have closed it during the Undo time: Undo then makes a new Compose, see `reopen`).
+  const [sentMark, setSentMark] = useState(false);
+  const aliveRef = useRef(true);
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
   // a meeting: To = required attendees, Cc = optional; sent as a calendar invitation
   // (a reopened draft, snapshot or moved message brings the strip as it was: `meetingForm`; the start values of "Meeting" otherwise)
   const [meeting, setMeeting] = useState<MeetingState | null>(
@@ -941,7 +952,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   // (in a window of its own the message that comes back after Undo or a failed send counts as changed: closing the window asks, it never loses it)
   // (`unscheduled`: the scheduled message is gone from the outbox, so what comes back is an ordinary message)
   const reopen = (d: Draft, unscheduled = false) => {
-    if (lockedRef.current) return unlock(d); // (a window that kept the editor on screen: the same editor comes back, nothing is made again)
+    if (lockedRef.current && aliveRef.current) return unlock(d); // (the editor that stayed on screen, in a window or in the pane: the same editor comes back, nothing is made again)
     // a message that comes back after Undo or a failed send holds what the person wrote: it counts as changed in the pane too (before, only in a window), or Save draft would say there is nothing worth a draft (W13.5) and closing it would not ask
     // (the inline pane was closed for the Undo time: the new one puts the header, the body and the tail back where they were scrolled at Send, D-053)
     const was = scrollsWas.current;
@@ -1293,9 +1304,10 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     setComposeDirty(false);
     const wait = eff(prefs, accountId, "undoSeconds");
     noteScrolls(); // (what Send leaves behind: the window keeps it, the pane that Undo makes again gets it, D-053)
-    if (composeSeam()) lockForSend(wait);
-    else void openCompose(null, { sending: wait });
-    // in the pane the compose is gone now; handing a big message to the outbox (Undo on) or to the server (Undo off, below) can take seconds: a "Sending…" toast with a ring says so (W13.14 A9),
+    // The compose stays on screen, locked, in the pane as in a window (1.0.11): Undo or a failed send unlocks this same editor; a send that went through ends it after the "sent" mark.
+    const paneKey = useStore.getState().composeKey;
+    lockForSend(wait);
+    // handing a big message to the outbox (Undo on) or to the server (Undo off, below) can take seconds: in the pane a "Sending…" toast with a ring says so (W13.14 A9),
     // replaced at once by the Undo toast
     const gap = composeSeam() ? null : pendingToast("send-hold", () => t("compose.toast.sending"), 100, 0);
     let cancelled = false;
@@ -1330,6 +1342,13 @@ function ComposeBody({ init }: { init: ComposeInit }) {
         if (useStore.getState().prefs.sentSound) playSent();
         showToast(t("compose.toast.sent"), undefined, "success");
         void useStore.getState().sync();
+        // the "sent" mark in place of the editor, then the pane ends (a window ends when `done` is called below); a pane that was closed during the send has nothing to show
+        if (aliveRef.current) {
+          setSentMark(true);
+          await new Promise<void>((r) => setTimeout(r, sentMarkMs(prefersReducedMotion())));
+        }
+        const now = useStore.getState();
+        if (!composeSeam() && now.compose && now.composeKey === paneKey) void now.openCompose(null);
       } catch (e) {
         // quitting: the message stays in the outbox and goes out at the next start (REQ-48 c), nothing is reopened
         if (quitting) return;
@@ -2501,6 +2520,15 @@ function ComposeBody({ init }: { init: ComposeInit }) {
           >
             <span>{t("compose.drop.attach")}</span>
           </div>
+        </div>
+      )}
+      {sentMark && (
+        <div className="cp-sent" aria-hidden>
+          <svg viewBox="0 0 52 52" width="56" height="56" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+            <circle className="cp-sent-ring" cx="26" cy="26" r="23" />
+            <path className="cp-sent-tick" d="M15 27.5l8 8L37.5 18" />
+          </svg>
+          <span className="cp-sent-lbl">{t("compose.toast.sent")}</span>
         </div>
       )}
     </div>

@@ -527,3 +527,5 @@ static | node scripts/test-auto-pictures-switch.mjs
 ui-c | node scripts/test-trusted-senders.mjs --require-browser
 # 1.0.10 the loading indicator of the message list (a 2 px bar after 200 ms and the dim instead of the pill over the rows; the list stops loading when its rows are here): markup, timing, dim, overlap, reduced motion, light and dark
 ui-d | node scripts/test-list-loading-indicator.mjs --require-browser
+# 1.0.11: the "sent" mark after Send (time, reduced motion, pane stays locked)
+static | node --experimental-strip-types scripts/test-sent-mark.mjs
