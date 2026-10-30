@@ -115,12 +115,12 @@ export default defineLocale<typeof ns.en>({
   "compose.sec.willBeEncrypted": "Se cifrará para las personas que añadas y para ti. El asunto no se cifra.",
   "compose.sec.willBeEncryptedSigned": "Se cifrará y firmará para las personas que añadas y para ti. El asunto no se cifra.",
   "compose.sec.encrypted": {
-    one: "Cifrado para {n} destinatario y para ti. El asunto no se cifra.",
-    other: "Cifrado para {n} destinatarios y para ti. El asunto no se cifra.",
+    one: "Cifrado para ti y {n} destinatario. El asunto no se cifra.",
+    other: "Cifrado para ti y {n} destinatarios. El asunto no se cifra.",
   },
   "compose.sec.encryptedSigned": {
-    one: "Cifrado y firmado para {n} destinatario y para ti. El asunto no se cifra.",
-    other: "Cifrado y firmado para {n} destinatarios y para ti. El asunto no se cifra.",
+    one: "Cifrado y firmado para ti y {n} destinatario. El asunto no se cifra.",
+    other: "Cifrado y firmado para ti y {n} destinatarios. El asunto no se cifra.",
   },
   "compose.sec.details": "Detalles",
   "compose.sec.autoOff": "Cifrado desactivado: falta la clave de {addr}.",

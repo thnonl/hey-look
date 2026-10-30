@@ -117,12 +117,12 @@ export default defineLocale<typeof ns.en>({
   "compose.sec.willBeEncrypted": "Sẽ được mã hóa cho những người bạn thêm vào và cho chính bạn. Chủ đề không được mã hóa.",
   "compose.sec.willBeEncryptedSigned": "Sẽ được mã hóa và ký cho những người bạn thêm vào và cho chính bạn. Chủ đề không được mã hóa.",
   "compose.sec.encrypted": {
-    one: "Đã mã hóa cho {n} người nhận và cho chính bạn. Chủ đề không được mã hóa.",
-    other: "Đã mã hóa cho {n} người nhận và cho chính bạn. Chủ đề không được mã hóa.",
+    one: "Đã mã hóa cho bạn và {n} người nhận. Chủ đề không được mã hóa.",
+    other: "Đã mã hóa cho bạn và {n} người nhận. Chủ đề không được mã hóa.",
   },
   "compose.sec.encryptedSigned": {
-    one: "Đã mã hóa và ký cho {n} người nhận và cho chính bạn. Chủ đề không được mã hóa.",
-    other: "Đã mã hóa và ký cho {n} người nhận và cho chính bạn. Chủ đề không được mã hóa.",
+    one: "Đã mã hóa và ký cho bạn và {n} người nhận. Chủ đề không được mã hóa.",
+    other: "Đã mã hóa và ký cho bạn và {n} người nhận. Chủ đề không được mã hóa.",
   },
   "compose.sec.details": "Chi tiết",
   "compose.sec.autoOff": "Đã tắt mã hóa: không có khóa của {addr}.",
