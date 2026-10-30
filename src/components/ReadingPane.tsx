@@ -1,7 +1,7 @@
 import { unsubscribeMailto } from "../unsubscribeMailto";
 import { ALT_MIN_HEIGHT, hiddenPictureBox } from "../blockedPicture";
 import { dropSrcsets, firstSrcsetUrl, isSchemeSource, pictureAddress, remoteUrl, settleSources } from "../pictureSrcset";
-import { cachedImage, cachedImageCount, hasCachedImage, loadRemoteImages } from "../remoteImages";
+import { cachedImage, hasCachedImage, loadRemoteImages } from "../remoteImages";
 import { frameCsp, frameSandbox } from "../frameSandbox";
 import { openUpdateLink } from "../updates";
 import { guardFrame, type PictureMenu } from "../contextGuard";
@@ -114,9 +114,10 @@ function remoteImageUrls(html: string): string[] {
  * same string comes back and nothing is parsed. One entry per cleaned result; the result is dropped from CLEANED by size and count, and the entry goes with it.
  */
 const SHOWN = new WeakMap<object, { key: string; html: string }>();
-function shownHtml(clean: { html: string }, allowed: boolean, m: MessageFull, loaded: Record<string, string>, state: Record<string, { status: "loading" | "failed"; error?: string }>, lang: string, version: number, shown: Record<string, string>): string {
+function shownHtml(clean: { html: string }, allowed: boolean, settled: boolean, m: MessageFull, loaded: Record<string, string>, state: Record<string, { status: "loading" | "failed"; error?: string }>, lang: string, version: number, shown: Record<string, string>): string {
   const key = [
     allowed ? 1 : 0,
+    allowed && settled ? 1 : 0,
     allowed ? version : 0,
     lang,
     m.attachments.filter((a) => a.cid).map((a) => `${a.cid}:${a.name}:${a.size}`).join(","),
@@ -126,7 +127,7 @@ function shownHtml(clean: { html: string }, allowed: boolean, m: MessageFull, lo
   ].join("|");
   const hit = SHOWN.get(clean);
   if (hit && hit.key === key) return hit.html;
-  const out = pictureHtml(allowed ? inlineImages(clean.html) : clean.html, m, loaded, state, shown);
+  const out = pictureHtml(allowed ? inlineImages(clean.html, settled) : clean.html, m, loaded, state, shown);
   SHOWN.set(clean, { key, html: out });
   return out;
 }
@@ -224,12 +225,22 @@ function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string
   return doc.body.innerHTML;
 }
 
-function inlineImages(html: string): string {
-  if (cachedImageCount() === 0) return html;
+function inlineImages(html: string, settled: boolean): string {
   const doc = new DOMParser().parseFromString(html, "text/html");
   doc.querySelectorAll("img[src]").forEach((i) => {
-    const data = cachedImage(i.getAttribute("src") ?? "");
-    if (data) i.setAttribute("src", data);
+    const src = i.getAttribute("src") ?? "";
+    const data = cachedImage(src);
+    if (data) return i.setAttribute("src", data);
+    // The webview never asks the sender's host for a picture (1.0.11 BUG-2: an auto-shown picture was fetched twice, by the backend and by the page): what the backend has not brought yet waits
+    // without an address (data-hl-wait), and what it could not bring is a hidden-picture box (click to try again). The frame's CSP is img-src data: in every case.
+    if (/^(https?:)?\/\//i.test(src.trim())) {
+      const abs = src.trim().startsWith("//") ? `https:${src.trim()}` : src.trim();
+      i.removeAttribute("src");
+      if (settled) {
+        i.setAttribute("data-hl-blocked", "1");
+        if (abs.length <= 4096) i.setAttribute("data-hl-src", abs);
+      } else i.setAttribute("data-hl-wait", "1");
+    }
   });
   settleSources(doc, cachedImage);
   // the webview prefers srcset to src: a srcset left beside the data: URI would be fetched by the webview itself (CSP: broken picture)
@@ -322,6 +333,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   const sender = normSender(m.fromEmail);
   const rin: RemoteInput = { global: loadRemote, trusted: !!sender && trustedSet.has(sender), autoReason: m.autoReason, noAuto: !!sender && noAutoSet.has(sender), autoOn, folder: m.folder, encrypted: !!m.security?.encrypted, auth: m.auth, allow };
   const [version, setVersion] = useState(0); // bumps when images arrive from the backend
+  const [settledFor, setSettledFor] = useState<object | null>(null); // the cleaned mail whose pictures the backend has answered for (all of them came, or failed)
   const [loadedPics, setLoadedPics] = useState<Record<string, string>>({});
   // pictures shown one by one (address -> data: URI): put into the frame in place, and remembered here so a rebuilt frame (a language change, a sync) keeps them; gone with the message
   const shownRef = useRef<Record<string, string>>({});
@@ -392,11 +404,11 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   const html = useMemo(
     () => {
       hlMark("open:pics:start");
-      const out = shownHtml(clean, allowed, m, loadedPics, picState, lang, version, shownRef.current);
+      const out = shownHtml(clean, allowed, settledFor === clean, m, loadedPics, picState, lang, version, shownRef.current);
       hlMark("open:pics:end");
       return out;
     },
-    [clean, allowed, version, m, loadedPics, picState, lang], // eslint-disable-line react-hooks/exhaustive-deps
+    [clean, allowed, settledFor, version, m, loadedPics, picState, lang], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   // a picture that was not embedded at sync time: fetch it from the server (click, or by the auto-load setting)
@@ -483,19 +495,24 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   useEffect(() => {
     if (!allowed || !m.html) return;
     const missing = remoteImageUrls(clean.html).filter((u) => !hasCachedImage(u));
-    if (missing.length === 0) return;
+    if (missing.length === 0) {
+      setSettledFor(clean);
+      return;
+    }
     let live = true;
     void loadRemoteImages(missing).then((n) => {
-      if (live && n > 0) setVersion((v) => v + 1);
+      if (!live) return;
+      if (n > 0) setVersion((v) => v + 1);
+      setSettledFor(clean);
     });
     return () => {
       live = false;
     };
   }, [allowed, clean, m.html]);
 
-  // CSP inside the message frame: without consent nothing remote may load; with consent the backend already
-  // inlined what it could and the rest falls back to a direct request.
-  const csp = frameCsp(allowed ? "default-src 'none'; img-src data: https: http:; style-src 'unsafe-inline'; font-src data:" : "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:");
+  // CSP inside the message frame: nothing remote ever loads in the page, with or without consent: with consent the backend fetches the pictures (loadRemoteImages) and they come in as data: URIs
+  // (1.0.11 BUG-2: the old "img-src https: http:" let the page ask the sender's host a second time, with its own user agent and a Referer).
+  const csp = frameCsp(allowed ? "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:" : "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:");
   // The base colours switch with a class on <html> (screen only, so print stays light), and the mail's own colours with
   // the sheet from darkMail.ts: toggling never reloads the frame. The frame is created already dark and hidden
   // (hm-pend) so the original colours are never painted first. The picture placeholders (.hl-ph) are ordinary mail

@@ -283,7 +283,21 @@ try {
     if (f.tier === 'mid') ok(f.mainLines === 1, `${f.w} x ${f.h}: the line is one line (${f.mainLines})`);
     ok(f.title === 'Picture hidden for privacy', `${f.w} x ${f.h}: the tooltip has the whole line`);
   }
+  // 1.0.11 RC1 round 2 BUG-2: a picture that shows by itself is fetched by the backend ONLY; the page (the message frame) never asks the sender's host (it did, with its own user agent and a Referer,
+  // because the frame's CSP allowed img-src https: http: once the pictures were allowed). The hermetic net lists every request the page makes to a host other than this machine, also from the frame.
+  tag = 'no-page-request';
+  for (const id of ['pW', 'pS']) {
+    H.net.reset();
+    await open(id);
+    ok(await until(`${FR}.contentDocument.querySelectorAll('img[src^="data:image"]').length === 1`, 6000), `${id}: the picture shows by itself, from a data: URI`);
+    await sleep(600);
+    eq(H.net.requests.filter((r) => /img\.shop\.example/.test(r.url)).map((r) => r.url), [], `${id}: the page made no request to the sender's host`);
+    const csp = await evaluate(`${FR}.contentDocument.querySelector('meta[http-equiv=Content-Security-Policy]').content`);
+    ok(/img-src data:(;|$)/.test(csp), `${id}: the frame's CSP allows data: pictures only: ${csp}`);
+    eq(await evaluate(`[...${FR}.contentDocument.querySelectorAll('img')].filter((i) => /^(https?:)?\\/\\//.test(i.getAttribute('src') || '')).length`), 0, `${id}: no picture keeps a remote address`);
+  }
   tag = 'box';
+  await open('pB');
   // colours: light and dark (the contrast of the text >= 4.5)
   const contrast = () => evaluate(`(() => { const d = ${FR}.contentDocument, b = d.querySelector('.hl-bp[data-hl-pic]'); const lum = (c) => { const v = c.match(/\\d+(\\.\\d+)?/g).slice(0, 3).map((x) => { const s = Number(x) / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; }); return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]; }; const bg = getComputedStyle(b).backgroundColor; const fg = getComputedStyle(b.querySelector('.hl-bp-main')).color; const hint = getComputedStyle(b.querySelector('.hl-bp-hint')).color; const r = (a, c) => { const x = lum(a), y = lum(c); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); }; return { bg, fg, main: r(bg, fg), hint: r(bg, hint) }; })()`);
   let c = await contrast();
