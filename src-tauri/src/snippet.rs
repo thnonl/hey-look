@@ -983,12 +983,41 @@ fn line_text(line: &str) -> String {
     trim_junk(if hit { rest } else { &s }).to_string()
 }
 
+/// Markup remnants in text: comments (conditional ones included), `<![endif]>`-style fragments, `<!DOCTYPE`, `<?...?>`. They come from
+/// a text/plain part that quotes them, from entity-encoded markup (`&lt;!--[if mso]&gt;`) and from half-cut comments. A comment with
+/// no end is dropped up to the next `>` on its line (or the end of the line), so it never swallows the readable lines after it.
+fn strip_markup_remnants(s: &str) -> String {
+    if !s.contains("<!") && !s.contains("<?") {
+        return s.to_string();
+    }
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(p) = rest.find("<!").into_iter().chain(rest.find("<?")).min() {
+        out.push_str(&rest[..p]);
+        let at = &rest[p..];
+        let line = at.find(['\n', '\r']).unwrap_or(at.len());
+        let skip = if at.starts_with("<!-->") {
+            5
+        } else if at.starts_with("<!--->") {
+            6
+        } else if at.starts_with("<!--") {
+            at[4..].find("-->").map(|q| q + 7).or_else(|| at[..line].find('>').map(|q| q + 1)).unwrap_or(line)
+        } else {
+            at[..line].find('>').map(|q| q + 1).unwrap_or(2)
+        };
+        out.push(' ');
+        rest = &at[skip..];
+    }
+    out.push_str(rest);
+    out
+}
+
 fn preview(raw: &str, decode: bool) -> String {
     let raw = match raw.char_indices().nth(PREVIEW_SOURCE_MAX) {
         Some((i, _)) => &raw[..i],
         None => raw,
     };
-    let decoded = if decode { decode_entities(raw) } else { raw.to_string() };
+    let decoded = strip_markup_remnants(&if decode { decode_entities(raw) } else { raw.to_string() });
     // invisible characters out and white space tidy line by line first, so they cannot split a link; the lines stay lines
     let tidy = decoded.split(['\n', '\r', '\u{2028}', '\u{2029}', '\u{85}']).map(clean_text).filter(|l| !l.is_empty()).collect::<Vec<_>>().join("\n");
     let linked = strip_links(&tidy);
@@ -1335,6 +1364,27 @@ mod tests {
         assert_eq!(make(Some(" \u{200B}\u{00A0}\r\n"), Some("<style>p{x:y}</style><p>html</p>")), "html");
         assert_eq!(make(None, None), "");
         assert_eq!(make(None, Some("<style>a{b:c}</style>")), "");
+    }
+
+    #[test]
+    fn comment_remnants_never_reach_a_snippet_or_a_notification() {
+        let google = "<!--[if !mso]><!--><div>Keep track of your Google Account data</div><!--<![endif]-->\
+            <!--[if gte mso 9]><xml><o:x>1</o:x></xml><![endif]--><!--[if false]><!--><p>namth.onl@gmail.com</p><!--<![endif]-->";
+        assert_eq!(make(None, Some(google)), "Keep track of your Google Account data namth.onl@gmail.com");
+        // entity-encoded markup of the html part and literal lines of a text part
+        let enc = "<p>Keep track of your data &lt;!--[if !mso]&gt;&lt;! &lt;!--[if false]&gt;&lt;!</p>";
+        assert_eq!(make(None, Some(enc)), "Keep track of your data");
+        let text = "Keep track of your Google Account data\n<!--[if !mso]><!\n<!--[if false]><!\n<![endif]-->\n<?xml version?>\nnamth.onl@gmail.com";
+        assert_eq!(make(Some(text), None), "Keep track of your Google Account data namth.onl@gmail.com");
+        // one line, and an old stored snippet
+        let old = "Keep track of your Google Account data namth.onl@gmail.com <!--[if !mso]><! <!--[if false]><!";
+        assert_eq!(notification_preview(old), "Keep track of your Google Account data namth.onl@gmail.com");
+        // unterminated: only the rest of its line goes, later lines stay
+        assert_eq!(preview_text("Hello <!--[if mso\nWorld <!-- never closed"), "Hello World");
+        assert_eq!(make(None, Some("<p>Hi</p><!--[if mso]><table><tr><td>x")), "Hi");
+        for s in [make(Some(text), None), notification_preview(old), preview_text("a <! b <![ c <? d")] {
+            assert!(!s.contains("<!") && !s.contains("<?"), "{s}");
+        }
     }
 
     #[test]
