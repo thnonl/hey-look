@@ -57,6 +57,12 @@ check("the presentation is always light (REQ-5.3.2, AC-5.3.4) and the mail's own
   assert.ok(!/<source[^>]*media="\(prefers-color-scheme/i.test(d), "the picture source has a constant condition");
 });
 
+check("a loading or failed picture box prints as a quiet box (UX-1, BUG-2)", () => {
+  const d = buildPrintDoc({ html: '<span class="hl-bp hl-bpx" data-state="loading"><span class="hl-bp-ico"><span class="hl-spin"></span></span><span class="hl-bp-main">Showing picture…</span></span>', csp: CSP_BLOCKED, subject: "s" });
+  for (const rule of [".hl-bp[data-state] .hl-bp-main", ".hl-bp[data-state] .hl-bp-sr{display:none!important}", ".hl-bp[data-state] .hl-bp-ico{visibility:hidden}", ".hl-bp[data-state].bad{border-color:#9aa3af"]) assert.ok(d.includes(rule), rule);
+  assert.ok(!d.includes("@keyframes hlspin"), "the spinner animation is not in the print");
+});
+
 check("no rule that only the frame needs, and no app CSS (REQ-5.3.2)", () => {
   const d = buildPrintDoc({ html: "<p>x</p>", csp: CSP_BLOCKED, subject: "s" });
   assert.ok(!d.includes("html,body{overflow:hidden!important"), "the trailing overflow:hidden rule of the frame is not in the print");
@@ -70,7 +76,7 @@ check("no rule that only the frame needs, and no app CSS (REQ-5.3.2)", () => {
 
 check("the print document is no bigger than the mail plus a fixed frame of a few KB", () => {
   const d = buildPrintDoc({ html: "", csp: CSP_BLOCKED, subject: "" });
-  assert.ok(d.length < 4000, String(d.length));
+  assert.ok(d.length < 4400, String(d.length)); // (4000 before the quiet box of a loading picture, 1.0.12)
 });
 
 check("the frame uses the shared CSS (one place for the mail rules)", () => {

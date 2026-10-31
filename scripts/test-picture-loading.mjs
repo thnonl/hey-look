@@ -25,6 +25,7 @@ const THREADS = [
   ['lB', 'Three again', { fromName: 'Shop', fromEmail: 'again@shop.example', html: `<p>Look</p><img src="${u('b1')}" width="200" height="100" alt="one"><img src="${u('b2')}" width="200" height="100" alt="two"><img src="${u('b3')}" width="200" height="100" alt="three">`, auth: 'pass' }],
   ['lS', 'Sizes', { fromName: 'Shop', fromEmail: 'sizes@shop.example', html: `<p>Look</p><img src="${u('s1')}" width="120" height="40" alt="Logo"><img src="${u('s2')}" width="200" height="70" alt="Mid"><img src="${u('s3')}" width="300" height="120" alt="Wide">`, auth: 'pass' }],
   ['lF', 'One fails', { fromName: 'Shop', fromEmail: 'fail@shop.example', html: `<p>Look</p><img src="${u('f1')}" width="200" height="100" alt="good"><img src="${u('unreachable-f2')}" width="200" height="100" alt="bad"><img src="${u('unreachable-f3')}" width="200" height="70" alt="midbad">`, auth: 'pass' }],
+  ['lP', 'Print', { fromName: 'Shop', fromEmail: 'print@shop.example', html: `<p>Look</p><img src="${u('p1')}" width="200" height="100" alt="one"><img src="${u('unreachable-p2')}" width="200" height="100" alt="two">`, auth: 'pass' }],
   ['lW', 'Written to', { fromName: 'Friend', fromEmail: 'friend@example.org', html: `<p>Look</p><img src="${u('w1')}" width="200" height="100" alt="one"><img src="${u('unreachable-w2')}" width="200" height="100" alt="gone"><img src="${u('w3')}" alt="nosize"><img src="${u('w4')}" width="1" height="1">`, auth: 'pass', autoReason: 'wrote' }],
 ];
 const FR = `document.querySelector('.rp-msg.open iframe.msg-frame')`;
@@ -140,6 +141,30 @@ try {
   await evaluate(`${DOC}.querySelector('.hl-bp').focus(); ${DOC}.querySelector('.hl-bp').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); 1`);
   ok(await until(`${DOC}.querySelector('.hl-bp').getAttribute('data-state') === 'loading'`, 800), 'Enter on the failed box retries');
   await until(`${DOC}.querySelector('.hl-bp').getAttribute('data-state') === 'failed'`, 4000);
+
+  // ======================================================================== P8 printing while a box loads or has failed (BUG-2 of the Windows QA round 2)
+  tag = 'print';
+  await open('lP');
+  // the print document as the app builds it (src/printDoc.ts), drawn in a frame: no spinner, no text, no retry arrow, the box as big as on screen, dashed grey
+  const printed = async () => evaluate(`(async () => {
+    const { buildPrintDoc } = await import('/src/printDoc.ts');
+    const d = ${DOC};
+    const f = document.createElement('iframe'); f.style.cssText = 'position:fixed;left:0;top:0;width:900px;height:700px;opacity:0';
+    f.srcdoc = buildPrintDoc({ html: d.body.innerHTML, csp: "default-src 'none'; img-src data:; style-src 'unsafe-inline'", subject: 's' });
+    document.body.append(f);
+    await new Promise((r) => { f.onload = r; });
+    const pd = f.contentDocument; const vis = (e) => !!e && getComputedStyle(e).display !== 'none' && getComputedStyle(e).visibility !== 'hidden' && e.getBoundingClientRect().width > 0;
+    const out = [...pd.querySelectorAll('.hl-bp')].map((b) => { const r = b.getBoundingClientRect(); const c = getComputedStyle(b); return { state: b.getAttribute('data-state'), size: [Math.round(r.width), Math.round(r.height)], text: [...b.querySelectorAll('.hl-bp-main,.hl-bp-hint,.hl-bp-sr')].some(vis), spin: vis(b.querySelector('.hl-spin')), ico: vis(b.querySelector('.hl-bp-ico svg')), border: c.borderTopColor, style: c.borderTopStyle }; });
+    f.remove(); return JSON.stringify(out); })()`).then(JSON.parse);
+  await evaluate(clickAll());
+  await sleep(300);
+  const onScreen = await snap();
+  let pr = await printed();
+  ok(pr.length === 2 && pr.every((b, i) => b.state === 'loading' && JSON.stringify(b.size) === JSON.stringify(onScreen.boxes[i].size)), `print while loading: two boxes of the size on screen (${JSON.stringify(pr)})`);
+  ok(pr.every((b) => !b.text && !b.spin && !b.ico && b.style === 'dashed'), 'print while loading: no spinner, no text, dashed box');
+  ok(await until(`!!${DOC}.querySelector('.hl-bp[data-state=failed]')`, 4000), 'print: one box failed');
+  pr = await printed();
+  ok(pr.length === 1 && pr[0].state === 'failed' && !pr[0].text && !pr[0].spin && !pr[0].ico && pr[0].border === 'rgb(154, 163, 175)', `print after a failure: grey box, no text, no retry arrow (${JSON.stringify(pr)})`);
 
   // ======================================================================== P4 Show pictures (notice link)
   tag = 'show-all';

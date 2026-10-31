@@ -66,6 +66,21 @@ try {
     assert.equal(await evaluate(`document.title`), `${A[3].subject} – Hey Look!`);
     assert.equal(await evaluate(`document.querySelector('.reader-pane').scrollTop`), 0);
   });
+  // BUG-L3 (1.0.12): the body of a conversation is asked for exactly once per navigation, and the window is not told "show another conversation" again by itself
+  await check('Previous: C is read once, popout_show is called once, and nothing happens by itself afterwards', async () => {
+    await waitNav(false, false);
+    await evaluate(`window.__reads = []; window.__shows0 = (window.__popoutShown || []).length; (() => { const inv = window.__TAURI_INTERNALS__.invoke; window.__TAURI_INTERNALS__.invoke = (cmd, a, o) => { if (cmd === 'get_thread_packed') window.__reads.push(a.threadId); return inv.call(window.__TAURI_INTERNALS__, cmd, a, o); }; })(); document.querySelectorAll('.rb.nav')[0].click(); 1`);
+    await waitSubject(2);
+    await sleep(2500);
+    const reads = await json('window.__reads');
+    assert.deepEqual(reads.filter((id) => id === A[2].id), [A[2].id], `the body of C was read once (reads: ${JSON.stringify(reads)})`);
+    assert.equal(await evaluate('(window.__popoutShown || []).length - window.__shows0'), 1, 'popout_show was called once');
+    assert.equal(await evaluate("!!document.querySelector('.rp-opening')"), false, 'the opening status is gone');
+    await sleep(3000);
+    assert.equal(await evaluate('(window.__popoutShown || []).length - window.__shows0'), 1, 'no further popout_show by itself');
+    await evaluate("document.querySelectorAll('.rb.nav')[1].click(); 1");
+    await waitSubject(3);
+  });
   await check('Next again: E; Next is disabled with the tooltip "last conversation" (REQ-4.4.4)', async () => {
     await waitNav(false, false);
     await evaluate(`document.querySelectorAll('.rb.nav')[1].click(); 1`);

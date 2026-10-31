@@ -16,7 +16,9 @@ export interface PrintSource {
 const PRINT_CSS =
   "html{--hm-fg:#242424;--hm-link:#0f6cbd;--hm-bg:#ffffff;color-scheme:light}" +
   "body{padding:0}" +
-  "img{cursor:auto;break-inside:avoid}tr,blockquote{break-inside:avoid}.hl-ph,.hl-bp{break-inside:avoid;cursor:default}";
+  "img{cursor:auto;break-inside:avoid}tr,blockquote{break-inside:avoid}.hl-ph,.hl-bp{break-inside:avoid;cursor:default}" +
+  // a hidden-picture box that is loading or failed when the print was asked for (1.0.12 BUG-2): the same box, same size, dashed and grey, with no spinner, no retry arrow and no status text
+  ".hl-bp[data-state] .hl-bp-main,.hl-bp[data-state] .hl-bp-hint,.hl-bp[data-state] .hl-bp-sr{display:none!important}.hl-bp[data-state] .hl-bp-ico{visibility:hidden}.hl-bp[data-state].bad{border-color:#9aa3af;color:#5b6470}";
 
 /** The CSP of the print document: the frame's own, and scripts, forms and connections are forbidden whatever it says. */
 export function printCsp(csp: string): string {
