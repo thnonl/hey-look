@@ -17,10 +17,32 @@ export type Route =
 
 export type PopoutRoute = Extract<Route, { kind: PopoutKind }>;
 
-export function routeOf(search: string): Route {
+/** The kind a window label names (`reader-4` -> reader), the same rule as popout.rs `kind_of_label`; null for `main` and anything else. */
+export function kindOfLabel(label: string | null | undefined): PopoutKind | null {
+  const m = /^([a-z]+)-(\d+)$/.exec(label ?? "");
+  return m && (POPOUT_KINDS as readonly string[]).includes(m[1]) ? (m[1] as PopoutKind) : null;
+}
+
+/** The label of this window as Tauri gave it to the page (injected before the page runs; null in a plain browser). */
+export function ownLabel(): string | null {
+  try {
+    return (window as unknown as { __TAURI_INTERNALS__?: { metadata?: { currentWindow?: { label?: string } } } }).__TAURI_INTERNALS__?.metadata?.currentWindow?.label ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Which window is this page in? The address says (`?w=<kind>&t=<token>`); when the address has no query - a web view that opened the base address (1.0.12 BUG-L1: a reader window on Linux
+ * ran as the main app and followed its selection) - the label of the window says, and the token is empty: `popout_init` then identifies the window by its label alone.
+ */
+export function routeOf(search: string, label: string | null = null): Route {
   const q = new URLSearchParams(search);
   const w = q.get("w");
-  if (w === null || w === "" || w === "main") return { kind: "main" };
+  if (w === null || w === "" || w === "main") {
+    const k = kindOfLabel(label);
+    return k ? { kind: k, token: q.get("t") ?? "" } : { kind: "main" };
+  }
   if ((POPOUT_KINDS as readonly string[]).includes(w)) return { kind: w as PopoutKind, token: q.get("t") ?? "" };
   return { kind: "invalid", value: w };
 }
@@ -30,8 +52,8 @@ export function isPopout(route: Route): route is PopoutRoute {
 }
 
 /** Is this page a secondary window? (The main page has no `?w=`: whatever opens a message, a dialog or a window from a window does it as a window of its own.) */
-export function inSecondaryWindow(search: string = typeof window === "undefined" ? "" : window.location.search): boolean {
-  return isPopout(routeOf(search));
+export function inSecondaryWindow(search: string = typeof window === "undefined" ? "" : window.location.search, label: string | null = ownLabel()): boolean {
+  return isPopout(routeOf(search, label));
 }
 
 /**

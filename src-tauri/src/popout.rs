@@ -1162,7 +1162,8 @@ pub async fn popout_open(app: AppHandle, window: tauri::Window, kind: String, ke
 pub fn popout_init(app: AppHandle, window: tauri::Window, token: String) -> R<Init> {
     let r = reg(&app);
     let e = r.get(window.label()).ok_or("this is not a secondary window")?;
-    if e.token != token {
+    // an empty token: the page came up without the query of its address (BUG-L1 on Linux) and knows itself by its label, which is the one the backend gave this window
+    if !token.is_empty() && e.token != token {
         return Err("wrong token".into());
     }
     Ok(Init { kind: e.kind.name(), label: e.label.clone(), key: e.keys.first().cloned(), init: e.init.clone(), reloaded: e.deaths > 0, recovery_id: e.recovery_id.clone() })

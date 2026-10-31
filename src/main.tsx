@@ -15,11 +15,11 @@ import { installQuitKey } from "./quitKey";
 import { prefetchComposeWindow, prefetchReaderWindow, prefetchWindowView } from "./lazyViews";
 import PopoutRoot from "./popout/PopoutRoot";
 import { installModifierTracking } from "./popout/modifier";
-import { routeOf } from "./popout/route";
+import { ownLabel, routeOf } from "./popout/route";
 
 // One bundle, several windows: the main window has no query, a secondary window (compose / reader) is opened by the backend at ?w=<kind>
 // (src/popout/route.ts). A secondary window mounts <PopoutRoot /> and never the app.
-const route = routeOf(window.location.search);
+const route = routeOf(window.location.search, ownLabel());
 // a window's view (and the editor for a compose window) is asked for now, beside the language and the preferences, before React renders (REQ-9.2.3)
 if (route.kind === "compose") prefetchComposeWindow();
 else if (route.kind === "reader") prefetchReaderWindow();

@@ -4,7 +4,7 @@
 // Run: node --experimental-strip-types scripts/test-popout.mjs
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
-import { isPopout, popoutDevEnabled, popoutTitle, routeOf } from "../src/popout/route.ts";
+import { inSecondaryWindow, isPopout, kindOfLabel, popoutDevEnabled, popoutTitle, routeOf } from "../src/popout/route.ts";
 import { answerKey, draftKey, opensInWindow, outboxKey, shiftOnly } from "../src/popout/entry.ts";
 import { MODIFIER_WINDOW_MS, noteInput, resetModifier, shiftNow } from "../src/popout/modifier.ts";
 import { closeAction, composeFlush, GRACE_MS, runClose, secondsLeft, START, step, UNDO_SETTLE_MS } from "../src/popout/composeWindow.ts";
@@ -38,6 +38,27 @@ for (const bad of ["Settings", "Event", "search-1", "calendar", "Compose", "comp
   assert.equal(isPopout(r), false);
 }
 assert.equal(isPopout(routeOf("?w=compose&t=1")), true);
+// ---- 1.0.12 BUG-L1: a page that came up without the query of its address (a reader window on Linux ran as the main app and followed its selection) is told by its window label
+assert.deepEqual(routeOf("", "reader-4"), { kind: "reader", token: "" });
+assert.deepEqual(routeOf("", "compose-12"), { kind: "compose", token: "" });
+assert.deepEqual(routeOf("?w=reader&t=zz", "reader-1"), { kind: "reader", token: "zz" }, "the address wins when it is there");
+assert.deepEqual(routeOf("?t=zz", "reader-1"), { kind: "reader", token: "zz" });
+assert.deepEqual(routeOf("", "main"), { kind: "main" });
+assert.deepEqual(routeOf("", null), { kind: "main" });
+for (const bad of ["reader", "reader-", "reader-x", "Reader-1", "calendar-1", "main-1", "reader-1-2", ""]) assert.deepEqual(routeOf("", bad), { kind: "main" }, "label " + bad);
+assert.equal(kindOfLabel("scheduled-3"), "scheduled");
+assert.equal(kindOfLabel("main"), null);
+assert.equal(inSecondaryWindow("", "reader-2"), true);
+assert.equal(inSecondaryWindow("", "main"), false);
+assert.equal(inSecondaryWindow("?w=compose&t=1", null), true);
+// the backend knows the window by its label (the registry is keyed by it): popout_init takes an empty token for that case and refuses a wrong one
+{
+  const rs = read("src-tauri/src/popout.rs");
+  const f = rs.slice(rs.indexOf("pub fn popout_init("));
+  const body = f.slice(0, f.indexOf("\n}"));
+  assert.ok(body.includes("r.get(window.label())") && body.includes("!token.is_empty() && e.token != token"), "popout_init: by the label of the caller, an empty token ok, a wrong one refused");
+}
+
 assert.equal(isPopout(routeOf("?w=reader&t=1")), true);
 // W4.6: the four kinds of window that come with the event, Settings, search and Scheduled windows
 for (const k of ["event", "settings", "search", "scheduled"]) {
@@ -101,7 +122,7 @@ assert.equal(shiftOnly(ev({ shiftKey: true, altKey: true })), false);
 // ---- the wiring
 {
   const main = read("src/main.tsx");
-  assert.ok(main.includes("routeOf(window.location.search)"), "the entry asks the router");
+  assert.ok(main.includes("routeOf(window.location.search, ownLabel())"), "the entry asks the router");
   assert.ok(main.includes('route.kind === "main" ? <App /> : <PopoutRoot route={route} />'), "a pop-out never mounts the app");
   assert.ok(main.indexOf("applySavedLanguage(api.getSetting)") < main.indexOf("ReactDOM.createRoot("), "the language is applied before the first render in every window");
   const root = read("src/popout/PopoutRoot.tsx");
