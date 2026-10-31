@@ -21,10 +21,8 @@ export const HIDDEN_PICTURE_CSS = `.hl-bpx{cursor:pointer;gap:2px;padding:6px;te
 .hl-bpx{position:relative}.hl-bp-sr{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .hl-bpx[data-pending]{cursor:progress}.hl-bpx.bad{border-color:#c4314b;color:#c4314b}
 .hl-bpx[data-state=loading] .hl-bp-hint{display:none}
-.hl-bpx .hl-bp-ico .hl-spin{display:block;box-sizing:border-box;width:calc(100% - 8px);height:calc(100% - 8px);margin:4px;border:3px solid currentColor;border-top-color:transparent}.hl-bpx[data-tier=small] .hl-bp-ico .hl-spin{border-width:2px}
 .hl-bpx.bad .hl-bp-ico{color:#c4314b}.hl-bpx.bad .hl-bp-ico svg path:first-child{fill:none}
 .hl-bpx[data-state=failed][data-tier=mid] .hl-bp-main{display:none}.hl-bpx[data-state=failed][data-tier=mid] .hl-bp-hint{display:block}
-@media (prefers-reduced-motion:reduce){.hl-spin{animation:none}}
 a .hl-bpx{cursor:default}
 @media print{.hl-bp-hint{display:none!important}.hl-bpx{cursor:default;outline:none}}`;
 
@@ -47,5 +45,7 @@ img{max-width:100%;height:auto;cursor:zoom-in}blockquote{margin:0 0 0 .8ex;borde
 ${BLOCKED_PICTURE_CSS}
 ${HIDDEN_PICTURE_CSS}`;
 
-/** The spinner of a picture that is being loaded (the frame only: nothing is loaded in a printed page). */
-export const MAIL_FRAME_SPIN_CSS = `.hl-spin{width:14px;height:14px;border:2px solid #9aa3af;border-top-color:transparent;border-radius:50%;animation:hlspin 1s linear infinite;flex:none}@keyframes hlspin{to{transform:rotate(360deg)}}`;
+/** The spinner of a picture that is being loaded, also the one inside a hidden-picture box (UX-1 of 1.0.12; a still ring when the system asks for less motion). The frame only: nothing is loaded in a printed page. */
+export const MAIL_FRAME_SPIN_CSS = `.hl-spin{width:14px;height:14px;border:2px solid #9aa3af;border-top-color:transparent;border-radius:50%;animation:hlspin 1s linear infinite;flex:none}@keyframes hlspin{to{transform:rotate(360deg)}}
+.hl-bpx .hl-bp-ico .hl-spin{display:block;box-sizing:border-box;width:calc(100% - 8px);height:calc(100% - 8px);margin:4px;border:3px solid currentColor;border-top-color:transparent}.hl-bpx[data-tier=small] .hl-bp-ico .hl-spin{border-width:2px}
+@media (prefers-reduced-motion:reduce){.hl-spin{animation:none}}`;
