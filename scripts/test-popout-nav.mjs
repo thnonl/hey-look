@@ -75,11 +75,26 @@ try {
     const reads = await json('window.__reads');
     assert.deepEqual(reads.filter((id) => id === A[2].id), [A[2].id], `the body of C was read once (reads: ${JSON.stringify(reads)})`);
     assert.equal(await evaluate('(window.__popoutShown || []).length - window.__shows0'), 1, 'popout_show was called once');
+    // BUG-L3 (1.0.12): the message of the new conversation is DRAWN (an open card with its frame) - the card stayed closed when the old and the new conversation had the same number of messages
+    assert.ok(await waitFor(`!!document.querySelector('iframe.msg-frame') && document.querySelector('iframe.msg-frame').getBoundingClientRect().height > 0`, 4000), 'the message frame of the new conversation exists');
     assert.equal(await evaluate("!!document.querySelector('.rp-opening')"), false, 'the opening status is gone');
     await sleep(3000);
     assert.equal(await evaluate('(window.__popoutShown || []).length - window.__shows0'), 1, 'no further popout_show by itself');
     await evaluate("document.querySelectorAll('.rb.nav')[1].click(); 1");
     await waitSubject(3);
+  });
+  // BUG-L3 (1.0.12): Next to a conversation with as many messages as the one before: the message is drawn (the card stayed closed, "Opening message…" for good)
+  await check('Next between two conversations with the same number of messages: the message frame is built and the opening status ends', async () => {
+    const counts = await json(`(async () => { const out = []; for (const id of ${JSON.stringify(A.map((x) => x.id))}) out.push((await window.__TAURI_INTERNALS__.invoke('get_thread', { threadId: id, scope: null, light: null })).length); return out; })()`);
+    const i = counts.findIndex((n, k) => k < counts.length - 1 && n === counts[k + 1]);
+    assert.ok(i >= 0, `two neighbours with the same number of messages in the mock list (${JSON.stringify(counts)})`);
+    await readerAt(i);
+    await waitNav(false, false);
+    assert.ok(await waitFor(`!!document.querySelector('iframe.msg-frame')`, 5000), 'the first conversation draws its frame');
+    await evaluate("document.querySelectorAll('.rb.nav')[1].click(); 1");
+    await waitSubject(i + 1);
+    assert.ok(await waitFor(`!!document.querySelector('iframe.msg-frame') && !document.querySelector('.rp-opening')`, 5000), 'the frame of the next conversation is built and the opening status is gone');
+    await readerAt(3);
   });
   await check('Next again: E; Next is disabled with the tooltip "last conversation" (REQ-4.4.4)', async () => {
     await waitNav(false, false);

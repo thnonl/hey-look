@@ -76,7 +76,7 @@ check("no rule that only the frame needs, and no app CSS (REQ-5.3.2)", () => {
 
 check("the print document is no bigger than the mail plus a fixed frame of a few KB", () => {
   const d = buildPrintDoc({ html: "", csp: CSP_BLOCKED, subject: "" });
-  assert.ok(d.length < 4400, String(d.length)); // (4000 before the quiet box of a loading picture, 1.0.12)
+  assert.ok(d.length < 4800, String(d.length)); // (4000 before the quiet box of a loading picture, 1.0.12)
 });
 
 check("the frame uses the shared CSS (one place for the mail rules)", () => {

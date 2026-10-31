@@ -233,7 +233,7 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
     };
     void (async () => {
       await loadPlatform(); // (Print and the Delete key differ on macOS)
-      useStore.setState({ selected: info.threadId });
+      useStore.setState({ selected: info.threadId, messages: [] }); // (nothing of the conversation shown before)
       void useStore.getState().refreshAi();
       off = await installReaderBridge({ reload: later });
       if (dead) return off();
@@ -267,13 +267,16 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
     return () => window.removeEventListener("pagehide", bye);
   }, []);
 
-  // a new message arrives: it is open and the older ones fold, as in the reading pane; a summary of the old conversation is dropped
+  // a new message arrives: it is open and the older ones fold, as in the reading pane; a summary of the old conversation is dropped. Keyed by the last message too: the window keeps
+  // the store's messages of the conversation before when it shows another one in place (Next / Previous), and a conversation with as many messages as that one left its card
+  // closed - no frame, "Opening message…" for good (1.0.12 BUG-L3)
+  const lastId = messages.length ? messages[messages.length - 1].id : "";
   useEffect(() => {
     setSummary(null);
     setSummaryCut(false);
     setSummaryNoConf(false);
-    setOpenIds(new Set(messages.length ? [messages[messages.length - 1].id] : []));
-  }, [messages.length]);
+    setOpenIds(new Set(lastId ? [lastId] : []));
+  }, [messages.length, lastId]);
   useEffect(() => ai.cancel, []); // eslint-disable-line react-hooks/exhaustive-deps
   useKeepReadingPosition();
   // (W13.6, REQ-13.6.2) "Opening message…" stays until the frame of the open message is visible, not only until the data arrives

@@ -24,7 +24,8 @@ export const HIDDEN_PICTURE_CSS = `.hl-bpx{cursor:pointer;gap:2px;padding:6px;te
 .hl-bpx.bad .hl-bp-ico{color:#c4314b}.hl-bpx.bad .hl-bp-ico svg path:first-child{fill:none}
 .hl-bpx[data-state=failed][data-tier=mid] .hl-bp-main{display:none}.hl-bpx[data-state=failed][data-tier=mid] .hl-bp-hint{display:block}
 a .hl-bpx{cursor:default}
-@media print{.hl-bp-hint{display:none!important}.hl-bpx{cursor:default;outline:none}}`;
+@media print{.hl-bp-hint{display:none!important}.hl-bpx{cursor:default;outline:none}
+.hl-bp[data-state] .hl-bp-main,.hl-bp[data-state] .hl-bp-sr{display:none!important}.hl-bp[data-state] .hl-bp-ico{visibility:hidden}.hl-bp[data-state].bad{border-color:#9aa3af;color:#5b6470}} /* (a box that loads or failed when the print is made: print() of the live frame on Windows and Linux, 1.0.12 BUG-2: the same box with no spinner, no arrow, no text) */`;
 
 /** The shield of the box: an inline SVG (not a background picture: WebKit did not paint the data URI of it), drawn in the colour of its container (currentColor), the shield filled by the CSS. */
 export const HIDDEN_PICTURE_SHIELD_SVG = "<svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' aria-hidden='true' focusable='false'><path d='M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z'/><rect x='8' y='9' width='8' height='6' rx='1'/><path d='m8 14.5 2.5-2.2a1 1 0 0 1 1.3 0L16 15'/></svg>";

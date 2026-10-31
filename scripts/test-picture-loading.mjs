@@ -159,10 +159,20 @@ try {
   await evaluate(clickAll());
   await sleep(300);
   const onScreen = await snap();
+  // the real path on Windows and Linux: print() of the live frame, so the frame's own print rules, measured with the page in print media
+  const live = `(() => [...${DOC}.querySelectorAll('.hl-bp')].map((b) => { const q = (e) => !!e && getComputedStyle(e).display !== 'none' && getComputedStyle(e).visibility !== 'hidden' && e.getBoundingClientRect().width > 0; const r = b.getBoundingClientRect(); return { size: [Math.round(r.width), Math.round(r.height)], text: [...b.querySelectorAll('.hl-bp-main,.hl-bp-hint,.hl-bp-sr')].some(q), spin: q(b.querySelector('.hl-spin')), ico: q(b.querySelector('.hl-bp-ico')), border: getComputedStyle(b).borderTopColor }; }))()`;
+  await cdp('Emulation.setEmulatedMedia', { media: 'print' });
+  let lp = await evaluate(live);
+  await cdp('Emulation.setEmulatedMedia', { media: '' });
+  ok(lp.length === 2 && lp.every((b, i) => !b.text && !b.spin && !b.ico && JSON.stringify(b.size) === JSON.stringify(onScreen.boxes[i].size)), `live frame in print media while loading: no text, no spinner, same size (${JSON.stringify(lp)})`);
   let pr = await printed();
   ok(pr.length === 2 && pr.every((b, i) => b.state === 'loading' && JSON.stringify(b.size) === JSON.stringify(onScreen.boxes[i].size)), `print while loading: two boxes of the size on screen (${JSON.stringify(pr)})`);
   ok(pr.every((b) => !b.text && !b.spin && !b.ico && b.style === 'dashed'), 'print while loading: no spinner, no text, dashed box');
   ok(await until(`!!${DOC}.querySelector('.hl-bp[data-state=failed]')`, 4000), 'print: one box failed');
+  await cdp('Emulation.setEmulatedMedia', { media: 'print' });
+  lp = await evaluate(live);
+  await cdp('Emulation.setEmulatedMedia', { media: '' });
+  ok(lp.length === 1 && !lp[0].text && !lp[0].ico && lp[0].border === 'rgb(154, 163, 175)', `live frame in print media after a failure: grey, no arrow, no text (${JSON.stringify(lp)})`);
   pr = await printed();
   ok(pr.length === 1 && pr[0].state === 'failed' && !pr[0].text && !pr[0].spin && !pr[0].ico && pr[0].border === 'rgb(154, 163, 175)', `print after a failure: grey box, no text, no retry arrow (${JSON.stringify(pr)})`);
 
