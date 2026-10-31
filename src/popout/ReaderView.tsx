@@ -45,10 +45,6 @@ import { popoutTitle } from "./route";
 import type { PopoutViewProps } from "./views";
 
 const quiet = () => undefined;
-
-/** One line of this window's trace in startup.log (the window's `popout_note` "info"): how a conversation was opened in it - mounted, read, painted, the opening status over it - with the ms since the reader instance mounted. For the Linux "Opening message…" that does not go (1.0.12 BUG-L3). */
-let instances = 0;
-const traceLine = (text: string) => void api.popoutNote("info", `reader trace: ${text}`).catch(quiet);
 const closeWindow = () => void getCurrentWindow().close().catch(quiet);
 
 /** A request for a state change (flag, pin, read) takes up to this long: the main page asks the server and answers when it has it. */
@@ -117,10 +113,6 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
   const known = useRef(new Set<string>()); // the messages this window has seen: the mark-as-read rule looks at a message once
   const readTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const loadRef = useRef<(first?: boolean) => Promise<void>>(async () => undefined);
-  const born = useRef(0);
-  const trace = useCallback((text: string) => traceLine(`#${born.current} ${info.threadId.slice(0, 12)} +${Math.round(performance.now() - bornAt.current)} ms ${text}`), [info.threadId]);
-  const bornAt = useRef(performance.now());
-  if (!born.current) born.current = ++instances;
 
   // ---- Next / Previous (W4.4, REQ-4.4.3/4.4.4): the main window knows the list; asked when the conversation is shown and again after a sync or a change of state
   const askNeighbors = useCallback(async () => {
@@ -179,7 +171,6 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
   const load = useCallback(
     async (first = false) => {
       const my = ++loadSeq.current;
-      trace(`read ${my} asked${first ? " (first)" : ""}`);
       try {
         const [msgs, m, accounts, fl] = await Promise.all([
           api.getThread(info.threadId, threadScope(info.folder)),
@@ -187,7 +178,7 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
           api.listAccounts().catch(() => null),
           api.listFolders().catch(() => null),
         ]);
-        if (my !== loadSeq.current) return trace(`read ${my} dropped (a newer read is under way)`); // a newer read is under way
+        if (my !== loadSeq.current) return; // a newer read is under way
         if (accounts) useStore.setState({ accounts });
         if (fl) useStore.setState({ folders: fl });
         if (m) setMeta(m);
@@ -201,7 +192,6 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
           paint();
         }
         setPhase("ready");
-        trace(`read ${my} done: ${msgs.length} message(s), last ${msgs[msgs.length - 1]?.id ?? "-"}, gone ${isG}`);
         if (!isG) planRead(msgs);
       } catch (e) {
         if (first || phase !== "ready") {
@@ -210,7 +200,7 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
         }
       }
     },
-    [info.threadId, info.folder, info.accountId, paint, planRead, phase, trace],
+    [info.threadId, info.folder, info.accountId, paint, planRead, phase],
   );
   loadRef.current = load;
 
@@ -282,17 +272,6 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
   // (W13.6, REQ-13.6.2) "Opening message…" stays until the frame of the open message is visible, not only until the data arrives
   const printing = usePrinting((s) => s.on);
   const opening = useOpeningPending(phase === "ready" && messages.length > 0 ? info.threadId : null, messages, hasFrame);
-  // the trace of the opening status (BUG-L3): when it starts and ends, and every 2 s while it stays: what the page has by then
-  useEffect(() => {
-    trace(`opening status ${opening ? "on" : "off"}`);
-    if (!opening) return;
-    const id = setInterval(() => {
-      const f = document.querySelector<HTMLIFrameElement>("iframe.msg-frame");
-      const all = useStore.getState().messages; const last = all[all.length - 1];
-      trace(`still opening: phase ${phase}, ${useStore.getState().messages.length} message(s), last ${last?.id ?? "-"}, frames ${document.querySelectorAll("iframe.msg-frame").length}, frame ${f ? `visibility "${f.style.visibility}" height ${f.style.height} doc ${f.contentDocument?.readyState ?? "-"} body ${f.contentDocument?.body?.childElementCount ?? "-"}` : "none"}, page ${document.visibilityState}`);
-    }, 2000);
-    return () => clearInterval(id);
-  }, [opening, phase, trace]);
   useContentProtection(messages.some((m) => m.confidential)); // confidential mail: the window is out of screen capture (REQ-R3)
 
   // the window title: the subject (REQ-W7), in the language in use
@@ -356,9 +335,7 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
     cancelRead();
     try {
       const next: ReaderInit = { threadId: n.threadId, accountId: n.accountId, folder: n.folder, view: n.view, subject: n.subject, listAccount: info.listAccount ?? null };
-      traceLine(`go to ${n.threadId.slice(0, 12)} asked`);
       const r = await api.popoutShow(n.threadId, next);
-      traceLine(`go to ${n.threadId.slice(0, 12)}: ${r.status}`);
       if (r.status === "shown") onShow(next);
     } catch (e) {
       useStore.getState().showToast(() => friendlyError(e), undefined, "error");

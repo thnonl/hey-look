@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.12 — unreleased
+
+### Fixed
+
+- Showing a hidden picture (one box, Show pictures, Always show, or the automatic rule) now shows a loading state in the box from the click until the result, and a picture that could not be loaded shows one failed state with Retry, instead of a broken image or the picture's text
+- A reader window opened with Next or Previous showed "Opening message…" for good and never the message
+- Printing while a hidden picture is still loading or has failed prints a plain box, without the spinner, the retry arrow or the status text
+- Linux: a reader window that came up without the query of its address now knows itself by its window label
+
 ## 1.0.11 — 2026-10-30
 
 ### Added
