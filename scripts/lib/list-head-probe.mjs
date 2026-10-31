@@ -13,8 +13,10 @@ export const LIST_HEAD_JS = `(() => {
   const first = row && (row.querySelector('.pivots [role=tab]') || row.querySelector('h2'));
   const tabs = [...head.querySelectorAll('.pivots [role=tab]')];
   const filter = row && row.querySelector('.ml-tools .dd > button');
-  const textBottom = acctEl ? (() => { const r = document.createRange(); r.selectNodeContents(acctEl); return r.getBoundingClientRect().bottom; })() : null;
-  const firstText = first ? (() => { const r = document.createRange(); r.selectNodeContents(first); const b = r.getBoundingClientRect(); return b.top; })() : null;
+  // (the rectangle of a Range is the content area of the font: with a fixed line height it can be taller than the line, by (ascent + descent - line) / 2 above and below; Source Sans 3 has 1.42 em against the 1.21 em of the Inter it replaced. The text the eye sees sits inside the line box, so the rectangle is cut back to it)
+  const lineRect = (el) => { const r = document.createRange(); r.selectNodeContents(el); const b = r.getBoundingClientRect(); const lh = parseFloat(getComputedStyle(el).lineHeight); const cut = Number.isFinite(lh) && b.height > lh ? (b.height - lh) / 2 : 0; return { top: b.top + cut, bottom: b.bottom - cut }; };
+  const textBottom = acctEl ? lineRect(acctEl).bottom : null;
+  const firstText = first ? lineRect(first).top : null;
   const lb = box(list), hb = box(head), ab = box(acctEl), rb = box(row), fb = box(first), flb = box(filter);
   const active = head.querySelector('.pivots [role=tab].active');
   const underline = active ? (() => { const r = active.getBoundingClientRect(); return { bottom: r.bottom, borderBottom: getComputedStyle(active).borderBottomWidth }; })() : null;

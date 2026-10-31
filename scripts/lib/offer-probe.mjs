@@ -18,7 +18,7 @@ export const OFFER_JS = `(() => {
   const LONG = ${JSON.stringify(LONG_ADDRESS)};
   const parent = n.parentElement;
   const cs0 = getComputedStyle(n);
-  const lhOf = (el) => { const cs = getComputedStyle(el); return parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.4; };
+  const lhOf = (el) => { const cs = getComputedStyle(el); return parseFloat(cs.fontSize) * 1.4; }; // (a line unit of 1.4 em, whatever the line height is: 1.0.12 sets a number where it was normal)
   const measure = (w, long) => {
     const box = document.createElement('div');
     box.style.cssText = 'width:' + w + 'px;box-sizing:border-box;position:absolute;visibility:hidden;left:0;top:0';

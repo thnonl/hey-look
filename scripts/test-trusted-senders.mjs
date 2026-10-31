@@ -371,7 +371,7 @@ try {
       // the narrowest real notices: a Mac window of 960 with the side menu open had a notice of 352 px (the reading pane is at least 440 px wide plus the page's own padding and the
       // size of the system font); the width is set on the notice itself, which wraps exactly as it would in a pane that narrow. Only once per language and variant (at 1280).
       if (w === 1280 && theme === 'light') {
-        // The app ships its own font (Inter) for Latin, Cyrillic and Vietnamese, so those widths are the same everywhere; the margin of 6 % is for the engines' rounding of glyph
+        // The app ships its own font (Source Sans 3 since 1.0.12) for Latin, Cyrillic and Vietnamese, so those widths are the same everywhere; the margin of 6 % is for the engines' rounding of glyph
         // advances. Chinese and Japanese come from a system font that differs per platform (Yu Gothic UI, Hiragino, Noto CJK): 12 %. Every case is measured again in a notice
         // that much narrower than the width it stands for (the same as a text that much wider) and must keep the same limit.
         // [real notice width, lines allowed]: 352 and 400 the narrowest panes of a Mac with the side menu open, 492 and 544 the notice of a page of 1244 and 1296 px.

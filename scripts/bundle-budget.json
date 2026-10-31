@@ -22,11 +22,11 @@
   },
   "fontsBytes": {
     "bytes": 75000,
-    "reason": "1.0.10, the interface font Inter (SIL OFL 1.1), variable weight 400-700, three subsets (latin, vietnamese, cyrillic) in public/fonts: 57,280 B measured. Latin-ext, Greek and Cyrillic-ext are not shipped (the system font covers a rare letter)."
+    "reason": "1.0.10, the interface font (Inter; Source Sans 3, SIL OFL 1.1, from 1.0.12), variable weight 400-700, three subsets (latin, vietnamese, cyrillic) in public/fonts: 57,728 B measured with Source Sans 3 (57,280 B with Inter). Latin-ext, Greek and Cyrillic-ext are not shipped (the system font covers a rare letter)."
   },
   "fontFileBytes": {
     "bytes": 40000,
-    "reason": "1.0.10, the largest single font file (inter-latin.woff2, 36,156 B measured); a file above this is a new subset and needs a reason of its own."
+    "reason": "1.0.10, the largest single font file (inter-latin.woff2, 36,156 B; source-sans-3-latin.woff2, 28,872 B from 1.0.12); a file above this is a new subset and needs a reason of its own."
   },
   "exceptions": [],
   "mustBeLazy": [

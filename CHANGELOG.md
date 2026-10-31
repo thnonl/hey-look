@@ -9,6 +9,10 @@
 - Printing while a hidden picture is still loading or has failed prints a plain box, without the spinner, the retry arrow or the status text
 - Linux: a reader window that came up without the query of its address now knows itself by its window label
 
+### Changed
+
+- The font of the app is now Source Sans 3 (it was Inter). It is bundled with the app, so text looks the same on Windows, macOS and Linux; sizes are adjusted so the interface keeps its size. Chinese and Japanese keep the system fonts
+
 ## 1.0.11 — 2026-10-30
 
 ### Added
