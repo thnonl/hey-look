@@ -93,9 +93,11 @@ async function pixels(tag) {
 
 /** Is a picture of the open mail still on its way? */
 // (1.0.11 BUG-2: the page never asks the sender's host for a picture; a picture the backend has not brought yet is an <img> without an address, data-hl-wait, until the data: copy comes in)
-const PENDING_IMG = `[...(document.querySelector('.msg-frame')?.contentDocument?.images ?? [])].some((i) => !i.complete || i.hasAttribute('data-hl-wait'))`;
+// (a picture the backend has not answered for is a loading box since 1.0.12 UX-1, no longer an <img> without an address)
+const PENDING_IMG = `(() => { const d = document.querySelector('.msg-frame')?.contentDocument; return !!d && ([...d.images].some((i) => !i.complete || i.hasAttribute('data-hl-wait')) || !!d.querySelector('.hl-bp[data-state=loading]')); })()`;
 const near = (a, b, tol = 8) => a && a.every((v, i) => Math.abs(v - b[i]) <= tol);
-const sig = (st) => JSON.stringify(st.rows.map((r) => r.slice(0, 3)));
+// (the loading box of a picture that is not here yet is not part of the mail's colours: it is gone when the picture arrives)
+const sig = (st) => JSON.stringify(st.rows.filter((r) => !/hl-bp|hl-spin/.test(r[0])).map((r) => r.slice(0, 3)));
 const BUTTON = 'button[aria-pressed][aria-label="Message background: original / dark"]';
 const open = (id) => evaluate(`window.__store.getState().select(${JSON.stringify(id)}); 1`);
 const shotTo = async (tag, name) => { if (!SHOTS) return; fs.mkdirSync(SHOTS, { recursive: true }); const r = await cdp('Page.captureScreenshot', { format: 'png' }); fs.writeFileSync(path.join(SHOTS, `${tag}-${name}.png`), Buffer.from(r.data, 'base64')); };
