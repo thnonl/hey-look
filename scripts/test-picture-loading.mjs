@@ -49,7 +49,7 @@ const open = async (id) => {
 const SNAP = (doc) => `(() => { const d = ${doc}; if (!d) return null; const r = (e) => { const q = e.getBoundingClientRect(); return [Math.round(q.width), Math.round(q.height)]; };
   const vis = (e) => !!e && getComputedStyle(e).display !== 'none';
   return { boxes: [...d.querySelectorAll('.hl-bp')].map((b) => ({ state: b.getAttribute('data-state'), busy: b.getAttribute('aria-busy'), bad: b.classList.contains('bad'), size: r(b), tier: b.getAttribute('data-tier'), alt: b.getAttribute('data-img-alt'), label: b.getAttribute('aria-label'), role: b.getAttribute('role'), spin: !!b.querySelector('.hl-spin'), main: vis(b.querySelector('.hl-bp-main')) ? b.querySelector('.hl-bp-main').textContent : null, hint: vis(b.querySelector('.hl-bp-hint')) ? b.querySelector('.hl-bp-hint').textContent : null, status: b.querySelector('.hl-bp-sr') ? b.querySelector('.hl-bp-sr').textContent : null })),
-    imgs: [...d.images].map((i) => ({ src: (i.getAttribute('src') || '').slice(0, 10), alt: i.getAttribute('alt'), size: r(i), ok: i.complete && i.naturalWidth > 0 })) }; })()`;
+    imgs: [...d.images].map((i) => ({ src: (i.getAttribute('src') || '').slice(0, 10), alt: i.getAttribute('alt'), size: r(i), ok: i.complete && i.naturalWidth > 0, done: i.complete })) }; })()`;
 const snap = (doc = DOC) => evaluate(SNAP(doc));
 /** Runs `act`, then samples every 25 ms until `done(sample)`; returns all the samples (t: ms since the action). */
 async function sample(act, done, ms = 7000, doc = DOC) {
@@ -65,7 +65,8 @@ async function sample(act, done, ms = 7000, doc = DOC) {
 }
 /** The invariant of the whole fetch: no picture without a picture in it (an <img> with no address, or a broken one) at any sample. */
 const noBroken = (samples, what) => {
-  const bad = samples.filter((s) => s.imgs.some((i) => (i.src !== 'data:image' || !i.ok) && i.size[0] > 2 && i.size[1] > 2)); // (a one-pixel picture draws nothing either way)
+  // (a picture with a data: address that the engine has not decoded yet draws nothing for a frame or two - slow on WebKitGTK, OBS-L2 - and is no broken picture; the broken forms are no address, another address, or decoded to nothing)
+  const bad = samples.filter((s) => s.imgs.some((i) => (i.src !== 'data:image' || (i.done && !i.ok)) && i.size[0] > 2 && i.size[1] > 2)); // (a one-pixel picture draws nothing either way)
   ok(bad.length === 0, `${what}: ${bad.length} samples had a picture without a picture in it (${JSON.stringify(bad[0] && bad[0].imgs)})`);
 };
 const clickBox = (i, doc = DOC) => `(() => { ${doc}.querySelectorAll('.hl-bp')[${i}].click(); return 1; })()`;
