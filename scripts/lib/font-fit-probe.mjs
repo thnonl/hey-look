@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 1.0.12 font change (Source Sans 3 replaced Inter): where does text not fit? Opens the dev preview in a headless Chrome for each language and size,
 // shows the main views (mail list + reading pane, Compose, Calendar, the tabs of Settings, the rule dialog) and prints JSON: per scene the elements whose text is
-// cut (an ellipsis that fires, a box with overflow hidden / clip whose content is wider or taller) and the elements that overflow the window.
+// cut (an ellipsis that fires, a box with overflow hidden / clip whose content is wider, or a wrapping one whose text is taller) and the elements that overflow the window.
 // "cut" is not a bug by itself (a long subject is meant to end in an ellipsis): run it on two branches and compare the counts and the lists.
 //   node scripts/lib/font-fit-probe.mjs [--lang=en,de,es,fr,ru,vi,zh-Hans,ja] [--size=960x560,1280x800] [--url=http://127.0.0.1:1420/]
 import { arg, sleep, startHarness } from '../cdp-harness.mjs';
@@ -24,8 +24,8 @@ const SCAN = `(() => {
     const clipX = cs.overflowX !== 'visible', clipY = cs.overflowY !== 'visible';
     const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.2;
     if (own && clipX && e.scrollWidth > e.clientWidth + 1 && cs.overflowX !== 'auto' && cs.overflowX !== 'scroll') out.push({ k: cs.textOverflow === 'ellipsis' ? 'ellipsis' : 'cut-x', el: name(e), t: e.textContent.trim().slice(0, 40), sw: e.scrollWidth, cw: e.clientWidth });
-    else if (own && clipY && e.scrollHeight > e.clientHeight + 1 && cs.overflowY !== 'auto' && cs.overflowY !== 'scroll') out.push({ k: 'cut-y', el: name(e), t: e.textContent.trim().slice(0, 40), sh: e.scrollHeight, ch: e.clientHeight });
-    if (own && clipY && cs.whiteSpace === 'nowrap' && cs.lineHeight !== 'normal' && lh / parseFloat(cs.fontSize) < 1.2) out.push({ k: 'tight-line', el: name(e), t: e.textContent.trim().slice(0, 30), lh: +(lh / parseFloat(cs.fontSize)).toFixed(2) });
+    // (a one-line box (nowrap) always reports a scrollHeight above its height with Source Sans 3: the content area of the font is taller than the 17 px line; for those the INK matters, scripts/lib/font-ink-probe.mjs)
+    else if (own && clipY && cs.whiteSpace !== 'nowrap' && e.scrollHeight > e.clientHeight + 3 && cs.overflowY !== 'auto' && cs.overflowY !== 'scroll') out.push({ k: 'cut-y', el: name(e), t: e.textContent.trim().slice(0, 40), sh: e.scrollHeight, ch: e.clientHeight });
     const r = e.getBoundingClientRect();
     if (own && r.right > innerWidth + 1 && !e.closest('.modal-body, .ml-body, [style*=transform]')) out.push({ k: 'off-window', el: name(e), t: e.textContent.trim().slice(0, 30), right: Math.round(r.right) });
   }
