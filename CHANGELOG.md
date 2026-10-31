@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.12 — unreleased
+
+### Changed
+
+- The font of the app is now Source Sans 3 (it was Inter). It is bundled with the app, so text looks the same on Windows, macOS and Linux; sizes are adjusted so the interface keeps its size. Chinese and Japanese keep the system fonts
+
 ## 1.0.11 — 2026-10-30
 
 ### Added
