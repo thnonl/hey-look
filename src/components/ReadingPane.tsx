@@ -1,5 +1,5 @@
 import { unsubscribeMailto } from "../unsubscribeMailto";
-import { ALT_MIN_HEIGHT, fitHiddenBoxes, hiddenPictureBox } from "../blockedPicture";
+import { ALT_MIN_HEIGHT, fitHiddenBox, fitHiddenBoxes, hiddenPictureBox, setPictureBoxState, type PictureBoxState, type PictureBoxTexts } from "../blockedPicture";
 import { dropSrcsets, firstSrcsetUrl, isSchemeSource, pictureAddress, remoteUrl, settleSources } from "../pictureSrcset";
 import { cachedImage, hasCachedImage, loadRemoteImages } from "../remoteImages";
 import { frameCsp, frameSandbox } from "../frameSandbox";
@@ -28,7 +28,7 @@ import { fmtNumber } from "../i18n/format";
 import { tx } from "../i18n/rich";
 import { DARK_CANVAS, frameBaseCss, frameRootClass, pressCanvas } from "../mailCanvas";
 import { useAppDark } from "../useAppDark";
-import { HIDDEN_PICTURE_DARK_CSS, HIDDEN_PICTURE_SHIELD_SVG, MAIL_FRAME_CSS, MAIL_FRAME_SPIN_CSS } from "../mailFrameCss";
+import { FAILED_PICTURE_RETRY_SVG, HIDDEN_PICTURE_DARK_CSS, HIDDEN_PICTURE_SHIELD_SVG, MAIL_FRAME_CSS, MAIL_FRAME_SPIN_CSS } from "../mailFrameCss";
 import { reapply as reapplyColorScheme, rewriteMailHtml } from "../colorSchemeMedia";
 import { eff } from "../prefs";
 import { addNoAuto, addTrusted, canOffer, ensureTrustedLoaded, normSender, noticeState, remoteAllowed, remoteAllowedFor, removeNoAuto, removeTrusted, useTrusted, type RemoteInput } from "../trustedSenders";
@@ -132,6 +132,15 @@ function shownHtml(clean: { html: string }, allowed: boolean, settled: boolean, 
   return out;
 }
 
+/** The words of a hidden-picture box that is loading its picture or failed to (UX-1 of 1.0.12; the keys are the ones of the box and of the inline pictures, no new text). */
+function pictureBoxTexts(state: PictureBoxState, alt: string): PictureBoxTexts {
+  const showing = t("reading.pic.showing");
+  const failed = t("reading.pic.failed");
+  const retry = t("common.retry");
+  if (state === "loading") return { main: showing, hint: "", label: alt ? `${showing} ${alt}` : showing, title: showing, status: showing };
+  return { main: failed, hint: retry, label: alt ? `${alt}: ${failed} ${retry}` : `${failed} ${retry}`, title: `${failed} ${retry}`, status: failed };
+}
+
 /** Pictures the sync did not embed: loaded ones become data: URIs, the rest become click-to-load placeholders. */
 function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string>, state: Record<string, { status: "loading" | "failed"; error?: string }>, shown: Record<string, string>): string {
   const doc = new DOMParser().parseFromString(html, "text/html");
@@ -140,7 +149,10 @@ function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string
   // A picture that was shown one by one earlier (`shown`) comes back as the picture when the frame is built again.
   const mac = osNow() === "macos";
   settleSources(doc, (u) => shown[u]); // a dark-mode <source> keeps a data: URI (fetched, or shown one by one earlier) or waits without a srcset; any other <source> is dropped
-  doc.querySelectorAll("img[data-hl-blocked]").forEach((img) => {
+  doc.querySelectorAll("img[data-hl-blocked], img[data-hl-wait]").forEach((img) => {
+    // data-hl-wait: the backend has not answered for this picture yet (the person allowed the pictures, or the rule did): the box says it is loading instead of an <img> without an address,
+    // which the engines draw as a broken picture or its alt text (UX-1 of 1.0.12). data-hl-failed: the backend answered and had no picture: the box says so and offers Retry.
+    const waiting = img.hasAttribute("data-hl-wait");
     const url = img.getAttribute("data-hl-src") ?? "";
     if (url && shown[url]) {
       img.removeAttribute("data-hl-blocked");
@@ -149,19 +161,21 @@ function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string
       return;
     }
     const size = hiddenPictureBox({ width: img.getAttribute("width"), height: img.getAttribute("height"), style: img.getAttribute("style"), hidden: img.hasAttribute("hidden") });
-    if (size.hidden) return img.remove();
+    if (size.hidden) return waiting ? undefined : img.remove(); // (a pixel that waits stays as it is: the layout does not move when it arrives)
     const alt = (img.getAttribute("alt") ?? "").trim();
     const box = doc.createElement("span");
     box.className = "hl-bp hl-bpx";
-    box.setAttribute("data-hl-pic", "1");
+    if (!waiting) box.setAttribute("data-hl-pic", "1"); // (a box that waits is no button: no click, no menu, no focus)
     box.setAttribute("data-tier", size.tier);
     if (url) box.setAttribute("data-src", url);
     for (const a of ["width", "height", "style", "alt"] as const) {
       const v = img.getAttribute(a);
       if (v) box.setAttribute(`data-img-${a}`, v);
     }
-    box.setAttribute("role", "button");
-    box.setAttribute("tabindex", "0");
+    if (!waiting) {
+      box.setAttribute("role", "button");
+      box.setAttribute("tabindex", "0");
+    } else box.setAttribute("role", "img");
     box.setAttribute("title", t("reading.pic.hidden")); // (the small and mid boxes cannot hold the whole line: the tooltip has it)
     box.setAttribute("aria-label", alt ? t("reading.pic.hiddenLabel", { alt }) : t("reading.pic.hiddenLabelNoAlt"));
     box.style.width = size.width;
@@ -185,6 +199,8 @@ function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string
       label.textContent = alt;
       box.append(label);
     }
+    if (waiting) setPictureBoxState(box, "loading", pictureBoxTexts("loading", alt), FAILED_PICTURE_RETRY_SVG);
+    else if (img.hasAttribute("data-hl-failed")) setPictureBoxState(box, "failed", pictureBoxTexts("failed", alt), FAILED_PICTURE_RETRY_SVG);
     img.replaceWith(box);
   });
   doc.querySelectorAll("img[src^='cid:']").forEach((img) => {
@@ -238,6 +254,7 @@ function inlineImages(html: string, settled: boolean): string {
       i.removeAttribute("src");
       if (settled) {
         i.setAttribute("data-hl-blocked", "1");
+        i.setAttribute("data-hl-failed", "1");
         if (abs.length <= 4096) i.setAttribute("data-hl-src", abs);
       } else i.setAttribute("data-hl-wait", "1");
     }
@@ -438,22 +455,21 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
       const url = box.getAttribute("data-src");
       const doc = box.ownerDocument;
       if (!url || box.hasAttribute("data-pending")) return;
-      const main = box.querySelector<HTMLElement>(".hl-bp-main");
-      const original = main?.textContent ?? "";
-      box.setAttribute("data-pending", "1");
-      box.setAttribute("aria-busy", "true");
-      box.classList.remove("bad");
-      if (main) main.textContent = t("reading.pic.showing");
+      // every box of this address says it is loading at once (one fetch serves them all); a failed one is the Retry button and comes through here again
+      const mine = Array.from(doc.querySelectorAll<HTMLElement>(".hl-bp[data-src]")).filter((b) => b.getAttribute("data-src") === url);
+      const setState = (state: PictureBoxState) => {
+        for (const b of mine) {
+          setPictureBoxState(b, state, pictureBoxTexts(state, b.getAttribute("data-img-alt") ?? ""), FAILED_PICTURE_RETRY_SVG);
+          fitHiddenBox(b); // (the new lines must fit the box as it is drawn)
+        }
+      };
+      setState("loading"); // (sets data-pending before the first await: a second press finds it)
       // the dark-mode <source>s of the same <picture> come with the picture (their address waits in data-hl-srcset): the logo has to switch on the Dark background
       const sources = Array.from(box.closest("picture")?.querySelectorAll<HTMLElement>("source[data-hl-srcset]") ?? []);
       await loadRemoteImages([url, ...sources.map((s) => s.getAttribute("data-hl-srcset") ?? "")].filter(Boolean), true);
       const data = cachedImage(url);
       if (!data) {
-        box.removeAttribute("data-pending");
-        box.removeAttribute("aria-busy");
-        box.classList.add("bad");
-        if (main) main.textContent = t("reading.pic.failed");
-        box.setAttribute("data-failed-text", original);
+        setState("failed");
         return;
       }
       shownRef.current = { ...shownRef.current, [url]: data };

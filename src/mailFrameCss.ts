@@ -18,16 +18,26 @@ export const HIDDEN_PICTURE_CSS = `.hl-bpx{cursor:pointer;gap:2px;padding:6px;te
 .hl-bpx .hl-bp-main,.hl-bpx .hl-bp-hint,.hl-bpx .hl-bp-alt{flex:none}
 .hl-bpx[data-tier=mid] .hl-bp-hint,.hl-bpx[data-tier=mid] .hl-bp-alt,.hl-bpx[data-tier=small] .hl-bp-main,.hl-bpx[data-tier=small] .hl-bp-hint,.hl-bpx[data-tier=small] .hl-bp-alt{display:none}
 .hl-bpx[data-tall=no] .hl-bp-alt{display:none}
-.hl-bpx[data-pending]{opacity:.6;cursor:progress}.hl-bpx.bad{border-color:#c4314b;color:#c4314b}
+.hl-bpx{position:relative}.hl-bp-sr{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.hl-bpx[data-pending]{cursor:progress}.hl-bpx.bad{border-color:#c4314b;color:#c4314b}
+.hl-bpx[data-state=loading] .hl-bp-hint{display:none}
+.hl-bpx .hl-bp-ico .hl-spin{display:block;box-sizing:border-box;width:calc(100% - 8px);height:calc(100% - 8px);margin:4px;border:3px solid currentColor;border-top-color:transparent}.hl-bpx[data-tier=small] .hl-bp-ico .hl-spin{border-width:2px}
+.hl-bpx.bad .hl-bp-ico{color:#c4314b}.hl-bpx.bad .hl-bp-ico svg path:first-child{fill:none}
+.hl-bpx[data-state=failed][data-tier=mid] .hl-bp-main{display:none}.hl-bpx[data-state=failed][data-tier=mid] .hl-bp-hint{display:block}
+@media (prefers-reduced-motion:reduce){.hl-spin{animation:none}}
 a .hl-bpx{cursor:default}
 @media print{.hl-bp-hint{display:none!important}.hl-bpx{cursor:default;outline:none}}`;
 
 /** The shield of the box: an inline SVG (not a background picture: WebKit did not paint the data URI of it), drawn in the colour of its container (currentColor), the shield filled by the CSS. */
 export const HIDDEN_PICTURE_SHIELD_SVG = "<svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' aria-hidden='true' focusable='false'><path d='M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z'/><rect x='8' y='9' width='8' height='6' rx='1'/><path d='m8 14.5 2.5-2.2a1 1 0 0 1 1.3 0L16 15'/></svg>";
 
+/** The arrow of a box whose picture could not be fetched (UX-1 of 1.0.12): a press tries again. Same drawing rules as the shield. */
+export const FAILED_PICTURE_RETRY_SVG = "<svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' aria-hidden='true' focusable='false'><path d='M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8'/><path d='M3 3v5h5'/></svg>";
+
 /** The dark presentation of that box (the screen frame only: a printed page is always light). */
 export const HIDDEN_PICTURE_DARK_CSS = `html.hm-dark .hl-bpx{background:#262a30;border-color:#6b7280;color:#c3c9d1}html.hm-dark .hl-bpx:hover{background:#2d3239}html.hm-dark .hl-bpx:focus-visible{outline-color:#8fb4e3}
-html.hm-dark .hl-bp-hint,html.hm-dark .hl-bpx .hl-bp-alt{color:#c3c9d1}html.hm-dark .hl-bpx .hl-bp-ico{color:#a9c8f0}html.hm-dark .hl-bpx .hl-bp-ico svg path:first-child{fill:#33425a}`;
+html.hm-dark .hl-bp-hint,html.hm-dark .hl-bpx .hl-bp-alt{color:#c3c9d1}html.hm-dark .hl-bpx .hl-bp-ico{color:#a9c8f0}html.hm-dark .hl-bpx .hl-bp-ico svg path:first-child{fill:#33425a}
+html.hm-dark .hl-bpx.bad{border-color:#f0788c;color:#f0788c}html.hm-dark .hl-bpx.bad .hl-bp-hint{color:#f0788c}html.hm-dark .hl-bpx.bad .hl-bp-ico{color:#f0788c}html.hm-dark .hl-bpx.bad .hl-bp-ico svg path:first-child{fill:none}`;
 
 /** Everything up to the placeholders of blocked pictures. */
 export const MAIL_FRAME_CSS = `body{font:14px/1.5 "Segoe UI Variable","Segoe UI",system-ui,sans-serif;margin:0;padding:10px 12px;word-wrap:break-word;background:var(--hm-bg);color:var(--hm-fg)}

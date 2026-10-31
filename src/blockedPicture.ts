@@ -95,17 +95,71 @@ const TIER_ORDER: PictureTier[] = ["small", "mid", "full"];
 export function fitHiddenBoxes(doc: Document): number {
   let n = 0;
   doc.querySelectorAll<HTMLElement>(".hl-bpx[data-tier]").forEach((b) => {
-    const before = b.getAttribute("data-tier") ?? "small";
-    const declared = (b.getAttribute("data-tier0") ?? before) as PictureTier;
-    b.setAttribute("data-tier0", declared);
-    const r = b.getBoundingClientRect();
-    let at = Math.min(TIER_ORDER.indexOf(declared), TIER_ORDER.indexOf(tierForSize(r.width, r.height)));
-    const set = (i: number) => b.setAttribute("data-tier", TIER_ORDER[i]);
-    set(at);
-    while (at > 0 && sticksOut(b)) set(--at);
-    if (b.getAttribute("data-tier") !== before) n++;
+    if (fitHiddenBox(b)) n++;
   });
   return n;
+}
+
+/** fitHiddenBoxes for one box (a box whose text changed: loading, failed); true when its tier changed. */
+export function fitHiddenBox(b: HTMLElement): boolean {
+  const before = b.getAttribute("data-tier") ?? "small";
+  const declared = (b.getAttribute("data-tier0") ?? before) as PictureTier;
+  b.setAttribute("data-tier0", declared);
+  const r = b.getBoundingClientRect();
+  let at = Math.min(TIER_ORDER.indexOf(declared), TIER_ORDER.indexOf(tierForSize(r.width, r.height)));
+  const set = (i: number) => b.setAttribute("data-tier", TIER_ORDER[i]);
+  set(at);
+  while (at > 0 && sticksOut(b)) set(--at);
+  return b.getAttribute("data-tier") !== before;
+}
+
+/** What a hidden-picture box shows while its picture is fetched (UX-1 of 1.0.12) and when that failed: `loading` (a spinner, "Showing picture…") or `failed` (a retry arrow, the failure and "Retry"). */
+export type PictureBoxState = "loading" | "failed";
+/** The words of one state (the caller has them translated): the main line, the hint line (empty: none), the accessible name and tooltip of the box, and the announcement. */
+export type PictureBoxTexts = { main: string; hint: string; label: string; title: string; status: string };
+
+/**
+ * Puts a hidden-picture box into `loading` or `failed`; the box keeps its size (the style the reading pane set) and its alt line. The icon becomes a spinner / a retry arrow, the lines
+ * change, `aria-busy` marks the fetch and a polite status line (.hl-bp-sr, in every tier: the small box shows no text) announces the change. A loading box is not pressable (aria-disabled),
+ * a failed one is the Retry button. Pure DOM, no layout read: the caller fits the tier afterwards (fitHiddenBox) when the box is on screen.
+ */
+export function setPictureBoxState(box: HTMLElement, state: PictureBoxState, texts: PictureBoxTexts, retryIconSvg: string): void {
+  const doc = box.ownerDocument;
+  const loading = state === "loading";
+  box.setAttribute("data-state", state);
+  if (loading) {
+    box.setAttribute("data-pending", "1");
+    box.setAttribute("aria-busy", "true");
+    box.setAttribute("aria-disabled", "true");
+  } else {
+    box.removeAttribute("data-pending");
+    box.removeAttribute("aria-busy");
+    box.removeAttribute("aria-disabled");
+  }
+  box.classList.toggle("bad", !loading);
+  box.removeAttribute("data-hm"); // (the dark walker's colour pin of the box, darkMail.ts: it was made for the colours of the state before; the CSS of the state draws the box)
+  const ico = box.querySelector<HTMLElement>(".hl-bp-ico");
+  if (ico) {
+    if (loading) {
+      const spin = doc.createElement("span");
+      spin.className = "hl-spin";
+      ico.replaceChildren(spin);
+    } else ico.innerHTML = retryIconSvg;
+  }
+  const main = box.querySelector<HTMLElement>(".hl-bp-main");
+  if (main) main.textContent = texts.main;
+  const hint = box.querySelector<HTMLElement>(".hl-bp-hint");
+  if (hint) hint.textContent = texts.hint;
+  box.setAttribute("aria-label", texts.label);
+  box.setAttribute("title", texts.title);
+  let sr = box.querySelector<HTMLElement>(".hl-bp-sr");
+  if (!sr) {
+    sr = doc.createElement("span");
+    sr.className = "hl-bp-sr";
+    sr.setAttribute("role", "status");
+    box.append(sr);
+  }
+  sr.textContent = texts.status;
 }
 
 /** Whether something the box shows lies (even partly) outside its edges less its padding (5 px of the 6 the CSS gives, times the mail's zoom), or its line is wider than the line box. */
