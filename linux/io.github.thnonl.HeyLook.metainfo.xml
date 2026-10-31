@@ -240,6 +240,12 @@
   <releases>
     <!-- The version-bump commit of a release adds its entry FIRST (the newest release is the snap's version and the one the release
          workflow checks against the tag). -->
+    <release version="1.0.12" date="2026-11-01">
+      <description>
+        <p>PLACEHOLDER for the copywriter pass: a loading and a failed state for hidden pictures, reader window Next and Previous fixed, a new font, calendar names that wrap.</p>
+      </description>
+      <url>https://github.com/thnonl/hey-look/releases/tag/v1.0.12</url>
+    </release>
     <release version="1.0.11" date="2026-10-30">
       <description>
         <p>Settings to turn off the automatic picture rule and to see the senders turned off and the built-in services, a compose that stays on screen until the message is sent, notifications that work on macOS, and fixes for broken pictures, moved mail and calendar names.</p>
