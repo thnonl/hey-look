@@ -2025,7 +2025,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     const cs = getComputedStyle(bar);
     const more = probe.querySelector<HTMLElement>('[data-fit="more"]');
     const n = overflowCount({
-      available: bar.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0),
+      available: bar.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0) - 2, // (2 px of reserve: a row filled to the last pixel shrinks the Sign button by 1 px and its caret drops under it, a 24 px jump; Source Sans 3 came out at that edge in the 1280 px window)
       fixed: [...bar.querySelectorAll<HTMLElement>(":scope > [data-fit=fixed]")].map(box),
       movable: barOrder.map((id) => { const el = probe.querySelector<HTMLElement>(`[data-fit="${id}"]`); return el ? box(el) : 0; }),
       more: more ? box(more) : 0,

@@ -110,8 +110,7 @@ code { background: var(--bg3); padding: 1px 5px; border-radius: 4px; font-size: 
 h2, h3, h4 { margin: 0; }
 :focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
 button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-visible { outline-offset: -2px; border-radius: var(--r-sm); }
-/* (Source Sans 3 is taller above the line than the line box of a one-line row: 2 px of room on top, moved back by the margin, so the dots of Ä and the stacked marks of Vietnamese capitals are not cut by overflow: hidden) */
-.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-top: 2px; margin-top: -2px; }
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .muted { color: var(--muted); }
 .small { font-size: .86em; }
 .pre { white-space: pre-wrap; }
@@ -536,6 +535,7 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
 .acct-dot { width: 7px; height: 7px; border-radius: 2px; flex: none; } /* flat fill, no edge: the palette colors keep >= 3:1 on the light and the dark surface */
 /* mailbox marker: a small bar under the avatar (absolute, so the row never changes height); Compact has no avatar and keeps the dot before the name */
 .acct-dot.under { position: absolute; left: 50%; top: calc(100% + 3px); width: 16px; height: 4px; transform: translateX(-50%); }
+/* (Source Sans 3 is taller above the line than the line box of a one-line row (.who .subject .preview .gs-main .lr-title .att-name): 2 px of room on top, moved back by the margin, so the dots of Ä and the stacked marks of Vietnamese capitals are not cut by overflow: hidden) */
 .who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-top: 2px; margin-top: -2px; }
 .date { color: var(--muted); font-size: .86em; flex: none; font-variant-numeric: tabular-nums; }
 .ml-row[aria-busy="true"] .date .spin { width: 12px; height: 12px; vertical-align: -2px; } /* a draft is being opened: a ring in place of the date (REQ-13.7.1); the row keeps its height (the text line is 1.4 em) */
@@ -549,7 +549,7 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
 .flag-on { color: var(--flag); }
 .count { background: var(--bg3); border-radius: 999px; padding: 0 7px; font-size: .78em; color: var(--muted); font-weight: 600; }
 .where { font-size: .74em; color: var(--muted); background: var(--bg3); border-radius: 4px; padding: 0 6px; }
-.preview { color: var(--muted); font-size: .9em; }
+.preview { color: var(--muted); font-size: .9em; padding-top: 2px; margin-top: -2px; }
 [data-density="medium"] .ml-row { padding-top: 6px; padding-bottom: 6px; }
 [data-density="compact"] .ml-row { padding-top: 4px; padding-bottom: 4px; align-items: center; }
 [data-density="compact"] .ml-main { display: flex; gap: 10px; align-items: center; }
