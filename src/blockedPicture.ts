@@ -120,7 +120,7 @@ export type PictureBoxTexts = { main: string; hint: string; label: string; title
 
 /**
  * Puts a hidden-picture box into `loading` or `failed`; the box keeps its size (the style the reading pane set) and its alt line. The icon becomes a spinner / a retry arrow, the lines
- * change, `aria-busy` marks the fetch and a polite status line (.hl-bp-sr, in every tier: the small box shows no text) announces the change. A loading box is not pressable (aria-disabled),
+ * change, `aria-busy` marks the fetch and a polite status line (.hl-bp-sr, in every tier: the small box shows no text) announces the change. A loading box is no button (role img, out of the tab order),
  * a failed one is the Retry button. Pure DOM, no layout read: the caller fits the tier afterwards (fitHiddenBox) when the box is on screen.
  */
 export function setPictureBoxState(box: HTMLElement, state: PictureBoxState, texts: PictureBoxTexts, retryIconSvg: string): void {
@@ -130,11 +130,14 @@ export function setPictureBoxState(box: HTMLElement, state: PictureBoxState, tex
   if (loading) {
     box.setAttribute("data-pending", "1");
     box.setAttribute("aria-busy", "true");
-    box.setAttribute("aria-disabled", "true");
+    // not a button while it loads: out of the tab order (-1 keeps the focus of a box that has it, so the keyboard is not lost), and the role of the box that waits for a rebuilt frame
+    box.setAttribute("role", "img");
+    if (box.hasAttribute("tabindex")) box.setAttribute("tabindex", "-1");
   } else {
     box.removeAttribute("data-pending");
     box.removeAttribute("aria-busy");
-    box.removeAttribute("aria-disabled");
+    box.setAttribute("role", "button"); // (Retry)
+    box.setAttribute("tabindex", "0");
   }
   box.classList.toggle("bad", !loading);
   box.removeAttribute("data-hm"); // (the dark walker's colour pin of the box, darkMail.ts: it was made for the colours of the state before; the CSS of the state draws the box)

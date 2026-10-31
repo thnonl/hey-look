@@ -48,7 +48,7 @@ const open = async (id) => {
 // one sample of the frame: every box (state, size, text, icon), every picture (has it an address, is it a data: picture)
 const SNAP = (doc) => `(() => { const d = ${doc}; if (!d) return null; const r = (e) => { const q = e.getBoundingClientRect(); return [Math.round(q.width), Math.round(q.height)]; };
   const vis = (e) => !!e && getComputedStyle(e).display !== 'none';
-  return { boxes: [...d.querySelectorAll('.hl-bp')].map((b) => ({ state: b.getAttribute('data-state'), busy: b.getAttribute('aria-busy'), bad: b.classList.contains('bad'), size: r(b), tier: b.getAttribute('data-tier'), alt: b.getAttribute('data-img-alt'), label: b.getAttribute('aria-label'), role: b.getAttribute('role'), spin: !!b.querySelector('.hl-spin'), main: vis(b.querySelector('.hl-bp-main')) ? b.querySelector('.hl-bp-main').textContent : null, hint: vis(b.querySelector('.hl-bp-hint')) ? b.querySelector('.hl-bp-hint').textContent : null, status: b.querySelector('.hl-bp-sr') ? b.querySelector('.hl-bp-sr').textContent : null })),
+  return { boxes: [...d.querySelectorAll('.hl-bp')].map((b) => ({ state: b.getAttribute('data-state'), busy: b.getAttribute('aria-busy'), bad: b.classList.contains('bad'), size: r(b), tier: b.getAttribute('data-tier'), alt: b.getAttribute('data-img-alt'), label: b.getAttribute('aria-label'), role: b.getAttribute('role'), tab: b.getAttribute('tabindex'), focused: d.activeElement === b, spin: !!b.querySelector('.hl-spin'), main: vis(b.querySelector('.hl-bp-main')) ? b.querySelector('.hl-bp-main').textContent : null, hint: vis(b.querySelector('.hl-bp-hint')) ? b.querySelector('.hl-bp-hint').textContent : null, status: b.querySelector('.hl-bp-sr') ? b.querySelector('.hl-bp-sr').textContent : null })),
     imgs: [...d.images].map((i) => ({ src: (i.getAttribute('src') || '').slice(0, 10), alt: i.getAttribute('alt'), size: r(i), ok: i.complete && i.naturalWidth > 0, done: i.complete })) }; })()`;
 const snap = (doc = DOC) => evaluate(SNAP(doc));
 /** Runs `act`, then samples every 25 ms until `done(sample)`; returns all the samples (t: ms since the action). */
@@ -85,6 +85,7 @@ try {
   noBroken(s, 'show one');
   ok(s[0].t < 250 && s[0].boxes[1].state === 'loading', `the box is loading at the first sample (${s[0].t} ms, ${s[0].boxes[1] && s[0].boxes[1].state})`);
   const L = s[0].boxes[1];
+  ok(L.role === 'img' && L.tab === '-1', `loading box is no button and out of the tab order (${L.role}, tabindex ${L.tab})`);
   ok(L.tier === 'full' && L.busy === 'true' && L.spin && L.main === 'Showing picture…' && L.hint === null && L.status === 'Showing picture…', `loading box: ${JSON.stringify(L)}`);
   ok(/two/.test(L.label) && L.alt === 'two', `the alt text is kept in the name of the box (${L.label})`);
   ok(JSON.stringify(L.size) === JSON.stringify(before.boxes[1].size), `loading box keeps its size ${JSON.stringify(before.boxes[1].size)} (${JSON.stringify(L.size)})`);
@@ -119,6 +120,7 @@ try {
   ok(fin.boxes.length === 2 && fin.boxes[0].state === 'failed' && fin.boxes[0].bad && fin.boxes[0].alt === 'bad', `the other one is failed: ${JSON.stringify(fin.boxes)}`);
   ok(fin.boxes[0].main === 'Couldn’t load this picture.' && fin.boxes[0].hint === 'Retry' && fin.boxes[0].busy === null && !fin.boxes[0].spin, `failed box says it and offers Retry (${fin.boxes[0].main} / ${fin.boxes[0].hint})`);
   ok(fin.boxes[1].tier === 'mid' && fin.boxes[1].main === null && fin.boxes[1].hint === 'Retry' && fin.boxes[1].state === 'failed', `a mid box that failed says Retry only (${JSON.stringify(fin.boxes[1])})`);
+  ok(fin.boxes[0].role === 'button' && fin.boxes[0].tab === '0', `failed box is a button in the tab order (${fin.boxes[0].role}, ${fin.boxes[0].tab})`);
   ok(fin.boxes[0].role === 'button' && /Retry/.test(fin.boxes[0].label) && /bad/.test(fin.boxes[0].label), `failed box is a button named with the alt and Retry (${fin.boxes[0].label})`);
 
   // ======================================================================== P5 Retry
@@ -129,6 +131,11 @@ try {
   ok(s.slice(0, -1).every((x) => x.boxes[0].state === 'loading') && s.every((x) => x.imgs.length === 1), 'Retry: loading all the way, nothing else changes');
   ok(s[s.length - 1].boxes[0].state === 'failed', 'Retry: failed again (the address is still unreachable)');
   ok((await calls()).flat().length === 1, 'Retry: a second fetch');
+  // the focus stays on the box through loading and failed (Enter on a focused box, then on the failed one)
+  await evaluate(`${DOC}.querySelector('.hl-bp').focus(); 1`);
+  s = await sample(`${DOC}.querySelector('.hl-bp').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); 1`, (x) => x.boxes[0].state === 'failed' && x.t > 300, 6000);
+  ok(s.every((x) => x.boxes[0].focused), 'the focused box keeps the keyboard focus while it loads and when it failed');
+  ok(s[0].boxes[0].tab === '-1' && s[s.length - 1].boxes[0].tab === '0', 'tabindex -1 while loading, 0 again when failed');
   // Enter on the failed box retries too
   await evaluate(`${DOC}.querySelector('.hl-bp').focus(); ${DOC}.querySelector('.hl-bp').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); 1`);
   ok(await until(`${DOC}.querySelector('.hl-bp').getAttribute('data-state') === 'loading'`, 800), 'Enter on the failed box retries');
