@@ -206,6 +206,7 @@
   "node --experimental-strip-types scripts/test-event-popover-actions.mjs --require-browser": 67,
   "node scripts/test-calendar-at-signin.mjs --quick --require-browser": 194,
   "node scripts/test-calendar-fold.mjs --quick --require-browser": 30,
+  "node scripts/test-calendar-label-fit.mjs --require-browser": 30,
   "node --experimental-strip-types scripts/test-answer-shell.mjs": 0,
   "node scripts/test-reply-feedback.mjs --require-browser": 126,
   "node --experimental-strip-types scripts/test-recent-searches.mjs": 0,

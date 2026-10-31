@@ -831,7 +831,7 @@ export function CalSidebar() {
                   style={{ accentColor: col }}
                   onChange={(e) => void api.calendarSetVisible(c.id, e.target.checked).then(() => bumpCal())}
                 />
-                <span className="ellipsis" title={calendarTitle(c)}>{calendarTitle(c)}</span>
+                <span className="cal-nm" title={calendarTitle(c)}>{calendarTitle(c)}</span>
                 {c.remote && !c.writable && <span className="muted small" style={{ flex: "none" }}>{t("calendar.side.readOnly")}</span>}
               </label>
             );
