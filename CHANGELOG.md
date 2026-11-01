@@ -12,7 +12,7 @@
 - A reader window opened with Next or Previous no longer stays on "Opening message…"; it shows the message
 - Printing a message while a picture is still loading or has failed prints a plain box, without the spinner, the Retry arrow or the status text
 - Linux: a reader window keeps its own message and no longer follows the message selected in the main window
-- Calendar: long calendar names in the sidebar wrap onto more lines instead of ending in "…"; a "read only" badge moves under the name when it does not fit
+- Calendar: long calendar names in the sidebar now wrap onto up to three lines instead of being cut off after one; a name longer than that ends in "…", and pointing at it shows the full name. A "read only" badge moves under the name when it does not fit
 
 ## 1.0.11 — 2026-10-30
 
