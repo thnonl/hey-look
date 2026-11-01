@@ -20,13 +20,13 @@ export const REWRITTEN = {
     },
     features: {
       addLinks: ['vi/help.html#where', 'vi/help.html#folders'],
-      ceiling: 1472, // PENDING BA decision (the approved text is 1472 units against 1200); hard limit, revert this commit if refused
+      ceiling: 1328, // PENDING BA decision: measured after the final editor cuts (1328 units against 1200); hard limit, revert this commit if refused
     },
     download: {
       addIds: ['install-notes-h', 'install-windows', 'install-macos'],
       addLinks: ['vi/download.html#install-windows', 'vi/download.html#install-macos', 'vi/help.html#updates'],
       headingDelta: { 2: 1, 3: 1 },
-      ceiling: 666, // PENDING BA decision (the approved text is 666 units against 540)
+      ceiling: 665, // PENDING BA decision: measured after the final editor pass (665 units against 540); hard limit
     },
     help: {
       addIds: ['folders'],
