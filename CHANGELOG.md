@@ -4,7 +4,7 @@
 
 ### Changed
 
-- The font of the app is now Source Sans 3 (it was Inter). It still ships with the app, and text and rows keep about the same size as before. Chinese and Japanese keep the system fonts
+- The font of the app is now Source Sans 3 (it was Inter). It still ships with the app. Text looks a little smaller than before at the same text size, while rows, buttons and menus keep their height; Settings > Appearance > Text size makes it larger. Chinese and Japanese keep the system fonts
 
 ### Fixed
 

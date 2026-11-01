@@ -2,7 +2,7 @@
 // 1.0.10 (Inter), 1.0.12 (Source Sans 3): the app ships its own interface font (Source Sans 3, SIL OFL 1.1, public/fonts) so that text looks and wraps the same on Windows, macOS and Linux.
 //   - static: the @font-face rules (family Source Sans 3, weights 400 to 700, font-display: block, one file per subset with its unicode-range), the files exist and are woff2,
 //     the licence text ships next to them, index.html preloads the Latin file (crossorigin) and links the rules before the app's stylesheet, the CSP allows font-src 'self',
-//     the root font stack starts with "Source Sans 3" and keeps the native stack and the CJK system fonts as the fallback, the message frame's own font is not the interface font; Inter is referenced nowhere any more (src, public, index.html, the README font paragraph); the root size is 1.1 x --fs;
+//     the root font stack starts with "Source Sans 3" and keeps the native stack and the CJK system fonts as the fallback, the message frame's own font is not the interface font; Inter is referenced nowhere any more (src, public, index.html, the README font paragraph); the root size is --fs (factor 1.0, owner 2026-11-01) with a line of 1.2143;
 //   - served: the dev server answers the files with a font MIME type and a woff2 signature;
 //   - in the page: document.fonts is loaded when the mail UI is on screen, `14px "Source Sans 3"` is available (Latin, Cyrillic, Vietnamese), the chrome (list, dialogs, composer UI)
 //     is computed as Source Sans 3, a canvas measurement proves the bundled file (not a fallback) renders, and the body of a message in the reader and of the editor is not.
