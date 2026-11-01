@@ -125,7 +125,7 @@ const { evaluate, cdp } = H;
 const { typeText } = inputs(H, SHOTS, '');
 // a key with its virtual key code (Chrome moves the focus on Tab only for a key that has one); `shift` = Shift held
 const press = async (key, code, shift = false) => {
-  const vk = { Tab: 9, Escape: 27 }[key];
+  const vk = { Backspace: 8, Tab: 9, Escape: 27 }[key];
   const p = { key, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk, modifiers: shift ? 8 : 0 };
   await cdp('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...p });
   await cdp('Input.dispatchKeyEvent', { type: 'keyUp', ...p });
@@ -397,6 +397,8 @@ async function typing(cfg) {
   const sug = await evaluate(`(() => { const s = document.querySelector('.suggest.pinned'); if (!s) return null; const r = s.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + Math.min(r.height / 2, 14)); return { l: r.left, t: r.top, r: r.right, b: r.bottom, hit: !!t && s.contains(t), vw: innerWidth, vh: innerHeight }; })()`);
   ok(cfg, !!sug, 'typing "li" in To showed no suggestions');
   if (sug) ok(cfg, sug.l >= -1 && sug.t >= -1 && sug.r <= sug.vw + 1 && sug.b <= sug.vh + 1 && sug.hit, `the suggestions are cut off or covered: ${JSON.stringify(sug)}`);
+  // (the typed letters are taken back before the field is left: a field that is left commits them as one more recipient, and that chip may start a row - a change the person made, not the layout moving by itself)
+  for (let i = 0; i < 2; i++) await press('Backspace', 'Backspace');
   await evaluate(`document.querySelector('.cp-fields .rcpt input').blur(); 1`);
   await typeInto(cfg, '.cf-subject input', ' typed subject text'); await sleep(100);
   await evaluate(`document.querySelector('.cp-editor .tiptap').focus(); 1`);

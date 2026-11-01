@@ -649,7 +649,7 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 .drop-hint { position: absolute; inset: 0; background: color-mix(in srgb, var(--accent), transparent 90%); display: grid; place-items: center; font-weight: 650; font-size: 1.2em; color: var(--accent-text); pointer-events: none; }
 .cp-bar { display: flex; align-items: center; gap: 2px; row-gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
 /* the labelled row (a pane of 600 x 480 px or more) is ONE row in every language: what does not fit is in "More actions" (composeFit.ts overflowCount, Compose.tsx) */
-.compose-pane:not(.compact) .cp-bar { flex-wrap: nowrap; }
+.compose-pane:not(.compact) .cp-bar { flex-wrap: nowrap; white-space: nowrap; } /* (nowrap like the probe that measured the items: an item never shrinks below its measured width and wraps its words inside, 1.0.12) */
 .cp-bar > .imp-wrap, .cp-bar > .dd-wrap { display: contents; }
 /* the hidden copy of the movable actions whose natural widths are measured: off screen, not in the tab order (inert), not read out (aria-hidden) */
 .cp-probe { position: absolute; left: -10000px; top: 0; display: flex; align-items: center; gap: 2px; white-space: nowrap; visibility: hidden; pointer-events: none; }
