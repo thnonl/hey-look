@@ -166,7 +166,8 @@ export function MenuList({ items, onDone }: { items: MenuItem[]; onDone: () => v
           >
             <span className="menu-ico">{it.checked ? <Check size={14} /> : it.icon}</span>
             {it.dot && <span className="dot" style={{ background: it.dot }} />}
-            <span className="menu-lbl ellipsis" lang={it.lang} style={it.style}>{it.label}</span>
+            {/* a row that only says something (the "No templates yet (Settings → ...)" hint) wraps instead of ending in an ellipsis: 398 px of Russian in a 386 px label, 445 px with Inter */}
+            <span className="menu-lbl ellipsis" lang={it.lang} style={it.disabled && !it.onClick ? { whiteSpace: "normal", overflowWrap: "anywhere", ...it.style } : it.style}>{it.label}</span>
             {it.hint && <span className="menu-hint">{it.hint}</span>}
           </button>
         ),

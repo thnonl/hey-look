@@ -208,6 +208,7 @@
   "node scripts/test-calendar-fold.mjs --quick --require-browser": 30,
   "node scripts/test-calendar-label-fit.mjs --require-browser": 30,
   "node scripts/test-settings-nav-address.mjs --require-browser": 25,
+  "node scripts/test-menu-hint-fit.mjs --require-browser": 60,
   "node --experimental-strip-types scripts/test-answer-shell.mjs": 0,
   "node scripts/test-reply-feedback.mjs --require-browser": 126,
   "node --experimental-strip-types scripts/test-recent-searches.mjs": 0,
