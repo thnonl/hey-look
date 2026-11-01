@@ -52,13 +52,13 @@ export const TEXTS = {
     remove: "To remove Hey Look! and the repository:",
   },
   vi: {
-    summary: "Cài bằng APT và nhận cập nhật cùng hệ thống",
-    lead: "Dành cho Ubuntu 22.04 trở lên và Debian 12 trở lên, trên máy tính 64-bit (amd64). Chỉ cần thêm kho Hey Look! một lần: sau đó Hey Look! được cập nhật cùng phần còn lại của hệ thống, và ứng dụng không còn tự cập nhật nữa.",
+    summary: "Cài qua APT để cập nhật cùng hệ thống",
+    lead: "Dành cho Ubuntu 22.04 trở lên và Debian 12 trở lên, máy 64-bit (amd64). Bạn thêm kho Hey Look! một lần. Sau đó Hey Look! được cập nhật cùng các gói khác của hệ thống, và app không tự cập nhật nữa.",
     step1: "1. Tải khóa ký của kho:",
     step2: "2. Thêm kho:",
     step3: "3. Cài đặt Hey Look!:",
-    fingerprint: "Vân tay của khóa ký là {fingerprint}. Để so sánh với khóa bạn đã tải, hãy chạy:",
-    existing: "Đã cài .deb từ trang này rồi? Hãy làm theo cùng ba bước đó. Thư, tài khoản và cài đặt của bạn vẫn được giữ nguyên, và từ đó các bản cập nhật sẽ đến qua APT.",
+    fingerprint: "Vân tay của khóa ký là {fingerprint}. Để so với khóa bạn vừa tải, chạy lệnh:",
+    existing: "Nếu bạn đã cài tệp .deb từ trang này, hãy làm đúng ba bước trên. Thư, tài khoản và cài đặt vẫn giữ nguyên, và từ đó bản cập nhật đến qua APT.",
     remove: "Để gỡ cài đặt Hey Look! và kho:",
   },
   fr: {
