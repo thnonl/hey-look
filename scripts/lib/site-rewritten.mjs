@@ -31,7 +31,7 @@ export const REWRITTEN = {
     help: {
       addIds: ['folders'],
       addLinks: ['vi/download.html#install-macos', 'vi/help.html#folders', 'vi/help.html#google-review'],
-      ceiling: 1682, // PENDING BA decision (the approved text is 1682 units against 1590)
+      ceiling: 1685, // PENDING BA decision (the approved text is 1685 units against 1590 after V8)
     },
   },
 };
