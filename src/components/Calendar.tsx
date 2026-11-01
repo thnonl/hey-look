@@ -133,6 +133,9 @@ function newOnDay(day: Day, tz: string, hour = 9, minute = 0) {
 
 const VIEW_KEYS = { month: ["calendar.view.month", "calendar.view.monthTip"], week: ["calendar.view.week", "calendar.view.weekTip"], agenda: ["calendar.view.agenda", "calendar.view.agendaTip"] } as const;
 
+/** The name of a calendar in the sidebar wraps, at most 3 lines, the third ends in "…" (the title has the whole name). Inline, not in App.css: the CSS budget. */
+const NAME_CLAMP: React.CSSProperties = { display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" };
+
 export function CalendarView() {
   const t = useT();
   const { prefs, calDate, calEvents, calendars, calLoading, calError, loadCalendar, setCalDate, setCalView, accounts, dialog } = useStore();
@@ -831,7 +834,7 @@ export function CalSidebar() {
                   style={{ accentColor: col }}
                   onChange={(e) => void api.calendarSetVisible(c.id, e.target.checked).then(() => bumpCal())}
                 />
-                <span className="cal-nm" title={calendarTitle(c)}>{calendarTitle(c)}</span>
+                <span className="cal-nm" style={NAME_CLAMP} title={calendarTitle(c)}>{calendarTitle(c)}</span>
                 {c.remote && !c.writable && <span className="muted small" style={{ flex: "none" }}>{t("calendar.side.readOnly")}</span>}
               </label>
             );
