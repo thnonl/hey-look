@@ -128,7 +128,7 @@
   "nf.brand": "Trang chủ Hey Look!",
   "nf.nav.label": "Điều hướng chính",
   "nf.nav.tour": "Xem thử",
-  "nf.nav.free": "Bảng tính năng",
+  "nf.nav.free": "Bạn nhận được gì",
   "nf.nav.features": "Tính năng",
   "nf.nav.help": "Trợ giúp",
   "nf.nav.privacy": "Quyền riêng tư",
