@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 1.0.7 W13.2 (REQ-13.2.2 to 13.2.8): the dot and the bolder name for a mailbox / folder that got new mail, in the side menu of the dev preview (src/devMock.ts has two mailboxes). The backend's
 // `mail-arrived` is stood in by `__mockEmit("mail-arrived", ...)`; whether the window is "in front" is `document.hasFocus()` + visibility, which the test sets.
-//   - an arrival for the other mailbox: its heading and Inbox row get the dot (`.fp-new`), the name 650, tooltip + hidden text "New mail"; the mailbox on screen is unchanged;
+//   - an arrival for the other mailbox: its heading and Inbox row get the dot (`.fp-new`), the name 550, tooltip + hidden text "New mail"; the mailbox on screen is unchanged;
 //   - opening the folder clears it; an arrival for the folder on screen while the window is in front marks nothing; with the window behind it marks, and the window coming forward clears;
 //   - the icon column: the avatar ring and the title/aria "New mail"; a folder icon gets the 6 px dot;
 //   - dark, forced colors (CanvasText), reduced motion; no blinking; the 8 languages have the text; nothing is stored (a reload starts with no markers).
@@ -45,7 +45,7 @@ try {
     const look = await evaluate(`(() => { const row = document.querySelector('.fp-row.fresh'), head = document.querySelector('.fp-head.fresh'); const dot = row.querySelector('.fp-new'); const cs = getComputedStyle(dot); const lbl = getComputedStyle(row.querySelector('.fp-lbl')); const acc = getComputedStyle(row.querySelector('.fp-lbl')).color; return { w: Math.round(dot.getBoundingClientRect().width), h: Math.round(dot.getBoundingClientRect().height), radius: cs.borderRadius, bg: cs.backgroundColor, weight: lbl.fontWeight, title: row.getAttribute('title'), sr: [...row.querySelectorAll('.sr-only')].map((e) => e.textContent), headSr: [...head.querySelectorAll('.sr-only')].map((e) => e.textContent), inbox: row.textContent, activeRow: document.querySelector('.fp-row.active')?.classList.contains('fresh') }; })()`);
     assert.deepEqual([look.w, look.h], [8, 8], 'an 8 px circle');
     assert.ok(/50%|4px/.test(look.radius), look.radius);
-    assert.equal(look.weight, '650');
+    assert.equal(look.weight, '550');
     assert.ok(/New mail/.test(look.title || ''), `tooltip: ${look.title}`);
     assert.deepEqual(look.sr, [', New mail']);
     assert.deepEqual(look.headSr, [', New mail']);

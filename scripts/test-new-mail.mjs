@@ -70,7 +70,7 @@ assert.ok(/hasNew\(newMail, acct, key\)/.test(pane) && /fp-new/.test(pane) && /h
 assert.ok((pane.match(/mail\.side\.newMail/g) ?? []).length >= 3, "tooltip / name / hidden text use the agreed key");
 const css = read("src/App.css");
 assert.ok(/\.fp-new \{[^}]*width: 8px; height: 8px; border-radius: 50%; background: var\(--accent-text\)/.test(css), "an 8 px circle in --accent-text");
-assert.ok(/\.fp-row\.fresh \.fp-lbl \{ font-weight: 650/.test(css), "weight 650");
+assert.ok(/\.fp-row\.fresh \.fp-lbl \{ font-weight: 550/.test(css), "weight 550");
 assert.ok(/forced-colors: active\) \{[^}]*\.fp-new \{ background: CanvasText/.test(css.replace(/\s+/g, " ")), "forced colors: CanvasText");
 assert.ok(!/@keyframes fp-new-in \{[^}]*\}\s*\{[^}]*infinite/.test(css) && !/\.fp-new[^{]*\{[^}]*infinite/.test(css), "no blinking or pulsing");
 console.log("test-new-mail: ok");
