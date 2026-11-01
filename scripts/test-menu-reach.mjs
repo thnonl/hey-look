@@ -50,6 +50,39 @@ try {
       await key('Escape', 27);
     }
   }
+  // the mode follows the window: shrink it until the menu overflows (tall, shaded where rows hide), grow it again (a menu that fits is not left in the tall mode: no flag, no stretch, no shade)
+  {
+    const lang = LANGS.includes('ru') ? 'ru' : LANGS[0];
+    await H.openApp('lang=en&light&nativemenu=off', 1280, 640);
+    await until(`window.__store.getState().loaded === true`, 20000);
+    await sleep(1500);
+    await evaluate(languageJs(lang));
+    await until(`document.documentElement.lang === ${JSON.stringify(lang)}`, 25000);
+    await sleep(1200);
+    await evaluate(`window.__store.getState().openCompose({ accountId: 'a1', to: ['alice@fabrikam.com'], subject: 'Hello', meeting: { on: true } }); 1`);
+    await until(`document.querySelector('.compose-pane .cp-bar .rb.more')`);
+    await sleep(800);
+    const MODE = `JSON.stringify((() => { const d = document.querySelector('.dd-fixed'); const m = d && d.querySelector('.menu'); if (!m) return null; const edge = (m.offsetHeight - m.clientHeight); return { tall: d.hasAttribute('data-tall'), h: m.offsetHeight, content: m.scrollHeight + edge, scrolls: m.scrollHeight > m.clientHeight + 1, bg: getComputedStyle(m).backgroundImage.includes('gradient') }; })())`;
+    const openMore = async () => { const p = await evaluate(`(() => { const b = document.querySelector('.compose-pane .cp-bar .rb.more'); const r = b.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; })()`); await mouse(p); await until(`document.querySelector('.dd-fixed .menu-row')`); await sleep(300); };
+    await openMore();
+    const small = JSON.parse(await evaluate(MODE));
+    ok(small.tall && small.bg, `1280x640: the menu overflows the normal cap, so it is tall and shaded (${JSON.stringify(small)})`);
+    await key('Escape', 27);
+    await cdp('Emulation.setDeviceMetricsOverride', { width: 1280, height: 1500, deviceScaleFactor: 1, mobile: false });
+    await sleep(1200);
+    await openMore();
+    const big = JSON.parse(await evaluate(MODE));
+    ok(!big.tall, `1280x1500: a menu that fits is not left in the tall mode (${JSON.stringify(big)})`);
+    ok(Math.abs(big.h - big.content) <= 2 && !big.scrolls, `1280x1500: the menu is as high as its rows, not stretched, and does not scroll (${JSON.stringify(big)})`);
+    ok(big.h < small.h + 400, '1280x1500: the menu did not grow to the room');
+    await key('Escape', 27);
+    await cdp('Emulation.setDeviceMetricsOverride', { width: 1280, height: 640, deviceScaleFactor: 1, mobile: false });
+    await sleep(1200);
+    await openMore();
+    const again = JSON.parse(await evaluate(MODE));
+    ok(again.tall && again.bg, `back to 1280x640: tall and shaded again (${JSON.stringify(again)})`);
+    await key('Escape', 27);
+  }
 } catch (e) {
   failures.push(String(e && e.stack ? e.stack : e));
   console.error(e);
