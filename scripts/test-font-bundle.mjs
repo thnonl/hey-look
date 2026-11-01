@@ -48,8 +48,8 @@ ok(!/\bInter\b/.test(read('README.md')), 'README does not name Inter');
 }
 ok(/font-src 'self'/.test(tauri.app.security.csp), 'the CSP allows fonts from the app itself');
 {
-  const root = /--fs: 14px;\s*font-family:\s*([^;]+);\s*font-size: var\(--fs\);\s*line-height: 1\.21;/.exec(app);
-  ok(root && root[1].startsWith('"Source Sans 3", "Segoe UI Variable Text"'), `the root stack starts with Source Sans 3 and keeps the native one, the root size is --fs (no multiplier, owner 2026-11-01) and the line 1.21: ${root && root[1]}`);
+  const root = /--fs: 14px;\s*font-family:\s*([^;]+);\s*font-size: var\(--fs\);\s*line-height: 1\.2143;/.exec(app);
+  ok(root && root[1].startsWith('"Source Sans 3", "Segoe UI Variable Text"'), `the root stack starts with Source Sans 3 and keeps the native one, the root size is --fs (no multiplier, owner 2026-11-01) and the line 1.2143: ${root && root[1]}`);
   for (const lang of ['zh-Hans', 'ja']) {
     const m = new RegExp(`:root:lang\\(${lang}\\)[^{]*\\{ font-family: ([^;]+);`).exec(app);
     ok(m && m[1].startsWith('"Source Sans 3", ') && /"(Yu Gothic UI|Microsoft YaHei UI)"/.test(m[1]) && /"(Hiragino Sans|PingFang SC)"/.test(m[1]) && /"Noto Sans CJK (JP|SC)"/.test(m[1]), `${lang}: Source Sans 3 first, the system CJK fonts as the fallback of each platform: ${m && m[1]}`);

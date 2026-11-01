@@ -38,7 +38,7 @@
   --fs: 14px;
   font-family: "Source Sans 3", "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
   font-size: var(--fs);
-  line-height: 1.21; /* (owner 2026-11-01: the text is the size of the setting, 14 px at the default, not 1.1 times it - Source Sans 3 is smaller than the font it replaced at one size (x-height 0.486 em against 0.546 em), which is wanted. Its own line box is taller (1.424 em, the old one 1.21 em): 1.21 x 14 px = 17 px, the old `normal` line, so every row, button and menu keeps the height it had) */
+  line-height: 1.2143; /* (owner 2026-11-01: the text is the size of the setting, 14 px at the default, not 1.1 times it - Source Sans 3 is smaller than the font it replaced at one size (x-height 0.486 em against 0.546 em), which is wanted. Its own line box is taller (1.424 em, the old one 1.21 em): 1.2143 x 14 px = 17 px (Chromium and WebKit round the ascent and descent of the old `normal` line to whole pixels: 17 px), the old line, so every row, button and menu keeps the height it had) */
   color: var(--fg);
   background: var(--bg);
   color-scheme: light;
