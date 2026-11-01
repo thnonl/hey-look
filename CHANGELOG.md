@@ -4,14 +4,15 @@
 
 ### Changed
 
-- The font of the app is now Source Sans 3 (it was Inter). It is bundled with the app, so text looks the same on Windows, macOS and Linux; sizes are adjusted so the interface keeps its size. Chinese and Japanese keep the system fonts
+- The font of the app is now Source Sans 3 (it was Inter). It still ships with the app, and text and rows keep about the same size as before. Chinese and Japanese keep the system fonts
 
 ### Fixed
 
-- Showing a hidden picture (one box, Show pictures, Always show, or the automatic rule) now shows a loading state in the box from the click until the result, and a picture that could not be loaded shows one failed state with Retry, instead of a broken image or the picture's text
-- A reader window opened with Next or Previous showed "Opening message…" for good and never the message
-- Printing while a hidden picture is still loading or has failed prints a plain box, without the spinner, the retry arrow or the status text
-- Linux: a reader window that came up without the query of its address now knows itself by its window label
+- Hidden pictures: after you choose to show them (by clicking the box, Show pictures, Always show pictures from this sender, or the automatic rule), the box shows that the picture is loading until it arrives. A picture that cannot be loaded shows one failed state with Retry, instead of a broken image or its alternative text
+- A reader window opened with Next or Previous no longer stays on "Opening message…"; it shows the message
+- Printing a message while a picture is still loading or has failed prints a plain box, without the spinner, the Retry arrow or the status text
+- Linux: a reader window keeps its own message and no longer follows the message selected in the main window
+- Calendar: long calendar names in the sidebar wrap onto more lines instead of ending in "…"; a "read only" badge moves under the name when it does not fit
 
 ## 1.0.11 — 2026-10-30
 

@@ -242,7 +242,7 @@
          workflow checks against the tag). -->
     <release version="1.0.12" date="2026-11-01">
       <description>
-        <p>PLACEHOLDER for the copywriter pass: a loading and a failed state for hidden pictures, reader window Next and Previous fixed, a new font, calendar names that wrap.</p>
+        <p>A new interface font (Source Sans 3), a loading and a failed state for pictures you choose to show, and fixes for Next and Previous in reader windows, printing pictures that are still loading, and long calendar names in the sidebar.</p>
       </description>
       <url>https://github.com/thnonl/hey-look/releases/tag/v1.0.12</url>
     </release>
