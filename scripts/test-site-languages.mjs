@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import vm from 'node:vm';
 import { LANGS, PAGES, DOCS, STUB, urlOf, fileOf, headBlock, langBlock, scriptsBlock, seoBlock } from './generate-site-languages.mjs';
 import { versionOf } from './lib/site-seo.mjs';
+import { rewrittenHome } from './lib/site-rewritten.mjs';
 
 const strict = process.argv.includes('--strict');
 const errors = [];
@@ -146,17 +147,21 @@ function checkCommon(lang, page, file, text) {
   if (/\son[a-z]+="/i.test(stripComments(text))) fail(where, 'inline event handler attribute');
   // ids, headings, link targets, logic keys
   const idsL = ids(text), idsE = ids(en);
-  const [miss, extra] = sameSet(idsE, idsL);
+  const rw = page === 'index' ? rewrittenHome(lang.code) : null; // an approved rewrite of the home page (scripts/lib/site-rewritten.mjs) differs from English by exactly what it lists
+  const [miss0, extra] = sameSet(idsE, idsL);
+  const miss = rw ? miss0.filter((x) => !rw.omitIds.includes(x)) : miss0;
   if (miss.length) fail(where, 'ids missing (anchors must stay English): ' + miss.join(', '));
   if (extra.length) fail(where, 'ids not in the English page: ' + extra.join(', '));
   if (new Set(idsL).size !== idsL.length) fail(where, 'duplicate ids');
-  if (headings(text) !== headings(en)) fail(where, `heading levels ${headings(text)} differ from English ${headings(en)}`);
+  const headingsWant = rw ? JSON.stringify(Object.fromEntries(Object.entries(JSON.parse(headings(en))).map(([k, v]) => [k, v + (rw.headingDelta[k] || 0)]))) : headings(en);
+  if (headings(text) !== headingsWant) fail(where, `heading levels ${headings(text)} differ from English ${headings(en)}`);
   const want = enTargets(page).map((t) => {
     const isPage = /\.html$/.test(t.rel) && [...PAGES, '404'].includes(path.basename(t.rel, '.html')) && !t.rel.includes('/');
     return (isPage && lang.dir ? lang.dir + '/' : '') + t.rel + '#' + t.hash;
   });
   const got = attrs(text, 'a', 'href').map((h) => target(file, h)).filter(Boolean).map((t) => t.rel + '#' + t.hash);
-  const [lm, le] = sameSet(want, got);
+  const [lm0, le] = sameSet(want, got);
+  const lm = rw ? lm0.filter((x) => !rw.omitLinks.includes(x)) : lm0;
   if (lm.length) fail(where, 'link targets missing: ' + lm.join(', '));
   if (le.length) fail(where, 'link targets not in the English page: ' + le.join(', '));
   for (const a of LOGIC_ATTRS) if (!sameMulti(attrs(en, '[a-z]+', a), attrs(text, '[a-z]+', a))) fail(where, `${a} values differ from English (they are keys for the scripts, do not translate)`);

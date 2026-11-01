@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LANGS, PAGES, DOCS } from './generate-site-languages.mjs';
+import { rewrittenHome } from './lib/site-rewritten.mjs';
 
 const ENT = { nbsp: ' ', amp: '&', quot: '"', lt: '<', gt: '>', rsquo: '\u2019', lsquo: '\u2018', ldquo: '\u201c', rdquo: '\u201d', hellip: '\u2026', copy: '\u00a9', bdquo: '\u201e', mdash: '\u2014', ndash: '\u2013' };
 export const plain = (src) => src
@@ -409,6 +410,8 @@ export function findProblems({ rows = REMOVED, read = (f) => fs.readFileSync(f, 
   for (const l of LANGS) {
     const f = path.join(DOCS, l.dir, 'index.html');
     const ledger = (/<section class="ledger"[\s\S]*?<\/section>/.exec(read(f)) || [''])[0];
+    // a home page with an approved rewrite (scripts/lib/site-rewritten.mjs) has no ledger: the limits moved to features.html#limits and the download page; it must really be gone
+    if (rewrittenHome(l.code)) { if (ledger) fail(`${path.relative(DOCS, f).replace(/\\/g, '/')}: the ledger was moved out of this rewritten home page and is back`); continue; }
     if (!ledger) fail(`${path.relative(DOCS, f).replace(/\\/g, '/')}: the honest ledger section is missing`);
     else if (/<li\b[^>]*>\s*<\/li>/.test(ledger) || /<ul\b[^>]*>\s*<\/ul>/.test(ledger) || (ledger.match(/<li\b/g) || []).length < 4) fail(`${path.relative(DOCS, f).replace(/\\/g, '/')}: an empty bullet or an empty column in the honest ledger`);
   }

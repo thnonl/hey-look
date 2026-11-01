@@ -24,12 +24,14 @@
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { LANGS, DOCS, fileOf } from './generate-site-languages.mjs';
+import { rewrittenHome } from './lib/site-rewritten.mjs';
 
 export const PAGES = ['index', 'features', 'help', 'download'];
 // 1.0.10: features 760 -> 800 (auto-shown pictures and privacy placeholders; orchestrator decision 2026-10-28, the new privacy feature text is legitimate)
 export const CEILING_EN = { index: 560, features: 800, help: 1060, download: 360 };
 export const FACTOR = { en: 1, vi: 1.5, fr: 1.3, zh: 1.1, es: 1.3, ja: 1.7, de: 1.3, ru: 1.3 };
-export const ceiling = (code, page) => Math.floor(CEILING_EN[page] * FACTOR[code]);
+// an approved rewrite of a home page (scripts/lib/site-rewritten.mjs, owner decision 2026-11-01) carries its own ceiling: the approved Vietnamese text is 873 units against 840 = 1.5 x 560
+export const ceiling = (code, page) => (page === 'index' && rewrittenHome(code)?.ceilingIndex) || Math.floor(CEILING_EN[page] * FACTOR[code]);
 
 const INLINE = 'i|b|em|strong|span|a|kbd|code|small|abbr|sup|sub';
 const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/gu;
