@@ -14,7 +14,7 @@ export const SCREENSHOT_PATH = 'media/poster-1280.webp'; // the sharper poster o
 export const LOCALE = { en: 'en_US', vi: 'vi_VN', fr: 'fr_FR', zh: 'zh_CN', es: 'es_ES', ja: 'ja_JP', de: 'de_DE', ru: 'ru_RU' };
 export const OG_ALT = {
   en: 'The Hey Look! mail app window showing an inbox, next to the words “Mail without the rent”.',
-  vi: 'Cửa sổ ứng dụng thư Hey Look! với hộp thư đến, cạnh dòng chữ “Mail without the rent”.',
+  vi: 'Cửa sổ Hey Look! đang mở Hộp thư đến, bên cạnh dòng chữ tiếng Anh “Mail without the rent”.',
   fr: 'La fenêtre du client de messagerie Hey Look! avec une boîte de réception, et le slogan anglais « Mail without the rent ».',
   zh: 'Hey Look! 邮件客户端窗口，显示收件箱，旁边是英文标语“Mail without the rent”。',
   es: 'La ventana del cliente de correo Hey Look! con una bandeja de entrada y el lema en inglés «Mail without the rent».',
