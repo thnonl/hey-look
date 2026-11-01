@@ -59,6 +59,6 @@ assert.match(tab, /const edit = \(patch: Partial<typeof v>\) => \(setSaveErr\(""
 assert.match(css, /\.ai-status\.bad \{ color: var\(--danger\); \}/, "the save error is red");
 
 // 5. the CSS: a fixed-height slot, clamped, and a label line that is one flex row
-assert.match(css, /\.ai-status \{[^}]*\bheight: 2\.54em;[^}]*line-height: 1\.27;[^}]*overflow: hidden;[^}]*-webkit-line-clamp: 2;/, "the slot is exactly two lines high and cuts, it never grows");
+assert.match(css, /\.ai-status \{[^}]*\bheight: 2\.8em;[^}]*line-height: 1\.4;[^}]*overflow: hidden;[^}]*-webkit-line-clamp: 2;/, "the slot is exactly two lines high and cuts, it never grows");
 assert.match(css, /\.field-head \{[^}]*display: flex;[^}]*justify-content: space-between;/, "label left, action right, one line");
 console.log("ok - test-ai-tab-still");
