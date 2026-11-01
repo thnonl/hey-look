@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { LANGS, DOCS } from './generate-site-languages.mjs';
-import { LEGAL_DATE, sentence, finder } from './lib/legal-date.mjs';
+import { LEGAL_DATE, legalDate, sentence, finder } from './lib/legal-date.mjs';
 
 const PAGES = ['privacy', 'terms', 'google-data', 'security'];
 const errors = [];
@@ -20,8 +20,8 @@ if (!errors.length) {
       const m = finder(l.code).exec(src);
       const where = `${l.dir || '.'}/${p}.html`;
       if (!m) { errors.push(`${where}: no "Last updated" date at the start of a lead paragraph`); continue; }
-      const want = sentence(l.code, LEGAL_DATE);
-      if (m[0] !== '<p class="lead">' + want) errors.push(`${where}: says "${m[0].slice('<p class="lead">'.length)}", expected "${want}" (LEGAL_DATE ${LEGAL_DATE}): the four legal pages carry one date in every language; node scripts/set-legal-date.mjs fixes it`);
+      const want = sentence(l.code, legalDate(l.code));
+      if (m[0] !== '<p class="lead">' + want) errors.push(`${where}: says "${m[0].slice('<p class="lead">'.length)}", expected "${want}" (${legalDate(l.code)}): the four legal pages carry one date in every language; node scripts/set-legal-date.mjs fixes it`);
     }
   }
 }
