@@ -48,8 +48,8 @@ ok(!/\bInter\b/.test(read('README.md')), 'README does not name Inter');
 }
 ok(/font-src 'self'/.test(tauri.app.security.csp), 'the CSP allows fonts from the app itself');
 {
-  const root = /--fs: 14px;\s*font-family:\s*([^;]+);\s*font-size: calc\(var\(--fs\) \* 1\.1\);/.exec(app);
-  ok(root && root[1].startsWith('"Source Sans 3", "Segoe UI Variable Text"'), `the root stack starts with Source Sans 3 and keeps the native one, the root size is 1.1 x --fs: ${root && root[1]}`);
+  const root = /--fs: 14px;\s*font-family:\s*([^;]+);\s*font-size: var\(--fs\);\s*line-height: 1\.21;/.exec(app);
+  ok(root && root[1].startsWith('"Source Sans 3", "Segoe UI Variable Text"'), `the root stack starts with Source Sans 3 and keeps the native one, the root size is --fs (no multiplier, owner 2026-11-01) and the line 1.21: ${root && root[1]}`);
   for (const lang of ['zh-Hans', 'ja']) {
     const m = new RegExp(`:root:lang\\(${lang}\\)[^{]*\\{ font-family: ([^;]+);`).exec(app);
     ok(m && m[1].startsWith('"Source Sans 3", ') && /"(Yu Gothic UI|Microsoft YaHei UI)"/.test(m[1]) && /"(Hiragino Sans|PingFang SC)"/.test(m[1]) && /"Noto Sans CJK (JP|SC)"/.test(m[1]), `${lang}: Source Sans 3 first, the system CJK fonts as the fallback of each platform: ${m && m[1]}`);
@@ -104,7 +104,7 @@ try {
     ok(r.entries.includes('source-sans-3-latin.woff2'), `${lang}: the Latin file was fetched (${r.entries})`);
     if (lang === 'ru') ok(r.loadedRanges.some((u) => /U\+0?400/i.test(u)), 'ru: the Cyrillic file loaded for the text that needs it');
     if (lang === 'vi') ok(r.loadedRanges.some((u) => /U\+1ea0/i.test(u)), 'vi: the Vietnamese file loaded for the text that needs it');
-    ok(Math.abs(r.rootPx - 15.4) < 0.01, `${lang}: the root size is 14 px x 1.1 (${r.rootPx})`);
+    ok(Math.abs(r.rootPx - 14) < 0.01, `${lang}: the root size is the setting, 14 px (${r.rootPx})`);
     const near = (got, want) => Math.abs(got - want) / want < 0.03;
     ok(near(r.canvas.latin, 983.1) && near(r.canvas.latinB, 1045.7), `${lang}: the Latin sample measures like the bundled file at 100 px (${r.canvas.latin.toFixed(1)} / ${r.canvas.latinB.toFixed(1)}, want 983.1 / 1045.7 within 3 %), not like the fallback (${r.canvas.latinMono.toFixed(1)})`);
     if (lang === 'ru') ok(near(r.canvas.ru, 444.6), `${lang}: the Cyrillic sample measures like the bundled file (${r.canvas.ru.toFixed(1)}, want 444.6; fallback ${r.canvas.ruMono.toFixed(1)})`);
