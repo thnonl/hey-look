@@ -61,10 +61,6 @@ npm run tauri build    # release build with installers
 
 Prerequisites, sign-in clients, tests and the code layout: [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Support the project
-
-Hey Look! is free. If it helps you, you can [buy me a coffee](https://heylook.namthai.site/support.html) on Ko-fi; a star on GitHub, a bug report or a better translation helps too. The app shows a short reminder now and then: the first one 7 to 30 days after you start using it, then about every two months (six months after you press Buy me a coffee), and never while you are writing a message. Settings > General > Occasional support reminder, or Don't remind me again in the reminder, turns it off.
-
 ## Security
 
 Please report vulnerabilities privately: see [SECURITY.md](SECURITY.md).

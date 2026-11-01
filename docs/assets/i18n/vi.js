@@ -136,7 +136,7 @@
   "nf.lang": "Ngôn ngữ",
   "nf.lang.cur": "{short} (Ngôn ngữ: {lang})",
   "nf.eyes": "Hình hai con mắt đang nhìn quanh",
-  "nf.thanks": "Cảm ơn bạn đã dùng Hey Look! Ứng dụng vẫn miễn phí và mã nguồn mở. Ủng hộ hay không là tùy bạn. ",
+  "nf.thanks": "Cảm ơn bạn đã dùng Hey Look! Ứng dụng vẫn miễn phí và mã nguồn mở. ",
   "nf.supportproject": "Ủng hộ dự án",
   "nf.about": "Ứng dụng thư cho máy tính Windows, macOS và Linux. Miễn phí, mã nguồn mở (giấy phép MIT), không có quảng cáo.",
   "nf.ftr.product": "Sản phẩm",

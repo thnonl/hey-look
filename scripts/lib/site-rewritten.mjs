@@ -20,7 +20,7 @@ export const REWRITTEN = {
     },
     features: {
       addLinks: ['vi/help.html#where', 'vi/help.html#folders'],
-      ceiling: 1328, // PENDING BA decision: measured after the final editor cuts (1328 units against 1200); hard limit, revert this commit if refused
+      ceiling: 1296, // hard limit, measured after the final editor cuts and the removal of the support-reminder sentence (1200 = factor x English)
     },
     download: {
       addIds: ['install-notes-h', 'install-windows', 'install-macos'],
