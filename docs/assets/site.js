@@ -168,6 +168,17 @@
     var words = $$('.sw-w', swap), cur = 0, timer = null, visible = true;
     var padX = function () { var cs = getComputedStyle(swap); return parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight); };
     var fit = function (i) { swap.style.width = (words[i].getBoundingClientRect().width + padX()) + 'px'; };
+    /* The tag is as wide as its phrase, and the phrases differ in length and in number from page to page (each language has its own wording). When the widest phrase that is shown (all of them
+       with motion, the first one without) does not fit the headline column, the headline gets a smaller font until it does; a phrase that fits changes nothing. The headline is all in em, so the whole line scales. */
+    var h1 = swap.closest ? swap.closest('.hero-h') : null, dotEl = $('.sw-dot', swap.parentNode);
+    var shrink = function () {
+      if (!h1) return;
+      h1.style.removeProperty('font-size');
+      var fs = parseFloat(getComputedStyle(h1).fontSize), room = h1.clientWidth, widest = 0;
+      words.forEach(function (w) { widest = Math.max(widest, w.getBoundingClientRect().width); });
+      var need = widest + padX() + (dotEl ? dotEl.getBoundingClientRect().width : 0);
+      if (widest && room && need > room) h1.style.fontSize = Math.max(20, fs * room / need) + 'px';
+    };
     var step = function () {
       if (!motionOn() || !visible || document.hidden) return;
       var prev = cur; cur = (cur + 1) % words.length;
@@ -177,11 +188,12 @@
     };
     var reset = function () {
       words.forEach(function (w, i) { w.classList.toggle('on', i === 0); w.classList.remove('out'); }); cur = 0;
+      shrink();
       if (motionOn()) fit(0); else swap.style.removeProperty('width');
     };
     reset();
-    if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { if (motionOn()) fit(cur); });
-    window.addEventListener('resize', function () { if (motionOn()) fit(cur); });
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { shrink(); if (motionOn()) fit(cur); });
+    window.addEventListener('resize', function () { shrink(); if (motionOn()) fit(cur); });
     timer = setInterval(step, 2700);
     if ('IntersectionObserver' in window) new IntersectionObserver(function (es) { visible = es[0].isIntersecting; }).observe(swap);
     listeners.motion.push(reset);
