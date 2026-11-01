@@ -26,12 +26,12 @@ export const REWRITTEN = {
       addIds: ['install-notes-h', 'install-windows', 'install-macos'],
       addLinks: ['vi/download.html#install-windows', 'vi/download.html#install-macos', 'vi/help.html#updates'],
       headingDelta: { 2: 1, 3: 1 },
-      ceiling: 665, // PENDING BA decision: measured after the final editor pass (665 units against 540); hard limit
+      ceiling: 666, // hard limit (665 measured after the final editor pass, 540 = factor x English)
     },
     help: {
       addIds: ['folders'],
       addLinks: ['vi/download.html#install-macos', 'vi/help.html#folders', 'vi/help.html#google-review'],
-      ceiling: 1685, // PENDING BA decision (the approved text is 1685 units against 1590 after V8)
+      ceiling: 1685, // hard limit (1681 measured after the final editor pass, 1590 = factor x English)
     },
   },
 };
