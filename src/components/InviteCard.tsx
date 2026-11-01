@@ -46,7 +46,7 @@ export function useAccountColor() {
 const RS_ICON: Record<string, ReactNode> = {
   accepted: <Check size={11} strokeWidth={3} />,
   declined: <X size={11} strokeWidth={3} />,
-  tentative: <span style={{ fontSize: 10, fontWeight: 800, lineHeight: 1 }}>?</span>,
+  tentative: <span style={{ fontSize: 10, fontWeight: 550, lineHeight: 1 }}>?</span>,
 };
 const RS_CLASS: Record<string, string> = { accepted: "yes", declined: "no", tentative: "maybe", "needs-action": "wait", delegated: "wait" };
 const RS_TEXT = {
@@ -417,7 +417,7 @@ export function InviteCard({ m }: { m: MessageFull }) {
           ) : (
             <>
               <ChoiceBtn r="accepted" icon={<Check size={14} />} />
-              <ChoiceBtn r="tentative" icon={<span style={{ fontWeight: 800, width: 14, textAlign: "center" }}>?</span>} />
+              <ChoiceBtn r="tentative" icon={<span style={{ fontWeight: 550, width: 14, textAlign: "center" }}>?</span>} />
               <ChoiceBtn r="declined" icon={<X size={14} />} />
             </>
           )
