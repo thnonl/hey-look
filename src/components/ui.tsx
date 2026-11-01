@@ -214,6 +214,7 @@ export function FloatingMenu({
 }) {
   const pop = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number; max: number } | null>(null);
+  const [scrolls, setScrolls] = useState(false); // the rows do not all fit the room: the menu takes the whole room there is and shows (shades) that it scrolls, like `tall` (1.0.12: the last row of a long menu must be reachable and seen to be, on WebKit too)
   const close = useRef(onClose);
   close.current = onClose;
   const shut = useCallback(
@@ -247,7 +248,9 @@ export function FloatingMenu({
     if (!pos || !r) return;
     const over = r.right - (window.innerWidth - 6);
     if (over > 0.5) setPos({ ...pos, left: Math.max(6, pos.left - over) });
-  }, [pos]);
+    const m = pop.current?.querySelector<HTMLElement>(".menu");
+    if (m && !scrolls && m.scrollHeight > m.clientHeight + 1) setScrolls(true);
+  }, [pos, scrolls]);
   // lets a "press outside" handler of the popover this menu was opened from tell that a press on a row is not outside (pressInside.ts)
   useEffect(() => {
     const el = pop.current;
@@ -260,7 +263,9 @@ export function FloatingMenu({
   useEffect(() => {
     if (!placed) return;
     const list = rows();
-    (start === "last" ? list[list.length - 1] : list.find((x) => x.getAttribute("aria-checked") === "true") ?? list[0])?.focus({ preventScroll: true });
+    const first = start === "last" ? list[list.length - 1] : list.find((x) => x.getAttribute("aria-checked") === "true") ?? list[0];
+    first?.focus({ preventScroll: true });
+    if (start === "last" || first?.getAttribute("aria-checked") === "true") first?.scrollIntoView({ block: "nearest" }); // (the row the menu starts on is in view in a menu that scrolls)
   }, [placed]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const down = (e: MouseEvent) => {
@@ -318,7 +323,7 @@ export function FloatingMenu({
   };
   const style = pos ? ({ top: pos.top, left: pos.left, "--dd-max": `${pos.max}px` } as React.CSSProperties) : { top: 0, left: 0, visibility: "hidden" as const };
   return createPortal(
-    <div ref={pop} className="dd-fixed" data-tall={tall ? "" : undefined} style={{ ...style, minWidth }} onKeyDown={onKeyDown}>
+    <div ref={pop} className="dd-fixed" data-tall={tall || scrolls ? "" : undefined} style={{ ...style, minWidth }} onKeyDown={onKeyDown}>
       <MenuList items={items} onDone={() => shut(true)} />
     </div>,
     document.body,
