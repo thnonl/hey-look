@@ -137,7 +137,7 @@ function checkPage(lang, page, file) {
   let title, description;
   try { ({ title, description } = pageMeta(text)); } catch (e) { fail(where, e.message); return; }
   if (!is404) {
-    // an approved rewrite of a home page (scripts/lib/site-rewritten.mjs): the brand first ("Hey Look! - ..."), a title up to 62 and a description up to 200 wide
+    // an approved rewrite of a home page (scripts/lib/site-rewritten.mjs): the brand first ("Hey Look! - ..."), a title up to 62 wide (the description keeps the 160 limit)
     const rw = page === 'index' ? rewrittenHome(lang.code) : null;
     if (width(title) > (rw ? rw.titleMax : 60)) fail(where, `title is ${width(title)} wide, expected <= ${rw ? rw.titleMax : 60}: "${title}"`);
     if (rw && rw.titleBrandFirst) { if (!/^Hey Look! - \S/.test(title)) fail(where, `title must start with the brand and a dash: "${title}"`); }
@@ -145,7 +145,7 @@ function checkPage(lang, page, file) {
       if (!/Hey Look!$/.test(title) || /^Hey Look!/.test(title)) fail(where, `title must end with the brand: "${title}"`);
       if (pageName(title).length < 2) fail(where, `title has no page name before the brand: "${title}"`);
     }
-    if (width(description) < 120 || width(description) > (rw ? rw.descMax : 160)) fail(where, `description is ${width(description)} wide, expected 120..${rw ? rw.descMax : 160}: "${description}"`);
+    if (width(description) < 120 || width(description) > 160) fail(where, `description is ${width(description)} wide, expected 120..160: "${description}"`);
     const tk = lang.code + '|' + title, dk = lang.code + '|' + description;
     if (titles.has(tk)) fail(where, `same title as ${titles.get(tk)}`); else titles.set(tk, where);
     if (descs.has(dk)) fail(where, `same description as ${descs.get(dk)}`); else descs.set(dk, where);
