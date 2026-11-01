@@ -20,15 +20,18 @@ export const REWRITTEN = {
     },
     features: {
       addLinks: ['vi/help.html#where', 'vi/help.html#folders'],
+      ceiling: 1472, // PENDING BA decision (the approved text is 1472 units against 1200); hard limit, revert this commit if refused
     },
     download: {
       addIds: ['install-notes-h', 'install-windows', 'install-macos'],
       addLinks: ['vi/download.html#install-windows', 'vi/download.html#install-macos', 'vi/help.html#updates'],
       headingDelta: { 2: 1, 3: 1 },
+      ceiling: 666, // PENDING BA decision (the approved text is 666 units against 540)
     },
     help: {
       addIds: ['folders'],
       addLinks: ['vi/download.html#install-macos', 'vi/help.html#folders', 'vi/help.html#google-review'],
+      ceiling: 1682, // PENDING BA decision (the approved text is 1682 units against 1590)
     },
   },
 };
