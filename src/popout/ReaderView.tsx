@@ -42,6 +42,7 @@ import {
 import { endDrag, startMailDrag } from "../dragWire";
 import { mayDragRow } from "../dragDrop";
 import { popoutTitle } from "./route";
+import { ago, diag, diagOn, diagState, nowMs } from "./readerDiag";
 import type { PopoutViewProps } from "./views";
 
 const quiet = () => undefined;
@@ -171,6 +172,8 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
   const load = useCallback(
     async (first = false) => {
       const my = ++loadSeq.current;
+      const t0 = nowMs();
+      if (!first) diag(`read ${my} start why=${diagState.why}`);
       try {
         const [msgs, m, accounts, fl] = await Promise.all([
           api.getThread(info.threadId, threadScope(info.folder)),
@@ -192,6 +195,7 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
           paint();
         }
         setPhase("ready");
+        if (!first) diag(`read ${my} end ${nowMs() - t0}ms n=${msgs.length} last=${msgs.length ? msgs[msgs.length - 1].id : "-"} gone=${isG}`);
         if (!isG) planRead(msgs);
       } catch (e) {
         if (first || phase !== "ready") {
@@ -213,8 +217,11 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
     // the AI Assistant may have been set up in Settings (main window) since this window opened
     const onFocus = () => void useStore.getState().refreshAi();
     window.addEventListener("focus", onFocus);
-    const later = () => {
+    const later = (why = "other") => {
       // events come in bursts (a sync, several actions): one read after a short pause
+      diagState.why = why;
+      diagState.refreshAt = nowMs();
+      diag(`refresh asked why=${why} thread=${info.threadId.slice(0, 12)}`);
       clearTimeout(timer);
       timer = setTimeout(() => {
         void loadRef.current();
@@ -225,15 +232,15 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
       await loadPlatform(); // (Print and the Delete key differ on macOS)
       useStore.setState({ selected: info.threadId, messages: [] }); // (nothing of the conversation shown before)
       void useStore.getState().refreshAi();
-      off = await installReaderBridge({ reload: later });
+      off = await installReaderBridge({ reload: () => later("bridge") });
       if (dead) return off();
       subs.push(
-        listen("mail-synced", later),
+        listen("mail-synced", () => later("mail-synced")),
         listen<{ threadIds?: string[] }>("thread-state", (e) => {
-          if (!e.payload?.threadIds || e.payload.threadIds.includes(info.threadId)) later();
+          if (!e.payload?.threadIds || e.payload.threadIds.includes(info.threadId)) later("thread-state");
         }),
         listen("calendar-changed", () => {
-          if (useStore.getState().messages.some((m) => m.invite)) later();
+          if (useStore.getState().messages.some((m) => m.invite)) later("calendar-changed");
         }),
       );
       await loadRef.current(true);
@@ -272,6 +279,35 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
   // (W13.6, REQ-13.6.2) "Opening message…" stays until the frame of the open message is visible, not only until the data arrives
   const printing = usePrinting((s) => s.on);
   const opening = useOpeningPending(phase === "ready" && messages.length > 0 ? info.threadId : null, messages, hasFrame);
+  // the watchdog (readerDiag.ts): the open body has no visible frame or text for more than 400 ms with no cover over it -> one line (and one when it is back); logs only
+  useEffect(() => {
+    diagOn(true);
+    let since = 0;
+    let said = false;
+    const id = setInterval(() => {
+      const st = useStore.getState().messages;
+      const f = document.querySelector<HTMLIFrameElement>("iframe.msg-frame");
+      const d = f?.contentDocument;
+      const text = d?.body ? d.body.innerText.trim().length : 0;
+      const shown = !!f && f.style.visibility !== "hidden" && text > 0;
+      const wanted = phase === "ready" && st.length > 0 && !document.querySelector(".rp-opening");
+      if (!wanted || shown) {
+        if (said) diag(`body back after ${nowMs() - since}ms`, true);
+        since = 0;
+        said = false;
+        return;
+      }
+      if (!since) since = nowMs();
+      if (!said && nowMs() - since > 400) {
+        said = true;
+        diag(`body blank ${nowMs() - since}ms frame=${f ? "y" : "n"} hidden=${f ? f.style.visibility === "hidden" : "-"} h=${f ? f.style.height : "-"} ready=${d?.readyState ?? "-"} text=${text} msgs=${st.map((m) => m.id).slice(-4).join(",")} refresh=${diagState.why}@${ago(diagState.refreshAt)} rewrite=${ago(diagState.rewriteAt)} mount=${ago(diagState.mountAt)}`, true);
+      }
+    }, 200);
+    return () => {
+      clearInterval(id);
+      diagOn(false);
+    };
+  }, [phase]);
   useContentProtection(messages.some((m) => m.confidential)); // confidential mail: the window is out of screen capture (REQ-R3)
 
   // the window title: the subject (REQ-W7), in the language in use

@@ -61,6 +61,7 @@ import { ImportanceMark } from "./Importance";
 import { EncCard, importKeyFromMessage, isKeyAttachment, needsCard, SecBadges } from "./Pgp";
 import { Avatar, Dropdown, useOutside } from "./ui";
 import { openReader } from "../popout/openReader";
+import { diag, diagState, nowMs } from "../popout/readerDiag";
 import { readerAllowed } from "../popout/readerLogic";
 
 /**
@@ -418,11 +419,19 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
       showToast(() => t("reading.trust.saveFailed", { error: friendlyError(e) }), undefined, "error");
     }
   };
+  const lastHtml = useRef<string | null>(null);
+  useEffect(() => {
+    diagState.mountAt = nowMs();
+    diag(`card mount m=${m.id}`);
+    return () => diag(`card unmount m=${m.id}`);
+  }, [m.id]);
   const html = useMemo(
     () => {
       hlMark("open:pics:start");
       const out = shownHtml(clean, allowed, settledFor === clean, m, loadedPics, picState, lang, version, shownRef.current);
       hlMark("open:pics:end");
+      diag(`html built m=${m.id} changed=${lastHtml.current !== out} len=${out.length}`); // (reader window only; logs)
+      lastHtml.current = out;
       return out;
     },
     [clean, allowed, settledFor, version, m, loadedPics, picState, lang], // eslint-disable-line react-hooks/exhaustive-deps
@@ -802,6 +811,8 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     if (!frame) return;
     hooked.current = null;
     stopObserve.current();
+    diagState.rewriteAt = nowMs();
+    diag(`frame rewrite m=${m.id}`);
     // a dark mail is written with its dark rules already in it (darkMail.ts taggedMailDocument, fix44): the frame's elements are never listed or wrapped for the dark mode
     const tagged = darkNow.current ? taggedMailDocument(darkMailRef.current(), DARK_CANVAS) : null;
     if (!writeMailDocument(frame, tagged ? [tagged] : docParts)) {
