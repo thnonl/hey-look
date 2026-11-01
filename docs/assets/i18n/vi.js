@@ -29,8 +29,8 @@
   "motion.live.on": "Hiệu ứng: bật",
   "motion.live.off": "Hiệu ứng: tắt",
 
-  "help.match.one": "{n} câu hỏi khớp",
-  "help.match.other": "{n} câu hỏi khớp",
+  "help.match.one": "Tìm thấy {n} câu hỏi",
+  "help.match.other": "Tìm thấy {n} câu hỏi",
 
   "kofi.button": "Ủng hộ mình",
 
@@ -117,10 +117,10 @@
 
   "nf.title": "Không tìm thấy trang - Hey Look!",
   "nf.desc": "Không tìm thấy trang này.",
-  "nf.h1a": "Này, nhìn kìa!",
-  "nf.h1b": "Trang này không ở đây.",
-  "nf.lead": "Liên kết có thể đã cũ hoặc gõ sai. Đây là nơi có lẽ bạn muốn đến.",
-  "nf.home": "Về trang đầu",
+  "nf.h1a": "Không tìm thấy",
+  "nf.h1b": "trang bạn cần.",
+  "nf.lead": "Liên kết có thể đã cũ hoặc bị gõ sai. Bạn có thể đến một trong các trang dưới đây.",
+  "nf.home": "Về trang chủ",
   "nf.download": "Tải xuống",
   "nf.support": "Ủng hộ",
   // the 404 page also translates its header navigation and footer (same words as the pages of this language)
@@ -135,7 +135,7 @@
   "nf.menu": "Menu",
   "nf.lang": "Ngôn ngữ",
   "nf.lang.cur": "{short} (Ngôn ngữ: {lang})",
-  "nf.eyes": "Hai con mắt đang nhìn quanh",
+  "nf.eyes": "Hình hai con mắt đang nhìn quanh",
   "nf.thanks": "Cảm ơn bạn đã dùng Hey Look!. Ứng dụng vẫn miễn phí và mã nguồn mở. Ủng hộ hay không là tùy bạn. ",
   "nf.supportproject": "Ủng hộ dự án",
   "nf.about": "Ứng dụng thư cho máy tính Windows, macOS và Linux. Miễn phí, mã nguồn mở (giấy phép MIT), không có quảng cáo.",

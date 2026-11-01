@@ -1,8 +1,8 @@
 # Hey Look!
 
-A desktop mail client for Windows, macOS and Linux. Free and open source, with no ads, no analytics and no account to create.
+A desktop mail client for Windows, macOS and Linux. It is free and open source, has no ads and no analytics, and you do not need a Hey Look! account.
 
-[![Hey Look! intro](docs/media/preview.gif)](https://heylook.namthai.site/#film)
+[![Animated preview of the Hey Look! window with sample mail](docs/media/preview.gif)](https://heylook.namthai.site/#film)
 
 **Website:** https://heylook.namthai.site/ · [Download](https://heylook.namthai.site/download.html) · [Help and FAQ](https://heylook.namthai.site/help.html)
 
@@ -16,21 +16,21 @@ Get the latest version from the [download page](https://heylook.namthai.site/dow
 
 A copy from the website or GitHub updates itself after you agree, and only a correctly signed update is installed.
 
-On Windows you can also get Hey Look! from the [Microsoft Store](https://apps.microsoft.com/store/detail/9NS9H9T204HD?cid=DevShareMCLPCS). The Store copy has no updater of its own: the Store installs and updates it. Each release reaches the Store after Microsoft has approved it, so the Store can be a little behind GitHub. The Store copy keeps its own mail, accounts and settings, so use either the Store copy or the website copy on a computer, not both.
+On Windows you can also get Hey Look! from the [Microsoft Store](https://apps.microsoft.com/store/detail/9NS9H9T204HD?cid=DevShareMCLPCS). The Store copy has no updater of its own: the Store installs and updates it. Each release reaches the Store after Microsoft has approved it, so the Store can be a little behind GitHub. The Store copy keeps its own mail, accounts and settings. Install either the Store copy or the website copy on a computer, not both.
 
 The APT repository and the Snap Store are not available yet (see [PACKAGING.md](PACKAGING.md)).
 
-The installers are not code-signed with a publisher certificate, and the macOS app is self-signed but not notarized, so the first start needs one extra step: see [First start on macOS](https://heylook.namthai.site/download.html#install-notes) and the [Help](https://heylook.namthai.site/help.html#g-install) for Windows and Linux.
+The installers are not code-signed with a publisher certificate, and the macOS app is self-signed but not notarized. Windows or macOS may therefore show a warning the first time you start Hey Look!: see [First start on macOS](https://heylook.namthai.site/download.html#install-notes) and the [Help](https://heylook.namthai.site/help.html#g-install) for Windows and Linux.
 
 ## What it does
 
-- Many mailboxes in one place: Google and Microsoft, iCloud, Yahoo and any IMAP/SMTP server, with push for new mail where the server supports it. Test connection checks a new account's servers before you add it and says which setting to fix
-- An Outlook-like editor, undo send, send later, snooze, rules, signatures and templates, and a window of its own for writing or reading
-- Pictures in mail stay hidden until you allow them, so tracking pixels stay blocked. They show without a click only in mail from people you have written to and from well-known services, and only when the message passes the sender check (DMARC or a matching DKIM signature); an info button in the message header says why, and "Stop showing pictures from this sender" turns it off for that address. In Settings you can turn the automatic rule off, see the senders you turned off and view the list of services
-- A local calendar for invitations, with optional two-way sync with Google Calendar, Outlook / Microsoft 365 and CalDAV calendars (iCloud, Fastmail, Nextcloud and others)
-- OpenPGP encryption and signing, and Confidential mail that cannot be copied or printed (and, on Windows and macOS, not captured on screen)
-- An optional AI Assistant that uses an OpenAI-compatible service and key that you set up yourself, and sends text only when you press a button
-- Eight languages: English, Tiếng Việt, Français, 中文（简体）, Español, 日本語, Deutsch and Русский; light and dark themes
+- Many mailboxes in one place: Google and Microsoft, iCloud, Yahoo and any IMAP/SMTP server, with push for new mail where the server supports it (the Inbox and up to three Favorites folders; other folders are checked on a timer). Test connection checks a new account's servers before you add it and says which setting to fix.
+- A rich-text editor (fonts, colours, lists, tables, pictures and links), undo send, send later, snooze, rules, signatures and templates, and a window of its own for writing or reading.
+- Pictures in mail stay hidden until you allow them, so tracking pixels cannot load while pictures are hidden. They show without a click only in mail from people you have written to and from well-known services, and only when the message passes the sender check (DMARC or a matching DKIM signature); an info button in the message header says why, and "Stop showing pictures from this sender" turns it off for that address. In Settings > Mailboxes > Reading & sync you can turn the automatic rule off, see the senders you turned off and view the list of well-known services.
+- A local calendar for invitations, with optional two-way sync with Google Calendar, Outlook / Microsoft 365 and CalDAV calendars (iCloud, Fastmail, Nextcloud and others).
+- OpenPGP encryption and signing, and Confidential mail: when the recipient reads it in Hey Look!, it cannot be copied, printed or forwarded there (and, on Windows and macOS, the window is hidden from screen capture).
+- An optional AI Assistant that uses an OpenAI-compatible service and key that you set up yourself, and sends text only when you press a button.
+- Eight languages: English, Tiếng Việt, Français, 中文（简体）, Español, 日本語, Deutsch and Русский; light and dark themes.
 
 There is no Hey Look! server in the middle: the app talks straight to your mail provider. Copies of your mail stay on your computer, and passwords and sign-in tokens are kept in your system's credential store. Every feature and its known limits: [Features](https://heylook.namthai.site/features.html) and [Known limitations](https://heylook.namthai.site/features.html#limits).
 
@@ -63,7 +63,7 @@ Prerequisites, sign-in clients, tests and the code layout: [CONTRIBUTING.md](CON
 
 ## Support the project
 
-Hey Look! is free. If it helps you, you can [buy me a coffee](https://heylook.namthai.site/support.html) on Ko-fi; a star on GitHub, a bug report or a better translation helps too. The app may show a small reminder about once every two months; Settings > General > Occasional support reminder turns it off.
+Hey Look! is free. If it helps you, you can [buy me a coffee](https://heylook.namthai.site/support.html) on Ko-fi; a star on GitHub, a bug report or a better translation helps too. The app shows a short reminder now and then: the first one 7 to 30 days after you start using it, then about every two months (six months after you press Buy me a coffee), and never while you are writing a message. Settings > General > Occasional support reminder, or Don't remind me again in the reminder, turns it off.
 
 ## Security
 
@@ -71,6 +71,6 @@ Please report vulnerabilities privately: see [SECURITY.md](SECURITY.md).
 
 ## License
 
-MIT, free to use: see [LICENSE](LICENSE).
+MIT License: see [LICENSE](LICENSE).
 
 Third-party data and components: the emoji names and keywords come from the Unicode CLDR annotations (version 48.2.0), Copyright © 1991-2026 Unicode, Inc., used under the [Unicode License v3](https://www.unicode.org/license.txt); the PDF preview is PDF.js ([Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0)) with its fonts and character maps, and its licences ship with the app. The interface font is [Source Sans 3](https://github.com/adobe-fonts/source-sans) (variable; the Latin, Cyrillic and Vietnamese subsets of the `@fontsource-variable/source-sans-3` package), Copyright © 2023 Adobe, with Reserved Font Name 'Source', used under the [SIL Open Font License 1.1](https://openfontlicense.org/); the font files and the licence text ship with the app (`public/fonts/` and `public/fonts/OFL.txt`).
