@@ -1,6 +1,6 @@
 # Hey Look!
 
-A desktop mail client for Windows, macOS and Linux. It is free and open source, has no ads and no analytics, and you do not need a Hey Look! account.
+A desktop mail app for Windows, macOS and Linux. It is free and open source, with no ads and no analytics.
 
 [![Animated preview of the Hey Look! window with sample mail](docs/media/preview.gif)](https://heylook.namthai.site/#film)
 
@@ -12,7 +12,7 @@ Get the latest version from the [download page](https://heylook.namthai.site/dow
 
 - Windows 10 and 11, 64-bit: `.exe` installer (recommended) or `.msi` (for managed installs)
 - macOS 11 or later, Apple silicon and Intel: `.dmg` (one universal app)
-- Linux: `.AppImage` (any distro), `.deb` (Debian, Ubuntu) or `.rpm` (Fedora, openSUSE)
+- Linux (64-bit PC): `.AppImage`, `.deb` (Debian, Ubuntu) or `.rpm` (Fedora, openSUSE)
 
 A copy from the website or GitHub updates itself after you agree, and only a correctly signed update is installed.
 
@@ -43,7 +43,7 @@ There is no Hey Look! server in the middle: the app talks straight to your mail 
 
 ## Documentation and support
 
-- [Features](https://heylook.namthai.site/features.html) · [Help and FAQ](https://heylook.namthai.site/help.html) · [Download](https://heylook.namthai.site/download.html) · [Support the project](https://heylook.namthai.site/support.html)
+- [Features](https://heylook.namthai.site/features.html) · [Help and FAQ](https://heylook.namthai.site/help.html) · [Download](https://heylook.namthai.site/download.html)
 - [Privacy policy](https://heylook.namthai.site/privacy.html) · [Terms of service](https://heylook.namthai.site/terms.html) · [Google API data use](https://heylook.namthai.site/google-data.html) · [Security](https://heylook.namthai.site/security.html)
 - The website in [Tiếng Việt](https://heylook.namthai.site/vi/) · [Français](https://heylook.namthai.site/fr/) · [中文（简体）](https://heylook.namthai.site/zh/) · [Español](https://heylook.namthai.site/es/) · [日本語](https://heylook.namthai.site/ja/) · [Deutsch](https://heylook.namthai.site/de/) · [Русский](https://heylook.namthai.site/ru/)
 - What changed: [CHANGELOG.md](CHANGELOG.md) and [GitHub Releases](https://github.com/thnonl/hey-look/releases)
