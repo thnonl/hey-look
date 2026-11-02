@@ -1008,7 +1008,7 @@ for (const [view, folder] of [["inbox", "inbox"], ["unread", "inbox"], ["pinned"
   assert.ok(rv.includes('"reading.popout.noPrev"') && rv.includes('"reading.popout.noNext"') && rv.includes("api.popoutShow(n.threadId, next)"));
   const nav = rv.slice(rv.indexOf("const navBtn"), rv.indexOf("const sender = last"));
   assert.ok(nav.includes("<ChevronUp") && nav.includes("<ChevronDown") && !nav.includes("<span>"), "the buttons never show a word");
-  assert.ok(rv.includes("<Reader key={info.threadId} info={info} onShow={setInfo} />"), "a new conversation starts the reader over (translations and summary cancelled, focus on the subject, scroll at the top)");
+  assert.ok(rv.includes("<Reader key={info.threadId} info={info} pre={pre} onShow="), "a new conversation starts the reader over (translations and summary cancelled, focus on the subject, scroll at the top)");
   assert.ok(JSON.parse(read("src-tauri/capabilities/popout.json")).permissions.includes("allow-popout-show"));
   const mr = read("src/popout/mainRequests.ts");
   assert.ok(mr.includes('case "neighbors":') && read("src/popout/mainLazy.ts").includes('rowWindowTarget(view, x.folder) === "reader"'));

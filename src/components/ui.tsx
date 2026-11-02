@@ -248,9 +248,31 @@ export function FloatingMenu({
     if (!pos || !r) return;
     const over = r.right - (window.innerWidth - 6);
     if (over > 0.5) setPos({ ...pos, left: Math.max(6, pos.left - over) });
+  }, [pos]);
+  // after every layout pass (open, a change of the rows): does the content need more than the normal cap (60 % of the window, or the room there is)? Measured on the content (scrollHeight), which
+  // does not depend on the mode, so the answer does not flip with data-tall; set AND cleared, so a menu that fits is not left in the tall mode (1.0.12)
+  useLayoutEffect(() => {
     const m = pop.current?.querySelector<HTMLElement>(".menu");
-    if (m && !scrolls && m.scrollHeight > m.clientHeight + 1) setScrolls(true);
-  }, [pos, scrolls]);
+    if (!m || !pos) return;
+    const need = m.scrollHeight + (m.offsetHeight - m.clientHeight) > Math.min(window.innerHeight * 0.6, pos.max) + 1;
+    if (need !== scrolls) setScrolls(need);
+    shade(m);
+  });
+  // the shade of the tall mode follows what is really hidden: a row above (scrollTop > 0) or below (the end is not reached); with nothing hidden the shade is off (data-above / data-below say which)
+  const shade = (m: HTMLElement) => {
+    const above = m.scrollTop > 0;
+    const below = m.scrollTop + m.clientHeight < m.scrollHeight - 1;
+    m.dataset.above = above ? "1" : "";
+    m.dataset.below = below ? "1" : "";
+    m.style.backgroundImage = above || below ? "" : "none";
+  };
+  useEffect(() => {
+    const m = pop.current?.querySelector<HTMLElement>(".menu");
+    if (!m) return;
+    const on = () => shade(m);
+    m.addEventListener("scroll", on, { passive: true });
+    return () => m.removeEventListener("scroll", on);
+  }, [pos !== null]); // eslint-disable-line react-hooks/exhaustive-deps
   // lets a "press outside" handler of the popover this menu was opened from tell that a press on a row is not outside (pressInside.ts)
   useEffect(() => {
     const el = pop.current;

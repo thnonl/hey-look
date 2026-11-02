@@ -82,6 +82,7 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
   const folders = useStore((s) => (showFolder ? s.folders : NO_FOLDERS)); // (the folder list names a folder of a search result)
   const who = t.participants.join(", ");
   const dense = prefs.density === "compact";
+  const dateEl = <span className="date">{opening ? <><span className="busy-ring spin" aria-hidden /><span className="busy-dots" aria-hidden>···</span></> : fmtDate(t.lastDate)}</span>;
   return (
     <div
       role="option"
@@ -118,21 +119,18 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
         }}
         title={tr("mail.row.select")}
       >
-        {!dense && (
-          <div className="lead-avatar">
-            <Avatar name={t.participants[0] ?? "?"} size={34} />
-          </div>
-        )}
+        <div className="lead-avatar">
+          <Avatar name={t.participants[0] ?? "?"} size={dense ? 26 : 34} />
+        </div>
         <div className={`lead-check ${checked ? "on" : ""}`}>{checked && <Check size={12} />}</div>
-        {accountColor && !dense && <span className="acct-dot under" style={{ background: accountColor }} title={accountLabel} />}
+        {accountColor && <span className="acct-dot under" style={{ background: accountColor }} title={accountLabel} />}
       </div>
       <div className="ml-main">
         <div className="ml-top">
           {t.unread > 0 && <span className="unread-dot" aria-label={tr("mail.row.unread")} />}
-          {accountColor && dense && <span className="acct-dot" style={{ background: accountColor }} title={accountLabel} />}
           <span className="who ellipsis">{who}</span>
-          {hover}
-          <span className="date">{opening ? <><span className="busy-ring spin" aria-hidden /><span className="busy-dots" aria-hidden>···</span></> : fmtDate(t.lastDate)}</span>
+          {!dense && hover}
+          {!dense && dateEl}
         </div>
         <div className="ml-mid">
           <span className="subject ellipsis">{subjectText(t.subject)}</span>
@@ -152,6 +150,14 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
             {t.snoozedUntil && t.snoozedUntil > Date.now() / 1000 && <Clock size={12} aria-label={tr("mail.row.snoozed")} />}
           </span>
         </div>
+        {dense && (
+          // Compact (owner): row 1 = name + subject, row 2 = preview (left) + time (right); on hover / focus the strip takes the place of the time, the preview gives way
+          <div className="ml-line2">
+            {prefs.preview && <div className="preview ellipsis">{t.confidential ? tr("mail.row.confidentialPreview") : t.snippet || (reservePreview ? " " : "")}</div>}
+            {hover}
+            {dateEl}
+          </div>
+        )}
         {prefs.preview && !dense && <div className="preview ellipsis">{t.confidential ? tr("mail.row.confidentialPreview") : t.snippet || (reservePreview ? "\u00a0" : "")}</div>}
       </div>
     </div>

@@ -4,14 +4,18 @@
 
 ### Changed
 
-- The font of the app is now Source Sans 3 (it was Inter). It still ships with the app. Text looks a little smaller than before at the same text size, while rows, buttons and menus keep their height; Settings > Appearance > Text size makes it larger. Chinese and Japanese keep the system fonts
+- The font of the app is now Source Sans 3 (it was Inter), and bold text in the interface is lighter: nothing is heavier than semi-bold. At the same text size, text looks a little smaller than before while rows, buttons and menus keep their height (Settings > Appearance > Text size makes it larger); Chinese and Japanese keep the system fonts
 
 ### Fixed
 
-- Hidden pictures: after you choose to show them (by clicking the box, Show pictures, Always show pictures from this sender, or the automatic rule), the box shows that the picture is loading until it arrives. A picture that cannot be loaded shows one failed state with Retry, instead of a broken image or its alternative text
-- A reader window opened with Next or Previous no longer stays on "Opening message…"; it shows the message
+- Hidden pictures: when a picture is shown (after a click on its box, Show pictures, Always show pictures from this sender, or by the automatic rule), its box shows that the picture is loading until it arrives. A picture that cannot be loaded shows a failed state with Retry, instead of a broken image or its alternative text
 - Printing a message while a picture is still loading or has failed prints a plain box, without the spinner, the Retry arrow or the status text
+- A reader window opened with Next or Previous no longer stays on "Opening message…"; it shows the message
 - Linux: a reader window keeps its own message and no longer follows the message selected in the main window
+- Compose: the row of buttons no longer changes its width or jumps while you type, and a button that does not fit moves to More actions (in a narrow window Meeting moves there first, and a dot on More actions shows that Meeting is on)
+- A menu that does not fit in the window (for example Compose > More actions in Russian with Meeting on) now uses all the room it has, shows a shaded edge where rows are hidden, and every row can be reached with the mouse wheel or the keyboard; before, the last rows were hidden with no sign that they were there
+- In menus, a grey hint row (for example "No templates yet" in Compose > More actions) wraps onto a second line instead of ending in "…"
+- Settings: a very long mailbox address in the list of mailboxes ends in "…", and pointing at it shows the full address; before, it was cut off with no sign
 - Calendar: long calendar names in the sidebar now wrap onto up to three lines instead of being cut off after one; a name longer than that ends in "…", and pointing at it shows the full name. A "read only" badge moves under the name when it does not fit
 
 ## 1.0.11 — 2026-10-30

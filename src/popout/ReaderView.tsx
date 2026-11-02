@@ -10,6 +10,7 @@ import { AlertTriangle, Archive, ChevronDown, ChevronUp, ChevronsDownUp, Chevron
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { forward, replyTo } from "../actions";
 import { api, type MessageFull } from "../api";
 import { copyToClipboard } from "../open";
@@ -42,6 +43,7 @@ import {
 import { endDrag, startMailDrag } from "../dragWire";
 import { mayDragRow } from "../dragDrop";
 import { popoutTitle } from "./route";
+import { ago, diag, diagOn, diagState, nowMs } from "./readerDiag";
 import type { PopoutViewProps } from "./views";
 
 const quiet = () => undefined;
@@ -57,8 +59,10 @@ export default function ReaderView({ init }: PopoutViewProps) {
   // Next / Previous (W4.4) put another conversation in the same window: the whole reader starts over for it (a new instance: its own load, its own translations and summary,
   // the subject takes the focus, the scroll is at the top)
   const [info, setInfo] = useState<ReaderInit | null>(first);
+  const [pre, setPre] = useState<Preloaded | null>(null);
   if (!info) return <ReaderFailed text={tNow("reading.popout.loadFailed", { error: tNow("reading.popout.noId") })} />;
-  return <Reader key={info.threadId} info={info} onShow={setInfo} />;
+  // the next conversation arrives with its messages already read (see `goTo`): the swap is one commit, the old body stays on screen until then
+  return <Reader key={info.threadId} info={info} pre={pre} onShow={(next, p) => flushSync(() => { if (p) useStore.setState({ messages: p.msgs }); setPre(p ?? null); setInfo(next); })} />;
 }
 
 function ReaderFailed({ text, retry }: { text: string; retry?: () => void }) {
@@ -77,7 +81,10 @@ function ReaderFailed({ text, retry }: { text: string; retry?: () => void }) {
   );
 }
 
-function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit) => void }) {
+/** The conversation Next / Previous is going to, read while the old one was still on screen. */
+type Preloaded = { msgs: MessageFull[]; meta: { pinned: boolean; snoozedUntil: number | null } | null };
+
+function Reader({ info, pre, onShow }: { info: ReaderInit; pre: Preloaded | null; onShow: (next: ReaderInit, pre?: Preloaded | null) => void }) {
   const t = useT();
   const lang = useLang();
   const messages = useStore((s) => s.messages);
@@ -85,16 +92,15 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
   const folders = useStore((s) => s.folders);
   const aiConfigured = useStore((s) => s.aiConfigured);
   const dialog = useStore((s) => s.dialog);
-  const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
+  const [phase, setPhase] = useState<"loading" | "ready" | "error">(pre ? "ready" : "loading"); // (a preloaded conversation has no loading screen: 1.0.12, the first Next showed one for ~120 ms)
   const [error, setError] = useState("");
   const [gone, setGone] = useState(false);
-  const [meta, setMeta] = useState<{ pinned: boolean; snoozedUntil: number | null }>({ pinned: false, snoozedUntil: null });
+  const [meta, setMeta] = useState<{ pinned: boolean; snoozedUntil: number | null }>(pre?.meta ?? { pinned: false, snoozedUntil: null });
   const [busy, setBusy] = useState(false); // a move waits for the main window
   /** the conversations before and after this one in the list (W4.4); `known` once the main window has answered */
   const [nb, setNb] = useState<{ prev: Neighbor | null; next: Neighbor | null; known: boolean }>({ prev: null, next: null, known: false });
   const nbSeq = useRef(0);
   const going = useRef(false);
-  const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const [summary, setSummary] = useState<string | null>(null);
   const [summaryCut, setSummaryCut] = useState(false); // the conversation was longer than what was sent: the card says so
   const [summaryNoConf, setSummaryNoConf] = useState(false); // confidential messages of the conversation were left out of the summary: the card says so (W8.3)
@@ -105,7 +111,7 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
   const barRef = useRef<HTMLDivElement>(null);
 
   // what the database said last, what this window asked for since, and the bookkeeping of the loads
-  const base = useRef<MessageFull[]>([]);
+  const base = useRef<MessageFull[]>(pre?.msgs ?? []);
   const wanted = useRef<Wanted>({});
   const goneRef = useRef(false);
   const loadSeq = useRef(0);
@@ -171,6 +177,8 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
   const load = useCallback(
     async (first = false) => {
       const my = ++loadSeq.current;
+      const t0 = nowMs();
+      if (!first) diag(`read ${my} start why=${diagState.why}`);
       try {
         const [msgs, m, accounts, fl] = await Promise.all([
           api.getThread(info.threadId, threadScope(info.folder)),
@@ -192,6 +200,7 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
           paint();
         }
         setPhase("ready");
+        if (!first) diag(`read ${my} end ${nowMs() - t0}ms n=${msgs.length} last=${msgs.length ? msgs[msgs.length - 1].id : "-"} gone=${isG}`);
         if (!isG) planRead(msgs);
       } catch (e) {
         if (first || phase !== "ready") {
@@ -213,8 +222,11 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
     // the AI Assistant may have been set up in Settings (main window) since this window opened
     const onFocus = () => void useStore.getState().refreshAi();
     window.addEventListener("focus", onFocus);
-    const later = () => {
+    const later = (why = "other") => {
       // events come in bursts (a sync, several actions): one read after a short pause
+      diagState.why = why;
+      diagState.refreshAt = nowMs();
+      diag(`refresh asked why=${why} thread=${info.threadId.slice(0, 12)}`);
       clearTimeout(timer);
       timer = setTimeout(() => {
         void loadRef.current();
@@ -223,20 +235,21 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
     };
     void (async () => {
       await loadPlatform(); // (Print and the Delete key differ on macOS)
-      useStore.setState({ selected: info.threadId, messages: [] }); // (nothing of the conversation shown before)
+      useStore.setState(pre ? { selected: info.threadId } : { selected: info.threadId, messages: [] }); // (nothing of the conversation shown before; a preloaded one is in the store already)
       void useStore.getState().refreshAi();
-      off = await installReaderBridge({ reload: later });
+      off = await installReaderBridge({ reload: () => later("bridge") });
       if (dead) return off();
       subs.push(
-        listen("mail-synced", later),
+        listen("mail-synced", () => later("mail-synced")),
         listen<{ threadIds?: string[] }>("thread-state", (e) => {
-          if (!e.payload?.threadIds || e.payload.threadIds.includes(info.threadId)) later();
+          if (!e.payload?.threadIds || e.payload.threadIds.includes(info.threadId)) later("thread-state");
         }),
         listen("calendar-changed", () => {
-          if (useStore.getState().messages.some((m) => m.invite)) later();
+          if (useStore.getState().messages.some((m) => m.invite)) later("calendar-changed");
         }),
       );
-      await loadRef.current(true);
+      if (pre) planRead(pre.msgs); // (read already, once: the mark-as-read rule only)
+      else await loadRef.current(true);
       void nbRef.current();
     })();
     return () => {
@@ -261,17 +274,73 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
   // the store's messages of the conversation before when it shows another one in place (Next / Previous), and a conversation with as many messages as that one left its card
   // closed - no frame, "Opening message…" for good (1.0.12 BUG-L3)
   const lastId = messages.length ? messages[messages.length - 1].id : "";
+  // Which cards are open is DERIVED in the render, not set by an effect afterwards (1.0.12, Windows QA round 12: a body blank for 0.6 s right after a card unmount): the render in which the messages
+  // change would show the new messages with the old set, so a card that is not in it was drawn closed - no body - until the effect had run and drawn it again, which a busy machine delays.
+  // The set belongs to a key (the number of messages and the last one); with another key it is the default (the last message open).
+  const openKey = `${messages.length}|${lastId}`;
+  const [openState, setOpenState] = useState<{ key: string; ids: Set<string> }>(() => ({ key: openKey, ids: new Set(lastId ? [lastId] : []) }));
+  const openIds = useMemo(() => (openState.key === openKey ? openState.ids : new Set(lastId ? [lastId] : [])), [openState, openKey, lastId]);
+  const setOpenIds = useCallback(
+    (next: Set<string> | ((s: Set<string>) => Set<string>)) => setOpenState((prev) => ({ key: openKey, ids: typeof next === "function" ? next(prev.key === openKey ? prev.ids : new Set(lastId ? [lastId] : [])) : next })),
+    [openKey, lastId],
+  );
   useEffect(() => {
     setSummary(null);
     setSummaryCut(false);
     setSummaryNoConf(false);
-    setOpenIds(new Set(lastId ? [lastId] : []));
   }, [messages.length, lastId]);
   useEffect(() => ai.cancel, []); // eslint-disable-line react-hooks/exhaustive-deps
   useKeepReadingPosition();
   // (W13.6, REQ-13.6.2) "Opening message…" stays until the frame of the open message is visible, not only until the data arrives
   const printing = usePrinting((s) => s.on);
   const opening = useOpeningPending(phase === "ready" && messages.length > 0 ? info.threadId : null, messages, hasFrame);
+  // the watchdog (readerDiag.ts): the open body has no visible frame or text for more than 400 ms with no cover over it -> one line (and one when it is back). 1.0.12 BUG-1 (Windows QA): and a body
+  // that is still blank after 1 s repairs itself: at most two tries (a second one 1.5 s after the first, the count starts again after 10 s of a body that is shown): each try opens the last
+  // card, lets the frame measure itself (it is hidden until it has) and reads the conversation again. Nothing happens while the body is there.
+  const heal = useRef({ n: 0, at: 0, okAt: 0 });
+  useEffect(() => {
+    diagOn(true);
+    let since = 0;
+    let said = false;
+    const id = setInterval(() => {
+      const st = useStore.getState().messages;
+      const f = document.querySelector<HTMLIFrameElement>("iframe.msg-frame");
+      const d = f?.contentDocument;
+      const text = d?.body ? d.body.innerText.trim().length : 0;
+      const shown = !!f && f.style.visibility !== "hidden" && !!d?.body && (text > 0 || d.body.childElementCount > 0);
+      const cover = !!document.querySelector(".rp-opening");
+      const empty = phase === "ready" && !goneRef.current && st.length === 0;
+      const wanted = ((phase === "ready" && st.length > 0) || empty) && !cover;
+      if (!wanted || shown) {
+        if (said) diag(`body back after ${nowMs() - since}ms`, true);
+        if (shown && !heal.current.okAt) heal.current.okAt = nowMs();
+        if (shown && heal.current.n && nowMs() - heal.current.okAt > 10_000) heal.current.n = 0;
+        since = 0;
+        said = false;
+        return;
+      }
+      heal.current.okAt = 0;
+      if (!since) since = nowMs();
+      if (!said && nowMs() - since > 400) {
+        said = true;
+        diag(`body blank ${nowMs() - since}ms frame=${f ? "y" : "n"} hidden=${f ? f.style.visibility === "hidden" : "-"} h=${f ? f.style.height : "-"} ready=${d?.readyState ?? "-"} text=${text} msgs=${st.map((m) => m.id).slice(-4).join(",")} refresh=${diagState.why}@${ago(diagState.refreshAt)} rewrite=${ago(diagState.rewriteAt)} mount=${ago(diagState.mountAt)}`, true);
+      }
+      if (nowMs() - since > 1000 && heal.current.n < 2 && nowMs() - heal.current.at > 1500) {
+        heal.current.n++;
+        heal.current.at = nowMs();
+        diag(`recover ${heal.current.n} why=${empty ? "no messages" : "no body"} thread=${info.threadId.slice(0, 12)} msgs=${st.length}`, true);
+        if (st.length > 0) {
+          setOpenState({ key: `${st.length}|${st[st.length - 1].id}`, ids: new Set([st[st.length - 1].id]) });
+          window.dispatchEvent(new Event("resize")); // (measure() shows a frame that was hidden until its first measurement)
+        }
+        void loadRef.current();
+      }
+    }, 200);
+    return () => {
+      clearInterval(id);
+      diagOn(false);
+    };
+  }, [phase]);
   useContentProtection(messages.some((m) => m.confidential)); // confidential mail: the window is out of screen capture (REQ-R3)
 
   // the window title: the subject (REQ-W7), in the language in use
@@ -336,7 +405,17 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
     try {
       const next: ReaderInit = { threadId: n.threadId, accountId: n.accountId, folder: n.folder, view: n.view, subject: n.subject, listAccount: info.listAccount ?? null };
       const r = await api.popoutShow(n.threadId, next);
-      if (r.status === "shown") onShow(next);
+      let pre: Preloaded | null = null;
+      if (r.status === "shown") {
+        // the next conversation is read BEFORE the window switches to it: the old body stays on screen meanwhile and the new reader starts with its messages, not with the loading screen
+        try {
+          const [msgs, meta] = await Promise.all([api.getThread(n.threadId, threadScope(next.folder)), api.threadMeta(n.threadId).catch(() => null)]);
+          if (msgs.length > 0 && !isGone(msgs, next.folder)) pre = { msgs, meta };
+        } catch {
+          /* (the reader reads it itself, with its loading screen) */
+        }
+      }
+      if (r.status === "shown") onShow(next, pre);
     } catch (e) {
       useStore.getState().showToast(() => friendlyError(e), undefined, "error");
     } finally {

@@ -397,7 +397,7 @@ try {
           const p = await probe();
           const [f, o] = p.tabs;
           assert.equal(f.color, p.strongColor, 'Focused: the colour of the side menu Inbox number');
-          assert.equal(f.weight, '650');
+          assert.equal(f.weight, '600');
           assert.equal(o.color, p.mutedColor, 'Other: the muted colour (as the Junk number)');
           for (const t of p.tabs) {
             assert.ok(Math.abs(t.ratio - 0.86) <= 0.01, `font ratio ${t.ratio}`);

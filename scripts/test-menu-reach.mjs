@@ -50,6 +50,53 @@ try {
       await key('Escape', 27);
     }
   }
+  // the mode follows the window: shrink it until the menu overflows (tall, shaded where rows hide), grow it again (a menu that fits is not left in the tall mode: no flag, no stretch, no shade)
+  {
+    const lang = LANGS.includes('ru') ? 'ru' : LANGS[0];
+    await H.openApp('lang=en&light&nativemenu=off', 1280, 800);
+    await until(`window.__store.getState().loaded === true`, 20000);
+    await sleep(1500);
+    await evaluate(languageJs(lang));
+    await until(`document.documentElement.lang === ${JSON.stringify(lang)}`, 25000);
+    await sleep(1200);
+    await evaluate(`window.__store.getState().openCompose({ accountId: 'a1', to: ['alice@fabrikam.com'], subject: 'Hello', meeting: { on: true } }); 1`);
+    await until(`document.querySelector('.compose-pane .cp-bar .rb.more')`);
+    await sleep(800);
+    const MODE = `JSON.stringify((() => { const d = document.querySelector('.dd-fixed'); const m = d && d.querySelector('.menu'); if (!m) return null; const edge = (m.offsetHeight - m.clientHeight); return { tall: d.hasAttribute('data-tall'), h: m.offsetHeight, content: m.scrollHeight + edge, scrolls: m.scrollHeight > m.clientHeight + 1, bg: getComputedStyle(m).backgroundImage.includes('gradient'), above: m.dataset.above === '1', below: m.dataset.below === '1', top: m.scrollTop, max: m.scrollHeight - m.clientHeight }; })())`;
+    const openMore = async () => { const p = await evaluate(`(() => { const b = document.querySelector('.compose-pane .cp-bar .rb.more'); const r = b.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; })()`); await mouse(p); await until(`document.querySelector('.dd-fixed .menu-row')`); await sleep(300); };
+    // (a) 1280x800: the menu may be tall (its content needs more than the 60 % cap) but when no row is hidden there is no shade
+    await openMore();
+    const roomy = JSON.parse(await evaluate(MODE));
+    ok(!roomy.scrolls && !roomy.above && !roomy.below && !roomy.bg, `1280x800: no row hidden, so no shade (tall may be set: ${JSON.stringify(roomy)})`);
+    await key('Escape', 27);
+    await cdp('Emulation.setDeviceMetricsOverride', { width: 1280, height: 640, deviceScaleFactor: 1, mobile: false });
+    await sleep(1200);
+    await openMore();
+    const small = JSON.parse(await evaluate(MODE));
+    ok(small.tall && small.bg && small.below && !small.above, `1280x640: tall, at the top only the bottom shade (${JSON.stringify(small)})`);
+    // scroll to the middle, then to the end
+    await evaluate("(() => { const m = document.querySelector('.dd-fixed .menu'); m.scrollTop = (m.scrollHeight - m.clientHeight) / 2; return 1; })()"); await sleep(250);
+    const mid = JSON.parse(await evaluate(MODE));
+    ok(mid.above && mid.below && mid.bg, `1280x640 in the middle of the menu: both shades (${JSON.stringify(mid)})`);
+    await evaluate("(() => { const m = document.querySelector('.dd-fixed .menu'); m.scrollTop = m.scrollHeight; return 1; })()"); await sleep(250);
+    const end = JSON.parse(await evaluate(MODE));
+    ok(end.above && !end.below && end.bg, `1280x640 at the end: only the top shade (${JSON.stringify(end)})`);
+    await key('Escape', 27);
+    await cdp('Emulation.setDeviceMetricsOverride', { width: 1280, height: 1500, deviceScaleFactor: 1, mobile: false });
+    await sleep(1200);
+    await openMore();
+    const big = JSON.parse(await evaluate(MODE));
+    ok(!big.tall, `1280x1500: a menu that fits is not left in the tall mode (${JSON.stringify(big)})`);
+    ok(Math.abs(big.h - big.content) <= 2 && !big.scrolls, `1280x1500: the menu is as high as its rows, not stretched, and does not scroll (${JSON.stringify(big)})`);
+    ok(big.h < small.h + 400, '1280x1500: the menu did not grow to the room');
+    await key('Escape', 27);
+    await cdp('Emulation.setDeviceMetricsOverride', { width: 1280, height: 640, deviceScaleFactor: 1, mobile: false });
+    await sleep(1200);
+    await openMore();
+    const again = JSON.parse(await evaluate(MODE));
+    ok(again.tall && again.bg, `back to 1280x640: tall and shaded again (${JSON.stringify(again)})`);
+    await key('Escape', 27);
+  }
 } catch (e) {
   failures.push(String(e && e.stack ? e.stack : e));
   console.error(e);

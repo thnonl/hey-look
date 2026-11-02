@@ -1,0 +1,13 @@
+import { sleep, startHarness } from './cdp-harness.mjs';
+const H = await startHarness('diag-try', { vitePort0: 5360 });
+const { evaluate } = H;
+await H.openApp('lang=en', 1100, 720);
+const id = JSON.parse(await evaluate(`(async () => { const l = await window.__TAURI_INTERNALS__.invoke('list_threads', { filter: { accountId: null, folder: 'inbox', search: '', focus: null, flat: false, unreadOnly: false, flaggedOnly: false, sortAsc: false, scope: 'current' } }); return JSON.stringify(l.slice(0, 3).map((t) => t.threadId)); })()`));
+await H.cdp('Page.addScriptToEvaluateOnNewDocument', { source: `window.__notes = []; (function hook() { const i = setInterval(() => { const t = window.__TAURI_INTERNALS__; if (!t || t.__w) return; t.__w = 1; const inv = t.invoke; t.invoke = function (c, a, o) { if (c === 'popout_note') window.__notes.push(a.text); return inv.call(this, c, a, o); }; clearInterval(i); }, 1); })();` });
+await H.cdp('Page.navigate', { url: 'about:blank' });
+await H.cdp('Page.navigate', { url: `${H.base}?w=reader&thread=${id[1]}#lang=en` });
+await sleep(3500);
+await evaluate(`window.__mockDelays = { thread: 900 }; window.__mockEmit('mail-synced', null); 1`);
+await sleep(2500);
+console.log((await evaluate(`JSON.stringify(window.__notes.filter((x) => x.includes('diag')))`)));
+await H.shutdown(); process.exit(0);

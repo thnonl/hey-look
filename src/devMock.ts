@@ -2185,8 +2185,15 @@ export function installMock() {
         const urls = (a.urls as string[]) ?? [];
         (w.__remoteFetchCalls ??= []).push(urls);
         // (a test can make the backend slow like a real download: `window.__remoteFetchDelayMs`, set before the page starts)
-        const answer = Object.fromEntries(urls.filter((u) => !u.includes("unreachable")).map((u) => [u, `data:image/png;base64,${PIC}`]));
-        return w.__remoteFetchDelayMs ? new Promise((r) => setTimeout(() => r(answer), w.__remoteFetchDelayMs)) : answer;
+        const answer = Object.fromEntries(urls.filter((u) => !u.includes("unreachable") && !u.includes("/404/")).map((u) => [u, `data:image/png;base64,${PIC}`]));
+        // (an address with "/slow/<ms>/" in it answers after that long, one with "/hang/" after the backend's 20 s, like slow-image-server.mjs; the call answers when its slowest address has)
+        const delayOf = (u: string) => {
+          const slow = /\/slow\/(\d+)\//.exec(u);
+          return slow ? Number(slow[1]) : /\/hang\//.test(u) ? 20000 : 0;
+        };
+        const own = Math.max(0, ...urls.map(delayOf));
+        const wait = Math.max(own, w.__remoteFetchDelayMs ?? 0);
+        return wait ? new Promise((r) => setTimeout(() => r(answer), wait)) : answer;
       }
       case "save_attachments": return ["C:/Users/Me/Downloads/logo.png"];
       case "attachment_save_as": return "C:/Users/Me/Downloads/logo.png";

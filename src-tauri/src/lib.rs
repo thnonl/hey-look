@@ -26,6 +26,7 @@ mod i18n;
 mod identity;
 #[cfg(any(feature = "qa-secrets", test))]
 mod qasecrets;
+mod secretblob;
 mod authres;
 mod autoload;
 mod remote_ok;

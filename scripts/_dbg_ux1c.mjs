@@ -1,0 +1,18 @@
+import { sleep, startHarness } from './cdp-harness.mjs';
+const H = await startHarness('dbg-ux1c', { vitePort0: 5797 });
+const { evaluate, cdp } = H;
+await cdp('Page.addScriptToEvaluateOnNewDocument', { source: `window.__remoteFetchDelayMs = 1200;` });
+await H.openApp('lang=en&persist', 1280, 900);
+await evaluate(`window.__store.getState().setPrefs({ loadRemote: false }); 1`);
+await sleep(400);
+await cdp('Page.navigate', { url: 'about:blank' });
+await cdp('Page.navigate', { url: `${H.base}?w=reader&thread=dk11#lang=en&persist` });
+await sleep(3000);
+const D = `document.querySelector('iframe.msg-frame').contentDocument`;
+console.log(await evaluate(`JSON.stringify({n: document.querySelectorAll('iframe.msg-frame').length, boxes: [...${D}.querySelectorAll('.hl-bp')].map(b=>b.outerHTML.slice(0,200)), calls: window.__remoteFetchCalls, delay: window.__remoteFetchDelayMs})`));
+console.log(await evaluate(`JSON.stringify({vis: document.querySelector('iframe.msg-frame').style.visibility, h: document.querySelector('iframe.msg-frame').style.height, cls: ${D}.documentElement.className, hm: ${D}.documentElement.hasAttribute('data-hm-doc')})`));
+const r = JSON.parse(await evaluate(`(() => { const f = document.querySelector('iframe.msg-frame').getBoundingClientRect(); const b = ${D}.querySelector('.hl-bp').getBoundingClientRect(); return JSON.stringify({x: f.left + b.left + b.width/2, y: f.top + b.top + b.height/2}); })()`));
+await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: r.x, y: r.y }); await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x: r.x, y: r.y, button: 'left', buttons: 1, clickCount: 1 }); await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x: r.x, y: r.y, button: 'left', buttons: 0, clickCount: 1 });
+await sleep(300);
+console.log(await evaluate(`JSON.stringify({boxes: [...${D}.querySelectorAll('.hl-bp')].map(b=>b.getAttribute('data-state')), calls: window.__remoteFetchCalls})`));
+await H.shutdown(); process.exit(0);
