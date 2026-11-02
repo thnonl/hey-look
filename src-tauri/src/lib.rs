@@ -2375,8 +2375,14 @@ async fn sync_account(app: tauri::AppHandle, state: tauri::State<'_, AppState>, 
 }
 
 #[tauri::command]
-fn refresh_badge(app: tauri::AppHandle, state: tauri::State<AppState>) {
-    shell::update_badge(&app, &state.db);
+async fn refresh_badge(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> R<()> {
+    // (off the main thread: the unread count reads the mailbox files; the tray and taskbar calls hand over to the main thread themselves, as when a sync updates the badge)
+    let db = state.db.clone();
+    blocking(move || {
+        shell::update_badge(&app, &db);
+        Ok(())
+    })
+    .await
 }
 
 /// "Send test". Async: on macOS it may wait for the person to answer the system's permission dialog, on Linux for the notification service (up to 5 s); neither may hold the
@@ -3963,8 +3969,12 @@ struct SenderInfo {
 }
 
 #[tauri::command]
-fn list_senders(state: tauri::State<AppState>, account_id: Option<String>) -> R<Vec<SenderInfo>> {
-    let c = lock(&state.db);
+async fn list_senders(state: tauri::State<'_, AppState>, account_id: Option<String>) -> R<Vec<SenderInfo>> {
+    let db = state.db.clone();
+    blocking(move || senders_of(&lock(&db), account_id)).await
+}
+
+fn senders_of(c: &Connection, account_id: Option<String>) -> R<Vec<SenderInfo>> {
     let mut st = c
         .prepare(
             "SELECT from_email, MAX(from_name), COUNT(*), SUM(CASE WHEN seen=0 THEN 1 ELSE 0 END),
@@ -6581,8 +6591,12 @@ struct Contact {
 }
 
 #[tauri::command]
-fn suggest_contacts(state: tauri::State<AppState>, prefix: String) -> R<Vec<Contact>> {
-    let c = lock(&state.db);
+async fn suggest_contacts(state: tauri::State<'_, AppState>, prefix: String) -> R<Vec<Contact>> {
+    let db = state.db.clone();
+    blocking(move || contacts_for(&lock(&db), prefix)).await
+}
+
+fn contacts_for(c: &Connection, prefix: String) -> R<Vec<Contact>> {
     let needle = prefix.trim().to_lowercase();
     let like = format!("%{}%", needle);
     let mut score: HashMap<String, (String, u32)> = HashMap::new(); // email -> (name, weight)
@@ -6920,6 +6934,9 @@ pub fn run() {
             if let Err(e) = db::migrate_stored_prefs(&lock(&db)) {
                 eprintln!("could not update the stored preferences: {e}");
             }
+            // (1.0.12) the index of the folder numbers is built in the files made before it, after the window is up and one file at a time
+            let index_db = db.clone();
+            std::thread::spawn(move || while shard::build_next_count_index(&lock(&index_db)) {});
             let pending_app = app.handle().clone();
             std::thread::spawn(move || pending_worker(pending_app));
             let cal_app = app.handle().clone();

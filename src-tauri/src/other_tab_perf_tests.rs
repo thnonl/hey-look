@@ -33,7 +33,11 @@ fn seeded_in(per: u32, dir: Option<&std::path::Path>, body: usize) -> Connection
         }
     }
     if std::env::var("PERF_NOSEED").is_ok() {
-        return db::open(&dir.unwrap().join("heylook.db")).unwrap(); // (the files of an earlier run: opening them is what a start does, so it shows a new index being built)
+        let c = db::open(&dir.unwrap().join("heylook.db")).unwrap();
+        let t = Instant::now();
+        while shard::build_next_count_index(&c) {}
+        println!("count index build (after the start, in the background): {:.0} ms", t.elapsed().as_secs_f64() * 1000.0);
+        return c; // (the files of an earlier run: opening them is what a start does, so it shows a new index being built)
     }
     let c = match dir {
         Some(d) => db::open(&d.join("heylook.db")).unwrap(),
