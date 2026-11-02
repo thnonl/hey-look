@@ -4,19 +4,23 @@
 
 ### Changed
 
-- The font of the app is now Source Sans 3 (it was Inter), and bold text in the interface is lighter: nothing is heavier than semi-bold. At the same text size, text looks a little smaller than before while rows, buttons and menus keep their height (Settings > Appearance > Text size makes it larger); Chinese and Japanese keep the system fonts
+- The font of the app is now Source Sans 3 (it was Inter), with a lighter bold. Text looks a little smaller at the same text size; Settings > Appearance > Text size makes it larger. Chinese and Japanese keep the system fonts
+- Mail list: unread messages have a faint background in your accent colour
+- Compact density: each message in the list takes two lines, and when you point at a message its buttons appear in place of the time
+- macOS: after an update, Hey Look! asks for your Keychain password once instead of once for each saved password
 
 ### Fixed
 
-- Hidden pictures: when a picture is shown (after a click on its box, Show pictures, Always show pictures from this sender, or by the automatic rule), its box shows that the picture is loading until it arrives. A picture that cannot be loaded shows a failed state with Retry, instead of a broken image or its alternative text
-- Printing a message while a picture is still loading or has failed prints a plain box, without the spinner, the Retry arrow or the status text
-- A reader window opened with Next or Previous no longer stays on "Opening message…"; it shows the message
-- Linux: a reader window keeps its own message and no longer follows the message selected in the main window
-- Compose: the row of buttons no longer changes its width or jumps while you type, and a button that does not fit moves to More actions (in a narrow window Meeting moves there first, and a dot on More actions shows that Meeting is on)
-- A menu that does not fit in the window (for example Compose > More actions in Russian with Meeting on) now uses all the room it has, shows a shaded edge where rows are hidden, and every row can be reached with the mouse wheel or the keyboard; before, the last rows were hidden with no sign that they were there
-- In menus, a grey hint row (for example "No templates yet" in Compose > More actions) wraps onto a second line instead of ending in "…"
-- Settings: a very long mailbox address in the list of mailboxes ends in "…", and pointing at it shows the full address; before, it was cut off with no sign
-- Calendar: long calendar names in the sidebar now wrap onto up to three lines instead of being cut off after one; a name longer than that ends in "…", and pointing at it shows the full name. A "read only" badge moves under the name when it does not fit
+- Pictures: when you show the pictures in a message, each one shows that it is loading, and a picture that cannot be loaded shows Retry straight away instead of a broken image
+- Printing a message while pictures are loading or have failed prints plain boxes instead of the loading or error signs
+- Reader window: Next and Previous go straight to the next message, without getting stuck on "Opening message…" or showing an empty window
+- Linux: a reader window keeps its own message instead of following the one selected in the main window
+- Mail list: read messages are no longer shown in bold
+- Compose: the row of buttons no longer jumps while you type, and buttons that do not fit move to More actions
+- A long menu that does not fit in the window can now be scrolled, so you can reach every item
+- In menus, grey hint lines (such as "No templates yet") wrap onto a second line instead of being cut off
+- Settings: a very long mailbox address ends in "…", and pointing at it shows the full address
+- Calendar: long calendar names in the sidebar wrap onto up to three lines instead of being cut off, and pointing at a name shows it in full
 
 ## 1.0.11 — 2026-10-30
 

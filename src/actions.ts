@@ -11,7 +11,7 @@ import { fallbackReferences, replyTargets } from "./replyTargets";
 import { forwardFiles, MAX_FORWARD_BYTES, type ForwardFiles } from "./forwardAttachments";
 import { quoteSentHtml } from "./editor/quoteBlock";
 import { forwardHeadHtml, headerValueHtml, senderHtml } from "./quoteHeader";
-import { fromAccountFor } from "./fromAccount";
+import { fromAccountFor, replyAccountFor } from "./fromAccount";
 import { hasMailAccounts } from "./mailControls";
 import { NewMailQueue } from "./newMailQueue";
 import { focusDraftWindow, startCompose, startShell, type StartOpts } from "./popout/composeOpen";
@@ -83,7 +83,7 @@ export function mailtoCompose(m: MessageFull, href: string, o: StartOpts = {}): 
   const f = parseMailto(href);
   if (!f) return false;
   const st = useStore.getState();
-  const accountId = fromAccountFor(st.accounts, m.accountId, st.prefs.defaultAccount);
+  const accountId = fromAccountFor(st.accounts, replyAccountFor(st.accounts, m), st.prefs.defaultAccount);
   if (answerVia.mailto) {
     void answerVia.mailto(accountId, f);
     return true;
@@ -216,7 +216,7 @@ export async function replyTo(m: MessageFull, all: boolean, thread: MessageFull[
     const targets = replyTargets({ fromEmail: m.fromEmail, fromName: m.fromName, to: m.to, cc: m.cc, mine, mailbox: now.accounts.find((a) => a.id === m.accountId)?.email.toLowerCase(), replyTo: h.replyTo, headerFrom: h.from, headerTo: h.to, headerCc: h.cc, all });
     return {
       quoteRemote: remoteAllowedFor(m),
-      accountId: fromAccountFor(now.accounts, m.accountId, now.prefs.defaultAccount),
+      accountId: fromAccountFor(now.accounts, replyAccountFor(now.accounts, m), now.prefs.defaultAccount),
       to: targets.to.map(cleanHeaderText),
       cc: targets.cc.map(cleanHeaderText),
       subject: reSubject,
@@ -245,7 +245,7 @@ export async function replyTo(m: MessageFull, all: boolean, thread: MessageFull[
     key,
     o: { ...o, shift, key },
     rcpt: { to: guess.to ?? [], cc: guess.cc ?? [] },
-    shell: { accountId: fromAccountFor(st.accounts, m.accountId, st.prefs.defaultAccount), subject: reSubject, isReply: true, confidential: m.confidential },
+    shell: { accountId: fromAccountFor(st.accounts, replyAccountFor(st.accounts, m), st.prefs.defaultAccount), subject: reSubject, isReply: true, confidential: m.confidential },
     prepare: async (painted) => {
       // the three slow steps start together (REQ-13.13.3); the quote is cleaned when the pictures are in it and the shell was painted
       const [h, pics, clean] = await Promise.all([headersOf(m, thread), quotePictures(m), loadQuoteClean()]);
@@ -279,7 +279,7 @@ export async function forward(m: MessageFull, thread: MessageFull[] = useStore.g
     const now = useStore.getState();
     return {
       quoteRemote: remoteAllowedFor(m),
-      accountId: fromAccountFor(now.accounts, m.accountId, now.prefs.defaultAccount),
+      accountId: fromAccountFor(now.accounts, replyAccountFor(now.accounts, m), now.prefs.defaultAccount),
       references: h.references,
       // sending this flags the message forwarded on its server
       answers: answersRef("forwarded", m, h.messageId),
@@ -293,7 +293,7 @@ export async function forward(m: MessageFull, thread: MessageFull[] = useStore.g
     key,
     o: { ...o, shift, key },
     fetching: hasFiles,
-    shell: { accountId: fromAccountFor(st.accounts, m.accountId, st.prefs.defaultAccount), subject: fwdSubject },
+    shell: { accountId: fromAccountFor(st.accounts, replyAccountFor(st.accounts, m), st.prefs.defaultAccount), subject: fwdSubject },
     prepare: async (painted) => {
       // a forward is linked to the message it forwards (References, no In-Reply-To), also when that is a mail you sent yourself
       const [h, files, clean] = await Promise.all([headersOf(m, thread), hasFiles ? forwardFiles(m, (i) => api.attachmentData(m.id, i)) : Promise.resolve(null), loadQuoteClean()]);
