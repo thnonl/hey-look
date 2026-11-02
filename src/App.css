@@ -553,10 +553,14 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
 .preview { color: var(--muted); font-size: .9em; padding-top: 2px; margin-top: -2px; }
 [data-density="medium"] .ml-row { padding-top: 6px; padding-bottom: 6px; }
 [data-density="compact"] .ml-row { padding-top: 4px; padding-bottom: 4px; align-items: center; }
-[data-density="compact"] .ml-main { display: flex; gap: 10px; align-items: center; }
-[data-density="compact"] .ml-top { width: 42%; min-width: 150px; max-width: 240px; } /* room for a name next to the dots and the time */
-[data-density="compact"] .ml-mid { flex: 1; min-width: 0; }
-[data-density="compact"] .ml-row:hover .flags, [data-density="compact"] .ml-row:focus-within .flags { display: none; } /* (the strip takes the right end of the subject line: the marks give way, the subject keeps its room) */
+[data-density="compact"] .ml-main { display: grid; grid-template-columns: minmax(150px, min(42%, 240px)) minmax(0, 1fr); column-gap: 10px; align-items: center; } /* row 1: the name and the subject, row 2: the preview and the time */
+[data-density="compact"] .ml-top, [data-density="compact"] .ml-mid { min-width: 0; }
+[data-density="compact"] .ml-line2 { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; min-width: 0; }
+[data-density="compact"] .ml-line2 .preview { flex: 1; min-width: 0; }
+[data-density="compact"] .ml-line2 .date, [data-density="compact"] .ml-line2 .hover-actions { margin-left: auto; }
+[data-density="compact"] .ml-line2 { min-height: 18px; } /* the strip (18 px: 16 px icons, 1 px padding) fits row 2 whole: it never reaches into row 1 and the row never grows */
+[data-density="compact"] .ml-line2 .hover-actions { margin-top: 0; margin-bottom: 0; }
+[data-density="compact"] .ml-line2 .hover-actions .icon-btn { padding: 1px; min-width: 18px; min-height: 18px; }
 
 /* empty + loading states */
 .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 8px; padding: 48px 24px; height: 100%; min-height: 260px; animation: fade .25s; }

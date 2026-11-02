@@ -82,6 +82,7 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
   const folders = useStore((s) => (showFolder ? s.folders : NO_FOLDERS)); // (the folder list names a folder of a search result)
   const who = t.participants.join(", ");
   const dense = prefs.density === "compact";
+  const dateEl = <span className="date">{opening ? <><span className="busy-ring spin" aria-hidden /><span className="busy-dots" aria-hidden>···</span></> : fmtDate(t.lastDate)}</span>;
   return (
     <div
       role="option"
@@ -132,7 +133,7 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
           {accountColor && dense && <span className="acct-dot" style={{ background: accountColor }} title={accountLabel} />}
           <span className="who ellipsis">{who}</span>
           {!dense && hover}
-          <span className="date">{opening ? <><span className="busy-ring spin" aria-hidden /><span className="busy-dots" aria-hidden>···</span></> : fmtDate(t.lastDate)}</span>
+          {!dense && dateEl}
         </div>
         <div className="ml-mid">
           <span className="subject ellipsis">{subjectText(t.subject)}</span>
@@ -151,8 +152,15 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
             {t.flagged && <Flag size={12} fill="currentColor" className="flag-on" aria-label={tr("mail.row.flagged")} />}
             {t.snoozedUntil && t.snoozedUntil > Date.now() / 1000 && <Clock size={12} aria-label={tr("mail.row.snoozed")} />}
           </span>
-          {dense && hover /* Compact: the strip takes the right end of the subject line (the sender line keeps its date), the subject gives way to it */}
         </div>
+        {dense && (
+          // Compact (owner): row 1 = name + subject, row 2 = preview (left) + time (right); on hover / focus the strip takes the place of the time, the preview gives way
+          <div className="ml-line2">
+            {prefs.preview && <div className="preview ellipsis">{t.confidential ? tr("mail.row.confidentialPreview") : t.snippet || (reservePreview ? " " : "")}</div>}
+            {hover}
+            {dateEl}
+          </div>
+        )}
         {prefs.preview && !dense && <div className="preview ellipsis">{t.confidential ? tr("mail.row.confidentialPreview") : t.snippet || (reservePreview ? "\u00a0" : "")}</div>}
       </div>
     </div>

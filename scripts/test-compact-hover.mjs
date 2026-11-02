@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// 1.0.12 (owner): in Compact density the icon strip of a hovered / focused row sits at the right end of the SUBJECT line (where a preview would be), not in the sender line: the date stays, the subject
-// keeps its place and gives way to the strip with its ellipsis, nothing overlaps the subject, and the row never changes its box. Long and short subjects, a long sender, ru / vi / de, light and dark.
+// 1.0.12 (owner): Compact density has two lines: row 1 = the sender name and the subject, row 2 = the preview (left) and the time (right edge). On hover / keyboard focus the icon strip takes the place of the
+// time at the right end of row 2 (the preview gives way with its ellipsis); the row never changes its box, nothing overlaps (strip vs name, subject, preview), the time shows when the row is not hovered.
+// Long and short subjects, a long sender, ru / vi / de, light and dark.
 //   node scripts/test-compact-hover.mjs [--require-browser | --url=http://127.0.0.1:1420/] [--langs=ru,vi,de]
 import { arg, languageJs, sleep, startHarness } from './cdp-harness.mjs';
 
@@ -19,7 +20,7 @@ const THREADS = [
 ];
 const BOX = (id) => `(() => { const r = document.querySelector('.ml-row[data-thread="${id}"]'); if (!r) return null; const b = (e) => { if (!e) return null; const q = e.getBoundingClientRect(); return [q.left, q.top, q.right, q.bottom].map((n) => Math.round(n * 10) / 10); };
   const act = r.querySelector('.hover-actions'); const vis = (e) => !!e && getComputedStyle(e).display !== 'none';
-  return JSON.stringify({ row: b(r), subject: b(r.querySelector('.subject')), subjectCut: r.querySelector('.subject').scrollWidth > r.querySelector('.subject').clientWidth, date: b(r.querySelector('.date')), dateShown: vis(r.querySelector('.date')), strip: vis(act) ? b(act) : null, top: b(r.querySelector('.ml-top')), who: b(r.querySelector('.who')) }); })()`;
+  return JSON.stringify({ row: b(r), pr: parseFloat(getComputedStyle(r).paddingRight), who: b(r.querySelector('.who')), subject: b(r.querySelector('.subject')), preview: b(r.querySelector('.preview')), date: vis(r.querySelector('.date')) ? b(r.querySelector('.date')) : null, strip: vis(act) ? b(act) : null, sub: b(r.querySelector('.ml-line2')) }); })()`;
 const hit = (a, b) => a && b && a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
 const mouse = (x, y) => cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
 try {
@@ -41,24 +42,29 @@ try {
         const rest = JSON.parse(await evaluate(BOX(id)));
         ok(!!rest, `${tag}: the row is in the list`);
         if (!rest) continue;
-        ok(rest.strip === null, `${tag}: no strip at rest`);
+        ok(rest.strip === null && rest.date !== null, `${tag}: at rest the time shows and no strip`);
+        ok(rest.who[1] < rest.date[1] && rest.date[1] >= rest.who[3] - 1 && rest.subject[3] <= rest.date[1] + 1, `${tag}: the time is on row 2, below the name and the subject (${JSON.stringify(rest.date)} / name ${JSON.stringify(rest.who)} / subject ${JSON.stringify(rest.subject)})`);
+        ok(Math.abs(rest.who[1] - rest.subject[1]) <= 4, `${tag}: the name and the subject are on row 1 (${rest.who[1]} / ${rest.subject[1]})`);
+        ok(Math.abs(rest.date[2] - (rest.row[2] - rest.pr)) <= 1, `${tag}: the time's right edge is the right edge of the row's content (${rest.date[2]} / ${rest.row[2] - rest.pr})`);
+        ok(rest.preview === null || (rest.preview[1] >= rest.who[3] - 1 && !hit(rest.preview, rest.date)), `${tag}: the preview is on row 2, left of the time (${JSON.stringify(rest.preview)})`);
         // hover
         const at = [rest.row[0] + (rest.row[2] - rest.row[0]) * 0.5, (rest.row[1] + rest.row[3]) / 2];
         await mouse(at[0], at[1]); await sleep(250);
         const hov = JSON.parse(await evaluate(BOX(id)));
         ok(hov.strip !== null, `${tag}: the strip shows on hover`);
         ok(JSON.stringify(hov.row) === JSON.stringify(rest.row), `${tag}: the row box is the same hovered (${JSON.stringify(rest.row)} / ${JSON.stringify(hov.row)})`);
-        ok(hov.strip && !hit(hov.strip, hov.subject), `${tag}: the strip does not touch the subject (${JSON.stringify(hov.strip)} / ${JSON.stringify(hov.subject)})`);
-        ok(hov.strip && hov.strip[1] >= hov.row[1] - 1 && hov.strip[3] <= hov.row[3] + 1 && hov.strip[2] <= hov.row[2] + 1, `${tag}: the strip is inside the row`);
-        ok(hov.strip && hov.top && !hit(hov.strip, hov.top), `${tag}: the strip is not in the sender line (${JSON.stringify(hov.strip)} / ${JSON.stringify(hov.top)})`);
-        ok(hov.dateShown && JSON.stringify(hov.date) === JSON.stringify(rest.date), `${tag}: the date stays where it was`);
-        ok(JSON.stringify(hov.who) === JSON.stringify(rest.who) && hov.subject[0] === rest.subject[0], `${tag}: the sender and the start of the subject keep their place`);
+        ok(hov.strip && Math.abs(hov.strip[2] - rest.date[2]) <= 1 && hov.strip[1] >= hov.who[3] - 1, `${tag}: the strip is at the right end of row 2, where the time was (${JSON.stringify(hov.strip)} / time ${JSON.stringify(rest.date)})`);
+        ok(hov.strip && hov.strip[1] >= hov.row[1] - 1 && hov.strip[3] <= hov.row[3] + 1, `${tag}: the strip is inside the row`);
+        ok(hov.strip && !hit(hov.strip, hov.who) && !hit(hov.strip, hov.subject) && (hov.preview === null || !hit(hov.strip, hov.preview)), `${tag}: the strip does not touch the name, the subject or the preview (${JSON.stringify(hov.strip)})`);
+        ok(hov.date === null, `${tag}: the strip replaces the time while it shows`);
+        ok(JSON.stringify(hov.who) === JSON.stringify(rest.who) && JSON.stringify(hov.subject) === JSON.stringify(rest.subject) && (hov.preview === null || hov.preview[0] === rest.preview[0]), `${tag}: the name, the subject and the start of the preview keep their place`);
         // keyboard focus: the row itself, then the mouse away
         await mouse(5, 5); await sleep(200);
         await evaluate(`document.querySelector('.ml-row[data-thread="${id}"]').focus(); 1`); await sleep(250);
         const foc = JSON.parse(await evaluate(BOX(id)));
-        ok(foc.strip !== null, `${tag}: the strip shows on keyboard focus`);
-        ok(JSON.stringify(foc.row) === JSON.stringify(rest.row) && foc.strip && !hit(foc.strip, foc.subject) && foc.dateShown, `${tag}: focus: same row box, strip clear of the subject, date shown`);
+        ok(foc.strip !== null && foc.date === null, `${tag}: the strip shows on keyboard focus, in place of the time`);
+        ok(JSON.stringify(foc.row) === JSON.stringify(rest.row) && foc.strip && Math.abs(foc.strip[2] - rest.date[2]) <= 1 && !hit(foc.strip, foc.who) && !hit(foc.strip, foc.subject) && (foc.preview === null || !hit(foc.strip, foc.preview)), `${tag}: focus: same row box, the strip at the right end of row 2, clear of the name, subject and preview`);
+        await evaluate(`document.activeElement && document.activeElement.blur(); 1`);
       }
     }
   }

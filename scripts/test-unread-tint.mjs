@@ -51,6 +51,32 @@ try {
       for (const s of ['.who', '.subject', '.preview', '.date']) ok(sel[s] === null || sel[s] >= 4.5, `${tag}: ${s} of the selected row has ${sel[s]}:1`);
     }
   }
+  // (owner, 1.0.12) a READ row is not bold: sender and subject (and the preview and the date) are 400 at rest, hovered and selected, in the Inbox, Sent and Drafts, light and dark, Comfortable and
+  // Compact; an unread row keeps its emphasis (sender 600, subject 500)
+  const WEIGHTS = `JSON.stringify([...document.querySelectorAll('.ml-row')].map((r) => ({ un: r.classList.contains('unread'), sel: r.classList.contains('selected'), w: Object.fromEntries(['.who', '.subject', '.preview', '.date'].map((s) => [s, r.querySelector(s) ? getComputedStyle(r.querySelector(s)).fontWeight : null])), row: getComputedStyle(r).fontWeight })))`;
+  for (const theme of ['light', 'dark']) for (const density of ['comfortable', 'compact']) for (const view of ['inbox', 'sent', 'drafts']) {
+    const tag = `weights ${theme} ${density} ${view}`;
+    await evaluate(`(() => { const s = window.__store.getState(); s.setPrefs({ theme: ${JSON.stringify(theme)}, density: ${JSON.stringify(density)} }); s.setView(${JSON.stringify(view)}, s.accounts[0].id); s.select(null); return 1; })()`);
+    await sleep(700);
+    const rowsOf = async () => JSON.parse(await evaluate(WEIGHTS));
+    let rows = await rowsOf();
+    // (Sent and Drafts have rows in some mailboxes of the mock only: the first one that has some)
+    for (let i = 1; view !== 'inbox' && rows.length === 0 && i < 6; i++) {
+      await evaluate(`(() => { const s = window.__store.getState(); if (!s.accounts[${i}]) return 0; s.setView(${JSON.stringify(view)}, s.accounts[${i}].id); s.select(null); return 1; })()`);
+      await sleep(600);
+      rows = await rowsOf();
+    }
+    if (view !== 'inbox' && rows.length === 0) { console.log(`${tag}: no rows in any mailbox of the mock (skipped)`); continue; }
+    ok(rows.length > 2 || view !== 'inbox', `${tag}: the list has rows (${rows.length})`);
+    const readWeights = (rs, what) => { for (const r of rs.filter((x) => !x.un)) for (const [s, w] of Object.entries(r.w)) ok(w === null || w === '400', `${tag} ${what}: a read row's ${s} is ${w}, not 400`); for (const r of rs.filter((x) => !x.un)) ok(r.row === '400', `${tag} ${what}: a read row inherits ${r.row}`); };
+    readWeights(rows, 'at rest');
+    for (const r of rows.filter((x) => x.un)) { ok(r.w['.who'] === '600' && r.w['.subject'] === '500', `${tag}: an unread row keeps its emphasis (${r.w['.who']} / ${r.w['.subject']})`); }
+    // hovered read row
+    const at = await evaluate(`(() => { const r = [...document.querySelectorAll('.ml-row:not(.unread)')][0]; if (!r) return null; r.scrollIntoView({ block: 'center' }); const b = r.getBoundingClientRect(); return [b.left + b.width * 0.5, b.top + b.height / 2]; })()`);
+    if (at) { await mouse(at, 'mouseMoved'); await sleep(250); readWeights(await rowsOf(), 'hovered'); await mouse([5, 5], 'mouseMoved'); }
+    // a selected read row
+    if (at) { await evaluate(`[...document.querySelectorAll('.ml-row:not(.unread)')][0].click(); 1`); await sleep(500); rows = await rowsOf(); ok(rows.some((r) => r.sel && !r.un), `${tag}: a read row is selected`); readWeights(rows, 'selected'); }
+  }
 } catch (e) {
   failures.push(String(e && e.stack ? e.stack : e));
   console.error(e);
