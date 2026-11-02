@@ -113,6 +113,8 @@ fn bench_other_tab() {
         ("focused all", filter(serde_json::json!({ "accountId": null, "folder": "inbox", "focus": "focused" }))),
         ("other one account", filter(serde_json::json!({ "accountId": "pa1", "folder": "inbox", "focus": "other" }))),
         ("inbox no tab (Focused Inbox off), all", filter(serde_json::json!({ "accountId": null, "folder": "inbox" }))),
+        ("search 'number 4242' scope all (150k messages)", filter(serde_json::json!({ "accountId": null, "folder": "inbox", "search": "number 4242", "scope": "all" }))),
+        ("search from:s17 scope account", filter(serde_json::json!({ "accountId": "pa1", "folder": "inbox", "search": "from:s17", "scope": "account" }))),
         ("other unread, all", filter(serde_json::json!({ "accountId": null, "folder": "inbox", "focus": "other", "unreadOnly": true }))),
     ] {
         let (r, _) = ms(name, || threads_for(&c, ThreadFilter { account_id: f.account_id.clone(), folder: f.folder.clone(), search: f.search.clone(), focus: f.focus.clone(), flat: f.flat, unread_only: f.unread_only, flagged_only: f.flagged_only, sort_asc: f.sort_asc, scope: f.scope.clone() }).unwrap());
