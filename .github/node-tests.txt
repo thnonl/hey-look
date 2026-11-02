@@ -332,6 +332,7 @@ ui-b | node scripts/test-calendar-label-fit.mjs --require-browser
 ui-b | node scripts/test-settings-nav-address.mjs --require-browser
 ui-b | node scripts/test-menu-hint-fit.mjs --require-browser
 ui-b | node scripts/test-menu-reach.mjs --require-browser
+ui-b | node scripts/test-unread-tint.mjs --require-browser
 # 1.0.7 CI speed: the shard list is sound (every line has a known shard, the names match the plan job of the release workflow, no command twice, every named script exists) and the estimated minutes per shard are printed; scripts/test-*.mjs that no shard runs are only listed
 static | node scripts/check-shards.mjs
 # 1.0.7 CI speed: the job graph of the release workflow, run with the real plan script and GitHub's rules for needs / if: a tag run has every UI shard and publishes only when all passed (a failed shard, Rust test, build or signing stops it), a dry run without ui_tests has only the shard static and ends green, with ui_tests=true it has all shards

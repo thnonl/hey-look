@@ -248,7 +248,6 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .window-controls:not(.native) .wc-close:hover, .wc-close.hot { background: #c42b1c; color: #fff; }
 .window-controls:not(.native) .wc-close:active, .wc-close.down { background: #b22a1b; color: #fff; }
 .wc-tip { position: absolute; top: calc(100% + 4px); left: 50%; transform: translateX(-50%); white-space: nowrap; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: var(--r-sm); box-shadow: var(--shadow); padding: 3px 9px; font-size: .86em; pointer-events: none; animation: fade .12s; }
-.wc-tip-close { left: auto; right: 0; transform: none; }
 .topbar .icon-btn { color: var(--top-fg); padding: 7px; }
 .topbar .icon-btn:hover { background: var(--top-hover); color: var(--top-fg); }
 /* language menu: globe + code; the focus ring uses the bar colour (the accent ring would vanish on the bar) */
@@ -517,6 +516,7 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
 .gs-acct { font-size: .86em; color: var(--muted); font-weight: 400; }
 .ml-progress { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: .86em; padding: 8px 0 4px; font-variant-numeric: tabular-nums; }
 .ml-row { display: flex; gap: 11px; padding: 9px 14px 9px 11px; margin: 0; border-left: 3px solid transparent; cursor: pointer; align-items: flex-start; position: relative; transition: background .1s; content-visibility: auto; contain-intrinsic-size: auto 78px; }
+.ml-row.unread { background: color-mix(in srgb, var(--accent) 7%, var(--bg)); } /* (a faint tint, no layout effect: hover and selected, below, win over it) */
 .ml-row:hover { background: var(--bg2); }
 .ml-row.selected, .ml-row.checked { background: var(--accent-soft); }
 .ml-row.selected { border-left-color: var(--accent); }
@@ -1169,8 +1169,6 @@ button.pill:hover { filter: brightness(.95); }
 /* ============================ 3. INLINE IMAGES ============================ */
 .editor .tiptap img, .rich-body .tiptap img { max-width: 100%; height: auto; border-radius: 4px; cursor: default; }
 .editor .tiptap img.ProseMirror-selectednode, .rich-body .tiptap img.ProseMirror-selectednode { outline: 2px solid var(--accent); outline-offset: 2px; }
-.img-wrap { position: relative; display: inline-block; max-width: 100%; }
-.img-wrap .handle { position: absolute; right: -5px; bottom: -5px; width: 10px; height: 10px; border-radius: 2px; background: var(--accent); border: 2px solid var(--bg); cursor: nwse-resize; }
 /* the picture toolbar: the anchor spans the pane (Compose.tsx sets its top and the box's margin-left once the toolbar is measured), the box is as wide as the toolbar needs but never wider than the pane, and the items wrap to a second row instead of overlapping */
 .img-tools-anchor { position: absolute; left: 0; right: 0; z-index: 9; pointer-events: none; }
 .img-tools-box { position: relative; width: max-content; max-width: calc(100% - 16px); pointer-events: auto; }
@@ -1181,7 +1179,6 @@ body:has(.popover.pinned:not(.alt-pop), .suggest.pinned, .dd-fixed) .img-tools-a
 .img-tools > * { flex: none; white-space: nowrap; }
 .img-tools .seg { margin: 0; flex-wrap: nowrap; }
 .img-tools .seg button { padding: 3px 9px; font-size: .86em; }
-.img-badge { position: absolute; left: 6px; bottom: 6px; font-size: .74em; background: rgba(0,0,0,.62); color: #fff; padding: 1px 7px; border-radius: 999px; }
 /* ---- Insert group (editor/insertUi.tsx): tables, picture alignment and handles, link bubble, emoji ---- */
 .editor .tiptap table, .rich-body .tiptap table { border-collapse: collapse; width: 100%; table-layout: auto; margin: 0; }
 .editor .tiptap :is(td, th), .rich-body .tiptap :is(td, th) { padding: 4px 6px; vertical-align: top; min-width: 1em; position: relative; text-align: left; }
@@ -1238,7 +1235,6 @@ body:has(.popover.pinned:not(.alt-pop), .suggest.pinned, .dd-fixed) .img-tools-a
 .cp-size { display: flex; align-items: center; gap: 10px; }
 .cp-size .progress { width: 120px; }
 .cp-size .progress.over > i { background: var(--danger); }
-.inline-group { display: inline-flex; align-items: center; gap: 6px; }
 .lightbox { position: fixed; inset: 0; z-index: var(--z-lightbox); background: rgba(10, 12, 16, .9); display: flex; flex-direction: column; animation: fade .14s; color: #f1f2f4; }
 .lb-bar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; }
 .lb-bar .icon-btn { color: #d5d9e0; }
@@ -1283,7 +1279,6 @@ body:has(.popover.pinned:not(.alt-pop), .suggest.pinned, .dd-fixed) .img-tools-a
 .ft[data-kind="audio"] { --ft: #0f7b83; } .ft[data-kind="video"] { --ft: #5c2e91; } .ft[data-kind="code"] { --ft: #3b4250; }
 .ft[data-kind="ics"] { --ft: var(--accent-base); } .ft[data-kind="key"] { --ft: #4f6b2a; } .ft[data-kind="exe"] { --ft: #8a1c1c; }
 .ft[data-kind="file"] { --ft: #6b7280; }
-.att-thumb { width: 36px; height: 36px; flex: none; border-radius: 7px; object-fit: cover; background: var(--bg3); border: 1px solid var(--border); }
 .att-chip.inline-pics { background: var(--bg); border-style: dashed; color: var(--muted); }
 .pv-modal { width: min(1100px, 94vw); height: 86vh; }
 .pv-head { display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 16px; border-bottom: 1px solid var(--border); }
@@ -1332,7 +1327,6 @@ body:has(.popover.pinned:not(.alt-pop), .suggest.pinned, .dd-fixed) .img-tools-a
 .sched-custom .sched-fld { min-width: 0; }
 .sched-sum { font-size: .86em; }
 .sched-sum b { font-weight: 550; }
-.sched-note { border-top: 1px solid var(--border); margin-top: 4px; padding: 8px 6px 2px; }
 .cp-banner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 20px; background: var(--accent-soft); border-bottom: 1px solid var(--border); font-size: .92em; }
 .cp-banner.bad { background: color-mix(in srgb, var(--danger) 10%, var(--bg)); }
 .cp-banner > svg { color: var(--accent-text); flex: none; }
