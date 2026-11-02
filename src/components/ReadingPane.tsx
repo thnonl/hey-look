@@ -115,7 +115,7 @@ function remoteImageUrls(html: string): string[] {
  * same string comes back and nothing is parsed. One entry per cleaned result; the result is dropped from CLEANED by size and count, and the entry goes with it.
  */
 const SHOWN = new WeakMap<object, { key: string; html: string }>();
-function shownHtml(clean: { html: string }, allowed: boolean, settled: boolean, m: MessageFull, loaded: Record<string, string>, state: Record<string, { status: "loading" | "failed"; error?: string }>, lang: string, version: number, shown: Record<string, string>): string {
+function shownHtml(clean: { html: string }, allowed: boolean, settled: boolean, done: ReadonlySet<string>, m: MessageFull, loaded: Record<string, string>, state: Record<string, { status: "loading" | "failed"; error?: string }>, lang: string, version: number, shown: Record<string, string>): string {
   const key = [
     allowed ? 1 : 0,
     allowed && settled ? 1 : 0,
@@ -128,7 +128,7 @@ function shownHtml(clean: { html: string }, allowed: boolean, settled: boolean, 
   ].join("|");
   const hit = SHOWN.get(clean);
   if (hit && hit.key === key) return hit.html;
-  const out = pictureHtml(allowed ? inlineImages(clean.html, settled) : clean.html, m, loaded, state, shown);
+  const out = pictureHtml(allowed ? inlineImages(clean.html, settled, done) : clean.html, m, loaded, state, shown);
   SHOWN.set(clean, { key, html: out });
   return out;
 }
@@ -242,7 +242,7 @@ function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string
   return doc.body.innerHTML;
 }
 
-function inlineImages(html: string, settled: boolean): string {
+function inlineImages(html: string, settled: boolean, done: ReadonlySet<string>): string {
   const doc = new DOMParser().parseFromString(html, "text/html");
   doc.querySelectorAll("img[src]").forEach((i) => {
     const src = i.getAttribute("src") ?? "";
@@ -253,7 +253,7 @@ function inlineImages(html: string, settled: boolean): string {
     if (/^(https?:)?\/\//i.test(src.trim())) {
       const abs = src.trim().startsWith("//") ? `https:${src.trim()}` : src.trim();
       i.removeAttribute("src");
-      if (settled) {
+      if (settled || done.has(abs)) { // (the backend has answered for this address already, with a picture it did not bring: not for the batch, for this one - 1.0.12 BUG-2)
         i.setAttribute("data-hl-blocked", "1");
         i.setAttribute("data-hl-failed", "1");
         if (abs.length <= 4096) i.setAttribute("data-hl-src", abs);
@@ -351,6 +351,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   const sender = normSender(m.fromEmail);
   const rin: RemoteInput = { global: loadRemote, trusted: !!sender && trustedSet.has(sender), autoReason: m.autoReason, noAuto: !!sender && noAutoSet.has(sender), autoOn, folder: m.folder, encrypted: !!m.security?.encrypted, auth: m.auth, allow };
   const [version, setVersion] = useState(0); // bumps when images arrive from the backend
+  const doneRef = useRef<Set<string>>(new Set()); // the addresses the backend has answered for (a picture or none), one by one
   const [settledFor, setSettledFor] = useState<unknown>(null); // the cleaned mail whose pictures the backend has answered for (all of them came, or failed)
   const [loadedPics, setLoadedPics] = useState<Record<string, string>>({});
   // pictures shown one by one (address -> data: URI): put into the frame in place, and remembered here so a rebuilt frame (a language change, a sync) keeps them; gone with the message
@@ -428,7 +429,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   const html = useMemo(
     () => {
       hlMark("open:pics:start");
-      const out = shownHtml(clean, allowed, settledFor === clean, m, loadedPics, picState, lang, version, shownRef.current);
+      const out = shownHtml(clean, allowed, settledFor === clean, doneRef.current, m, loadedPics, picState, lang, version, shownRef.current);
       hlMark("open:pics:end");
       diag(`html built m=${m.id} changed=${lastHtml.current !== out} len=${out.length}`); // (reader window only; logs)
       lastHtml.current = out;
@@ -535,13 +536,26 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
       return;
     }
     let live = true;
-    void loadRemoteImages(missing).then((n) => {
+    // every picture says how it went as soon as its own fetch ends (a 404 shows its failed box at once, not when the slowest picture is in); the frame is written again at most every 120 ms
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const repaint = () => {
+      timer = undefined;
+      if (live) setVersion((v) => v + 1);
+    };
+    doneRef.current = new Set();
+    void loadRemoteImages(missing, false, (u) => {
+      doneRef.current.add(u);
+      if (live && timer === undefined) timer = setTimeout(repaint, 120);
+    }).then(() => {
       if (!live) return;
-      if (n > 0) setVersion((v) => v + 1);
+      clearTimeout(timer);
+      timer = undefined;
+      setVersion((v) => v + 1);
       setSettledFor(clean);
     });
     return () => {
       live = false;
+      clearTimeout(timer);
     };
   }, [allowed, clean, m.html]);
 

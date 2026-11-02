@@ -34,11 +34,34 @@ const PER_CALL = 60;
 /**
  * Fetches what is not cached yet (a call per 60 addresses) and caches it; returns how many pictures came in. Never rejects: a picture that could not be fetched is simply not in the
  * cache afterwards. `retry`: asks again for the addresses that failed a moment ago (the person pressed "Load content").
+ * `each`: tells the result of every address as soon as ITS fetch ends (1.0.12 BUG-2: a picture that fails at once no longer waits for the slowest one of the batch): the addresses are then asked
+ * for one by one, up to 60 at the same time (the old size of a batch, so the whole takes as long as the slowest single address, at most the backend's 20 s), and `each(url, ok)` is called for each.
  */
-export async function loadRemoteImages(urls: readonly string[], retry = false): Promise<number> {
+export async function loadRemoteImages(urls: readonly string[], retry = false, each?: (url: string, ok: boolean) => void): Promise<number> {
   let n = 0;
   const now = Date.now();
   const missing = [...new Set(urls)].filter((u) => !cache.has(u) && (retry || now - (failed.get(u) ?? -Infinity) > RETRY_AFTER_MS));
+  if (each) {
+    let next = 0;
+    const worker = async () => {
+      for (let u = missing[next++]; u !== undefined; u = missing[next++]) {
+        let data: string | undefined;
+        try {
+          data = (await api.fetchRemoteImages([u]))?.[u];
+          if (!data) failed.set(u, now);
+        } catch {
+          /* (offline, or the host does not answer: the picture stays a box) */
+        }
+        if (data) {
+          cacheImage(u, data);
+          n++;
+        }
+        each(u, !!data);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(PER_CALL, missing.length) }, worker));
+    return n;
+  }
   for (let i = 0; i < missing.length; i += PER_CALL) {
     try {
       const got = await api.fetchRemoteImages(missing.slice(i, i + PER_CALL));

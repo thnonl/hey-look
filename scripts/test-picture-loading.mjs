@@ -26,6 +26,8 @@ const THREADS = [
   ['lS', 'Sizes', { fromName: 'Shop', fromEmail: 'sizes@shop.example', html: `<p>Look</p><img src="${u('s1')}" width="120" height="40" alt="Logo"><img src="${u('s2')}" width="200" height="70" alt="Mid"><img src="${u('s3')}" width="300" height="120" alt="Wide">`, auth: 'pass' }],
   ['lF', 'One fails', { fromName: 'Shop', fromEmail: 'fail@shop.example', html: `<p>Look</p><img src="${u('f1')}" width="200" height="100" alt="good"><img src="${u('unreachable-f2')}" width="200" height="100" alt="bad"><img src="${u('unreachable-f3')}" width="200" height="70" alt="midbad">`, auth: 'pass' }],
   ['lP', 'Print', { fromName: 'Shop', fromEmail: 'print@shop.example', html: `<p>Look</p><img src="${u('p1')}" width="200" height="100" alt="one"><img src="${u('unreachable-p2')}" width="200" height="100" alt="two">`, auth: 'pass' }],
+  ['lX', 'Slow and 404', { fromName: 'Shop', fromEmail: 'slow@shop.example', html: `<p>Look</p><img src="${u('x-ok')}" width="200" height="100" alt="quick"><img src="https://img.shop.example/404/x-gone.png" width="200" height="100" alt="gone"><img src="https://img.shop.example/slow/3000/x-slow.png" width="200" height="100" alt="slow">`, auth: 'pass' }],
+  ['lY', 'Slow and 404, written to', { fromName: 'Friend', fromEmail: 'friend2@example.org', html: `<p>Look</p><img src="https://img.shop.example/404/y-gone.png" width="200" height="100" alt="gone"><img src="https://img.shop.example/slow/3000/y-slow.png" width="200" height="100" alt="slow">`, auth: 'pass', autoReason: 'wrote' }],
   ['lW', 'Written to', { fromName: 'Friend', fromEmail: 'friend@example.org', html: `<p>Look</p><img src="${u('w1')}" width="200" height="100" alt="one"><img src="${u('unreachable-w2')}" width="200" height="100" alt="gone"><img src="${u('w3')}" alt="nosize"><img src="${u('w4')}" width="1" height="1">`, auth: 'pass', autoReason: 'wrote' }],
 ];
 const FR = `document.querySelector('.rp-msg.open iframe.msg-frame')`;
@@ -185,6 +187,26 @@ try {
   ok(s[0].boxes.every((b) => b.size[0] === 200 && b.size[1] === 100), `at the size of the hidden boxes (${JSON.stringify(s[0].boxes.map((b) => b.size))})`);
   ok(s[0].boxes.every((b) => b.role === 'img' && b.label.includes(b.alt)), 'not buttons while loading, named with the alt');
   ok(s[s.length - 1].imgs.map((i) => i.alt).join() === 'one,two,three', 'the pictures come in with their alt text');
+
+  // ======================================================================== P10 each picture reports its own result (BUG-2 of the Windows QA round 8b): a 404 does not wait for a slow sibling
+  for (const [id, how] of [['lX', 'Show pictures'], ['lY', 'the automatic rule']]) {
+    tag = 'own-result';
+    await open(id);
+    const act = id === 'lX' ? `document.querySelector('.rp-msg.open .notice button.link:not([data-trust])').click(); 1` : `1`;
+    s = await sample(act, (x) => x.boxes.some((b) => b.state === 'failed') || x.t > 2500, 4000);
+    const f = s[s.length - 1];
+    const failedAt = f.boxes.findIndex((b) => b.state === 'failed');
+    ok(failedAt >= 0 && f.t < 2200, `${how}: the 404 box is failed after ${f.t} ms (the mock answers each call after 1200 ms), before the slow picture (3000 ms) is in (${JSON.stringify(f.boxes.map((b) => b.state))})`);
+    ok(f.boxes.some((b) => b.state === 'loading' && b.alt === 'slow'), `${how}: the slow picture is still loading when the 404 has failed`);
+    ok(f.boxes.every((b) => b.size[0] === 200 && b.size[1] === 100), `${how}: no box changed its size (${JSON.stringify(f.boxes.map((b) => b.size))})`);
+    noBroken(s, `${how} with a 404 and a slow picture`);
+    // the slow picture comes in on its own afterwards, the failed box stays and still offers Retry
+    s = await sample(`1`, (x) => x.imgs.some((i) => i.ok && i.alt === 'slow'), 6000);
+    const e = s[s.length - 1];
+    ok(e.imgs.some((i) => i.ok && i.alt === 'slow'), `${how}: the slow picture shows when its fetch ends`);
+    ok(e.boxes.some((b) => b.state === 'failed' && b.hint === 'Retry' && b.alt === 'gone'), `${how}: the 404 box is still failed with Retry (${JSON.stringify(e.boxes.map((b) => [b.state, b.alt, b.hint]))})`);
+    noBroken(s, `${how}: until the slow picture is in`);
+  }
 
   // ======================================================================== P4b automatic rule: a failure on the way
   tag = 'auto';
