@@ -298,7 +298,7 @@ fn test_consent(_provider: Provider) -> Option<oauth::Signed> {
     None
 }
 
-#[cfg(debug_assertions)]
+#[cfg(any(test, debug_assertions))] // (the unit tests use it too, also in `cargo test --release`; a release build of the app does not compile it)
 fn consent_from_seam(provider: Provider, value: &str) -> Option<oauth::Signed> {
     let value = value.trim();
     let (partial, email) = match value.strip_prefix("partial:") {
