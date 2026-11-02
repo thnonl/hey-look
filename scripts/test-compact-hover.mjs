@@ -16,11 +16,12 @@ const LONG = 'A very long subject line that goes on and on past the end of the r
 const THREADS = [
   ['cL', LONG, { fromName: 'A sender with a really very long display name that does not fit its column at all', fromEmail: 'long@sender.example', html: '<p>x</p>', auth: 'pass' }],
   ['cS', 'Hi', { fromName: 'Bo', fromEmail: 'bo@sender.example', html: '<p>x</p>', auth: 'pass' }],
+  ['cN', '(no subject)', { fromName: 'Zed', fromEmail: 'zed@sender.example', html: '<p>x</p>', auth: 'pass' }],
   ['cM', 'Quarterly numbers for the team', { fromName: 'Marketing Department', fromEmail: 'mkt@sender.example', html: '<p>x</p>', auth: 'pass' }],
 ];
 const BOX = (id) => `(() => { const r = document.querySelector('.ml-row[data-thread="${id}"]'); if (!r) return null; const b = (e) => { if (!e) return null; const q = e.getBoundingClientRect(); return [q.left, q.top, q.right, q.bottom].map((n) => Math.round(n * 10) / 10); };
   const act = r.querySelector('.hover-actions'); const vis = (e) => !!e && getComputedStyle(e).display !== 'none';
-  return JSON.stringify({ row: b(r), pr: parseFloat(getComputedStyle(r).paddingRight), who: b(r.querySelector('.who')), subject: b(r.querySelector('.subject')), preview: b(r.querySelector('.preview')), date: vis(r.querySelector('.date')) ? b(r.querySelector('.date')) : null, strip: vis(act) ? b(act) : null, sub: b(r.querySelector('.ml-line2')), av: b(r.querySelector('.lead-avatar .avatar')), bar: b(r.querySelector('.ml-lead .acct-dot.under')), dotInName: !!r.querySelector('.ml-top .acct-dot'), check: b(r.querySelector('.lead-check')), checkVis: getComputedStyle(r.querySelector('.lead-check')).display !== 'none', avOp: getComputedStyle(r.querySelector('.lead-avatar')).opacity }); })()`;
+  return JSON.stringify({ row: b(r), pr: parseFloat(getComputedStyle(r).paddingRight), who: b(r.querySelector('.who')), subject: b(r.querySelector('.subject')), preview: b(r.querySelector('.preview')), date: vis(r.querySelector('.date')) ? b(r.querySelector('.date')) : null, strip: vis(act) ? b(act) : null, sub: b(r.querySelector('.ml-line2')), av: b(r.querySelector('.lead-avatar .avatar')), bar: b(r.querySelector('.ml-lead .acct-dot.under')), dotInName: !!r.querySelector('.ml-top .acct-dot'), sep: (() => { const e = r.querySelector('.ml-mid > span[aria-hidden]'); return e ? { box: b(e), color: getComputedStyle(e).color, text: e.textContent } : null; })(), main: b(r.querySelector('.ml-main')), whoText: (() => { const w = r.querySelector('.who'); const g = document.createRange(); g.selectNodeContents(w); const q = g.getBoundingClientRect(); return [q.left, q.right]; })(), whoColor: getComputedStyle(r.querySelector('.who')).color, whoCut: (() => { const w = r.querySelector('.who'); return w.scrollWidth > w.clientWidth + 1; })(), check: b(r.querySelector('.lead-check')), checkVis: getComputedStyle(r.querySelector('.lead-check')).display !== 'none', avOp: getComputedStyle(r.querySelector('.lead-avatar')).opacity }); })()`;
 const hit = (a, b) => a && b && a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
 const mouse = (x, y) => cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
 try {
@@ -44,7 +45,7 @@ try {
         if (!rest) continue;
         ok(rest.strip === null && rest.date !== null, `${tag}: at rest the time shows and no strip`);
         ok(rest.who[1] < rest.date[1] && rest.date[1] >= rest.who[3] - 1 && rest.subject[3] <= rest.date[1] + 1, `${tag}: the time is on row 2, below the name and the subject (${JSON.stringify(rest.date)} / name ${JSON.stringify(rest.who)} / subject ${JSON.stringify(rest.subject)})`);
-        ok(Math.abs(rest.who[1] - rest.subject[1]) <= 4, `${tag}: the name and the subject are on row 1 (${rest.who[1]} / ${rest.subject[1]})`);
+        ok(id === 'cN' || Math.abs(rest.who[1] - rest.subject[1]) <= 4, `${tag}: the name and the subject are on row 1 (${rest.who[1]} / ${rest.subject[1]})`);
         ok(Math.abs(rest.date[2] - (rest.row[2] - rest.pr)) <= 1, `${tag}: the time's right edge is the right edge of the row's content (${rest.date[2]} / ${rest.row[2] - rest.pr})`);
         ok(rest.preview === null || (rest.preview[1] >= rest.who[3] - 1 && !hit(rest.preview, rest.date)), `${tag}: the preview is on row 2, left of the time (${JSON.stringify(rest.preview)})`);
         // (owner) Compact shows the small avatar, the mailbox bar under it (several mailboxes), no dot before the name
@@ -54,6 +55,18 @@ try {
         ok(!rest.dotInName, `${tag}: no account dot before the name`);
         ok(rest.bar === null || (rest.av && rest.bar[1] >= rest.av[3] && rest.bar[3] <= rest.row[3] - 1 && Math.abs((rest.bar[0] + rest.bar[2]) / 2 - (rest.av[0] + rest.av[2]) / 2) <= 1 && rest.bar[2] <= rest.who[0]), `${tag}: the mailbox bar is under the avatar, centred, inside the row (${JSON.stringify(rest.bar)} / ${JSON.stringify(rest.av)})`);
         ok(!rest.checkVis && rest.avOp === '1', `${tag}: at rest the avatar shows, not the select circle`);
+        // (owner, 1.0.12) row 1 flows: the name at its own width (a long one is cut at 40% of the line), a muted dot, the subject; a message without a subject has the name alone
+        const hasSubj = id !== 'cN';
+        ok(rest.who[2] <= rest.main[0] + (rest.main[2] - rest.main[0]) * 0.4 + 1.5, `${tag}: the name is at most 40% of the line (${JSON.stringify(rest.who)} in ${JSON.stringify(rest.main)})`);
+        if (id === 'cL') ok(rest.whoCut, `${tag}: a long name ends in an ellipsis`);
+        if (id === 'cS' || id === 'cN') ok(!rest.whoCut && rest.who[2] - rest.who[0] <= rest.whoText[1] - rest.whoText[0] + 1.5, `${tag}: a short name keeps its own width, no fixed column (${JSON.stringify(rest.who)})`);
+        if (hasSubj) {
+          ok(rest.sep && rest.sep.text === '·' && rest.sep.box[0] >= rest.who[2] - 0.5 && rest.sep.box[2] <= rest.subject[0] + 0.5, `${tag}: a dot stands between the name and the subject (${JSON.stringify(rest.sep)})`);
+          ok(rest.sep && rest.sep.color !== rest.whoColor, `${tag}: the dot is muted, not the text colour (${rest.sep && rest.sep.color})`);
+          if (id === 'cS') ok(rest.subject[0] - rest.who[2] <= 24, `${tag}: the subject follows a short name closely (${rest.subject[0] - rest.who[2]} px)`);
+        } else {
+          ok(rest.sep === null, `${tag}: a message without a subject has no dangling dot`);
+        }
         // hover
         const at = [rest.row[0] + (rest.row[2] - rest.row[0]) * 0.5, (rest.row[1] + rest.row[3]) / 2];
         await mouse(at[0], at[1]); await sleep(250);

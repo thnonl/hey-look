@@ -82,6 +82,7 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
   const folders = useStore((s) => (showFolder ? s.folders : NO_FOLDERS)); // (the folder list names a folder of a search result)
   const who = t.participants.join(", ");
   const dense = prefs.density === "compact";
+  const hasSubject = t.subject.trim() !== "" && t.subject !== "(no subject)";
   const dateEl = <span className="date">{opening ? <><span className="busy-ring spin" aria-hidden /><span className="busy-dots" aria-hidden>···</span></> : fmtDate(t.lastDate)}</span>;
   return (
     <div
@@ -133,7 +134,9 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
           {!dense && dateEl}
         </div>
         <div className="ml-mid">
-          <span className="subject ellipsis">{subjectText(t.subject)}</span>
+          {/* Compact: row 1 flows, "name · subject"; a message without a subject shows the name alone (no dot) */}
+          {dense && hasSubject && <span aria-hidden style={{ color: "var(--muted)", flex: "none", padding: "0 0 0 6px" }}>·</span>}
+          <span className="subject ellipsis">{dense && !hasSubject ? "" : subjectText(t.subject)}</span>
           <span className="flags">
             {showFolder && <span className="where">{folderLabelIn(folders, t.folder, t.accountId)}</span>}
             {t.count > 1 && prefs.conversations && <span className="count">{t.count}</span>}
