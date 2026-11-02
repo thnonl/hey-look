@@ -41,12 +41,12 @@
 <meta property="og:image:type" content="image/jpeg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="受信トレイを表示したHey Look!のメールクライアントの画面と、英語のキャッチコピー「Mail without the rent」。">
+<meta property="og:image:alt" content="Hey Look!のウィンドウに、サンプルのメールが入った受信トレイが表示されている画像。">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Google APIのデータ利用と限定的な使用 - Hey Look!">
 <meta name="twitter:description" content="Hey Look!によるGoogleユーザーデータの使用方法。Google APIサービスのユーザーデータに関するポリシーが求める「限定的な使用」の開示を含みます。">
 <meta name="twitter:image" content="https://heylook.namthai.site/assets/og-image.jpg">
-<meta name="twitter:image:alt" content="受信トレイを表示したHey Look!のメールクライアントの画面と、英語のキャッチコピー「Mail without the rent」。">
+<meta name="twitter:image:alt" content="Hey Look!のウィンドウに、サンプルのメールが入った受信トレイが表示されている画像。">
 <link rel="icon" href="../assets/icon-48.png" sizes="48x48" type="image/png">
 <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
 <!-- hl:seo-end -->
@@ -62,7 +62,7 @@
     <a class="brand" href="index.html" aria-label="Hey Look!ホーム"><svg aria-hidden="true" focusable="false"><use href="#hl-mark"/></svg><span>Hey Look!</span></a>
     <nav id="site-nav" class="nav" aria-label="メインナビゲーション">
       <a href="index.html#story">ツアー</a>
-      <a href="index.html#free">含まれるもの</a>
+      <a href="index.html#free">無料</a>
       <a href="features.html">機能</a>
       <a href="help.html">ヘルプ</a>
       <a href="privacy.html">プライバシー</a>
@@ -93,16 +93,17 @@
   </div>
 </header>
 <main id="main">
-<section class="page-head"><div class="wrap"><p class="kicker">法的情報</p><h1>Hey Look!によるGoogleユーザーデータの使用方法</h1><div class="callout"><p><strong>お知らせ：</strong>この日本語版は、利便性のために提供している参考訳です。内容に相違がある場合は、英語版が正式なものとして優先されます。英語版は、ページ上部の言語メニューから開けます。</p></div><p class="lead">最終更新日：2026年10月30日。</p></div></section>
+<section class="page-head"><div class="wrap"><p class="kicker">法的情報</p><h1>Hey Look!によるGoogleユーザーデータの使用方法</h1><p class="lead">最終更新日：2026年11月1日。</p></div></section>
 <div class="wrap layout"><aside class="toc" aria-label="このページの内容"><h2>このページの内容</h2><ol><li><a href="#what">Hey Look!とは</a></li><li><a href="#perm">要求するアクセス許可</a></li><li><a href="#never">決して行わないこと</a></li><li><a href="#where">保存場所</a></li><li><a href="#stop">アクセスを停止するには</a></li><li><a href="#q">お問い合わせ</a></li></ol></aside>
 <article class="prose">
 
 <div class="callout"><p><strong>Hey Look!がGoogle APIから受け取った情報の使用は、「限定的な使用」の要件を含め、<a href="https://developers.google.com/terms/api-services-user-data-policy" rel="noopener noreferrer">Google APIサービスのユーザーデータに関するポリシー</a>に準拠します。</strong>これには、GoogleカレンダーAPIを通じて受け取ったカレンダー情報も含まれます。Hey Look!は、<a href="https://developers.google.com/workspace/workspace-api-user-data-developer-policy" rel="noopener noreferrer">Google Workspace APIのユーザーデータとデベロッパー ポリシー</a>にも従います。</p></div>
 <h2 id="what">Hey Look!とは</h2>
-<p>無料のオープンソースのデスクトップメールクライアントです。お使いのコンピューター上のアプリのウィンドウで、Gmailの閲覧、作成、送信、検索、整理を行えます。</p>
+<p>無料のオープンソースのデスクトップメールアプリです。お使いのコンピューター上のアプリのウィンドウで、Gmailの閲覧、作成、送信、検索、整理を行えます。</p>
 <p>Googleアカウントでカレンダー同期をオンにすると、Hey Look!はGoogleカレンダーの予定をアプリのカレンダーに表示し、アプリで作成・変更・削除した予定と出欠の回答をGoogleカレンダーに保存します。この機能は任意で、メールボックスごとに設定でき、オンにするまではオフのままです。</p>
+<p>GoogleがHey Look!の審査を終えるまでは、サインイン時に「Google はこのアプリを確認していません」と表示される警告ページが出ます。続行のしかたは<a href="help.html#google-review">ヘルプのページ</a>にあります。</p>
 <h2 id="perm">要求するアクセス許可</h2>
-<div class="tbl-wrap"><table class="tbl"><thead><tr><th scope="col">要求するアクセス許可</th><th scope="col">理由</th><th scope="col">アプリがそれを使って行うこと</th></tr></thead><tbody><tr><th scope="row"><code>https://mail.google.com/</code>（Gmailのすべてのメールの閲覧、作成、送信、完全な削除）</th><td>IMAPとSMTPで動作する、Googleの唯一のアクセス許可です。IMAPとSMTPは、Hey Look!がすべてのプロバイダーに使っている標準のメールプロトコルです</td><td>メッセージをお使いのコンピューターにダウンロードし、書いたメールを送信し、お客様の操作（既読・未読、フラグ、移動、アーカイブ、迷惑メール、削除）を反映します。<strong>完全な削除</strong>が行われるのは、ごみ箱から削除したときのみです</td></tr><tr><th scope="row"><code>https://www.googleapis.com/auth/calendar.events</code>（すべてのカレンダーの予定の表示と編集）</th><td>Googleカレンダーの予定をアプリに表示し、作成・変更・削除した予定と出欠の回答をGoogleカレンダーに保存するためです。<strong>カレンダーをGoogleと同期</strong>をオンにしたときにのみ、メールとは別のアクセス許可として求められます</td><td>選択したカレンダーの予定（1年前以降のもの）をお使いのコンピューターにダウンロードし、Hey Look!で追加・変更・削除した予定と出欠の回答をGoogleカレンダーに送信します。カレンダーの設定や共有を変更することはありません</td></tr><tr><th scope="row"><code>https://www.googleapis.com/auth/calendar.calendarlist.readonly</code>（登録しているカレンダーの一覧の表示）</th><td>カレンダーを名前と色とともに一覧表示し、同期するカレンダーを選べるようにするためです</td><td>一覧を読み取るだけで、変更することはありません</td></tr><tr><th scope="row"><code>openid</code>、<code>email</code>、<code>profile</code></th><td>サインインしたGoogleアカウントを把握するためです</td><td>アカウントのアドレスと名前を表示します</td></tr></tbody></table></div>
+<div class="tbl-wrap"><table class="tbl"><thead><tr><th scope="col">要求するアクセス許可</th><th scope="col">理由</th><th scope="col">アプリがそれを使って行うこと</th></tr></thead><tbody><tr><th scope="row"><code>https://mail.google.com/</code>（Gmailへのフルアクセス。完全な削除を含みます）</th><td>IMAPとSMTPで動作する、Googleの唯一のアクセス許可です。IMAPとSMTPは、Hey Look!がすべてのプロバイダーに使っている標準のメールプロトコルです</td><td>メッセージをお使いのコンピューターにダウンロードし、書いたメールを送信し、お客様の操作（既読・未読、フラグ、移動、アーカイブ、迷惑メール、削除）を反映します。<strong>完全な削除</strong>が行われるのは、ごみ箱から削除したときのみです</td></tr><tr><th scope="row"><code>https://www.googleapis.com/auth/calendar.events</code>（Googleカレンダーの予定へのアクセス）</th><td>Googleカレンダーの予定をアプリに表示し、作成・変更・削除した予定と出欠の回答をGoogleカレンダーに保存するためです。<strong>カレンダーをGoogleと同期</strong>をオンにしたときにのみ、メールとは別のアクセス許可として求められます</td><td>選択したカレンダーの予定（1年前以降のもの）をお使いのコンピューターにダウンロードし、Hey Look!で追加・変更・削除した予定と出欠の回答をGoogleカレンダーに送信します。カレンダーの設定や共有を変更することはありません</td></tr><tr><th scope="row"><code>https://www.googleapis.com/auth/calendar.calendarlist.readonly</code>（カレンダーの一覧の読み取りのみ）</th><td>カレンダーを名前と色とともに一覧表示し、同期するカレンダーを選べるようにするためです</td><td>一覧を読み取るだけで、変更することはありません</td></tr><tr><th scope="row"><code>openid</code>、<code>email</code>、<code>profile</code></th><td>サインインしたGoogleアカウントを把握するためです</td><td>アカウントのアドレスと名前を表示します</td></tr></tbody></table></div>
 <h2 id="never">Hey Look!がGoogleデータで決して行わないこと</h2>
 <ul><li>Hey Look!のサーバーに送信されることはありません（そもそもサーバーがありません）。</li><li>販売されることも、広告に使われることもありません。</li><li>Hey Look!の開発に関わる者が、それを読むことはありません。</li><li>当方がAIや機械学習モデルの作成、学習、改善に使用することはありません。</li><li>誰にも移転されません。<strong>ただし</strong>、任意のAIアシスタントを使う場合は例外です。その場合は、依頼された要約、翻訳、下書きを作成するために、選んだメッセージまたは下書きのテキストが、<strong>お客様</strong>が設定したAIエンドポイントに送信されます。</li><li>カレンダーのデータもメールと同様に扱われます。広告には使用されず、Hey Look!の開発に関わる者が読むこともなく、AIモデルの学習にも使用されず、<strong>AIアシスタントに送信されることもありません</strong>（AIのボタンはメールにのみ使えます）。</li></ul>
 <h2 id="where">保存場所</h2><p>お使いのコンピューター上にのみ保存されます。メッセージはローカルデータベースに、サインイントークンはシステムの資格情報ストアに保存されます。カレンダー同期をオンにしたメールボックスのカレンダーと予定もローカルデータベースに保存され、カレンダー用サインイントークンは、システムの資格情報ストアに別のエントリ（<code>&lt;account id&gt;:calendar</code>）として保存されます。</p>
@@ -113,13 +114,13 @@
 </main>
 <footer class="ftr">
   <div class="wrap">
-    <p class="thanks">Hey Look!をご利用いただき、ありがとうございます。今後も無料のオープンソースであり続けます。支援は任意です。<a href="support.html#support">プロジェクトを支援する</a></p>
+    <p class="thanks">Hey Look!をご利用いただき、ありがとうございます。今後も無料のオープンソースであり続けます。</p>
     <div class="ftr-grid">
       <div class="ftr-brand"><a class="brand" href="index.html" aria-label="Hey Look!ホーム"><svg aria-hidden="true" focusable="false"><use href="#hl-mark"/></svg><span>Hey Look!</span></a>
-        <p>Windows、macOS、Linux用のデスクトップメールクライアント。無料で広告のない、オープンソースソフトウェア（MITライセンス）です。</p></div>
-      <div><h2>製品</h2><ul><li><a href="features.html">機能</a></li><li><a href="download.html">ダウンロード</a></li><li><a href="https://github.com/thnonl/hey-look/releases" rel="noopener">リリースノート</a></li><li><a href="support.html#support">プロジェクトを支援する</a></li></ul></div>
+        <p>Windows、macOS、Linux用のメールアプリです。無料で、オープンソース（MITライセンス）、広告もありません。</p></div>
+      <div><h2>製品</h2><ul><li><a href="features.html">機能</a></li><li><a href="download.html">ダウンロード</a></li><li><a href="https://github.com/thnonl/hey-look/releases" rel="noopener">リリースノート</a></li><li><a href="support.html#support">支援</a></li></ul></div>
       <div><h2>信頼</h2><ul><li><a href="privacy.html">プライバシーポリシー</a></li><li><a href="terms.html">利用規約</a></li><li><a href="google-data.html">Google APIのデータ利用</a></li><li><a href="security.html">セキュリティ</a></li></ul></div>
-      <div><h2>ヘルプ</h2><ul><li><a href="help.html">ヘルプとよくある質問</a></li><li><a href="support.html">プロジェクトを支援する</a></li><li><a href="https://github.com/thnonl/hey-look/issues" rel="noopener">問題を報告</a></li><li><a href="https://github.com/thnonl/hey-look" rel="noopener">GitHubのソースコード</a></li></ul></div>
+      <div><h2>ヘルプ</h2><ul><li><a href="help.html">ヘルプとよくある質問</a></li><li><a href="support.html">支援</a></li><li><a href="https://github.com/thnonl/hey-look/issues" rel="noopener">問題を報告</a></li><li><a href="https://github.com/thnonl/hey-look" rel="noopener">GitHubのソースコード</a></li></ul></div>
     </div>
     <p class="limited">Hey Look!がGoogle APIから受け取った情報の使用は、「限定的な使用」の要件を含め、<a href="https://developers.google.com/terms/api-services-user-data-policy" rel="noopener noreferrer">Google APIサービスのユーザーデータに関するポリシー</a>に準拠します。<a href="google-data.html">詳細</a></p>
     <div class="fine"><span>MITライセンス。Copyright &copy; 2026 thnonl.</span><span>Google、Microsoft、Appleとは提携していません。製品名はそれぞれの所有者に帰属します。</span></div>
