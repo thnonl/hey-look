@@ -122,9 +122,9 @@ for (const l of LANGS) {
   const shown = m[1].replace(/ /g, "");
   fprOnPages.set(lang, shown);
   if (keyFpr && shown !== keyFpr) fail(where, `the fingerprint on the page (${groupFingerprint(shown)}) is not the one of docs/apt/heylook-archive-keyring.asc (${groupFingerprint(keyFpr)})`);
-  // the button label is the page's own "Copy" (the macOS box)
-  const copy = /<code>xattr[^<]*<\/code><button class="btn btn-ghost btn-sm" type="button">([^<]*)<\/button>/.exec(html)?.[1];
-  if (!copy) { fail(where, "the macOS copy box (the source of the page's Copy label) was not found"); continue; }
+  // the button label is the page's own "Copy": the macOS Terminal box that used to carry it is gone (final copy 2026-11-02), so it is read from the first copy box of the block
+  const copy = /<div class="copy"><code>[^<]*<\/code><button class="btn btn-ghost btn-sm" type="button">([^<]*)<\/button>/.exec(block)?.[1];
+  if (!copy) { fail(where, "no copy box with a button label in the APT block"); continue; }
   const want = aptBlock(lang, shown, copy).trimStart(); // (the block is cut at its first tag, the indent before it is not part of it)
   if (block.replace(/\r/g, "") !== want) {
     // say which line differs

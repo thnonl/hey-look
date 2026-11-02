@@ -10,17 +10,17 @@ export const OG_IMAGE_PATH = 'assets/og-image.jpg';
 export const OG_SIZE = { width: 1200, height: 630 };
 export const SCREENSHOT_PATH = 'media/poster-1280.webp'; // the sharper poster of the film (media/poster.webp, 768 px, is the one in the HTML)
 
-// Open Graph locale per language folder, and the alt text of the preview picture (it shows the app window and the English words "Mail without the rent")
+// Open Graph locale per language folder, and the alt text of the preview picture (it shows the app window; en, vi, zh and de still name the English words "Mail without the rent" in the picture until it is remade)
 export const LOCALE = { en: 'en_US', vi: 'vi_VN', fr: 'fr_FR', zh: 'zh_CN', es: 'es_ES', ja: 'ja_JP', de: 'de_DE', ru: 'ru_RU' };
 export const OG_ALT = {
   en: 'The Hey Look! mail app window showing an inbox, next to the words “Mail without the rent”.',
   vi: 'Cửa sổ Hey Look! đang mở Hộp thư đến, bên cạnh dòng chữ tiếng Anh “Mail without the rent”.',
-  fr: 'La fenêtre du client de messagerie Hey Look! avec une boîte de réception, et le slogan anglais « Mail without the rent ».',
+  fr: 'La fenêtre de Hey Look! avec une boîte de réception contenant des messages d’exemple.',
   zh: 'Hey Look! 邮件客户端窗口，显示收件箱，旁边是英文标语“Mail without the rent”。',
-  es: 'La ventana del cliente de correo Hey Look! con una bandeja de entrada y el lema en inglés «Mail without the rent».',
-  ja: '受信トレイを表示したHey Look!のメールクライアントの画面と、英語のキャッチコピー「Mail without the rent」。',
+  es: 'La ventana de Hey Look! con una bandeja de entrada de correo de ejemplo.',
+  ja: 'Hey Look!のウィンドウに、サンプルのメールが入った受信トレイが表示されている画像。',
   de: 'Das Fenster des Mailclients Hey Look! mit Posteingang und dem englischen Slogan „Mail without the rent“.',
-  ru: 'Окно почтового клиента Hey Look! с папкой «Входящие» и английским слоганом «Mail without the rent».',
+  ru: 'Окно Hey Look! с папкой «Входящие» и примерами писем.',
 };
 
 const ENTITIES = { nbsp: ' ', amp: '&', quot: '"', lt: '<', gt: '>', rsquo: '’', lsquo: '‘', ldquo: '“', rdquo: '”', hellip: '…', copy: '©', bdquo: '„' };

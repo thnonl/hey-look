@@ -1,8 +1,8 @@
 // The one place of the "Last updated" date of the four legal pages (privacy, terms, google-data, security) on the website, in all 8 languages (no dependencies).
 // To move the date (for example to the day of the merge):  node scripts/set-legal-date.mjs YYYY-MM-DD   (it rewrites this constant and the 32 pages; test-legal-dates then checks them)
-export const LEGAL_DATE = '2026-10-30';
+export const LEGAL_DATE = '2026-11-01';
 // Languages whose legal text was rewritten after LEGAL_DATE (coordinator 2026-11-01: English and Vietnamese first, the other six follow with their own rewrite and then move to one date again)
-export const LEGAL_DATE_AHEAD = { en: '2026-11-01', vi: '2026-11-01' };
+export const LEGAL_DATE_AHEAD = {}; // all eight languages carry LEGAL_DATE since the final copy; add a language here only while it is ahead of the others
 export const legalDate = (code) => LEGAL_DATE_AHEAD[code] || LEGAL_DATE;
 
 const M = {
@@ -18,7 +18,7 @@ const M = {
 export const LINE = {
   en: ({ y, d, mon }) => ['Last updated: ', `${d} ${mon} ${y}`, '.'],
   vi: ({ y, m, d }) => ['Cập nhật lần cuối: ', `${d} tháng ${m} năm ${y}`, '.'],
-  fr: ({ y, d, mon }) => ['Dernière mise à jour&nbsp;: ', `${d} ${mon} ${y}`, '.'],
+  fr: ({ y, d, mon }) => ['Dernière mise à jour&nbsp;: ', `${d === 1 ? '1er' : d} ${mon} ${y}`, '.'], // French writes the first of the month as 1er
   zh: ({ y, m, d }) => ['最后更新：', `${y}年${m}月${d}日`, '。'],
   es: ({ y, d, mon }) => ['Última actualización: ', `${d} de ${mon} de ${y}`, '.'],
   ja: ({ y, m, d }) => ['最終更新日：', `${y}年${m}月${d}日`, '。'],
@@ -39,6 +39,6 @@ export const sentence = (code, iso) => parts(code, iso).join('');
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 export const finder = (code) => {
   const [pre, date, post] = LINE[code]({ y: '\u0001Y', m: '\u0001M', d: '\u0001D', mon: '\u0001N' });
-  const any = esc(date).replace('\u0001Y', '\\d{4}').replace('\u0001M', '\\d{1,2}').replace('\u0001D', '\\d{1,2}').replace('\u0001N', '[^\\s<\\d]+');
+  const any = esc(date).replace('\u0001Y', '\\d{4}').replace('\u0001M', '\\d{1,2}').replace('\u0001D', '\\d{1,2}(?:er)?').replace('\u0001N', '[^\\s<\\d]+');
   return new RegExp(`(<p class="lead">)${esc(pre)}${any}${esc(post)}`);
 };

@@ -64,7 +64,8 @@ for (const l of LANGS) {
   // help.html #updates, the first paragraph
   const help = fs.readFileSync(pageOf(l, 'help.html'), 'utf8');
   const hm = /<details[^>]*\sid="updates"[^>]*>[\s\S]*?<p>([\s\S]*?)<\/p>/.exec(help);
-  if (!hm) fail(`${l.dir || '.'}/help.html: #updates has no paragraph`); else check('help.html #updates', l.code, plain(hm[1]));
+  // final copy 2026-11-02: help #updates no longer states the check timing (it stays in the app hint and in privacy.html); the paragraph must still exist
+  if (!hm) fail(`${l.dir || '.'}/help.html: #updates has no paragraph`);
 
   // privacy.html section 2: the github.com row, the "when" cell
   if (!NOT_YET.includes('privacy')) {
