@@ -77,7 +77,7 @@ for (const c of CODES) {
     assert.equal((upd.match(/<p>/g) ?? []).length, 3, "the Updates answer has three paragraphs (the old one and the two of the Store version)");
     // the privacy answer is unchanged in meaning: still says where the data is (nothing removed)
     const dl = read(`docs/${folder}download.html`);
-    const blk = /<div class="asset" id="store-block" hidden><strong>([^<]+)<\/strong><a class="btn btn-ghost" id="store-link" href="https:\/\/apps\.microsoft\.com\/detail\/" rel="noopener"><svg[^>]*><use href="#i-external"\/><\/svg><span class="t">([^<]+)<\/span><\/a><small>([^<]+)<\/small><\/div>/.exec(dl);
+    const blk = /<div class="asset" id="store-block" hidden><strong>([^<]+)<\/strong><a class="btn btn-ghost" id="store-link" href="https:\/\/apps\.microsoft\.com\/detail\/" rel="noopener"><svg[^>]*><use href="#i-external"\/><\/svg><span class="t">([^<]+)<\/span><\/a><small>((?:[^<]|<a [^>]*>[^<]*<\/a>)+)<\/small><\/div>/.exec(dl); // the text may carry a link inside it (the Vietnamese rewrite links "Khác biệt giữa hai bản" to help.html#updates)
     assert.ok(blk, "the Store block of the Windows card, hidden");
     assert.equal(blk[1], "Microsoft Store");
     assert.ok(blk[3].includes("Microsoft Store"), "the text names the Store");
