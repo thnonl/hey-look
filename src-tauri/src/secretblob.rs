@@ -11,7 +11,7 @@
 //! an account, clear a secret) remove the secret from the blob AND delete the old item.
 //!
 //! This file is plain logic over the `Items` trait, so it is unit-tested on every platform; the macOS implementation of `Items` is in `identity.rs`
-//! (the one place that builds keyring entries). Only macOS builds without the `qa-secrets` feature use it.
+//! (the one place that builds keyring entries). Only macOS builds that use the system store (not a QA file-store kit) use it.
 #![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
 use std::collections::BTreeMap;
