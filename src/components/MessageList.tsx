@@ -131,7 +131,7 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
           {t.unread > 0 && <span className="unread-dot" aria-label={tr("mail.row.unread")} />}
           {accountColor && dense && <span className="acct-dot" style={{ background: accountColor }} title={accountLabel} />}
           <span className="who ellipsis">{who}</span>
-          {hover}
+          {!dense && hover}
           <span className="date">{opening ? <><span className="busy-ring spin" aria-hidden /><span className="busy-dots" aria-hidden>···</span></> : fmtDate(t.lastDate)}</span>
         </div>
         <div className="ml-mid">
@@ -151,6 +151,7 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
             {t.flagged && <Flag size={12} fill="currentColor" className="flag-on" aria-label={tr("mail.row.flagged")} />}
             {t.snoozedUntil && t.snoozedUntil > Date.now() / 1000 && <Clock size={12} aria-label={tr("mail.row.snoozed")} />}
           </span>
+          {dense && hover /* Compact: the strip takes the right end of the subject line (the sender line keeps its date), the subject gives way to it */}
         </div>
         {prefs.preview && !dense && <div className="preview ellipsis">{t.confidential ? tr("mail.row.confidentialPreview") : t.snippet || (reservePreview ? "\u00a0" : "")}</div>}
       </div>

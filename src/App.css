@@ -556,6 +556,7 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
 [data-density="compact"] .ml-main { display: flex; gap: 10px; align-items: center; }
 [data-density="compact"] .ml-top { width: 42%; min-width: 150px; max-width: 240px; } /* room for a name next to the dots and the time */
 [data-density="compact"] .ml-mid { flex: 1; min-width: 0; }
+[data-density="compact"] .ml-row:hover .flags, [data-density="compact"] .ml-row:focus-within .flags { display: none; } /* (the strip takes the right end of the subject line: the marks give way, the subject keeps its room) */
 
 /* empty + loading states */
 .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 8px; padding: 48px 24px; height: 100%; min-height: 260px; animation: fade .25s; }

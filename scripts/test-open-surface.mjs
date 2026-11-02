@@ -84,11 +84,14 @@ try {
     await H.openApp('lang=en&persist', 1100, 760);
     await evaluate(`window.__store.getState().setPrefs({ theme: '${theme}', mailCanvas: 'dark' }); 1`);
     await sleep(400);
+    // (1.0.12: the cards of the reader are opened in the render, so the status can be on screen for one commit only: a MutationObserver sees every committed state, the first one with the status is judged)
+    const hook = await cdp('Page.addScriptToEvaluateOnNewDocument', { source: `window.__seenOpening = null; window.__sampleOpening = () => (${SAMPLE}); document.addEventListener('DOMContentLoaded', () => new MutationObserver(() => { if (!window.__seenOpening) window.__seenOpening = window.__sampleOpening(); }).observe(document.body, { childList: true, subtree: true, attributes: true }));` });
     await cdp('Page.navigate', { url: 'about:blank' });
     await cdp('Page.navigate', { url: `${H.base}?w=reader&thread=t1#lang=en&persist&threaddelay=1600` });
-    // (the status of the reader window runs from the arrival of the conversation to the first measurement of the frame: caught by polling fast, the first sight is judged)
+    // (the status of the reader window runs from the arrival of the conversation to the first measurement of the frame: the first sight is judged)
     let seen = null;
-    for (const t0 = Date.now(); !seen && Date.now() - t0 < 10000; await sleep(15)) seen = await evaluate(SAMPLE).catch(() => null);
+    for (const t0 = Date.now(); !seen && Date.now() - t0 < 10000; await sleep(15)) seen = await evaluate(`window.__seenOpening || null`).catch(() => null);
+    await cdp('Page.removeScriptToEvaluateOnNewDocument', { identifier: hook.identifier });
     await judge(tag, seen, canvasOf(theme, 'dark'));
   }
 
