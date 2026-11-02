@@ -8,13 +8,14 @@
 - Mail list: unread messages have a faint background in your accent colour
 - Compact density: each message in the list takes two lines, and when you point at a message its buttons appear in place of the time
 - macOS: after an update, Hey Look! asks for your Keychain password once instead of once for each saved password
+- The reader window no longer has Next and Previous buttons or keys
 
 ### Fixed
 
-- Mail list: the Other and Focused tabs of the combined Inbox of several big mailboxes open much faster, and the folder numbers and the list no longer freeze the window while they are counted. After the update, the first start builds one extra index in each mailbox file in the background, which takes a few seconds for a very big mailbox
 - Pictures: when you show the pictures in a message, each one shows that it is loading, and a picture that cannot be loaded shows Retry straight away instead of a broken image
 - Printing a message while pictures are loading or have failed prints plain boxes instead of the loading or error signs
 - Linux: a reader window keeps its own message instead of following the one selected in the main window
+- With several large mailboxes, the Inbox and its Other tab open much faster, and the window no longer freezes while the message list and the folder numbers load
 - Mail list: read messages are no longer shown in bold
 - When a message was sent to one of your addresses with a copy to another, Reply, Reply all and Forward now use the address it was sent to, also in the mailbox that got the copy
 - Compose: the row of buttons no longer jumps while you type, and buttons that do not fit move to More actions
