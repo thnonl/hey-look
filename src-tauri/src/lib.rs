@@ -1027,6 +1027,21 @@ fn test_sync_delay_ms() -> u64 {
     std::env::var("HEYLOOK_TEST_SYNC_DELAY_MS").ok().and_then(|v| v.trim().parse::<u64>().ok()).unwrap_or(0).min(120_000)
 }
 
+/// A folder whose read failed is reported once per account, folder and error text (the sync runs every minute: the log is not filled with the same line).
+fn folder_failure_is_new(account_id: &str, role: &str, error: &str) -> bool {
+    static SEEN: std::sync::Mutex<Vec<(String, String, String)>> = std::sync::Mutex::new(Vec::new());
+    let mut seen = SEEN.lock().unwrap_or_else(|p| p.into_inner());
+    let key = (account_id.to_string(), role.to_string(), error.chars().take(200).collect::<String>());
+    if seen.contains(&key) {
+        return false;
+    }
+    if seen.len() >= 64 {
+        seen.remove(0);
+    }
+    seen.push(key);
+    true
+}
+
 fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
     let delay = test_sync_delay_ms();
     if delay > 0 {
@@ -1071,7 +1086,14 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
         // the first sync of a folder is only a taste (the newest page, so the UI has mail at once); `backfill_run` brings the rest
         let ff = match mail::fetch_folder(&mut s, name, &known, max_uid, min_uid, PAGE) {
             Ok(f) => f,
-            Err(_) => continue,
+            Err(e) => {
+                // the folder is skipped for this sync (the others go on), but never silently: one line per account, folder and answer (a server that answers with something that cannot be read
+                // hid a whole folder without a trace, 1.0.12 Windows QA: Sent rows never appeared)
+                if folder_failure_is_new(account_id, &role, &e) {
+                    startup::line("sync", &format!("{account_id}: {role} ({name}) could not be read and is skipped: {e}"));
+                }
+                continue;
+            }
         };
         // (W6.1) the server renumbered the folder: what is stored of it is dropped below and the folder is read like a first sync
         let (max_uid, min_uid) = if ff.reset { (0, 0) } else { (max_uid, min_uid) };
@@ -9098,6 +9120,15 @@ mod download_dir_tests {
 #[cfg(test)]
 mod platform_tests {
     use super::*;
+
+    #[test]
+    fn a_folder_that_cannot_be_read_is_reported_once_per_error() {
+        assert!(folder_failure_is_new("acc-x", "sent", "parse error: a"));
+        assert!(!folder_failure_is_new("acc-x", "sent", "parse error: a"), "the same answer is not reported again");
+        assert!(folder_failure_is_new("acc-x", "sent", "parse error: b"), "another error is");
+        assert!(folder_failure_is_new("acc-x", "drafts", "parse error: a"), "another folder is");
+        assert!(folder_failure_is_new("acc-y", "sent", "parse error: a"), "another account is");
+    }
 
     #[test]
     fn a_keyring_that_does_not_answer_ends_in_a_message_and_leaves_nothing() {
