@@ -41,12 +41,12 @@
 <meta property="og:image:type" content="image/jpeg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Das Fenster des Mailclients Hey Look! mit Posteingang und dem englischen Slogan „Mail without the rent“.">
+<meta property="og:image:alt" content="Das Fenster von Hey Look! mit Posteingang, daneben der englische Text „Free, open source mail app“.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Nutzung von Google-API-Daten und Limited Use - Hey Look!">
 <meta name="twitter:description" content="Wie Hey Look! Google-Nutzerdaten verwendet, einschließlich der Limited-Use-Erklärung, die die Google API Services User Data Policy verlangt.">
 <meta name="twitter:image" content="https://heylook.namthai.site/assets/og-image.jpg">
-<meta name="twitter:image:alt" content="Das Fenster des Mailclients Hey Look! mit Posteingang und dem englischen Slogan „Mail without the rent“.">
+<meta name="twitter:image:alt" content="Das Fenster von Hey Look! mit Posteingang, daneben der englische Text „Free, open source mail app“.">
 <link rel="icon" href="../assets/icon-48.png" sizes="48x48" type="image/png">
 <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
 <!-- hl:seo-end -->
@@ -101,6 +101,7 @@
 <h2 id="what">Was Hey Look! ist</h2>
 <p>Eine kostenlose Open-Source-E-Mail-App für den Desktop: Sie lesen, schreiben, senden, durchsuchen und organisieren Ihr Gmail-Postfach im Fenster der App auf Ihrem Computer.</p>
 <p>Wenn Sie die Kalendersynchronisierung für ein Google-Konto einschalten, zeigt Hey Look! außerdem die Termine Ihrer Google-Kalender in seinem Kalender an und speichert die Termine, die Sie dort erstellen, ändern, löschen oder beantworten, zurück in Google Kalender. Das ist optional, je Postfach, und aus, bis Sie es einschalten.</p>
+<p>Bis Google die Prüfung von Hey Look! abgeschlossen hat, zeigt Google beim Anmelden die Warnseite „Google hat diese App nicht überprüft“; wie es weitergeht, steht auf der <a href="help.html#google-review">Hilfeseite</a>.</p>
 <h2 id="perm">Angeforderte Berechtigungen</h2>
 <div class="tbl-wrap"><table class="tbl"><thead><tr><th scope="col">Angeforderte Berechtigung</th><th scope="col">Warum</th><th scope="col">Was die App damit macht</th></tr></thead><tbody><tr><th scope="row"><code>https://mail.google.com/</code> (voller Zugriff auf Ihr Gmail, einschließlich endgültigem Löschen)</th><td>Die einzige Google-Berechtigung, die mit IMAP und SMTP funktioniert, den Standardprotokollen für E-Mail, die Hey Look! bei jedem Anbieter verwendet</td><td>Lädt Ihre Nachrichten auf Ihren Computer herunter, sendet die E-Mails, die Sie schreiben, und wendet Ihre Aktionen an (als gelesen oder ungelesen markieren, kennzeichnen, verschieben, archivieren, in Spam verschieben, löschen; <strong>endgültig löschen</strong> nur, wenn Sie aus dem Papierkorb löschen)</td></tr><tr><th scope="row"><code>https://www.googleapis.com/auth/calendar.events</code> (Zugriff auf die Termine in Ihren Google-Kalendern)</th><td>Um die Termine Ihrer Google-Kalender in der App anzuzeigen und die Termine, die Sie erstellen, ändern, löschen oder beantworten, zurück in Google Kalender zu speichern. Wird nur angefragt, wenn Sie <strong>Kalender mit Google synchronisieren</strong> einschalten, als eigene Berechtigung getrennt von E-Mail</td><td>Lädt die Termine der von Ihnen gewählten Kalender (ab einem Jahr vor heute) auf Ihren Computer herunter und sendet die Termine, die Sie in Hey Look! hinzufügen, ändern, löschen oder beantworten, an Google Kalender. Ändert nie die Einstellungen oder die Freigabe eines Kalenders</td></tr><tr><th scope="row"><code>https://www.googleapis.com/auth/calendar.calendarlist.readonly</code> (nur lesender Zugriff auf die Liste Ihrer Kalender)</th><td>Um Ihre Kalender mit Namen und Farben aufzulisten, damit Sie wählen können, welche synchronisiert werden</td><td>Liest die Liste; ändert sie nie</td></tr><tr><th scope="row"><code>openid</code>, <code>email</code>, <code>profile</code></th><td>Um zu wissen, mit welchem Google-Konto Sie sich angemeldet haben</td><td>Zeigt die Adresse und den Namen des Kontos an</td></tr></tbody></table></div>
 <h2 id="never">Was Hey Look! mit Google-Daten nie tut</h2>

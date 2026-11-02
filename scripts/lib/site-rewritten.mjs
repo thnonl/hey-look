@@ -32,13 +32,9 @@ export const REWRITTEN = {
     },
   },
 };
-// zh index: the approved description is 118 wide (CJK counts 2), two below the 120 minimum of test-site-seo; descMin lowers the minimum for this one page until the copywriter adds two units
-REWRITTEN.zh = { index: { descMin: 118 } };
 const NONE = { omitIds: [], addIds: [], omitLinks: [], addLinks: [], headingDelta: {} };
 export const rewritten = (code, page) => (REWRITTEN[code] && REWRITTEN[code][page] ? { ...NONE, ...REWRITTEN[code][page] } : null);
 export const rewrittenHome = (code) => rewritten(code, 'index');
 
 // English changed first, the other languages follow with their own rewrite: link targets (without language folder) that an English page has and the other languages' page does not have yet.
-export const ENGLISH_AHEAD = {
-  'google-data': { links: ['help.html#google-review'] }, // fr, zh, es, de, ru have no sentence about Google's warning page on google-data.html yet (English and Vietnamese, ja have it)
-};
+export const ENGLISH_AHEAD = {};

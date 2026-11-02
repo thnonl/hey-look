@@ -41,12 +41,12 @@
 <meta property="og:image:type" content="image/jpeg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="La ventana de Hey Look! con una bandeja de entrada de correo de ejemplo.">
+<meta property="og:image:alt" content="La ventana de Hey Look! con una bandeja de entrada de correo de ejemplo, y la frase en inglés «Free, open source mail app».">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Uso de datos de las API de Google y uso limitado - Hey Look!">
 <meta name="twitter:description" content="Cómo usa Hey Look! los datos de usuario de Google, incluida la declaración de uso limitado que exige la Google API Services User Data Policy.">
 <meta name="twitter:image" content="https://heylook.namthai.site/assets/og-image.jpg">
-<meta name="twitter:image:alt" content="La ventana de Hey Look! con una bandeja de entrada de correo de ejemplo.">
+<meta name="twitter:image:alt" content="La ventana de Hey Look! con una bandeja de entrada de correo de ejemplo, y la frase en inglés «Free, open source mail app».">
 <link rel="icon" href="../assets/icon-48.png" sizes="48x48" type="image/png">
 <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
 <!-- hl:seo-end -->
@@ -101,6 +101,7 @@
 <h2 id="what">Qué es Hey Look!</h2>
 <p>Una aplicación de correo de escritorio gratuita y de código abierto: lees, escribes, envías, buscas y organizas tu Gmail en la ventana de la aplicación en tu equipo.</p>
 <p>Si activas la sincronización del calendario de una cuenta de Google, Hey Look! también muestra en su calendario los eventos de tus calendarios de Google y guarda en Google Calendar los eventos que creas, cambias o eliminas allí y a los que respondes. Es opcional, por buzón, y está desactivada hasta que la actives.</p>
+<p>Hasta que Google termine la revisión de Hey Look!, Google muestra una página de advertencia «Google no ha verificado esta aplicación» al iniciar sesión; cómo continuar está en la <a href="help.html#google-review">página de ayuda</a>.</p>
 <h2 id="perm">Permisos solicitados</h2>
 <div class="tbl-wrap"><table class="tbl"><thead><tr><th scope="col">Permiso solicitado</th><th scope="col">Por qué</th><th scope="col">Qué hace la aplicación con él</th></tr></thead><tbody><tr><th scope="row"><code>https://mail.google.com/</code> (acceso completo a tu Gmail, incluida la eliminación permanente)</th><td>El único permiso de Google que funciona con IMAP y SMTP, los protocolos de correo estándar que Hey Look! usa con todos los proveedores</td><td>Descarga tus mensajes en tu equipo, envía el correo que escribes, aplica tus acciones (marcar como leído o no leído, marcar con bandera, mover, archivar, marcar como no deseado y eliminar; <strong>eliminar de forma permanente</strong> solo cuando eliminas desde la Papelera)</td></tr><tr><th scope="row"><code>https://www.googleapis.com/auth/calendar.events</code> (acceso a los eventos de tus calendarios de Google)</th><td>Para mostrar en la aplicación los eventos de tus calendarios de Google y guardar en Google Calendar los eventos que creas, cambias o eliminas y a los que respondes. Solo se pide cuando activas <strong>Sincronizar el calendario con Google</strong>, como un permiso aparte del correo</td><td>Descarga en tu equipo los eventos de los calendarios que elijas (desde hace un año) y envía a Google Calendar los eventos que añades, cambias o eliminas y a los que respondes en Hey Look! Nunca cambia los ajustes ni el uso compartido de un calendario</td></tr><tr><th scope="row"><code>https://www.googleapis.com/auth/calendar.calendarlist.readonly</code> (acceso de solo lectura a la lista de tus calendarios)</th><td>Para mostrar la lista de tus calendarios con sus nombres y colores y que puedas elegir cuáles sincronizar</td><td>Lee la lista; nunca la modifica</td></tr><tr><th scope="row"><code>openid</code>, <code>email</code>, <code>profile</code></th><td>Para saber con qué cuenta de Google iniciaste sesión</td><td>Muestra la dirección y el nombre de la cuenta</td></tr></tbody></table></div>
 <h2 id="never">Lo que Hey Look! nunca hace con los datos de Google</h2>

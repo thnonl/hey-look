@@ -41,12 +41,12 @@
 <meta property="og:image:type" content="image/jpeg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Hey Look! 邮件客户端窗口，显示收件箱，旁边是英文标语“Mail without the rent”。">
+<meta property="og:image:alt" content="Hey Look! 邮件应用窗口，显示收件箱，旁边是英文文字“Free, open source mail app”。">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Google API数据使用与Limited Use（有限使用）- Hey Look!">
 <meta name="twitter:description" content="Hey Look!如何使用Google用户数据，包括Google API Services User Data Policy 所要求的 Limited Use（有限使用）披露声明，说明数据的用途与限制。">
 <meta name="twitter:image" content="https://heylook.namthai.site/assets/og-image.jpg">
-<meta name="twitter:image:alt" content="Hey Look! 邮件客户端窗口，显示收件箱，旁边是英文标语“Mail without the rent”。">
+<meta name="twitter:image:alt" content="Hey Look! 邮件应用窗口，显示收件箱，旁边是英文文字“Free, open source mail app”。">
 <link rel="icon" href="../assets/icon-48.png" sizes="48x48" type="image/png">
 <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
 <!-- hl:seo-end -->
@@ -101,6 +101,7 @@
 <h2 id="what">Hey Look!是什么</h2>
 <p>一款免费、开源的桌面邮件应用：您可以在电脑上的应用窗口中阅读、撰写、发送、搜索和整理您的Gmail。</p>
 <p>如果您为某个Google账户开启日历同步，Hey Look!还会在自己的日历中显示您的Google日历里的事件，并把您在其中创建、修改、删除或回复的事件同步保存回Google日历。这是可选的，按邮箱分别设置，在您开启之前默认关闭。</p>
+<p>在Google完成对Hey Look!的审核之前，登录时Google会显示“Google未验证此应用”的警告页面；继续的方法见<a href="help.html#google-review">帮助页面</a>。</p>
 <h2 id="perm">请求的权限</h2>
 <div class="tbl-wrap"><table class="tbl"><thead><tr><th scope="col">请求的权限</th><th scope="col">原因</th><th scope="col">应用如何使用它</th></tr></thead><tbody><tr><th scope="row"><code>https://mail.google.com/</code>（完全访问您的 Gmail，包括永久删除）</th><td>唯一适用于IMAP和SMTP的Google权限；IMAP和SMTP是Hey Look!对所有服务商都使用的标准邮件协议</td><td>把您的邮件下载到您的电脑上，发送您撰写的邮件，执行您的操作（已读或未读、标记、移动、归档、垃圾邮件、删除；只有当您从“已删除邮件”中删除时，才会<strong>永久删除</strong>）</td></tr><tr><th scope="row"><code>https://www.googleapis.com/auth/calendar.events</code>（访问您 Google 日历中的事件）</th><td>用于在应用中显示您的Google日历里的事件，并把您创建、修改、删除或回复的事件保存回Google日历。只有在您开启<strong>与Google同步日历</strong>时才会请求，且是与邮件分开的单独权限</td><td>把您所选日历的事件（从一年前起）下载到您的电脑上，并把您在Hey Look!中添加、修改、删除或回复的事件发送到Google日历。绝不会更改日历的设置或共享方式</td></tr><tr><th scope="row"><code>https://www.googleapis.com/auth/calendar.calendarlist.readonly</code>（只读访问您的日历列表）</th><td>用于列出您的日历及其名称和颜色，以便您选择要同步哪些</td><td>只读取该列表；绝不更改它</td></tr><tr><th scope="row"><code>openid</code>、<code>email</code>、<code>profile</code></th><td>用于知道您是用哪个Google账户登录的</td><td>显示该账户的电子邮件地址和名称</td></tr></tbody></table></div>
 <h2 id="never">Hey Look!绝不会对Google数据做什么</h2>

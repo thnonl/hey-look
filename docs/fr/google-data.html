@@ -41,12 +41,12 @@
 <meta property="og:image:type" content="image/jpeg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="La fenêtre de Hey Look! avec une boîte de réception contenant des messages d’exemple.">
+<meta property="og:image:alt" content="La fenêtre de Hey Look! avec une boîte de réception contenant des messages d’exemple, et la phrase anglaise « Free, open source mail app ».">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Données Google API et Limited Use - Hey Look!">
 <meta name="twitter:description" content="Comment Hey Look! utilise les données utilisateur Google, avec la mention d’utilisation limitée (Limited Use) de la Google API Services User Data Policy.">
 <meta name="twitter:image" content="https://heylook.namthai.site/assets/og-image.jpg">
-<meta name="twitter:image:alt" content="La fenêtre de Hey Look! avec une boîte de réception contenant des messages d’exemple.">
+<meta name="twitter:image:alt" content="La fenêtre de Hey Look! avec une boîte de réception contenant des messages d’exemple, et la phrase anglaise « Free, open source mail app ».">
 <link rel="icon" href="../assets/icon-48.png" sizes="48x48" type="image/png">
 <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
 <!-- hl:seo-end -->
@@ -101,6 +101,7 @@
 <h2 id="what">Ce qu’est Hey Look!</h2>
 <p>Une application de messagerie de bureau gratuite et open source&nbsp;: vous lisez, écrivez, envoyez, recherchez et organisez votre Gmail dans la fenêtre de l’application sur votre ordinateur.</p>
 <p>Si vous activez la synchronisation du calendrier pour un compte Google, Hey Look! affiche aussi les événements de vos calendriers Google dans son calendrier et enregistre dans Google Calendar les événements que vous y créez, modifiez, supprimez ou auxquels vous répondez. C’est facultatif, boîte par boîte, et désactivé tant que vous ne l’activez pas.</p>
+<p>Tant que Google n’a pas terminé l’examen de Hey Look!, Google affiche un avertissement «&nbsp;Google n’a pas validé cette application&nbsp;» lors de la connexion&nbsp;; la marche à suivre se trouve sur la <a href="help.html#google-review">page d’aide</a>.</p>
 <h2 id="perm">Autorisations demandées</h2>
 <div class="tbl-wrap"><table class="tbl"><thead><tr><th scope="col">Autorisation demandée</th><th scope="col">Pourquoi</th><th scope="col">Ce que l’application en fait</th></tr></thead><tbody><tr><th scope="row"><code>https://mail.google.com/</code> (accès complet à votre Gmail, y compris la suppression définitive)</th><td>La seule autorisation Google qui fonctionne avec IMAP et SMTP, les protocoles de messagerie standard que Hey Look! utilise pour tous les fournisseurs</td><td>Télécharge vos messages sur votre ordinateur, envoie le courrier que vous écrivez, applique vos actions (lu ou non lu, suivi, déplacement, archivage, indésirable, suppression&nbsp;; <strong>suppression définitive</strong> seulement quand vous supprimez depuis la Corbeille)</td></tr><tr><th scope="row"><code>https://www.googleapis.com/auth/calendar.events</code> (accès aux événements de vos calendriers Google)</th><td>Pour afficher les événements de vos calendriers Google dans l’application et enregistrer dans Google Calendar les événements que vous créez, modifiez, supprimez ou auxquels vous répondez. Demandée uniquement quand vous activez <strong>Synchroniser le calendrier avec Google</strong>, comme autorisation distincte de celle du courrier</td><td>Télécharge sur votre ordinateur les événements des calendriers que vous choisissez (depuis un an), et envoie à Google Calendar les événements que vous ajoutez, modifiez, supprimez ou auxquels vous répondez dans Hey Look! Ne modifie jamais les réglages ni le partage d’un calendrier</td></tr><tr><th scope="row"><code>https://www.googleapis.com/auth/calendar.calendarlist.readonly</code> (accès en lecture seule à la liste de vos calendriers)</th><td>Pour afficher la liste de vos calendriers, avec leurs noms et leurs couleurs, afin que vous puissiez choisir lesquels synchroniser</td><td>Lit la liste&nbsp;; ne la modifie jamais</td></tr><tr><th scope="row"><code>openid</code>, <code>email</code>, <code>profile</code></th><td>Pour savoir avec quel compte Google vous vous êtes connecté</td><td>Affiche l’adresse et le nom du compte</td></tr></tbody></table></div>
 <h2 id="never">Ce que Hey Look! ne fait jamais avec les données Google</h2>
