@@ -2580,8 +2580,10 @@ struct FolderInfo {
 /// (1.0.5) The rows stay, but each says whether the saved list names the folder (`listed`): the app hides the Junk row of an account
 /// whose list has no Junk, and a Junk folder the server gains later is listed by the next sync (it rewrites the saved list).
 #[tauri::command]
-fn list_folders(state: tauri::State<AppState>) -> R<Vec<FolderInfo>> {
-    folder_infos(&lock(&state.db))
+async fn list_folders(state: tauri::State<'_, AppState>) -> R<Vec<FolderInfo>> {
+    // (off the main thread: a plain command runs there, and the window did not move while the numbers of big mailboxes were counted, 1.0.12)
+    let db = state.db.clone();
+    blocking(move || folder_infos(&lock(&db))).await
 }
 
 /// What the Inbox leaves out of every list and every Inbox number: a snoozed conversation (until its time) and mail from a blocked sender.
@@ -2637,23 +2639,31 @@ fn folder_infos_hiding(c: &Connection, hidden: &std::collections::HashSet<String
     let include_other = p.get("countOtherMail").and_then(|v| v.as_bool()).unwrap_or(true)
         || !p.get("focused").and_then(|v| v.as_bool()).unwrap_or(true);
     // (the Inbox's own unread number is read by `inbox_unread`, which also leaves out snoozed conversations and blocked senders)
-    let mut st = c
-        .prepare(
-            "SELECT account_id,folder,COUNT(DISTINCT thread_id),
-                    COUNT(DISTINCT CASE WHEN seen=0 AND folder!='inbox' AND thread_id NOT IN (SELECT value FROM json_each(?1)) THEN thread_id END)
-             FROM messages GROUP BY account_id,folder",
-        )
-        .map_err(err)?;
-    let rows = st
-        .query_map([&hidden], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, u32>(2)?, r.get::<_, Option<u32>>(3)?.unwrap_or(0)))
-        })
-        .map_err(err)?;
-    for r in rows {
-        let (a, f, t, u) = r.map_err(err)?;
-        counts.insert((a, f), (t, u));
+    // (one mailbox file at a time, from the index that holds the thread and the read state: the view over all the files would read every message row with its body, 1.0.12)
+    let mut sources: Vec<(String, String)> = shard::account_ids(c).into_iter().filter_map(|id| shard::messages_table(c, &id).ok().map(|t| (t, id))).collect();
+    if sources.is_empty() {
+        sources.push(("messages".into(), String::new())); // (the old single-file layout)
     }
-    drop(st);
+    for (table, id) in sources {
+        let mut st = c
+            .prepare(&format!(
+                "SELECT {},folder,COUNT(DISTINCT thread_id),
+                        COUNT(DISTINCT CASE WHEN seen=0 AND folder!='inbox' AND thread_id NOT IN (SELECT value FROM json_each(?1)) THEN thread_id END)
+                 FROM {table} GROUP BY {}folder",
+                if id.is_empty() { "account_id" } else { "?2" },
+                if id.is_empty() { "account_id," } else { "" }
+            ))
+            .map_err(err)?;
+        let rows = st
+            .query_map(params_from_iter(if id.is_empty() { vec![hidden.clone()] } else { vec![hidden.clone(), id] }), |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, u32>(2)?, r.get::<_, Option<u32>>(3)?.unwrap_or(0)))
+            })
+            .map_err(err)?;
+        for r in rows {
+            let (a, f, t, u) = r.map_err(err)?;
+            counts.insert((a, f), (t, u));
+        }
+    }
     let mut out = vec![];
     for a in accounts {
         let map: HashMap<String, String> = db::get_setting(c, &format!("fmap:{}", a.id))
@@ -2843,8 +2853,10 @@ struct ThreadSummary {
 }
 
 #[tauri::command]
-fn list_threads(state: tauri::State<AppState>, filter: ThreadFilter) -> R<Vec<ThreadSummary>> {
-    threads_for(&lock(&state.db), filter)
+async fn list_threads(state: tauri::State<'_, AppState>, filter: ThreadFilter) -> R<Vec<ThreadSummary>> {
+    // (off the main thread, like list_folders)
+    let db = state.db.clone();
+    blocking(move || threads_for(&lock(&db), filter)).await
 }
 
 /// Where a conversation lives: the view (mailbox, folder and, in the Inbox, tab) whose list has it. The page asks when a notification is clicked (1.0.7 D-051): the
@@ -2878,6 +2890,57 @@ fn thread_home(c: &Connection, thread_id: &str) -> Option<ThreadHome> {
 #[tauri::command]
 fn locate_thread(state: tauri::State<AppState>, thread_id: String) -> Option<ThreadHome> {
     thread_home(&lock(&state.db), &thread_id)
+}
+
+/// One row of a list read: thread id, message id, mailbox, folder, subject, sender name, sender address, snippet, date, seen, flagged, has attachment, pinned, snoozed until,
+/// bulk (List-Unsubscribe), PGP bits, calendar method, importance.
+type ListRow = (String, String, String, String, String, String, String, String, i64, bool, bool, bool, bool, Option<i64>, bool, i64, Option<String>, i64);
+
+/// The most messages one list read takes (the conversations are made from them).
+const LIST_MESSAGE_CAP: usize = 4000;
+
+/// The SQL of one list read.
+fn list_sql(table: &str, w: &[String], order: &str) -> String {
+    format!(
+        "SELECT m.thread_id,m.id,m.account_id,m.folder,m.subject,m.from_name,m.from_email,m.snippet,m.date,m.seen,m.flagged,m.has_attach,
+                COALESCE(tm.pinned,0), tm.snoozed_until, m.list_unsub IS NOT NULL, m.pgp, m.cal_method, m.importance
+         FROM {table} m LEFT JOIN thread_meta tm ON tm.thread_id=m.thread_id
+         WHERE {} ORDER BY m.date {order} LIMIT {LIST_MESSAGE_CAP}",
+        w.join(" AND ")
+    )
+}
+
+/// The newest (or oldest) `LIST_MESSAGE_CAP` messages that match `w` in `table` (`messages`, the view over all the files, or one file's table).
+fn read_list_rows(c: &Connection, table: &str, w: &[String], p: &[rusqlite::types::Value], order: &str, out: &mut Vec<ListRow>) -> R<()> {
+    let mut st = c.prepare(&list_sql(table, w, order)).map_err(err)?;
+    let rows = st
+        .query_map(params_from_iter(p.iter()), |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, String>(4)?,
+                r.get::<_, String>(5)?,
+                r.get::<_, String>(6)?,
+                r.get::<_, String>(7)?,
+                r.get::<_, i64>(8)?,
+                r.get::<_, i64>(9)? != 0,
+                r.get::<_, i64>(10)? != 0,
+                r.get::<_, i64>(11)? != 0,
+                r.get::<_, i64>(12)? != 0,
+                r.get::<_, Option<i64>>(13)?,
+                r.get::<_, i64>(14)? != 0,
+                r.get::<_, i64>(15)?,
+                r.get::<_, Option<String>>(16)?,
+                r.get::<_, i64>(17)?,
+            ))
+        })
+        .map_err(err)?;
+    for row in rows {
+        out.push(row.map_err(err)?);
+    }
+    Ok(())
 }
 
 fn threads_for(c: &Connection, filter: ThreadFilter) -> R<Vec<ThreadSummary>> {
@@ -2998,44 +3061,35 @@ fn threads_for(c: &Connection, filter: ThreadFilter) -> R<Vec<ThreadSummary>> {
             p.push(b.into());
         }
     }
-    let sql = format!(
-        "SELECT m.thread_id,m.id,m.account_id,m.folder,m.subject,m.from_name,m.from_email,m.snippet,m.date,m.seen,m.flagged,m.has_attach,
-                COALESCE(tm.pinned,0), tm.snoozed_until, m.list_unsub IS NOT NULL, m.pgp, m.cal_method, m.importance
-         FROM messages m LEFT JOIN thread_meta tm ON tm.thread_id=m.thread_id
-         WHERE {} ORDER BY m.date {} LIMIT 4000",
-        w.join(" AND "),
-        if filter.sort_asc { "ASC" } else { "DESC" }
-    );
-    let mut st = c.prepare(&sql).map_err(err)?;
-    let rows = st
-        .query_map(params_from_iter(p.iter()), |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, String>(3)?,
-                r.get::<_, String>(4)?,
-                r.get::<_, String>(5)?,
-                r.get::<_, String>(6)?,
-                r.get::<_, String>(7)?,
-                r.get::<_, i64>(8)?,
-                r.get::<_, i64>(9)? != 0,
-                r.get::<_, i64>(10)? != 0,
-                r.get::<_, i64>(11)? != 0,
-                r.get::<_, i64>(12)? != 0,
-                r.get::<_, Option<i64>>(13)?,
-                r.get::<_, i64>(14)? != 0,
-                r.get::<_, i64>(15)?,
-                r.get::<_, Option<String>>(16)?,
-                r.get::<_, i64>(17)?,
-            ))
-        })
-        .map_err(err)?;
+    // A list over every mailbox reads each mailbox file on its own: the combined view (a TEMP VIEW over all the files) cannot use the per-mailbox index for its
+    // date order, so it read and sorted every matching message of every mailbox before it cut the list at 4000 (1.0.12, the Other tab of three big mailboxes).
+    // Each file stops at 4000 rows by its index (account, folder, date); the newest 4000 of the merged rows are the newest 4000 of all.
+    let order_sql = if filter.sort_asc { "ASC" } else { "DESC" };
+    let per_mailbox: Vec<String> = if filter.account_id.is_none() || (query.is_some() && scope == "all") { shard::account_ids(c) } else { vec![] };
+    let mut rows_all: Vec<ListRow> = vec![];
+    if per_mailbox.is_empty() {
+        read_list_rows(c, "messages", &w, &p, order_sql, &mut rows_all)?;
+    } else {
+        for id in &per_mailbox {
+            let mut w1 = vec!["m.account_id=?".to_string()];
+            w1.extend(w.iter().cloned());
+            let mut p1: Vec<rusqlite::types::Value> = vec![id.clone().into()];
+            p1.extend(p.iter().cloned());
+            read_list_rows(c, &shard::messages_table(c, id)?, &w1, &p1, order_sql, &mut rows_all)?;
+        }
+        if per_mailbox.len() > 1 {
+            if filter.sort_asc {
+                rows_all.sort_by_key(|r| r.8);
+            } else {
+                rows_all.sort_by_key(|r| std::cmp::Reverse(r.8));
+            }
+            rows_all.truncate(LIST_MESSAGE_CAP);
+        }
+    }
     let mut order: Vec<String> = vec![];
     let mut map: HashMap<String, ThreadSummary> = HashMap::new();
-    for row in rows {
-        let (tid, mid, acct, folder, subject, fname, femail, snippet, date, seen, flagged, att, pinned, snooze, bulk, pgp, cal, imp) =
-            row.map_err(err)?;
+    for row in rows_all {
+        let (tid, mid, acct, folder, subject, fname, femail, snippet, date, seen, flagged, att, pinned, snooze, bulk, pgp, cal, imp) = row;
         let who = if fname.is_empty() { femail } else { fname };
         let key = if filter.flat { mid } else { tid.clone() };
         let e = map.entry(key.clone()).or_insert_with(|| {
@@ -9141,6 +9195,8 @@ mod fakeimap;
 #[cfg(test)]
 mod foldermove_tests;
 #[cfg(test)]
+mod other_tab_perf_tests;
+#[cfg(test)]
 mod uidvalidity_tests;
 #[cfg(test)]
 mod drafts_tests;
@@ -9403,7 +9459,9 @@ mod inbox_tab_count_tests {
             .unwrap()
             .collect::<Result<_, _>>()
             .unwrap();
-        assert!(plan.iter().any(|d| d.contains("idx_msg_folder")), "plan: {plan:?}");
+        // (the folder index, or the (folder, seen, thread) index of the folder numbers, which seeks the unread rows themselves)
+        assert!(plan.iter().any(|d| d.contains("idx_msg_folder") || d.contains("idx_msg_fcounts")), "plan: {plan:?}");
+        assert!(!plan.iter().any(|d| d.starts_with("SCAN m")), "no full scan: {plan:?}");
     }
 
     /// Fix batch 6 (Q3): a conversation that waits out its Undo time is gone from the lists, so it is gone from the side-menu number and the tab numbers too

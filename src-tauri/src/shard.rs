@@ -41,7 +41,7 @@ const LEGACY_ADD_COLUMNS: [&str; 10] = [
     "ALTER TABLE main.messages ADD COLUMN list_hdr INTEGER NOT NULL DEFAULT 0",
 ];
 
-/// The `messages` table and its three indexes inside the attached database `schema`.
+/// The `messages` table and its four indexes inside the attached database `schema`.
 fn create_sql(schema: &str) -> String {
     format!(
         "CREATE TABLE IF NOT EXISTS {schema}.messages(
@@ -60,7 +60,9 @@ fn create_sql(schema: &str) -> String {
          );
          CREATE INDEX IF NOT EXISTS {schema}.idx_msg_thread ON messages(thread_id);
          CREATE INDEX IF NOT EXISTS {schema}.idx_msg_folder ON messages(account_id, folder, date DESC);
-         CREATE INDEX IF NOT EXISTS {schema}.idx_msg_mid ON messages(message_id);"
+         CREATE INDEX IF NOT EXISTS {schema}.idx_msg_mid ON messages(message_id);
+         -- the folder counts (`folder_infos`) read threads and read state from this index alone, not from every message row with its body (1.0.12). It leaves out account_id (the file is one mailbox) so that no list query with account_id + folder finds it as good as idx_msg_folder, which also gives the date order
+         CREATE INDEX IF NOT EXISTS {schema}.idx_msg_fcounts ON messages(folder, seen, thread_id);"
     )
 }
 
@@ -117,6 +119,14 @@ fn attached(conn: &Connection) -> R<Vec<String>> {
         .collect();
     ids.sort();
     Ok(ids)
+}
+
+/// Ids of the mailboxes whose file is attached, for a list that reads the files one by one (empty in the old single-file layout, where `main.messages` holds all).
+pub fn account_ids(conn: &Connection) -> Vec<String> {
+    if legacy(conn) {
+        return vec![];
+    }
+    attached(conn).unwrap_or_default()
 }
 
 /// Schemas that hold `messages` rows: the attached shards, or `main` while the old layout is in use. For code that needs

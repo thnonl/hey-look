@@ -11,6 +11,7 @@
 
 ### Fixed
 
+- Mail list: the Other and Focused tabs of the combined Inbox of several big mailboxes open much faster, and the folder numbers and the list no longer freeze the window while they are counted. The first start after the update builds one extra index in each mailbox file, which takes a few seconds for a very big mailbox
 - Pictures: when you show the pictures in a message, each one shows that it is loading, and a picture that cannot be loaded shows Retry straight away instead of a broken image
 - Printing a message while pictures are loading or have failed prints plain boxes instead of the loading or error signs
 - Reader window: Next and Previous go straight to the next message, without getting stuck on "Opening message…" or showing an empty window
