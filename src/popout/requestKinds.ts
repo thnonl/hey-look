@@ -38,16 +38,6 @@ export interface ThreadActionReq {
   view?: string;
 }
 
-/** Next / Previous of a reader window (W4.4): the conversation it shows and where it was opened from, so the main page can read the list when its own no longer has it. */
-export interface NeighborsReq {
-  threadId: string;
-  view: string;
-  accountId: string;
-  folder: string;
-  /** the mailbox selection of the main window when the window was opened (null: all mailboxes) */
-  listAccount: string | null;
-}
-
 export type ComposeMode = "reply" | "replyAll" | "forward";
 
 export interface ComposeReq {
@@ -86,7 +76,6 @@ export type Parsed =
   | { kind: "show-main" }
   /** the text menu's "Search mail for ..." in a reader window: the main page shows itself and searches (the text is a query already, `selectionQuery`) */
   | { kind: "search"; text: string }
-  | { kind: "neighbors"; req: NeighborsReq }
   /** a toast of an event window that ends (made where the person still looks, W4.6) */
   | { kind: "toast"; text: string; level: "info" | "success" | "error" }
   /** the Settings window changed something the lists of the main window show: read them again, sync (W4.6) */
@@ -202,11 +191,6 @@ export function parseRequest(kind: string, payload: unknown, ctx?: RequestCtx): 
     case "search": {
       const text = checkedSearchText(p.text);
       return text ? { kind: "search", text } : { error: "search: nothing to search for" };
-    }
-    case "neighbors": {
-      const threadId = str(p.threadId);
-      if (!threadId) return { error: "neighbors: no conversation" };
-      return { kind: "neighbors", req: { threadId, view: (str(p.view) ?? "").slice(0, 120), accountId: (str(p.accountId) ?? "").slice(0, 200), folder: (str(p.folder) ?? "").slice(0, 120), listAccount: str(p.listAccount) ?? null } };
     }
     default:
       return { error: `unknown request: ${kind.slice(0, 40)}` };

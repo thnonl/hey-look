@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // 1.0.12 (Windows QA round 9): the body of an open reader window never goes blank while the conversation is read again (a sync, a change of its state: `mail-synced`, `thread-state`),
-// even when the backend read takes seconds; and Next / Previous still never shows the body of the conversation before (BUG-3). The dev preview: `?w=reader`, a slow read
+// even when the backend read takes seconds. The dev preview: `?w=reader`, a slow read
 // (`window.__mockDelays.thread`), the body sampled every 50 ms.
 //   node scripts/test-popout-refresh.mjs [--require-browser | --url=http://127.0.0.1:1420/]
 import { sleep, startHarness } from './cdp-harness.mjs';
@@ -21,7 +21,7 @@ try {
   assert(id.length === 3, 'three readable conversations');
   await H.cdp('Page.navigate', { url: 'about:blank' });
   await H.cdp('Page.navigate', { url: `${H.base}?w=reader&thread=${id[1]}#lang=en` });
-  assert(await waitFor(`!!document.querySelector('.reader-bar .rb.nav')`, 20000), 'the reader window did not start');
+  assert(await waitFor(`!!document.querySelector('.reader-bar .rb')`, 20000), 'the reader window did not start');
   assert(await waitFor(`(() => { const f = document.querySelector('iframe.msg-frame'); return !!f && !!f.contentDocument && f.contentDocument.body.innerText.trim().length > 10 && !document.querySelector('.rp-opening'); })()`, 10000), 'the body is shown');
   await sleep(800);
 
@@ -37,17 +37,6 @@ try {
     });
   }
 
-  await check('Next with a slow read: the body of the conversation before never shows under the new subject', async () => {
-    const before = await evaluate(`(document.querySelector('.rp-head h1') || {}).textContent`);
-    const oldSig = (await evaluate(BODY)).sig;
-    await evaluate(`window.__mockDelays = { thread: 1200 }; document.querySelectorAll('.rb.nav')[1].click(); 1`);
-    const s = await sampleFor(2800);
-    await evaluate(`window.__mockDelays = {}; 1`);
-    // (1.0.12: the old conversation stays on screen, WITH its own subject, until the next one is read and the window switches in one commit: the old body under the new subject is the fault)
-    const wrong = s.filter((x) => x.subject !== null && x.subject !== before && x.sig === oldSig);
-    assert(wrong.length === 0, `the old conversation's body was shown under the new subject (${wrong.length} samples)`);
-    assert(s.some((x) => x.subject !== before && x.text >= 10 && !x.cover), 'the new conversation was never shown');
-  });
 } catch (e) {
   failures.push(String(e && e.stack ? e.stack : e));
   console.error(e);

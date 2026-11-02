@@ -21,10 +21,10 @@ const metrics = async () => {
   const m = Object.fromEntries((await cdp('Performance.getMetrics')).metrics.map((x) => [x.name, x.value]));
   return { heapMB: m.JSHeapUsedSize / 1048576, nodes: m.Nodes, listeners: m.JSEventListeners, docs: m.Documents };
 };
-// what the main page sees when a reader window opens on the open mail: its read request, its neighbour request, the state event, a sync, and the conversation read again
+// what the main page sees when a reader window opens on the open mail: its read request, the state event, a sync, and the conversation read again
 const cycle = async (id, i) => {
   const env = (kind, payload) => JSON.stringify({ from: `reader-${i + 1}`, id: `r${i}${kind}`, kind, payload });
-  await evaluate(`window.__mockEmit('popout-request', ${env('thread-action', { threadId: id, action: 'read', view: 'inbox' })}); window.__mockEmit('popout-request', ${env('neighbors', { threadId: id, view: 'inbox', accountId: '', folder: 'inbox', listAccount: null })});
+  await evaluate(`window.__mockEmit('popout-request', ${env('thread-action', { threadId: id, action: 'read', view: 'inbox' })});
     window.__mockEmit('thread-state', { threadIds: [${JSON.stringify(id)}] }); window.__mockEmit('mail-synced', {}); window.__store.getState().reloadMessages().then(() => 1); 1`);
   await sleep(350);
 };

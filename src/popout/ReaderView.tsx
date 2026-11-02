@@ -6,11 +6,10 @@
 // something changed. Nothing here writes mail state or preferences: read / flag / pin, moves with Undo, the mail background switch, the
 // dialogs of the main window and the compose window are asked of the main page (`askMain`, readerBridge.ts), which does them with its
 // own machinery and tells the result. The yes/no states show the answer at once (`Wanted`) and are read again when the request is done.
-import { AlertTriangle, Archive, ChevronDown, ChevronUp, ChevronsDownUp, ChevronsUpDown, Clock, Flag, Forward, Mail, MailX, MoreHorizontal, Pin, Reply, ReplyAll, Sparkles, Trash2 } from "lucide-react";
+import { AlertTriangle, Archive, ChevronsDownUp, ChevronsUpDown, Clock, Flag, Forward, Mail, MailX, MoreHorizontal, Pin, Reply, ReplyAll, Sparkles, Trash2 } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
-import { flushSync } from "react-dom";
 import { forward, replyTo } from "../actions";
 import { api, type MessageFull } from "../api";
 import { copyToClipboard } from "../open";
@@ -35,10 +34,10 @@ import { summaryBody } from "../summaryText";
 import { configureDates, fmtFull, snoozePresets, subjectText } from "../util";
 import { senderOf } from "../rowMenu";
 import { openRuleForThread } from "../ruleOpen";
-import { askMain, cancelRunningTranslations, installReaderBridge, requester } from "./readerBridge";
+import { askMain, cancelRunningTranslations, installReaderBridge } from "./readerBridge";
 import {
-  allowedWhenGone, isFlagged, isGone, isUnread, markReadPlan, neighborsOf, readerInit, readerKey, readerTitleText, threadScope, withWanted,
-  type Neighbor, type ReaderAction, type ReaderInit, type Wanted,
+  allowedWhenGone, isFlagged, isGone, isUnread, markReadPlan, readerInit, readerKey, readerTitleText, threadScope, withWanted,
+  type ReaderAction, type ReaderInit, type Wanted,
 } from "./readerLogic";
 import { endDrag, startMailDrag } from "../dragWire";
 import { mayDragRow } from "../dragDrop";
@@ -55,14 +54,9 @@ const STATE_WAIT_MS = 60_000;
 const MOVE_WAIT_MS = 30_000;
 
 export default function ReaderView({ init }: PopoutViewProps) {
-  const first = useMemo(() => readerInit(init), [init]);
-  // Next / Previous (W4.4) put another conversation in the same window: the whole reader starts over for it (a new instance: its own load, its own translations and summary,
-  // the subject takes the focus, the scroll is at the top)
-  const [info, setInfo] = useState<ReaderInit | null>(first);
-  const [pre, setPre] = useState<Preloaded | null>(null);
+  const info = useMemo(() => readerInit(init), [init]);
   if (!info) return <ReaderFailed text={tNow("reading.popout.loadFailed", { error: tNow("reading.popout.noId") })} />;
-  // the next conversation arrives with its messages already read (see `goTo`): the swap is one commit, the old body stays on screen until then
-  return <Reader key={info.threadId} info={info} pre={pre} onShow={(next, p) => flushSync(() => { if (p) useStore.setState({ messages: p.msgs }); setPre(p ?? null); setInfo(next); })} />;
+  return <Reader key={info.threadId} info={info} />;
 }
 
 function ReaderFailed({ text, retry }: { text: string; retry?: () => void }) {
@@ -81,10 +75,7 @@ function ReaderFailed({ text, retry }: { text: string; retry?: () => void }) {
   );
 }
 
-/** The conversation Next / Previous is going to, read while the old one was still on screen. */
-type Preloaded = { msgs: MessageFull[]; meta: { pinned: boolean; snoozedUntil: number | null } | null };
-
-function Reader({ info, pre, onShow }: { info: ReaderInit; pre: Preloaded | null; onShow: (next: ReaderInit, pre?: Preloaded | null) => void }) {
+function Reader({ info }: { info: ReaderInit }) {
   const t = useT();
   const lang = useLang();
   const messages = useStore((s) => s.messages);
@@ -92,15 +83,11 @@ function Reader({ info, pre, onShow }: { info: ReaderInit; pre: Preloaded | null
   const folders = useStore((s) => s.folders);
   const aiConfigured = useStore((s) => s.aiConfigured);
   const dialog = useStore((s) => s.dialog);
-  const [phase, setPhase] = useState<"loading" | "ready" | "error">(pre ? "ready" : "loading"); // (a preloaded conversation has no loading screen: 1.0.12, the first Next showed one for ~120 ms)
+  const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState("");
   const [gone, setGone] = useState(false);
-  const [meta, setMeta] = useState<{ pinned: boolean; snoozedUntil: number | null }>(pre?.meta ?? { pinned: false, snoozedUntil: null });
+  const [meta, setMeta] = useState<{ pinned: boolean; snoozedUntil: number | null }>({ pinned: false, snoozedUntil: null });
   const [busy, setBusy] = useState(false); // a move waits for the main window
-  /** the conversations before and after this one in the list (W4.4); `known` once the main window has answered */
-  const [nb, setNb] = useState<{ prev: Neighbor | null; next: Neighbor | null; known: boolean }>({ prev: null, next: null, known: false });
-  const nbSeq = useRef(0);
-  const going = useRef(false);
   const [summary, setSummary] = useState<string | null>(null);
   const [summaryCut, setSummaryCut] = useState(false); // the conversation was longer than what was sent: the card says so
   const [summaryNoConf, setSummaryNoConf] = useState(false); // confidential messages of the conversation were left out of the summary: the card says so (W8.3)
@@ -111,7 +98,7 @@ function Reader({ info, pre, onShow }: { info: ReaderInit; pre: Preloaded | null
   const barRef = useRef<HTMLDivElement>(null);
 
   // what the database said last, what this window asked for since, and the bookkeeping of the loads
-  const base = useRef<MessageFull[]>(pre?.msgs ?? []);
+  const base = useRef<MessageFull[]>([]);
   const wanted = useRef<Wanted>({});
   const goneRef = useRef(false);
   const loadSeq = useRef(0);
@@ -119,19 +106,6 @@ function Reader({ info, pre, onShow }: { info: ReaderInit; pre: Preloaded | null
   const known = useRef(new Set<string>()); // the messages this window has seen: the mark-as-read rule looks at a message once
   const readTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const loadRef = useRef<(first?: boolean) => Promise<void>>(async () => undefined);
-
-  // ---- Next / Previous (W4.4, REQ-4.4.3/4.4.4): the main window knows the list; asked when the conversation is shown and again after a sync or a change of state
-  const askNeighbors = useCallback(async () => {
-    const my = ++nbSeq.current;
-    try {
-      const r = neighborsOf(await requester.ask("neighbors", { threadId: info.threadId, view: info.view, accountId: info.accountId, folder: info.folder, listAccount: info.listAccount ?? null }));
-      if (my === nbSeq.current) setNb({ ...r, known: true });
-    } catch {
-      if (my === nbSeq.current) setNb({ prev: null, next: null, known: false }); // the main window cannot answer: both buttons are off
-    }
-  }, [info]);
-  const nbRef = useRef(askNeighbors);
-  nbRef.current = askNeighbors;
 
   configureDates(prefs); // dates in the message headers follow the date / time format of the preferences
 
@@ -230,12 +204,11 @@ function Reader({ info, pre, onShow }: { info: ReaderInit; pre: Preloaded | null
       clearTimeout(timer);
       timer = setTimeout(() => {
         void loadRef.current();
-        void nbRef.current();
       }, 250);
     };
     void (async () => {
       await loadPlatform(); // (Print and the Delete key differ on macOS)
-      useStore.setState(pre ? { selected: info.threadId } : { selected: info.threadId, messages: [] }); // (nothing of the conversation shown before; a preloaded one is in the store already)
+      useStore.setState({ selected: info.threadId, messages: [] }); // (nothing of the conversation shown before)
       void useStore.getState().refreshAi();
       off = await installReaderBridge({ reload: () => later("bridge") });
       if (dead) return off();
@@ -248,9 +221,7 @@ function Reader({ info, pre, onShow }: { info: ReaderInit; pre: Preloaded | null
           if (useStore.getState().messages.some((m) => m.invite)) later("calendar-changed");
         }),
       );
-      if (pre) planRead(pre.msgs); // (read already, once: the mark-as-read rule only)
-      else await loadRef.current(true);
-      void nbRef.current();
+      await loadRef.current(true);
     })();
     return () => {
       dead = true;
@@ -270,9 +241,8 @@ function Reader({ info, pre, onShow }: { info: ReaderInit; pre: Preloaded | null
     return () => window.removeEventListener("pagehide", bye);
   }, []);
 
-  // a new message arrives: it is open and the older ones fold, as in the reading pane; a summary of the old conversation is dropped. Keyed by the last message too: the window keeps
-  // the store's messages of the conversation before when it shows another one in place (Next / Previous), and a conversation with as many messages as that one left its card
-  // closed - no frame, "Opening message…" for good (1.0.12 BUG-L3)
+  // a new message arrives: it is open and the older ones fold, as in the reading pane; a summary of the old conversation is dropped. Keyed by the last message too: a refresh that brings
+  // as many messages as before but another last one must not leave a card closed - no frame, "Opening message…" for good (1.0.12 BUG-L3)
   const lastId = messages.length ? messages[messages.length - 1].id : "";
   // Which cards are open is DERIVED in the render, not set by an effect afterwards (1.0.12, Windows QA round 12: a body blank for 0.6 s right after a card unmount): the render in which the messages
   // change would show the new messages with the old set, so a card that is not in it was drawn closed - no body - until the effect had run and drawn it again, which a busy machine delays.
@@ -397,31 +367,6 @@ function Reader({ info, pre, onShow }: { info: ReaderInit; pre: Preloaded | null
     },
     [info.threadId, info.view],
   );
-  /** Show the conversation `n` in this window (REQ-4.4.5/4.4.6): the backend moves the window's key and hand-off data to it, or brings the window that already shows it forward. */
-  const goTo = async (n: Neighbor | null) => {
-    if (!n || going.current) return;
-    going.current = true;
-    cancelRead();
-    try {
-      const next: ReaderInit = { threadId: n.threadId, accountId: n.accountId, folder: n.folder, view: n.view, subject: n.subject, listAccount: info.listAccount ?? null };
-      const r = await api.popoutShow(n.threadId, next);
-      let pre: Preloaded | null = null;
-      if (r.status === "shown") {
-        // the next conversation is read BEFORE the window switches to it: the old body stays on screen meanwhile and the new reader starts with its messages, not with the loading screen
-        try {
-          const [msgs, meta] = await Promise.all([api.getThread(n.threadId, threadScope(next.folder)), api.threadMeta(n.threadId).catch(() => null)]);
-          if (msgs.length > 0 && !isGone(msgs, next.folder)) pre = { msgs, meta };
-        } catch {
-          /* (the reader reads it itself, with its loading screen) */
-        }
-      }
-      if (r.status === "shown") onShow(next, pre);
-    } catch (e) {
-      useStore.getState().showToast(() => friendlyError(e), undefined, "error");
-    } finally {
-      going.current = false;
-    }
-  };
   const doReply = (all: boolean) => last && void replyTo(last, all);
   const doForward = () => {
     if (!last) return;
@@ -502,8 +447,6 @@ function Reader({ info, pre, onShow }: { info: ReaderInit; pre: Preloaded | null
       case "flag": return toggleFlag();
       case "snooze": return document.querySelector<HTMLButtonElement>(".reader-bar button.snooze-btn")?.click();
       case "print": return conf ? undefined : printLast();
-      case "prev": return void goTo(nb.prev);
-      case "next": return void goTo(nb.next);
     }
   };
   const actRef = useRef(act);
@@ -544,25 +487,11 @@ function Reader({ info, pre, onShow }: { info: ReaderInit; pre: Preloaded | null
       <span>{extra?.text ?? label}</span>
     </button>
   );
-  // the two icon buttons at the left end of the toolbar (REQ-4.4.1): never a word, never in More
-  const navBtn = (dir: "prev" | "next") => {
-    const n = dir === "prev" ? nb.prev : nb.next;
-    const label = t(dir === "prev" ? "reading.popout.prev" : "reading.popout.next");
-    const none = !n && nb.known && !gone;
-    return (
-      <button key={dir} className="rb nav" title={none ? t(dir === "prev" ? "reading.popout.noPrev" : "reading.popout.noNext") : `${label} (${dir === "prev" ? "k" : "j"})`} aria-label={label} disabled={locked || gone || !n} onClick={() => void goTo(n)}>
-        {dir === "prev" ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-      </button>
-    );
-  };
   const sender = last ? senderOf(messages, new Set(useStore.getState().accounts.map((a) => a.email.toLowerCase()))) : null;
 
   return (
     <div className="reader-win">
       <div className="reader-bar" ref={barRef} role="toolbar" aria-label={t("reading.popout.toolbar")}>
-        {navBtn("prev")}
-        {navBtn("next")}
-        <span className="sep" aria-hidden />
         {rb("reply", t("reading.msg.reply"), `${t("reading.msg.reply")} (r)`, "reply", () => doReply(false), <Reply size={16} />)}
         {rb("replyAll", t("reading.msg.replyAll"), `${t("reading.msg.replyAll")} (a)`, "replyAll", () => doReply(true), <ReplyAll size={16} />)}
         {rb("forward", t("reading.msg.forward"), conf ? t("reading.msg.forwardBlocked") : `${t("reading.msg.forward")} (f)`, "forward", doForward, <Forward size={16} />, { disabled: conf })}

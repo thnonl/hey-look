@@ -95,8 +95,6 @@ async function run(env: Envelope): Promise<unknown> {
     case "show-main":
       showMain();
       return null;
-    case "neighbors":
-      return (await import("./mainLazy")).neighborsFor(p.req);
   }
 }
 

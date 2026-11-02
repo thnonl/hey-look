@@ -34,16 +34,6 @@ try {
     assert(t >= 700, `repaired too early (${t} ms): the try waits 1 s`);
     assert((await notes()).some((x) => /recover 1 why=no messages/.test(x)), `no recovery line: ${JSON.stringify(await notes())}`);
   });
-  await check('after Next: the same', async () => {
-    await evaluate(`document.querySelectorAll('.rb.nav')[1].click(); 1`);
-    assert((await waitFor(BODY_OK, 6000)) >= 0, 'the next conversation shows');
-    await sleep(500);
-    const before = (await notes()).length;
-    await evaluate(`window.__store.setState({ messages: [] }); 1`);
-    const t = await waitFor(BODY_OK, 2500);
-    assert(t >= 0, 'the body did not come back after Next');
-    assert((await notes()).length > before, 'no recovery line after Next');
-  });
   await check('a frame that stays hidden is shown again', async () => {
     await sleep(2000);
     await evaluate(`document.querySelector('iframe.msg-frame').style.visibility = 'hidden'; 1`);

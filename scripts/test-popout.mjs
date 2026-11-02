@@ -10,7 +10,7 @@ import { MODIFIER_WINDOW_MS, noteInput, resetModifier, shiftNow } from "../src/p
 import { closeAction, composeFlush, GRACE_MS, runClose, secondsLeft, START, step, UNDO_SETTLE_MS } from "../src/popout/composeWindow.ts";
 import { carryToasts, parseComposeRequest } from "../src/popout/composeRequests.ts";
 import {
-  allowedWhenGone, isFlagged, isGone, isUnread, markReadPlan, neighborOf, neighborsOf, readerAllowed, readerInit, readerKey, readerTitleText, scopeOfView, threadScope, withWanted,
+  allowedWhenGone, isFlagged, isGone, isUnread, markReadPlan, readerAllowed, readerInit, readerKey, readerTitleText, scopeOfView, threadScope, withWanted,
 } from "../src/popout/readerLogic.ts";
 import { Coalescer, OPEN_COALESCE_MS, openId } from "../src/popout/coalesce.ts";
 import { rowWindowTarget } from "../src/popout/readerLogic.ts";
@@ -972,49 +972,21 @@ for (const [view, folder] of [["inbox", "inbox"], ["unread", "inbox"], ["pinned"
   for (const f of files) assert.ok(new RegExp('"app\.popout\.crashed": "[^"]{8,}"').test(read(f)), `${f} has app.popout.crashed`);
 }
 
-// ---- W4.4: Next / Previous conversation in a reader window
+// ---- 1.0.12 (owner): the reader window has no Next / Previous conversation (buttons, j / k keys, neighbour request) any more
 {
-  const rows = [{ threadId: "A", folder: "inbox" }, { threadId: "B", folder: "inbox" }, { threadId: "C", folder: "inbox" }, { threadId: "D", folder: "drafts" }, { threadId: "E", folder: "inbox" }];
-  const can = (r) => rowWindowTarget("all", r.folder) === "reader";
-  assert.equal(neighborOf(rows, "B", 1, can).threadId, "C");
-  assert.equal(neighborOf(rows, "B", -1, can).threadId, "A");
-  assert.equal(neighborOf(rows, "A", -1, can), null, "no wrap at the start");
-  assert.equal(neighborOf(rows, "E", 1, can), null, "no wrap at the end");
-  assert.equal(neighborOf(rows, "C", 1, can).threadId, "E", "a draft row between C and E is skipped (AC-4.4.6)");
-  assert.equal(neighborOf(rows, "E", -1, can).threadId, "C", "and skipped going back");
-  assert.equal(neighborOf(rows, "nope", 1, can), null, "a conversation that is not in the list has no neighbours");
-  assert.equal(neighborOf([{ threadId: "A", folder: "inbox" }, { threadId: "S", folder: "inbox" }], "A", 1, (r) => rowWindowTarget("scheduled", r.folder) === "reader"), null, "the Scheduled list has no rows a reader can show");
-  assert.equal(neighborOf([], "A", 1, can), null);
-  // what the main page answers, read defensively
-  assert.deepEqual(neighborsOf(null), { prev: null, next: null });
-  assert.deepEqual(neighborsOf({ prev: 5, next: { threadId: "" } }), { prev: null, next: null });
-  assert.deepEqual(neighborsOf({ prev: { threadId: "X", accountId: "a1", folder: "inbox", subject: "S", view: "all" }, next: null }).prev, { threadId: "X", accountId: "a1", folder: "inbox", subject: "S", view: "all" });
-  // the keys: j = next, k = previous, the guards of the other reader keys
   const key = (k, o = {}) => readerKey({ key: k, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...o }, { mac: false, inField: false, modalOpen: false });
-  assert.equal(key("j"), "next");
-  assert.equal(key("k"), "prev");
-  assert.equal(key("J", { shiftKey: true }), null, "only j and k");
-  assert.equal(key("j", { ctrlKey: true }), null);
-  assert.equal(readerKey({ key: "j", ctrlKey: false, metaKey: false, altKey: false, shiftKey: false }, { mac: false, inField: true, modalOpen: false }), null, "not while typing");
-  assert.equal(readerKey({ key: "k", ctrlKey: false, metaKey: false, altKey: false, shiftKey: false }, { mac: false, inField: false, modalOpen: true }), null, "not behind a dialog");
-  assert.equal(allowedWhenGone("next"), false);
-  assert.equal(allowedWhenGone("prev"), false);
-  // the request: the conversation and where the window was opened from; nothing else is taken
-  assert.deepEqual(parseRequest("neighbors", { threadId: "t1", view: "inbox", accountId: "a1", folder: "inbox", listAccount: null, extra: 1 }), { kind: "neighbors", req: { threadId: "t1", view: "inbox", accountId: "a1", folder: "inbox", listAccount: null } });
-  assert.ok("error" in parseRequest("neighbors", {}), "no conversation");
-  // wiring: the buttons come first in the toolbar, are icon-only, say why they are off, and the window shows the new conversation through popout_show
+  assert.equal(key("j"), null, "j does nothing in a reader window");
+  assert.equal(key("k"), null, "k does nothing in a reader window");
+  assert.ok("error" in parseRequest("neighbors", { threadId: "t1" }), "the neighbours request is gone");
   const rv = read("src/popout/ReaderView.tsx");
-  assert.ok(rv.indexOf('{navBtn("prev")}') < rv.indexOf('{rb("reply"') && rv.indexOf('{navBtn("next")}') < rv.indexOf('{rb("reply"'), "Previous and Next are before Reply");
-  assert.ok(rv.includes('"reading.popout.noPrev"') && rv.includes('"reading.popout.noNext"') && rv.includes("api.popoutShow(n.threadId, next)"));
-  const nav = rv.slice(rv.indexOf("const navBtn"), rv.indexOf("const sender = last"));
-  assert.ok(nav.includes("<ChevronUp") && nav.includes("<ChevronDown") && !nav.includes("<span>"), "the buttons never show a word");
-  assert.ok(rv.includes("<Reader key={info.threadId} info={info} pre={pre} onShow="), "a new conversation starts the reader over (translations and summary cancelled, focus on the subject, scroll at the top)");
-  assert.ok(JSON.parse(read("src-tauri/capabilities/popout.json")).permissions.includes("allow-popout-show"));
-  const mr = read("src/popout/mainRequests.ts");
-  assert.ok(mr.includes('case "neighbors":') && read("src/popout/mainLazy.ts").includes('rowWindowTarget(view, x.folder) === "reader"'));
+  assert.ok(!rv.includes("navBtn") && !rv.includes("goTo") && !rv.includes("popoutShow") && !rv.includes("neighbors") && !rv.includes("reading.popout.prev") && !rv.includes("reading.popout.next"), "no Next / Previous code in the reader");
+  assert.ok(rv.includes("<Reader key={info.threadId} info={info} />"), "the reader is one instance for its conversation");
+  assert.ok(!read("src/popout/readerLogic.ts").includes("neighborOf") && !read("src/popout/mainRequests.ts").includes("neighbors") && !read("src/popout/requestKinds.ts").includes("neighbors"));
+  for (const f of ["src/i18n/ns/reading.ts", ...["de", "es", "fr", "ja", "ru", "vi", "zh-Hans"].map((l) => `src/i18n/locales/${l}/reading.ts`)]) assert.ok(!/reading.popout.(prev|next|noPrev|noNext)/.test(read(f)), `${f} has no Next / Previous text`);
+  assert.ok(!/.rb.nav/.test(read("src/App.css")));
   assert.ok(read("src/popout/openReader.ts").includes("listAccount: useStore.getState().accountId"), "the window is opened with the mailbox selection of the main window");
-  // the main window's j / k row in Settings > Shortcuts stays the one row
-  assert.equal((read("src/components/SettingsDialog.tsx").match(/"settings\.keys\.nextPrev"/g) ?? []).length, 1);
+  // the main window's j / k row in Settings > Shortcuts stays the one row (the list of the main window keeps its keys)
+  assert.equal((read("src/components/SettingsDialog.tsx").match(/"settings.keys.nextPrev"/g) ?? []).length, 1);
 }
 
 // ---- W4.5: move a compose window back to the main window

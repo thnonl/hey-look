@@ -388,7 +388,6 @@ ui-a | node scripts/test-rules-ui.mjs --quick --require-browser
 # 1.0.7 W4.3: the colours of the native title bar of the secondary windows (Windows 11): the colour of the main window's band behind its caption buttons in Light and in Dark for the default accent, the presets, the edge cases and a sweep of hues; where the minimize button sits on the 135deg gradient; the text stays readable (black or white when the band's own text does not read); only the main page hands them over (the command in its three places, not in popout.json)
 static | node --experimental-strip-types scripts/test-caption-colors.mjs
 # 1.0.7 W4.4 / W4.5: Next and Previous conversation in a reader window (two icon-only buttons first in the toolbar, the buttons and the keys j / k, the same window shows the next row and the registry is told, the subject has the focus, the ends are disabled with the two tooltips, another window that has the conversation comes forward, gone / main window silent = both off, 520 px, 8 languages); Move to main window in a compose window (the button where Pop out is, Ctrl+Shift+O, the request carries the message as the window holds it, Keep writing leaves the window as it was, the question waits, 5 s unreachable, no button while sending, 8 languages)
-ui-d | node scripts/test-popout-nav.mjs --require-browser
 ui-d | node scripts/test-popout-refresh.mjs --require-browser
 ui-d | node scripts/test-popout-heal.mjs --require-browser
 ui-d | node scripts/test-popout-gap.mjs --require-browser

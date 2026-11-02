@@ -2016,8 +2016,6 @@ export function installMock() {
       }
       case "popout_park": case "popout_set_key": ((window as unknown as { __popoutCalls?: string[] }).__popoutCalls ??= []).push(cmd); return true;
       case "popout_note": case "window_theme_refresh": return null;
-      // a reader goes on to show another conversation (W4.4): logged (window.__popoutShown); `#showother` answers that another window has it
-      case "popout_show": ((window as unknown as { __popoutShown?: unknown[] }).__popoutShown ??= []).push({ key: a.key, init: a.init }); return hashHas("showother") ? { status: "focused", label: "reader-9" } : { status: "shown", label: null };
       case "popout_init": {
         const q = new URLSearchParams(window.location.search);
         const kind = q.get("w") ?? "compose";
@@ -2082,17 +2080,6 @@ export function installMock() {
         if (a.kind === "cw-pop-in") data = hashHas("popinasking") ? { state: "asking" } : { opened: !hashHas("popinkeep") };
         if (a.kind === "cw-pop-in-result") {
           later(800, () => void emit("popout-reply", { id: a.id, ok: true, data: { opened: !hashHas("popinkeep") }, error: null }));
-          return null;
-        }
-        if (a.kind === "neighbors" && !hashHas("reqsilent")) {
-          // (the list the way the mock backend lists it; a conversation in `__mockGone` is not in it)
-          const view = String(p.view || p.folder || "inbox");
-          void (window as unknown as { __TAURI_INTERNALS__: { invoke: (c: string, a: unknown) => Promise<typeof threads> } }).__TAURI_INTERNALS__.invoke("list_threads", { filter: { accountId: null, folder: view, search: "", focus: null, flat: false, unreadOnly: false, flaggedOnly: false, sortAsc: false, scope: "current" } }).then((all) => {
-            const rows = all.filter((x) => !mockGone.has(x.threadId) && x.folder !== "drafts");
-            const at = rows.findIndex((x) => x.threadId === p.threadId);
-            const one = (x?: (typeof rows)[number]) => (x ? { threadId: x.threadId, accountId: x.accountId, folder: x.folder, subject: x.subject, view } : null);
-            void emit("popout-reply", { id: a.id, ok: true, data: at < 0 ? { prev: null, next: null } : { prev: one(rows[at - 1]), next: one(rows[at + 1]) }, error: null });
-          });
           return null;
         }
         if (!hashHas("reqsilent")) later(hashHas("reqslow") ? 1500 : 150, () => void emit("popout-reply", { id: a.id, ok: !hashHas("reqfail"), data: hashHas("reqfail") ? null : data, error: hashHas("reqfail") ? "mock: the main window refused" : null }));

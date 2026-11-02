@@ -13,7 +13,6 @@
 
 - Pictures: when you show the pictures in a message, each one shows that it is loading, and a picture that cannot be loaded shows Retry straight away instead of a broken image
 - Printing a message while pictures are loading or have failed prints plain boxes instead of the loading or error signs
-- Reader window: Next and Previous go straight to the next message, without getting stuck on "Opening message…" or showing an empty window
 - Linux: a reader window keeps its own message instead of following the one selected in the main window
 - Mail list: read messages are no longer shown in bold
 - When a message was sent to one of your addresses with a copy to another, Reply, Reply all and Forward now use the address it was sent to, also in the mailbox that got the copy

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 1.0.12 (Windows QA round 12: one body blank of 0.6 s, no cover, right after a card unmount): a healthy transition of the reader never has a moment where the messages are there, no cover is
 // shown and the card has no body. Which cards are open is derived in the render, not set by an effect after it (the render in between drew the new message closed). Every DOM change of the reader is watched
-// (MutationObserver: it sees each committed state, before the effects of that render ran), and the body is sampled every 50 ms across a start, Next, Previous and a replaced message.
+// (MutationObserver: it sees each committed state, before the effects of that render ran), and the body is sampled every 50 ms across a start and a replaced message.
 //   node scripts/test-popout-gap.mjs [--require-browser | --url=http://127.0.0.1:1420/]
 import { sleep, startHarness } from './cdp-harness.mjs';
 
@@ -27,40 +27,24 @@ try {
   assert(await waitFor(BODY_OK, 20000), 'the body is shown at the start');
   await sleep(600);
 
-  await check('start, Next and Previous: no sample and no committed state without a body', async () => {
-    const g0 = await gaps();
-    const all = [];
-    for (const dir of [1, 0, 1, 0]) {
-      await evaluate(`document.querySelectorAll('.rb.nav')[${dir}].click(); 1`);
-      all.push(...await sampleFor(1200));
-    }
-    const bad = all.filter(blank);
-    assert(bad.length === 0, `${bad.length} of ${all.length} samples had messages, no cover and no frame (${JSON.stringify(bad[0])})`);
-    assert((await gaps()) === g0, `${(await gaps()) - g0} committed states had messages, no cover and no frame`);
-    assert(await evaluate(BODY_OK), 'the body is there at the end');
-  });
-
-  // Linux QA round 17: the first Next of a fresh reader showed a blank of about 120 ms (no cover): the reader switched to the next conversation first and read it afterwards, behind a loading screen. Now the
-  // conversation is read while the old body is still on screen and the reader starts with its messages. Strict: a sample is empty when neither a shown body nor the opening cover is on screen.
-  const strict = (s) => !(s.frame && s.vis && s.text > 10) && !s.cover;
-  const sampleFast = async (ms) => { const out = []; const t0 = Date.now(); while (Date.now() - t0 < ms) { try { out.push(await evaluate(STATE)); } catch { /* a frame being written */ } await sleep(20); } return out; };
-  for (const [what, delay, slow] of [['fast read', 0, 1], ['slow read (350 ms)', 350, 1], ['slow first measure (CPU x6) and a slow read', 200, 6]]) {
-    await check(`Next / Previous, ${what}: no empty sample at 20 ms (a body or the cover is always there)`, async () => {
+  // the start of a reader window (twice, the second time with a slow read and a slow CPU): no sample and no committed state with messages, no cover and no frame
+  for (const [what, delay, slow] of [['fast read', 0, 1], ['slow read (350 ms) and CPU x6', 350, 6]]) {
+    await check(`start, ${what}: no sample and no committed state without a body`, async () => {
       await evaluate(`window.__mockDelays = { thread: ${delay} }; 1`);
       if (slow > 1) await H.cdp('Emulation.setCPUThrottlingRate', { rate: slow });
       try {
-        const all = [];
-        for (const dir of [1, 0, 1, 0]) {
-          await evaluate(`document.querySelectorAll('.rb.nav')[${dir}].click(); 1`);
-          all.push(...await sampleFast(delay + 900));
-        }
-        const bad = all.filter(strict);
-        assert(bad.length === 0, `${bad.length} of ${all.length} samples had neither a shown body nor the cover (${JSON.stringify(bad[0])})`);
-        assert(await waitFor(BODY_OK, 5000), 'the body is there at the end');
+        await H.cdp('Page.navigate', { url: 'about:blank' });
+        await H.cdp('Page.navigate', { url: `${H.base}?w=reader&thread=${id[1]}#lang=en` });
+        const all = await sampleFor(delay + 2500);
+        const bad = all.filter(blank);
+        assert(bad.length === 0, `${bad.length} of ${all.length} samples had messages, no cover and no frame (${JSON.stringify(bad[0])})`);
+        assert(await waitFor(BODY_OK, 20000), 'the body is there at the end');
+        assert((await gaps()) === 0, `${await gaps()} committed states had messages, no cover and no frame`);
       } finally {
         if (slow > 1) await H.cdp('Emulation.setCPUThrottlingRate', { rate: 1 });
         await evaluate(`window.__mockDelays = {}; 1`);
       }
+      await sleep(600);
     });
   }
 
