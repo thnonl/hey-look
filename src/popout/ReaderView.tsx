@@ -279,7 +279,10 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
   // (W13.6, REQ-13.6.2) "Opening message…" stays until the frame of the open message is visible, not only until the data arrives
   const printing = usePrinting((s) => s.on);
   const opening = useOpeningPending(phase === "ready" && messages.length > 0 ? info.threadId : null, messages, hasFrame);
-  // the watchdog (readerDiag.ts): the open body has no visible frame or text for more than 400 ms with no cover over it -> one line (and one when it is back); logs only
+  // the watchdog (readerDiag.ts): the open body has no visible frame or text for more than 400 ms with no cover over it -> one line (and one when it is back). 1.0.12 BUG-1 (Windows QA): and a body
+  // that is still blank after 1 s repairs itself: at most two tries (a second one 1.5 s after the first, the count starts again after 10 s of a body that is shown): each try opens the last
+  // card, lets the frame measure itself (it is hidden until it has) and reads the conversation again. Nothing happens while the body is there.
+  const heal = useRef({ n: 0, at: 0, okAt: 0 });
   useEffect(() => {
     diagOn(true);
     let since = 0;
@@ -289,18 +292,33 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
       const f = document.querySelector<HTMLIFrameElement>("iframe.msg-frame");
       const d = f?.contentDocument;
       const text = d?.body ? d.body.innerText.trim().length : 0;
-      const shown = !!f && f.style.visibility !== "hidden" && text > 0;
-      const wanted = phase === "ready" && st.length > 0 && !document.querySelector(".rp-opening");
+      const shown = !!f && f.style.visibility !== "hidden" && !!d?.body && (text > 0 || d.body.childElementCount > 0);
+      const cover = !!document.querySelector(".rp-opening");
+      const empty = phase === "ready" && !goneRef.current && st.length === 0;
+      const wanted = ((phase === "ready" && st.length > 0) || empty) && !cover;
       if (!wanted || shown) {
         if (said) diag(`body back after ${nowMs() - since}ms`, true);
+        if (shown && !heal.current.okAt) heal.current.okAt = nowMs();
+        if (shown && heal.current.n && nowMs() - heal.current.okAt > 10_000) heal.current.n = 0;
         since = 0;
         said = false;
         return;
       }
+      heal.current.okAt = 0;
       if (!since) since = nowMs();
       if (!said && nowMs() - since > 400) {
         said = true;
         diag(`body blank ${nowMs() - since}ms frame=${f ? "y" : "n"} hidden=${f ? f.style.visibility === "hidden" : "-"} h=${f ? f.style.height : "-"} ready=${d?.readyState ?? "-"} text=${text} msgs=${st.map((m) => m.id).slice(-4).join(",")} refresh=${diagState.why}@${ago(diagState.refreshAt)} rewrite=${ago(diagState.rewriteAt)} mount=${ago(diagState.mountAt)}`, true);
+      }
+      if (nowMs() - since > 1000 && heal.current.n < 2 && nowMs() - heal.current.at > 1500) {
+        heal.current.n++;
+        heal.current.at = nowMs();
+        diag(`recover ${heal.current.n} why=${empty ? "no messages" : "no body"} thread=${info.threadId.slice(0, 12)} msgs=${st.length}`, true);
+        if (st.length > 0) {
+          setOpenIds(new Set([st[st.length - 1].id]));
+          window.dispatchEvent(new Event("resize")); // (measure() shows a frame that was hidden until its first measurement)
+        }
+        void loadRef.current();
       }
     }, 200);
     return () => {
