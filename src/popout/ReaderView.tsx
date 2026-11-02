@@ -95,7 +95,6 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
   const [nb, setNb] = useState<{ prev: Neighbor | null; next: Neighbor | null; known: boolean }>({ prev: null, next: null, known: false });
   const nbSeq = useRef(0);
   const going = useRef(false);
-  const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const [summary, setSummary] = useState<string | null>(null);
   const [summaryCut, setSummaryCut] = useState(false); // the conversation was longer than what was sent: the card says so
   const [summaryNoConf, setSummaryNoConf] = useState(false); // confidential messages of the conversation were left out of the summary: the card says so (W8.3)
@@ -268,11 +267,20 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
   // the store's messages of the conversation before when it shows another one in place (Next / Previous), and a conversation with as many messages as that one left its card
   // closed - no frame, "Opening message…" for good (1.0.12 BUG-L3)
   const lastId = messages.length ? messages[messages.length - 1].id : "";
+  // Which cards are open is DERIVED in the render, not set by an effect afterwards (1.0.12, Windows QA round 12: a body blank for 0.6 s right after a card unmount): the render in which the messages
+  // change would show the new messages with the old set, so a card that is not in it was drawn closed - no body - until the effect had run and drawn it again, which a busy machine delays.
+  // The set belongs to a key (the number of messages and the last one); with another key it is the default (the last message open).
+  const openKey = `${messages.length}|${lastId}`;
+  const [openState, setOpenState] = useState<{ key: string; ids: Set<string> }>(() => ({ key: openKey, ids: new Set(lastId ? [lastId] : []) }));
+  const openIds = useMemo(() => (openState.key === openKey ? openState.ids : new Set(lastId ? [lastId] : [])), [openState, openKey, lastId]);
+  const setOpenIds = useCallback(
+    (next: Set<string> | ((s: Set<string>) => Set<string>)) => setOpenState((prev) => ({ key: openKey, ids: typeof next === "function" ? next(prev.key === openKey ? prev.ids : new Set(lastId ? [lastId] : [])) : next })),
+    [openKey, lastId],
+  );
   useEffect(() => {
     setSummary(null);
     setSummaryCut(false);
     setSummaryNoConf(false);
-    setOpenIds(new Set(lastId ? [lastId] : []));
   }, [messages.length, lastId]);
   useEffect(() => ai.cancel, []); // eslint-disable-line react-hooks/exhaustive-deps
   useKeepReadingPosition();
@@ -315,7 +323,7 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
         heal.current.at = nowMs();
         diag(`recover ${heal.current.n} why=${empty ? "no messages" : "no body"} thread=${info.threadId.slice(0, 12)} msgs=${st.length}`, true);
         if (st.length > 0) {
-          setOpenIds(new Set([st[st.length - 1].id]));
+          setOpenState({ key: `${st.length}|${st[st.length - 1].id}`, ids: new Set([st[st.length - 1].id]) });
           window.dispatchEvent(new Event("resize")); // (measure() shows a frame that was hidden until its first measurement)
         }
         void loadRef.current();

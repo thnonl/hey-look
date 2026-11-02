@@ -390,6 +390,7 @@ static | node --experimental-strip-types scripts/test-caption-colors.mjs
 ui-d | node scripts/test-popout-nav.mjs --require-browser
 ui-d | node scripts/test-popout-refresh.mjs --require-browser
 ui-d | node scripts/test-popout-heal.mjs --require-browser
+ui-d | node scripts/test-popout-gap.mjs --require-browser
 # 1.0.7 W4.7: drag and drop between windows in the dev preview with real browser drags (the rows are draggable and carry a token only; a row onto Archive / three checked rows onto a folder of the person with Undo; the folders that do not accept show nothing and move nothing; a conversation or a chip from another window through the registry; a chip of another message is attached by the picker's road, its own message and a conversation dropped on a message do nothing)
 ui-b | node scripts/test-popout-dnd.mjs --require-browser
 # 1.0.7 W4.7: the decisions of drag and drop (dropAllowed table: same mailbox, other mailbox, virtual views, Drafts, current folder, Junk / Trash / Archive / Inbox mapping; the chip rules; the token types; the payload read defensively) and the wiring (no text flavour, no conversation accepted by a message)

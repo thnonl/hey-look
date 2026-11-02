@@ -226,6 +226,7 @@
   "node scripts/test-popout-nav.mjs --require-browser": 80,
   "node scripts/test-popout-refresh.mjs --require-browser": 40,
   "node scripts/test-popout-heal.mjs --require-browser": 40,
+  "node scripts/test-popout-gap.mjs --require-browser": 40,
   "node scripts/test-popout-dnd.mjs --require-browser": 12,
   "node --experimental-strip-types scripts/test-drag-drop.mjs": 0,
   "node scripts/test-popout-kinds.mjs --require-browser": 23,
