@@ -6,7 +6,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'self'; script-src 'self'; connect-src https://api.github.com; base-uri 'self'; form-action 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>Hilfe und FAQ - Hey Look!</title>
-<meta name="description" content="Installation unter Windows, macOS und Linux, Konto hinzufügen, Tastenkombinationen, Senden rückgängig machen, Updates, Datenspeicherort, OpenPGP-Grundlagen.">
+<meta name="description" content="Installation unter Windows, macOS und Linux, Konten, Tastenkombinationen, Senden rückgängig machen, Updates, Datenspeicherort, OpenPGP und bekannte Grenzen.">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#131417" media="(prefers-color-scheme: dark)">
@@ -27,7 +27,7 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Hey Look!">
 <meta property="og:title" content="Hilfe und FAQ - Hey Look!">
-<meta property="og:description" content="Installation unter Windows, macOS und Linux, Konto hinzufügen, Tastenkombinationen, Senden rückgängig machen, Updates, Datenspeicherort, OpenPGP-Grundlagen.">
+<meta property="og:description" content="Installation unter Windows, macOS und Linux, Konten, Tastenkombinationen, Senden rückgängig machen, Updates, Datenspeicherort, OpenPGP und bekannte Grenzen.">
 <meta property="og:url" content="https://heylook.namthai.site/de/help.html">
 <meta property="og:locale" content="de_DE">
 <meta property="og:locale:alternate" content="en_US">
@@ -44,7 +44,7 @@
 <meta property="og:image:alt" content="Das Fenster des Mailclients Hey Look! mit Posteingang und dem englischen Slogan „Mail without the rent“.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Hilfe und FAQ - Hey Look!">
-<meta name="twitter:description" content="Installation unter Windows, macOS und Linux, Konto hinzufügen, Tastenkombinationen, Senden rückgängig machen, Updates, Datenspeicherort, OpenPGP-Grundlagen.">
+<meta name="twitter:description" content="Installation unter Windows, macOS und Linux, Konten, Tastenkombinationen, Senden rückgängig machen, Updates, Datenspeicherort, OpenPGP und bekannte Grenzen.">
 <meta name="twitter:image" content="https://heylook.namthai.site/assets/og-image.jpg">
 <meta name="twitter:image:alt" content="Das Fenster des Mailclients Hey Look! mit Posteingang und dem englischen Slogan „Mail without the rent“.">
 <link rel="icon" href="../assets/icon-48.png" sizes="48x48" type="image/png">
@@ -62,7 +62,7 @@
     <a class="brand" href="index.html" aria-label="Hey Look! Startseite"><svg aria-hidden="true" focusable="false"><use href="#hl-mark"/></svg><span>Hey Look!</span></a>
     <nav id="site-nav" class="nav" aria-label="Hauptnavigation">
       <a href="index.html#story">Tour</a>
-      <a href="index.html#free">Lieferumfang</a>
+      <a href="index.html#free">Kostenlos</a>
       <a href="features.html">Funktionen</a>
       <a href="help.html" aria-current="page">Hilfe</a>
       <a href="privacy.html">Datenschutz</a>
@@ -93,7 +93,7 @@
   </div>
 </header>
 <main id="main">
-<section class="page-head"><div class="wrap"><p class="kicker">Hilfe</p><h1>Hilfe und FAQ</h1><p class="lead">Kurze Antworten auf häufige Fragen. Öffnen Sie eine Frage, um sie zu lesen.</p></div></section>
+<section class="page-head"><div class="wrap"><p class="kicker">Hilfe</p><h1>Hilfe und FAQ</h1><p class="lead">Öffnen Sie eine Frage, um die Antwort zu lesen.</p></div></section>
 <div class="wrap layout helppage"><aside class="toc" aria-label="Auf dieser Seite"><h2>Auf dieser Seite</h2><ol><li><a href="#g-install">Installation und erster Start</a></li><li><a href="#g-accounts">Konten und Postfächer</a></li><li><a href="#g-daily">Alltägliche Nutzung</a></li><li><a href="#g-privacy">Datenschutz und wo Ihre Daten liegen</a></li><li><a href="#g-pgp">OpenPGP-Grundlagen</a></li><li><a href="#g-report">Ein Problem melden</a></li><li><a href="#g-limits">Bekannte Einschränkungen</a></li></ol></aside>
 <div class="help-main">
   <div class="hq-tools" id="hq-tools" hidden>
@@ -103,31 +103,31 @@
   </div>
   <div id="hq-list">
   <section class="hq-group" id="g-install" aria-labelledby="g-install-h"><h2 id="g-install-h">Installation und erster Start</h2>
-<details class="hq" id="windows"><summary>Windows warnt vor dem ersten Start</summary><div class="hq-a"><p>Die Installationsprogramme sind noch nicht codesigniert. Wenn SmartScreen erscheint, wählen Sie <strong>Weitere Informationen</strong> und dann <strong>Trotzdem ausführen</strong>. Nehmen Sie die .exe; die .msi ist für verwaltete Installationen.</p></div></details>
-<details class="hq" id="macos"><summary>macOS öffnet die App beim ersten Mal nicht</summary><div class="hq-a"><p>Die App ist nicht von Apple notarisiert, daher blockiert macOS den ersten Start einmalig. Folgen Sie den <a href="download.html#install-notes">drei Schritten auf der Download-Seite</a>; Updates starten danach normal.</p></div></details>
+<details class="hq" id="windows"><summary>Windows warnt vor dem ersten Start</summary><div class="hq-a"><p>Windows kann eine SmartScreen-Warnung zeigen, weil das Installationsprogramm nicht mit einem Herausgeberzertifikat signiert ist. Wählen Sie <strong>Weitere Informationen</strong> und dann <strong>Trotzdem ausführen</strong>. Verwenden Sie die .exe; die .msi ist für Unternehmen gedacht, die Software zentral installieren.</p></div></details>
+<details class="hq" id="macos"><summary>macOS öffnet die App beim ersten Mal nicht</summary><div class="hq-a"><p>Apple hat die App nicht notarisiert, daher blockiert macOS sie beim ersten Mal. Folgen Sie einmal den drei Schritten auf der <a href="download.html#install-notes">Download-Seite</a>; danach öffnen sich die App und ihre Updates normal.</p></div></details>
 <details class="hq" id="macos-print"><summary>macOS fragt beim Drucken nach dem lokalen Netzwerk</summary><div class="hq-a"><p>Beim ersten Drucken fragt macOS möglicherweise, ob Hey Look! Geräte in Ihrem lokalen Netzwerk finden darf. So findet das Druckfenster Ihre Drucker; Hey Look! nutzt das lokale Netzwerk für nichts anderes.</p></div></details>
-<details class="hq" id="linux"><summary>Linux: welche Datei, und was sie braucht</summary><div class="hq-a"><p>Das AppImage läuft auf jeder Distribution; die .deb ist für Debian und Ubuntu, die .rpm für Fedora und openSUSE. Passwörter brauchen GNOME Keyring oder KWallet, laufend und entsperrt, und Links öffnen sich mit <code>xdg-open</code>.</p></div></details>
+<details class="hq" id="linux"><summary>Linux: welche Datei, und was sie braucht</summary><div class="hq-a"><p>Das AppImage startet ohne Installation; die .deb ist für Debian und Ubuntu, die .rpm für Fedora und openSUSE. Um Passwörter zu speichern, müssen GNOME Keyring oder KWallet laufen.</p></div></details>
   </section>
   <section class="hq-group" id="g-accounts" aria-labelledby="g-accounts-h"><h2 id="g-accounts-h">Konten und Postfächer</h2>
-<details class="hq" id="add" open><summary>Ein Konto hinzufügen</summary><div class="hq-a"><p>Melden Sie sich mit Google oder Microsoft auf der eigenen Seite des Anbieters an oder fügen Sie ein beliebiges anderes Konto per IMAP und SMTP hinzu: Hey Look! ermittelt die Server aus Ihrer Adresse. iCloud und Yahoo brauchen ein App-Passwort von Ihrer Kontoseite. Einige Geschäfts- und Schulkonten von Microsoft brauchen einen Administrator, der IMAP und SMTP freigibt. Bevor Sie das Konto hinzufügen, prüft „Verbindung testen“ beide Server und zeigt Ihnen, welche Einstellung Sie korrigieren müssen.</p></div></details>
-<details class="hq" id="google-review"><summary>Google meldet „Google hat diese App nicht überprüft“, oder die Anmeldung mit Google funktioniert nicht mehr</summary><div class="hq-a"><p>Hey Look! hat die Prüfung durch Google noch nicht abgeschlossen. Google zeigt diese Warnung bei jeder App in der Prüfung; mit Ihrem Konto stimmt alles.</p>
+<details class="hq" id="add" open><summary>Ein Konto hinzufügen</summary><div class="hq-a"><p>Melden Sie sich auf der Seite des Anbieters mit Google oder Microsoft an oder fügen Sie ein anderes Konto mit seiner E-Mail-Adresse und seinem Passwort hinzu; Hey Look! ermittelt die Einstellungen. iCloud und Yahoo brauchen ein App-Passwort, das Sie auf deren Kontoseite erstellen. Einige Microsoft-Konten für Arbeit und Schule brauchen die Erlaubnis eines Administrators. „Verbindung testen“ zeigt Ihnen, wenn eine Einstellung falsch ist.</p></div></details>
+<details class="hq" id="google-review"><summary>Google meldet „Google hat diese App nicht überprüft“, oder die Anmeldung mit Google funktioniert nicht mehr</summary><div class="hq-a"><p>Hey Look! hat die Prüfung durch Google noch nicht abgeschlossen. Google zeigt diese Warnung, bis Google die Prüfung einer App abgeschlossen hat; an Ihrem Konto liegt es nicht.</p>
 <p>Wählen Sie zum Fortfahren <strong>Erweitert</strong> und dann <strong>Zu Hey Look! wechseln (unsicher)</strong> und erlauben Sie die Berechtigungen, wenn Sie damit einverstanden sind (siehe <a href="google-data.html">Nutzung von Google-API-Daten</a>).</p>
 <p>Funktioniert die Anmeldung mit Google nicht mehr, fügen Sie stattdessen ein privates Gmail-Konto mit einem <a href="https://myaccount.google.com/apppasswords" rel="noopener noreferrer">App-Passwort</a> hinzu, als IMAP-Konto mit Gmail als Anbieter.</p></div></details>
-<details class="hq" id="push"><summary>Kommen neue E-Mails sofort an?</summary><div class="hq-a"><p>Ja, für den Posteingang und bis zu drei Ordner unter „Favoriten“, auf Servern mit Push (IMAP IDLE), solange Hey Look! läuft. Andere Ordner und Server ohne Push werden standardmäßig alle 2 Minuten abgefragt.</p></div></details>
+<details class="hq" id="push"><summary>Kommen neue E-Mails sofort an?</summary><div class="hq-a"><p>Ja, für den Posteingang und bis zu drei Ordner unter „Favoriten“, wenn Ihr Mailserver das unterstützt und Hey Look! läuft. Andere Ordner werden regelmäßig abgefragt; wie oft, legen Sie unter Einstellungen &gt; Postfächer &gt; Lesen &amp; Synchronisierung fest.</p></div></details>
   </section>
   <section class="hq-group" id="g-daily" aria-labelledby="g-daily-h"><h2 id="g-daily-h">Alltägliche Nutzung</h2>
 <details class="hq" id="keys"><summary>Tastenkombinationen</summary><div class="hq-a"><p><kbd>Ctrl</kbd> <kbd>K</kbd> (<kbd>Cmd</kbd> <kbd>K</kbd> unter macOS) öffnet die Befehlsleiste. In der E-Mail-Liste: <kbd>c</kbd> neue E-Mail, <kbd>/</kbd> Suche, <kbd>j</kbd> und <kbd>k</kbd> navigieren, <kbd>e</kbd> archivieren, <kbd>#</kbd> löschen, <kbd>s</kbd> zurückstellen, <kbd>r</kbd> antworten.</p></div></details>
-<details class="hq" id="undo"><summary>Senden rückgängig machen und Später senden</summary><div class="hq-a"><p>Nach „Senden“ wartet die Nachricht standardmäßig 10 Sekunden (bis zu 60), sodass Sie sie zurückholen können; ein normales Beenden sendet sie sofort. Später senden setzt voraus, dass Hey Look! zu diesem Zeitpunkt läuft; eine Nachricht, die fällig war, während es geschlossen war, wird standardmäßig beim nächsten Start gesendet.</p></div></details>
-<details class="hq" id="updates"><summary>Updates</summary><div class="hq-a"><p>Eine von dieser Website installierte Kopie prüft beim Start bei GitHub auf ein Update und, höchstens alle 2 Stunden, wenn das Fenster wieder erscheint; nach einem Fehler versucht es nach 15 Minuten erneut. Sie können das in den Einstellungen ausschalten. Es wird nichts heruntergeladen, bis Sie zustimmen, und nur ein korrekt signiertes Update wird installiert. Die .msi verlangt Administratorrechte, die .deb und .rpm Ihr Passwort.</p><p>Hey Look! gibt es auch im Microsoft Store. Eine aus dem Store installierte Kopie wird nur vom Store aktualisiert: Sie hat keinen eigenen Updater und prüft nicht bei GitHub, und unter Einstellungen &gt; Info steht „Updates kommen über den Microsoft Store.“</p><p>Die Store-Version hat ihre eigenen E-Mails, Konten und Einstellungen, getrennt von einer Kopie, die von dieser Website installiert wurde. Verwenden Sie auf einem Computer nur eine von beiden, nicht beide.</p></div></details>
-<details class="hq" id="language"><summary>Die Sprache ändern</summary><div class="hq-a"><p>Wählen Sie sie in den Einstellungen unter „Allgemein“. Englisch ist die Standardsprache; Hey Look! richtet sich nicht nach der Sprache Ihres Systems.</p></div></details>
+<details class="hq" id="undo"><summary>Senden rückgängig machen und Später senden</summary><div class="hq-a"><p>Nachdem Sie auf „Senden“ gedrückt haben, wartet die Nachricht ein paar Sekunden, damit Sie sie zurückholen können. Wie lange, legen Sie in den Einstellungen fest. Später senden funktioniert nur, wenn Hey Look! zu dem Zeitpunkt läuft, den Sie gewählt haben; war es geschlossen, geht die Nachricht beim nächsten Öffnen der App los.</p></div></details>
+<details class="hq" id="updates"><summary>Updates</summary><div class="hq-a"><p>Eine von dieser Website installierte Kopie sucht selbstständig nach Updates und installiert eines erst, nachdem Sie zugestimmt haben. Sie können das unter Einstellungen &gt; Info ausschalten. Unter Windows verlangt die .msi Administratorrechte; unter Linux fragen die .deb und .rpm nach Ihrem Passwort.</p><p>Hey Look! gibt es auch im Microsoft Store, und der Store installiert die Updates.</p><p>Die Store-Version hat ihre eigenen E-Mails, Konten und Einstellungen. Verwenden Sie auf einem Computer nur eine der beiden Versionen, nicht beide.</p></div></details>
+<details class="hq" id="language"><summary>Die Sprache ändern</summary><div class="hq-a"><p>Wählen Sie sie unter Einstellungen &gt; Allgemein. Englisch ist die Standardsprache; Hey Look! richtet sich nicht nach der Sprache Ihres Systems.</p></div></details>
   </section>
   <section class="hq-group" id="g-privacy" aria-labelledby="g-privacy-h"><h2 id="g-privacy-h">Datenschutz und wo Ihre Daten liegen</h2>
-<details class="hq" id="where"><summary>Wo liegen meine Daten?</summary><div class="hq-a"><p>E-Mails und Einstellungen liegen in einem lokalen Ordner: <code>%APPDATA%\thnonl.heylook</code> unter Windows, <code>~/Library/Application Support/thnonl.heylook</code> unter macOS, <code>~/.local/share/thnonl.heylook</code> unter Linux. Passwörter und Token liegen im Anmeldeinformationsspeicher Ihres Systems; geheime OpenPGP-Schlüssel in der Datenbank der App, geschützt durch Ihre Passphrase.</p></div></details>
-<details class="hq" id="leaves"><summary>Was verlässt meinen Computer?</summary><div class="hq-a"><p>Nur das, was Sie nutzen: Ihre Mailserver, die Anmeldung und der Kalender von Google oder Microsoft, ein CalDAV-Server, falls Sie einen einrichten, die Serversuche beim Hinzufügen eines Kontos, GitHub für Updates, Ihr KI-Endpunkt, Bilder, die angezeigt werden (wenn Sie sie erlauben oder automatisch bei Personen, denen Sie geschrieben haben, und bei bekannten Diensten), und Abbestell-Anfragen. Analytics-Code gibt es nicht. Die <a href="privacy.html">Datenschutzerklärung</a> listet jede Verbindung auf.</p></div></details>
-<details class="hq" id="remove"><summary>Deinstallieren und alles entfernen</summary><div class="hq-a"><p>Entfernen Sie Ihre Konten in den Einstellungen (die E-Mails bleiben auf dem Server), deinstallieren Sie die App und löschen Sie dann ihren Datenordner sowie die Einträge, deren Name mit <code>heylook</code> beginnt, im Anmeldeinformationsspeicher Ihres Systems.</p></div></details>
+<details class="hq" id="where"><summary>Wo liegen meine Daten?</summary><div class="hq-a"><p>E-Mails und Einstellungen liegen in einem lokalen Ordner: <code>%APPDATA%\thnonl.heylook</code> unter Windows, <code>~/Library/Application Support/thnonl.heylook</code> unter macOS, <code>~/.local/share/thnonl.heylook</code> unter Linux. Passwörter und Anmeldetoken liegen im Schlüsselbund Ihres Systems; geheime OpenPGP-Schlüssel in der Datenbank der App, geschützt durch Ihre Passphrase.</p></div></details>
+<details class="hq" id="leaves"><summary>Was verlässt meinen Computer?</summary><div class="hq-a"><p>Nur das, was Sie nutzen: Ihre Mailserver; Google oder Microsoft, wenn Sie sich anmelden oder einen Kalender synchronisieren; ein Kalenderserver, falls Sie einen einrichten; eine Abfrage Ihrer E-Mail-Einstellungen, wenn Sie ein Konto hinzufügen; GitHub für Updates; der KI-Dienst, den Sie eingerichtet haben; die Server, die angezeigte Bilder bereitstellen; und die Seiten zum Abbestellen, wenn Sie etwas abbestellen. Analyse gibt es nicht. Die <a href="privacy.html">Datenschutzerklärung</a> listet jede Verbindung auf.</p></div></details>
+<details class="hq" id="remove"><summary>Deinstallieren und alles entfernen</summary><div class="hq-a"><p>Entfernen Sie Ihre Konten in den Einstellungen (die E-Mails bleiben auf dem Server), deinstallieren Sie die App und löschen Sie dann ihren Datenordner sowie die gespeicherten Hey-Look!-Passwörter aus dem Schlüsselbund Ihres Systems.</p></div></details>
   </section>
   <section class="hq-group" id="g-pgp" aria-labelledby="g-pgp-h"><h2 id="g-pgp-h">OpenPGP-Grundlagen</h2>
-<details class="hq" id="pgp1"><summary>Einen Schlüssel erzeugen, verschlüsseln, signieren</summary><div class="hq-a"><p>Erzeugen Sie in den Einstellungen einen Schlüssel, geschützt durch eine Passphrase, und speichern Sie die angebotene Sicherung. Schalten Sie beim Schreiben Verschlüsseln oder Signieren ein; Hey Look! zeigt, ob jeder Empfänger einen Schlüssel hat. Noch nicht mit anderer OpenPGP-Software getestet.</p></div></details>
+<details class="hq" id="pgp1"><summary>Einen Schlüssel erzeugen, verschlüsseln, signieren</summary><div class="hq-a"><p>Erzeugen Sie in den Einstellungen einen Schlüssel und schützen Sie ihn mit einer Passphrase. Speichern Sie die angebotene Sicherung. Schalten Sie beim Schreiben Verschlüsseln oder Signieren ein; Hey Look! zeigt Ihnen, für welche Empfänger Sie verschlüsseln können.</p></div></details>
   </section>
   <section class="hq-group" id="g-report" aria-labelledby="g-report-h"><h2 id="g-report-h">Ein Problem melden</h2>
 <details class="hq" id="bug"><summary>Ein Fehler oder eine Funktionsidee</summary><div class="hq-a"><p>Öffnen Sie ein Issue auf <a href="https://github.com/thnonl/hey-look/issues" rel="noopener">GitHub</a> und nennen Sie Ihr System und die Version von Hey Look! (zu sehen in den Einstellungen unter „Info“). Issues sind öffentlich, posten Sie daher niemals private E-Mails, Passwörter oder Token.</p></div></details>
@@ -135,22 +135,22 @@
 <details class="hq" id="ai-report"><summary>Inhalte des KI-Assistenten</summary><div class="hq-a"><p>Der KI-Assistent sendet Ihre Anfrage an den KI-Dienst, den Sie unter Einstellungen &gt; KI-Assistent eingerichtet haben, und dieser Dienst schreibt die Antwort. Hey Look! stellt das KI-Modell weder bereit noch kontrolliert es, und von einer KI geschriebener Text kann falsch sein.</p><p>Wenn der KI-Assistent etwas Schädliches, Beleidigendes oder Rechtswidriges anzeigt, sagen Sie uns Bescheid: Eröffnen Sie ein Issue auf GitHub oder schreiben Sie an namth.onl@gmail.com. Nennen Sie den KI-Dienst und das Modell und fügen Sie niemals private E-Mails oder Ihren API-Schlüssel bei. Melden Sie es bitte auch Ihrem KI-Dienst.</p></div></details>
   </section>
   <section class="hq-group" id="g-limits" aria-labelledby="g-limits-h"><h2 id="g-limits-h">Bekannte Einschränkungen</h2>
-<details class="hq" id="lim"><summary>Was Hey Look! noch nicht kann</summary><div class="hq-a"><p>Die Installationsprogramme sind nicht codesigniert, und beim Schreiben gibt es keinen reinen Nur-Text-Modus. Die vollständige Liste steht auf der <a href="features.html#limits">Seite „Funktionen“</a>.</p></div></details>
+<details class="hq" id="lim"><summary>Was Hey Look! noch nicht kann</summary><div class="hq-a"><p>Die Installationsprogramme sind nicht mit einem Herausgeberzertifikat signiert, Ordner lassen sich in der App nicht umbenennen oder löschen, und beim Schreiben gibt es keinen reinen Nur-Text-Modus. Die <a href="features.html#limits">Seite „Funktionen“</a> listet die Grenzen.</p></div></details>
   </section>
   </div>
   <p class="hq-none" id="hq-none" hidden>Keine Frage passt. Versuchen Sie ein Wort, oder <a href="https://github.com/thnonl/hey-look/issues" rel="noopener">fragen Sie auf GitHub</a>.</p>
-  <p class="hq-foot">Nicht fündig geworden? Schreiben Sie an <a href="mailto:namth.onl@gmail.com">namth.onl@gmail.com</a>, oder sehen Sie unter <a href="support.html">Das Projekt unterstützen</a> nach, wenn Sie helfen möchten.</p>
+  <p class="hq-foot">Nicht fündig geworden? Schreiben Sie an <a href="mailto:namth.onl@gmail.com">namth.onl@gmail.com</a>.</p>
 </div></div>
 </main>
 <footer class="ftr">
   <div class="wrap">
-    <p class="thanks">Danke, dass Sie Hey Look! nutzen. Es bleibt kostenlos und Open Source, und die Unterstützung ist freiwillig. <a href="support.html#support">Das Projekt unterstützen</a></p>
+    <p class="thanks">Danke, dass Sie Hey Look! nutzen. Es bleibt kostenlos und Open Source.</p>
     <div class="ftr-grid">
       <div class="ftr-brand"><a class="brand" href="index.html" aria-label="Hey Look! Startseite"><svg aria-hidden="true" focusable="false"><use href="#hl-mark"/></svg><span>Hey Look!</span></a>
-        <p>Ein Desktop-E-Mail-Programm für Windows, macOS und Linux. Kostenlos, werbefrei und Open Source (MIT).</p></div>
-      <div><h2>Produkt</h2><ul><li><a href="features.html">Funktionen</a></li><li><a href="download.html">Download</a></li><li><a href="https://github.com/thnonl/hey-look/releases" rel="noopener">Versionshinweise</a></li><li><a href="support.html#support">Das Projekt unterstützen</a></li></ul></div>
+        <p>Ein Desktop-E-Mail-Programm für Windows, macOS und Linux. Kostenlos und Open Source (MIT), ohne Werbung.</p></div>
+      <div><h2>Produkt</h2><ul><li><a href="features.html">Funktionen</a></li><li><a href="download.html">Download</a></li><li><a href="https://github.com/thnonl/hey-look/releases" rel="noopener">Versionshinweise</a></li><li><a href="support.html#support">Unterstützen</a></li></ul></div>
       <div><h2>Vertrauen</h2><ul><li><a href="privacy.html">Datenschutzerklärung</a></li><li><a href="terms.html">Nutzungsbedingungen</a></li><li><a href="google-data.html">Nutzung von Google-API-Daten</a></li><li><a href="security.html">Sicherheit</a></li></ul></div>
-      <div><h2>Hilfe</h2><ul><li><a href="help.html">Hilfe und FAQ</a></li><li><a href="support.html">Das Projekt unterstützen</a></li><li><a href="https://github.com/thnonl/hey-look/issues" rel="noopener">Problem melden</a></li><li><a href="https://github.com/thnonl/hey-look" rel="noopener">Quellcode auf GitHub</a></li></ul></div>
+      <div><h2>Hilfe</h2><ul><li><a href="help.html">Hilfe und FAQ</a></li><li><a href="support.html">Unterstützen</a></li><li><a href="https://github.com/thnonl/hey-look/issues" rel="noopener">Problem melden</a></li><li><a href="https://github.com/thnonl/hey-look" rel="noopener">Quellcode auf GitHub</a></li></ul></div>
     </div>
     <p class="limited">Die Verwendung von Informationen, die Hey Look! aus Google-APIs erhält, entspricht der <a href="https://developers.google.com/terms/api-services-user-data-policy" rel="noopener noreferrer">Google API Services User Data Policy</a>, einschließlich der Limited-Use-Anforderungen. <a href="google-data.html">Details</a></p>
     <div class="fine"><span>MIT-Lizenz. Copyright &copy; 2026 thnonl.</span><span>Nicht mit Google, Microsoft oder Apple verbunden. Produktnamen gehören ihren jeweiligen Inhabern.</span></div>
