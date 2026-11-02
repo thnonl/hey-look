@@ -1,5 +1,5 @@
 //! 1.0.12: the Inbox "Other" tab of the combined view (3 mailboxes, tens of thousands of messages each) must list quickly.
-//! `bench_other_tab` (ignored; `cargo test --release bench_other_tab -- --ignored --nocapture`) prints the timings, the plain test checks a generous budget.
+//! `bench_other_tab` (ignored; `cargo test --release --lib bench_other_tab -- --ignored --nocapture`) prints the timings, the plain test checks a generous budget.
 use super::*;
 use std::time::Instant;
 
