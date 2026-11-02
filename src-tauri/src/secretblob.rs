@@ -14,7 +14,7 @@
 //! (the one place that builds keyring entries). Only macOS builds that use the system store (not a QA file-store kit) use it.
 #![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
 
 /// Account of the one item.
@@ -38,6 +38,8 @@ struct State {
     /// The blob item exists but is not our JSON: nothing is overwritten until a fresh write.
     corrupt: bool,
     map: BTreeMap<String, String>,
+    /// Secrets whose old item was asked and does not exist (this run): not asked again (an existence check of an unset secret costs one lookup, not one per call).
+    absent: BTreeSet<String>,
 }
 
 pub struct Blobbed<I: Items> {
@@ -48,7 +50,7 @@ pub struct Blobbed<I: Items> {
 
 impl<I: Items> Blobbed<I> {
     pub fn new(items: I, note: fn(&str)) -> Self {
-        Blobbed { items, state: Mutex::new(State { loaded: false, corrupt: false, map: BTreeMap::new() }), note }
+        Blobbed { items, state: Mutex::new(State { loaded: false, corrupt: false, map: BTreeMap::new(), absent: BTreeSet::new() }), note }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
@@ -62,9 +64,12 @@ impl<I: Items> Blobbed<I> {
             return Ok(());
         }
         match self.items.get_blob()? {
-            None => {}
+            None => (self.note)("read the secrets item: not there yet"),
             Some(text) => match serde_json::from_str::<BTreeMap<String, String>>(&text) {
-                Ok(m) => st.map = m,
+                Ok(m) => {
+                    (self.note)(&format!("read the secrets item: {} secret(s)", m.len()));
+                    st.map = m;
+                }
                 Err(_) => {
                     st.corrupt = true;
                     (self.note)("the secrets item is not readable as JSON; it is left as it is, the old items are used");
@@ -86,8 +91,20 @@ impl<I: Items> Blobbed<I> {
         if let Some(v) = st.map.get(user) {
             return Ok(v.clone());
         }
+        if st.absent.contains(user) {
+            return Err(keyring::Error::NoEntry);
+        }
         // not in the blob: the old item (may prompt once), copied into the blob; the old item stays
-        let v = self.items.get_old(user)?;
+        let v = match self.items.get_old(user) {
+            Ok(v) => v,
+            Err(keyring::Error::NoEntry) => {
+                st.absent.insert(user.to_string());
+                (self.note)(&format!("{user}: no secret (old item asked once)"));
+                return Err(keyring::Error::NoEntry);
+            }
+            Err(e) => return Err(e),
+        };
+        (self.note)(&format!("{user}: read from its old item, copied into the secrets item"));
         st.map.insert(user.to_string(), v.clone());
         if !st.corrupt {
             if let Err(e) = self.persist(&st) {
@@ -104,6 +121,7 @@ impl<I: Items> Blobbed<I> {
             return self.items.set_old(user, value).map_err(|_| e);
         }
         st.map.insert(user.to_string(), value.to_string());
+        st.absent.remove(user);
         let was_corrupt = st.corrupt;
         match self.persist(&st) {
             Ok(()) => {
@@ -124,6 +142,7 @@ impl<I: Items> Blobbed<I> {
         let mut st = self.lock();
         let loaded = self.ensure_loaded(&mut st).is_ok();
         let in_blob = loaded && st.map.remove(user).is_some();
+        st.absent.insert(user.to_string());
         if in_blob && !st.corrupt {
             if let Err(e) = self.persist(&st) {
                 (self.note)(&format!("removing a secret from the secrets item failed ({e})"));
@@ -228,6 +247,33 @@ mod tests {
         assert_eq!(got, ["1", "2", "3", "1", "2", "3"]);
         assert_eq!(m.blob_reads.load(Ordering::SeqCst), 1, "one read of the item = one prompt");
         assert_eq!(m.old_reads.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn an_existence_check_of_a_secret_in_the_blob_reads_no_old_item_and_the_ai_key_after_migration_reads_none() {
+        let m = with_old(&[("secret:ai_key", "k"), ("acc1", "pw1")]);
+        let s = store(&m);
+        assert_eq!(s.get("secret:ai_key").unwrap(), "k"); // first run after the update: the old item is read once and copied
+        assert_eq!(m.old_reads.load(Ordering::SeqCst), 1);
+        // the next runs: a fresh store over the same items (a restart), the Settings check and the send path
+        let s2 = store(&m);
+        let before = m.old_reads.load(Ordering::SeqCst);
+        assert!(s2.get("secret:ai_key").is_ok(), "is the key set?");
+        assert!(s2.get("secret:ai_key").is_ok(), "the key itself");
+        assert_eq!(m.old_reads.load(Ordering::SeqCst), before, "no old item is touched once the secret is in the blob");
+        assert_eq!(m.blob_reads.load(Ordering::SeqCst), 2, "one blob read per run");
+    }
+
+    #[test]
+    fn a_secret_that_is_not_set_asks_its_old_item_once_per_run() {
+        let m = with_old(&[]);
+        let s = store(&m);
+        for _ in 0..5 {
+            assert!(matches!(s.get("acc1:smtp"), Err(keyring::Error::NoEntry)));
+        }
+        assert_eq!(m.old_reads.load(Ordering::SeqCst), 1);
+        s.set("acc1:smtp", "x").unwrap();
+        assert_eq!(s.get("acc1:smtp").unwrap(), "x", "a later set is seen");
     }
 
     #[test]
