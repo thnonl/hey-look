@@ -6,7 +6,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'self'; script-src 'self'; connect-src https://api.github.com; base-uri 'self'; form-action 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>安全 - Hey Look!</title>
-<meta name="description" content="Hey Look!如何保护您的邮件、更新如何签名、目前已知的限制（安装包暂时没有进行代码签名），以及如何通过GitHub私下报告安全漏洞。">
+<meta name="description" content="Hey Look! 如何保护您的邮件：加密连接、在浏览器中登录、经过签名的更新，以及已知的限制（安装程序没有签名）和如何报告安全漏洞。">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#131417" media="(prefers-color-scheme: dark)">
@@ -27,7 +27,7 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Hey Look!">
 <meta property="og:title" content="安全 - Hey Look!">
-<meta property="og:description" content="Hey Look!如何保护您的邮件、更新如何签名、目前已知的限制（安装包暂时没有进行代码签名），以及如何通过GitHub私下报告安全漏洞。">
+<meta property="og:description" content="Hey Look! 如何保护您的邮件：加密连接、在浏览器中登录、经过签名的更新，以及已知的限制（安装程序没有签名）和如何报告安全漏洞。">
 <meta property="og:url" content="https://heylook.namthai.site/zh/security.html">
 <meta property="og:locale" content="zh_CN">
 <meta property="og:locale:alternate" content="en_US">
@@ -44,7 +44,7 @@
 <meta property="og:image:alt" content="Hey Look! 邮件客户端窗口，显示收件箱，旁边是英文标语“Mail without the rent”。">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="安全 - Hey Look!">
-<meta name="twitter:description" content="Hey Look!如何保护您的邮件、更新如何签名、目前已知的限制（安装包暂时没有进行代码签名），以及如何通过GitHub私下报告安全漏洞。">
+<meta name="twitter:description" content="Hey Look! 如何保护您的邮件：加密连接、在浏览器中登录、经过签名的更新，以及已知的限制（安装程序没有签名）和如何报告安全漏洞。">
 <meta name="twitter:image" content="https://heylook.namthai.site/assets/og-image.jpg">
 <meta name="twitter:image:alt" content="Hey Look! 邮件客户端窗口，显示收件箱，旁边是英文标语“Mail without the rent”。">
 <link rel="icon" href="../assets/icon-48.png" sizes="48x48" type="image/png">
@@ -62,7 +62,7 @@
     <a class="brand" href="index.html" aria-label="Hey Look!首页"><svg aria-hidden="true" focusable="false"><use href="#hl-mark"/></svg><span>Hey Look!</span></a>
     <nav id="site-nav" class="nav" aria-label="主导航">
       <a href="index.html#story">导览</a>
-      <a href="index.html#free">您能得到什么</a>
+      <a href="index.html#free">免费</a>
       <a href="features.html">功能</a>
       <a href="help.html">帮助</a>
       <a href="privacy.html">隐私</a>
@@ -93,29 +93,28 @@
   </div>
 </header>
 <main id="main">
-<section class="page-head"><div class="wrap"><p class="kicker">安全</p><h1>我们的安全措施及其局限</h1><p class="lead">最后更新：2026年10月30日。只讲事实。不承诺任何结果：没有人能做出这样的承诺。</p><div class="callout"><p>说明：本页是为方便阅读而提供的中文译文。如中文译文与英文版本有任何出入，以英文版本为准。</p></div></div></section>
-<div class="wrap layout"><aside class="toc" aria-label="本页内容"><h2>本页内容</h2><ol><li><a href="#protect">Hey Look!如何保护您</a></li><li><a href="#signed">更新经过签名</a></li><li><a href="#codesign">安装程序没有经过代码签名</a></li><li><a href="#report">报告漏洞</a></li><li><a href="#limit">已知限制</a></li></ol></aside>
+<section class="page-head"><div class="wrap"><p class="kicker">安全</p><h1>安全：应用做了什么，<em>以及它的局限</em></h1><p class="lead">最后更新：2026年11月1日。本页只列出事实，不承诺任何结果。</p></div></section>
+<div class="wrap layout"><aside class="toc" aria-label="本页内容"><h2>本页内容</h2><ol><li><a href="#protect">Hey Look!如何保护您</a></li><li><a href="#signed">更新经过签名</a></li><li><a href="#codesign">安装程序尚未签名</a></li><li><a href="#report">报告漏洞</a></li><li><a href="#limit">已知限制</a></li></ol></aside>
 <article class="prose">
 
 <h2 id="protect">Hey Look!如何保护您</h2>
-<ul><li>服务器必须提供TLS或STARTTLS。只提供未加密连接的服务器无法添加。</li><li>Google和Microsoft登录在服务商自己的窗口中使用带PKCE的OAuth 2.0。应用保存的是令牌，而不是您的密码。</li><li>密码、OAuth令牌和AI密钥保存在系统的凭据存储中。</li><li>OpenPGP私钥是例外：它们存放在应用的数据库中，用您的密码短语加锁，不在凭据存储里。多次输入错误的密码短语后，需等待30秒才能解锁。</li><li>邮件显示在一个不运行脚本、采用严格内容策略的框架中，没有iframe、object、embed或表单。</li><li>图片在您允许之前一直隐藏，因此跟踪像素无法加载。隐藏的图片会显示“为保护隐私已隐藏图片”占位符：右键点击（Mac上为按住Control键点击）或按Enter键，即可只显示这一张图片。您也可以在一封邮件中显示所有图片、始终显示发件人列表中的图片，或在每封邮件中显示图片。</li><li>图片也会自动显示：来自您曾写信的人和内置知名服务列表中的发件人的邮件，但只在邮件通过发件人验证时：您的邮件服务商在邮件中记录的结果，必须显示发件人地址中域名的DKIM或DMARC验证通过（仅SPF不够）。垃圾邮件、加密邮件、您曾写信的人发来的邮件列表邮件中，以及发件人验证失败时，图片都不会自动显示。使用“不再显示此发件人的图片”可为某个发件人关闭此功能。在<strong>设置 &gt; 邮箱 &gt; 阅读与同步</strong>中，您可以为所有邮箱关闭此功能，查看您已为其关闭此功能的发件人列表并将发件人从中移除，还可以查看内置的服务列表。</li><li>如果链接上显示的文字是一个网址，但实际指向另一个主机，会请您确认。这不是通用的钓鱼检测。</li><li>打开可执行文件或脚本附件前会先询问。</li><li>“信任此证书”默认关闭。它是按账户设置的选项，会为该账户关闭证书检查。</li><li>应用自己的窗口在内容安全策略（Content Security Policy）下运行：只运行应用自己的脚本（没有内联或远程脚本），窗口只连接应用本身。</li><li>从网页或其他程序粘贴的文本会被清理：脚本、表单和事件处理程序不会带入，写邮件时也不会下载远程图片。</li></ul>
-<h2 id="signed">更新经过签名</h2><p>应用会到GitHub检查是否有新版本，并且只接受形如<code>https://github.com/thnonl/hey-look/releases/download/&lt;tag&gt;/&lt;file&gt;</code>的下载地址。它会用应用内置的公钥验证minisign签名，并在一个可以取消的5秒倒计时后重启。在所有系统上，只有在您同意之后才会下载或安装任何内容。Windows的.msi随后会要求管理员权限，Linux的.deb和.rpm会要求输入您的密码。</p>
-<h2 id="codesign">安装程序尚未经过代码签名</h2><p>Windows SmartScreen和macOS Gatekeeper会在首次启动时发出警告，因为Windows和macOS的安装程序没有经过代码签名，macOS版也没有经过公证。首次启动的步骤见<a href="download.html#install-notes">下载页面</a>。我们希望将来能为安装程序签名；想了解怎样才能帮上忙，请看<a href="support.html">支持</a>。macOS应用使用项目自己的自签名证书签名（背后没有Apple账户）；这让钥匙串在更新后仍能认出这个应用，但这不是公证。</p>
-<h2 id="report">报告漏洞</h2><p>请通过GitHub私下报告安全问题：打开<a href="https://github.com/thnonl/hey-look/security" rel="noopener">github.com/thnonl/hey-look/security</a>并选择“Report a vulnerability”（报告漏洞）。请不要公开提交议题。您也可以发邮件到<a href="mailto:namth.onl@gmail.com">namth.onl@gmail.com</a>。Hey Look!是业余时间做的，所以回复可能要等一阵子，也不承诺任何响应时间。</p>
+<ul><li>Hey Look! 通过加密连接（TLS 或 STARTTLS）连接您的邮件服务器。只提供未加密连接的服务器无法添加。</li><li>Google 和 Microsoft 登录在您的浏览器中、在它们自己的页面上完成（带 PKCE 的 OAuth 2.0）。应用保存的是登录令牌，而不是您的密码。</li><li>密码、登录令牌和您的 AI 密钥保存在系统的密码存储中。OpenPGP 私钥保存在应用的数据库中，由您的密码短语保护。</li><li>显示邮件时，不会运行邮件里的任何脚本或表单。</li><li>图片在您允许之前一直隐藏，所以隐藏的图片无法告诉发件人您打开了邮件。</li><li>来自您写过信的人和知名服务的图片可以自动显示，但只限于通过发件人验证的邮件（发件人域名的 DKIM 或 DMARC）。垃圾邮件、加密邮件、您写过信的人发来的邮件列表邮件或订阅邮件中，以及验证失败时，图片从不自动显示。您可以为某个发件人关闭自动显示，也可以在“设置 &gt; 邮箱 &gt; 阅读与同步”中为所有邮件关闭。</li><li>打开程序或脚本附件之前，以及打开显示的网址与实际网址不同的链接之前，Hey Look! 都会先询问您。这不是完整的钓鱼检测。</li><li>信任服务器证书的选项默认关闭。如果您为某个账户打开它，Hey Look! 就不再检查该服务器的证书。</li><li>从网页粘贴的文字会被清理，写邮件时也不会加载任何图片。</li></ul>
+<h2 id="signed">更新经过签名</h2><p>Hey Look! 只从项目在 GitHub 上发布的版本中下载更新，并且只有当更新的签名与项目的密钥相符时才会安装；这个密钥内置在应用里。在您同意之前，不会下载或安装任何内容。在 Windows 上，.msi 随后会要求管理员权限；在 Linux 上，.deb 和 .rpm 会要求输入您的密码。</p>
+<h2 id="codesign">安装程序尚未签名</h2><p>Windows SmartScreen 和 macOS Gatekeeper 可能会在您第一次打开应用时发出警告，因为安装程序没有使用发布者证书签名，Apple 也没有为 macOS 应用做公证。<a href="download.html#install-notes">下载页面</a>说明了如何打开。</p>
+<h2 id="report">报告漏洞</h2><p>请通过GitHub私下报告安全问题：打开<a href="https://github.com/thnonl/hey-look/security" rel="noopener">github.com/thnonl/hey-look/security</a>并选择“Report a vulnerability”（报告漏洞）。请不要公开提交议题。您也可以发邮件到<a href="mailto:namth.onl@gmail.com">namth.onl@gmail.com</a>。</p>
 <h2 id="limit">已知限制</h2>
-<ul><li>当发件人地址与已存储的组织者一致时，日历邀请的更新和取消才会被接受。如果您的邮件服务商的发件人验证（DKIM、SPF或DMARC）未通过，在您选择“仍然应用”之前，更改不会生效。没有您的服务商给出验证结果的邮件不会被检查，因此伪造的发件人地址仍可能更改或取消您收到的事件。邮件服务商通常会拒绝这类伪造。</li>
-<li>发件人验证依据的是您的邮件服务商写入邮件的结果。如果某个服务商不写入此结果，伪造的邮件就可能带有假结果，其图片因此可能被自动显示。届时发件人会知道您打开了这封邮件；链接和附件仍会先询问。</li><li>OpenPGP尚未与其他OpenPGP软件做过互通测试。</li><li>AI助手会把您要询问的文字发送到您配置的端点，包括解密后的OpenPGP内容。对该端点而言，这些内容不是保密的。</li><li>“无分析”的说法是通过查看源代码确认的，而不是靠网络抓包。</li><li>不声称做过任何第三方安全审计。</li><li>标为“机密”的邮件只在Windows和macOS上对屏幕截图和录屏隐藏；它无法阻止用相机拍摄屏幕。</li></ul>
+<ul><li>如果您的邮件服务商没有在邮件中记录发件人验证的结果，伪造的邮件可能会更改或取消您收到的日历事件，或者让其中的图片自动显示。可疑链接，以及程序和脚本附件，仍会先询问您。</li><li>OpenPGP 还没有与其他 OpenPGP 应用一起测试过。</li><li>您设置的 AI 服务会收到您询问的文字，包括解密后的 OpenPGP 邮件。</li><li>“没有分析”这一说法依据的是源代码，而不是网络测试。</li><li>没有做过独立的安全审计。</li><li>“机密”邮件只在 Windows 和 macOS 上对截图隐藏，而且任何办法都无法阻止有人用相机拍下屏幕。</li></ul>
 </article></div>
 </main>
 <footer class="ftr">
   <div class="wrap">
-    <p class="thanks">感谢您使用Hey Look!它会一直保持免费和开源，是否支持它完全由您决定。<a href="support.html#support">支持本项目</a></p>
+    <p class="thanks">感谢您使用 Hey Look!，它一直免费、开源。</p>
     <div class="ftr-grid">
       <div class="ftr-brand"><a class="brand" href="index.html" aria-label="Hey Look!首页"><svg aria-hidden="true" focusable="false"><use href="#hl-mark"/></svg><span>Hey Look!</span></a>
-        <p>适用于Windows、macOS和Linux的桌面邮件客户端。免费、无广告、开源（MIT）。</p></div>
-      <div><h2>产品</h2><ul><li><a href="features.html">功能</a></li><li><a href="download.html">下载</a></li><li><a href="https://github.com/thnonl/hey-look/releases" rel="noopener">发行说明</a></li><li><a href="support.html#support">支持本项目</a></li></ul></div>
+        <p>适用于 Windows、macOS 和 Linux 的桌面邮件应用。免费、开源（MIT），没有广告。</p></div>
+      <div><h2>产品</h2><ul><li><a href="features.html">功能</a></li><li><a href="download.html">下载</a></li><li><a href="https://github.com/thnonl/hey-look/releases" rel="noopener">发行说明</a></li><li><a href="support.html#support">支持</a></li></ul></div>
       <div><h2>信任</h2><ul><li><a href="privacy.html">隐私政策</a></li><li><a href="terms.html">服务条款</a></li><li><a href="google-data.html">Google API数据使用</a></li><li><a href="security.html">安全</a></li></ul></div>
-      <div><h2>帮助</h2><ul><li><a href="help.html">帮助和常见问题</a></li><li><a href="support.html">支持本项目</a></li><li><a href="https://github.com/thnonl/hey-look/issues" rel="noopener">报告问题</a></li><li><a href="https://github.com/thnonl/hey-look" rel="noopener">GitHub上的源代码</a></li></ul></div>
+      <div><h2>帮助</h2><ul><li><a href="help.html">帮助和常见问题</a></li><li><a href="support.html">支持</a></li><li><a href="https://github.com/thnonl/hey-look/issues" rel="noopener">报告问题</a></li><li><a href="https://github.com/thnonl/hey-look" rel="noopener">GitHub上的源代码</a></li></ul></div>
     </div>
     <p class="limited">Hey Look!对从Google API获得的信息的使用，将遵守<a href="https://developers.google.com/terms/api-services-user-data-policy" rel="noopener noreferrer">Google API Services User Data Policy</a>（Google API服务用户数据政策），包括其中的Limited Use（有限使用）要求。<a href="google-data.html">详情</a></p>
     <div class="fine"><span>MIT许可证。版权所有 &copy; 2026 thnonl。</span><span>与Google、Microsoft或Apple无任何关联。产品名称归其各自所有者所有。</span></div>

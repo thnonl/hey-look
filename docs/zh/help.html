@@ -6,7 +6,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'self'; script-src 'self'; connect-src https://api.github.com; base-uri 'self'; form-action 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>帮助和常见问题 - Hey Look!</title>
-<meta name="description" content="在Windows、macOS和Linux上安装、添加账户、键盘快捷键、撤销发送、更新、数据存放在哪里、OpenPGP基础知识、如何报告错误，以及已知的限制。">
+<meta name="description" content="在 Windows、macOS 和 Linux 上安装，添加账户，键盘快捷键，撤销发送，更新，数据存放在哪里，OpenPGP 入门，报告问题，以及已知限制。">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#131417" media="(prefers-color-scheme: dark)">
@@ -27,7 +27,7 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Hey Look!">
 <meta property="og:title" content="帮助和常见问题 - Hey Look!">
-<meta property="og:description" content="在Windows、macOS和Linux上安装、添加账户、键盘快捷键、撤销发送、更新、数据存放在哪里、OpenPGP基础知识、如何报告错误，以及已知的限制。">
+<meta property="og:description" content="在 Windows、macOS 和 Linux 上安装，添加账户，键盘快捷键，撤销发送，更新，数据存放在哪里，OpenPGP 入门，报告问题，以及已知限制。">
 <meta property="og:url" content="https://heylook.namthai.site/zh/help.html">
 <meta property="og:locale" content="zh_CN">
 <meta property="og:locale:alternate" content="en_US">
@@ -44,7 +44,7 @@
 <meta property="og:image:alt" content="Hey Look! 邮件客户端窗口，显示收件箱，旁边是英文标语“Mail without the rent”。">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="帮助和常见问题 - Hey Look!">
-<meta name="twitter:description" content="在Windows、macOS和Linux上安装、添加账户、键盘快捷键、撤销发送、更新、数据存放在哪里、OpenPGP基础知识、如何报告错误，以及已知的限制。">
+<meta name="twitter:description" content="在 Windows、macOS 和 Linux 上安装，添加账户，键盘快捷键，撤销发送，更新，数据存放在哪里，OpenPGP 入门，报告问题，以及已知限制。">
 <meta name="twitter:image" content="https://heylook.namthai.site/assets/og-image.jpg">
 <meta name="twitter:image:alt" content="Hey Look! 邮件客户端窗口，显示收件箱，旁边是英文标语“Mail without the rent”。">
 <link rel="icon" href="../assets/icon-48.png" sizes="48x48" type="image/png">
@@ -62,7 +62,7 @@
     <a class="brand" href="index.html" aria-label="Hey Look!首页"><svg aria-hidden="true" focusable="false"><use href="#hl-mark"/></svg><span>Hey Look!</span></a>
     <nav id="site-nav" class="nav" aria-label="主导航">
       <a href="index.html#story">导览</a>
-      <a href="index.html#free">您能得到什么</a>
+      <a href="index.html#free">免费</a>
       <a href="features.html">功能</a>
       <a href="help.html" aria-current="page">帮助</a>
       <a href="privacy.html">隐私</a>
@@ -93,7 +93,7 @@
   </div>
 </header>
 <main id="main">
-<section class="page-head"><div class="wrap"><p class="kicker">帮助</p><h1>帮助和常见问题</h1><p class="lead">简短的解答，针对常见问题。点开一个问题即可阅读。</p></div></section>
+<section class="page-head"><div class="wrap"><p class="kicker">帮助</p><h1>帮助和常见问题</h1><p class="lead">点开一个问题，就能看到答案。</p></div></section>
 <div class="wrap layout helppage"><aside class="toc" aria-label="本页内容"><h2>本页内容</h2><ol><li><a href="#g-install">安装和首次启动</a></li><li><a href="#g-accounts">账户和邮箱</a></li><li><a href="#g-daily">日常使用</a></li><li><a href="#g-privacy">隐私与数据存放位置</a></li><li><a href="#g-pgp">OpenPGP基础</a></li><li><a href="#g-report">报告问题</a></li><li><a href="#g-limits">已知限制</a></li></ol></aside>
 <div class="help-main">
   <div class="hq-tools" id="hq-tools" hidden>
@@ -103,31 +103,31 @@
   </div>
   <div id="hq-list">
   <section class="hq-group" id="g-install" aria-labelledby="g-install-h"><h2 id="g-install-h">安装和首次启动</h2>
-<details class="hq" id="windows"><summary>Windows：首次启动前会出现警告</summary><div class="hq-a"><p>安装程序尚未经过代码签名。如果出现SmartScreen提示，请依次选择<strong>更多信息</strong>和<strong>仍要运行</strong>。请使用.exe；.msi适用于集中管理的部署。</p></div></details>
-<details class="hq" id="macos"><summary>macOS：首次不能打开应用</summary><div class="hq-a"><p>应用没有经过Apple公证，所以macOS会在首次启动时拦截一次。请按<a href="download.html#install-notes">下载页上的三个步骤</a>操作；之后的更新可以正常启动。</p></div></details>
+<details class="hq" id="windows"><summary>Windows：首次启动前会出现警告</summary><div class="hq-a"><p>安装程序没有使用发布者证书签名，所以 Windows 可能会显示 SmartScreen 警告。请依次选择<strong>更多信息</strong>和<strong>仍要运行</strong>。请使用 .exe。.msi 供公司统一安装软件使用。</p></div></details>
+<details class="hq" id="macos"><summary>macOS：首次不能打开应用</summary><div class="hq-a"><p>Apple 没有为这个应用做公证，所以第一次打开时 macOS 会阻止它。请按<a href="download.html#install-notes">下载页面</a>上的三个步骤操作一次；之后，应用和它的更新都能正常打开。</p></div></details>
 <details class="hq" id="macos-print"><summary>macOS：打印时询问本地网络</summary><div class="hq-a"><p>首次打印时，macOS可能会询问是否允许Hey Look!查找并连接到您本地网络上的设备。这样打印窗口才能找到您的打印机；Hey Look!不会将本地网络用于其他任何用途。</p></div></details>
-<details class="hq" id="linux"><summary>Linux：该用哪个文件，需要什么</summary><div class="hq-a"><p>AppImage可在任何发行版上运行；.deb适用于Debian和Ubuntu，.rpm适用于Fedora和openSUSE。密码保存需要GNOME Keyring或KWallet正在运行并已解锁，链接通过<code>xdg-open</code>打开。</p></div></details>
+<details class="hq" id="linux"><summary>Linux：该用哪个文件，需要什么</summary><div class="hq-a"><p>AppImage 不用安装就能启动；.deb 适用于 Debian 和 Ubuntu，.rpm 适用于 Fedora 和 openSUSE。要保存密码，需要运行 GNOME Keyring 或 KWallet。</p></div></details>
   </section>
   <section class="hq-group" id="g-accounts" aria-labelledby="g-accounts-h"><h2 id="g-accounts-h">账户和邮箱</h2>
-<details class="hq" id="add" open><summary>添加账户</summary><div class="hq-a"><p>在服务商自己的页面上用Google或Microsoft登录，或用IMAP和SMTP添加任何其他账户：Hey Look!会根据您的邮箱地址找到服务器。iCloud和Yahoo需要在您的账户页面创建应用专用密码。部分Microsoft工作或学校账户需要管理员允许IMAP和SMTP。添加之前，“测试连接”会检查两台服务器，并告诉您需要修改哪项设置。</p></div></details>
-<details class="hq" id="google-review"><summary>Google提示“Google未验证此应用”，或“使用Google登录”无法使用</summary><div class="hq-a"><p>Hey Look!尚未完成Google的审核。凡是仍在审核中的应用，Google都会显示这个警告；这并不表示您的账户有问题。</p>
+<details class="hq" id="add" open><summary>添加账户</summary><div class="hq-a"><p>用 Google 或 Microsoft 在它们自己的页面上登录，或者用邮箱地址和密码添加其他账户；Hey Look! 会自动找到设置。iCloud 和 Yahoo 需要应用专用密码，您可以在它们的账户页面上创建。部分 Microsoft 工作或学校账户需要管理员的许可。如果某项设置有误，“测试连接”会告诉您。</p></div></details>
+<details class="hq" id="google-review"><summary>Google提示“Google未验证此应用”，或“使用Google登录”无法使用</summary><div class="hq-a"><p>Hey Look!尚未完成Google的审核。在 Google 完成对应用的审核之前，Google 都会显示这个警告；这并不表示您的账户有问题。</p>
 <p>要继续，请选择<strong>高级</strong>，然后选择<strong>转至 Hey Look!（不安全）</strong>，确认可以接受后再允许权限（请参阅<a href="google-data.html">Google API数据使用</a>）。</p>
-<p>如果Google登录无法使用，请改用<a href="https://myaccount.google.com/apppasswords" rel="noopener noreferrer">应用专用密码</a>添加个人Gmail账户，作为IMAP账户，服务商选Gmail。</p></div></details>
-<details class="hq" id="push"><summary>新邮件会立即送达吗？</summary><div class="hq-a"><p>会。在支持推送（IMAP IDLE）的服务器上，只要Hey Look!正在运行，收件箱和最多三个收藏夹文件夹的新邮件就会立即送达。其他文件夹以及不支持推送的服务器，默认每2分钟检查一次。</p></div></details>
+<p>如果Google登录无法使用，请改用<a href="https://myaccount.google.com/apppasswords" rel="noopener noreferrer">应用专用密码</a>添加个人Gmail账户，作为其他邮箱账户，服务商选 Gmail。</p></div></details>
+<details class="hq" id="push"><summary>新邮件会立即送达吗？</summary><div class="hq-a"><p>会。只要您的邮件服务器支持，并且 Hey Look! 正在运行，收件箱以及“收藏夹”中最多三个文件夹的新邮件会立即收到。其他文件夹会定期检查；检查的频率可以在“设置 &gt; 邮箱 &gt; 阅读与同步”中设置。</p></div></details>
   </section>
   <section class="hq-group" id="g-daily" aria-labelledby="g-daily-h"><h2 id="g-daily-h">日常使用</h2>
 <details class="hq" id="keys"><summary>键盘快捷键</summary><div class="hq-a"><p><kbd>Ctrl</kbd> <kbd>K</kbd>（macOS上为 <kbd>Cmd</kbd> <kbd>K</kbd>）打开命令栏。在邮件列表中：<kbd>c</kbd> 新建邮件，<kbd>/</kbd> 搜索，<kbd>j</kbd> 和 <kbd>k</kbd> 移动，<kbd>e</kbd> 归档，<kbd>#</kbd> 删除，<kbd>s</kbd> 稍后提醒，<kbd>r</kbd> 回复。</p></div></details>
-<details class="hq" id="undo"><summary>撤销发送和定时发送</summary><div class="hq-a"><p>点击发送后，邮件默认会等待10秒（最多60秒），让您可以撤销；正常退出会立即发出。定时发送要求到时Hey Look!正在运行；发送时间在应用关闭期间已过的邮件，默认会在下次启动时发出。</p></div></details>
-<details class="hq" id="updates"><summary>更新</summary><div class="hq-a"><p>从本网站安装的副本会在启动时检查GitHub，窗口重新回来时最多每2小时检查一次；检查失败则15分钟后重试。您可以在设置中关闭这项检查。在您同意之前不会下载任何内容，只会安装签名正确的更新。.msi会要求管理员权限，.deb和.rpm会要求输入您的密码。</p><p>Hey Look!也已上架Microsoft Store。从Store安装的副本只由Store更新：它没有自己的更新程序，也不检查GitHub，“设置 &gt; 关于”中会显示“更新由Microsoft Store提供。”</p><p>Store版本使用自己的邮件、账户和设置，与从本网站安装的副本互不相通。同一台电脑上请只使用其中一个，不要两个都用。</p></div></details>
-<details class="hq" id="language"><summary>更改语言</summary><div class="hq-a"><p>在设置的“常规”中选择。默认语言是英语，Hey Look!不会跟随您系统的语言。</p></div></details>
+<details class="hq" id="undo"><summary>撤销发送和定时发送</summary><div class="hq-a"><p>按下“发送”后，邮件会等几秒，让您可以撤销；等待多久可以在设置中更改。定时发送要求 Hey Look! 在您选定的时间正在运行；如果那时应用已关闭，邮件会在您下次打开应用时发出。</p></div></details>
+<details class="hq" id="updates"><summary>更新</summary><div class="hq-a"><p>从本网站安装的版本会自己检查更新，只有在您同意后才会安装。您可以在“设置 &gt; 关于”中关闭这项检查。在 Windows 上，.msi 会要求管理员权限；在 Linux 上，.deb 和 .rpm 会要求输入您的密码。</p><p>Hey Look! 也已上架 Microsoft Store，Store 版本的更新由 Store 安装。</p><p>Store 版本使用自己的邮件、账户和设置。同一台电脑上，请只使用 Store 版本或本网站的版本，不要两个都装。</p></div></details>
+<details class="hq" id="language"><summary>更改语言</summary><div class="hq-a"><p>在“设置 &gt; 常规”中选择。默认语言是英语；Hey Look! 不会跟随系统的语言。</p></div></details>
   </section>
   <section class="hq-group" id="g-privacy" aria-labelledby="g-privacy-h"><h2 id="g-privacy-h">隐私与数据存放位置</h2>
-<details class="hq" id="where"><summary>我的数据存放在哪里？</summary><div class="hq-a"><p>邮件和设置保存在一个本地文件夹中：Windows上为<code>%APPDATA%\thnonl.heylook</code>，macOS上为<code>~/Library/Application Support/thnonl.heylook</code>，Linux上为<code>~/.local/share/thnonl.heylook</code>。密码和令牌保存在系统的凭据存储中；OpenPGP私钥保存在应用的数据库中，由您的密码短语加锁。</p></div></details>
-<details class="hq" id="leaves"><summary>哪些内容会离开我的电脑？</summary><div class="hq-a"><p>只有您用到的部分：您的邮件服务器、Google或Microsoft的登录和日历、您设置的CalDAV服务器、添加账户时的服务器查询、用于更新的GitHub、您的AI端点、您选择显示的图片（您允许显示的图片，或来自您曾写信的人和知名服务、自动显示的图片），以及取消订阅请求。没有分析代码。<a href="privacy.html">隐私政策</a>列出了每一个连接。</p></div></details>
-<details class="hq" id="remove"><summary>卸载，并清除所有内容</summary><div class="hq-a"><p>在设置中移除您的账户（邮件仍留在服务器上），卸载应用，然后删除它的数据文件夹，以及系统凭据存储中名称以<code>heylook</code>开头的条目。</p></div></details>
+<details class="hq" id="where"><summary>我的数据存放在哪里？</summary><div class="hq-a"><p>邮件和设置保存在一个本地文件夹中：Windows上为<code>%APPDATA%\thnonl.heylook</code>，macOS上为<code>~/Library/Application Support/thnonl.heylook</code>，Linux上为<code>~/.local/share/thnonl.heylook</code>。密码和登录令牌保存在系统的密码存储中；OpenPGP私钥保存在应用的数据库中，由您的密码短语加锁。</p></div></details>
+<details class="hq" id="leaves"><summary>哪些内容会离开我的电脑？</summary><div class="hq-a"><p>只有您用到的部分：您的邮件服务器；登录或同步日历时的 Google 或 Microsoft；您设置的日历服务器；添加账户时对设置的查询；用于更新的 GitHub；您设置的 AI 服务；托管已显示图片的服务器；以及您取消订阅时打开的取消订阅页面。应用不做任何分析统计。<a href="privacy.html">隐私政策</a>列出了每一个连接。</p></div></details>
+<details class="hq" id="remove"><summary>卸载，并清除所有内容</summary><div class="hq-a"><p>在设置中移除您的账户（邮件仍留在服务器上），卸载应用，然后删除它的数据文件夹，并从系统的密码存储中删除已保存的 Hey Look! 密码。</p></div></details>
   </section>
   <section class="hq-group" id="g-pgp" aria-labelledby="g-pgp-h"><h2 id="g-pgp-h">OpenPGP基础</h2>
-<details class="hq" id="pgp1"><summary>创建密钥、加密、签名</summary><div class="hq-a"><p>在设置中创建密钥，用密码短语保护，并保存它提供的备份。写邮件时开启“加密”或“数字签名”；Hey Look!会显示每位收件人是否有密钥。尚未与其他OpenPGP软件做过互通测试。</p></div></details>
+<details class="hq" id="pgp1"><summary>创建密钥、加密、签名</summary><div class="hq-a"><p>在设置中创建密钥，用密码短语保护它，并保存它提供的备份。写邮件时，打开“加密”或“数字签名”；Hey Look! 会显示您可以给哪些收件人加密。</p></div></details>
   </section>
   <section class="hq-group" id="g-report" aria-labelledby="g-report-h"><h2 id="g-report-h">报告问题</h2>
 <details class="hq" id="bug"><summary>错误或功能建议</summary><div class="hq-a"><p>请在<a href="https://github.com/thnonl/hey-look/issues" rel="noopener">GitHub</a>上提交一个议题，并说明您使用的系统和Hey Look!版本（在设置的“关于”中可以看到）。议题是公开的，所以千万不要贴出私人邮件、密码或令牌。</p></div></details>
@@ -135,22 +135,22 @@
 <details class="hq" id="ai-report"><summary>AI助手生成的内容</summary><div class="hq-a"><p>AI助手会把您的请求发送到您在“设置 &gt; AI助手”中设置的AI服务，由该服务生成回答。Hey Look!不提供也不控制AI模型，AI撰写的文字可能有误。</p><p>如果AI助手显示了有害、冒犯性或违法的内容，请告诉我们：在GitHub上提交issue，或发邮件到namth.onl@gmail.com。请注明AI服务和模型，切勿附上私人邮件或您的API密钥。也请向您的AI服务提供方举报。</p></div></details>
   </section>
   <section class="hq-group" id="g-limits" aria-labelledby="g-limits-h"><h2 id="g-limits-h">已知限制</h2>
-<details class="hq" id="lim"><summary>Hey Look!目前还做不到什么</summary><div class="hq-a"><p>安装程序没有经过代码签名，写邮件时没有纯文本模式。完整列表见<a href="features.html#limits">功能页</a>。</p></div></details>
+<details class="hq" id="lim"><summary>Hey Look!目前还做不到什么</summary><div class="hq-a"><p>安装程序没有使用发布者证书签名，不能在应用里重命名或删除文件夹，写邮件时也没有纯文本模式。<a href="features.html#limits">功能页</a>列出了所有限制。</p></div></details>
   </section>
   </div>
   <p class="hq-none" id="hq-none" hidden>没有匹配的问题。试试换一个词，或者<a href="https://github.com/thnonl/hey-look/issues" rel="noopener">到GitHub上提问</a>。</p>
-  <p class="hq-foot">这里没有您要找的？请发邮件到<a href="mailto:namth.onl@gmail.com">namth.onl@gmail.com</a>；如果您想帮忙，请看<a href="support.html">支持本项目</a>。</p>
+  <p class="hq-foot">这里没有您要找的答案？请发邮件到 <a href="mailto:namth.onl@gmail.com">namth.onl@gmail.com</a>。</p>
 </div></div>
 </main>
 <footer class="ftr">
   <div class="wrap">
-    <p class="thanks">感谢您使用Hey Look!它会一直保持免费和开源，是否支持它完全由您决定。<a href="support.html#support">支持本项目</a></p>
+    <p class="thanks">感谢您使用 Hey Look!，它一直免费、开源。</p>
     <div class="ftr-grid">
       <div class="ftr-brand"><a class="brand" href="index.html" aria-label="Hey Look!首页"><svg aria-hidden="true" focusable="false"><use href="#hl-mark"/></svg><span>Hey Look!</span></a>
-        <p>适用于Windows、macOS和Linux的桌面邮件客户端。免费、无广告、开源（MIT）。</p></div>
-      <div><h2>产品</h2><ul><li><a href="features.html">功能</a></li><li><a href="download.html">下载</a></li><li><a href="https://github.com/thnonl/hey-look/releases" rel="noopener">发行说明</a></li><li><a href="support.html#support">支持本项目</a></li></ul></div>
+        <p>适用于 Windows、macOS 和 Linux 的桌面邮件应用。免费、开源（MIT），没有广告。</p></div>
+      <div><h2>产品</h2><ul><li><a href="features.html">功能</a></li><li><a href="download.html">下载</a></li><li><a href="https://github.com/thnonl/hey-look/releases" rel="noopener">发行说明</a></li><li><a href="support.html#support">支持</a></li></ul></div>
       <div><h2>信任</h2><ul><li><a href="privacy.html">隐私政策</a></li><li><a href="terms.html">服务条款</a></li><li><a href="google-data.html">Google API数据使用</a></li><li><a href="security.html">安全</a></li></ul></div>
-      <div><h2>帮助</h2><ul><li><a href="help.html">帮助和常见问题</a></li><li><a href="support.html">支持本项目</a></li><li><a href="https://github.com/thnonl/hey-look/issues" rel="noopener">报告问题</a></li><li><a href="https://github.com/thnonl/hey-look" rel="noopener">GitHub上的源代码</a></li></ul></div>
+      <div><h2>帮助</h2><ul><li><a href="help.html">帮助和常见问题</a></li><li><a href="support.html">支持</a></li><li><a href="https://github.com/thnonl/hey-look/issues" rel="noopener">报告问题</a></li><li><a href="https://github.com/thnonl/hey-look" rel="noopener">GitHub上的源代码</a></li></ul></div>
     </div>
     <p class="limited">Hey Look!对从Google API获得的信息的使用，将遵守<a href="https://developers.google.com/terms/api-services-user-data-policy" rel="noopener noreferrer">Google API Services User Data Policy</a>（Google API服务用户数据政策），包括其中的Limited Use（有限使用）要求。<a href="google-data.html">详情</a></p>
     <div class="fine"><span>MIT许可证。版权所有 &copy; 2026 thnonl。</span><span>与Google、Microsoft或Apple无任何关联。产品名称归其各自所有者所有。</span></div>
