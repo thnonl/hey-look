@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 1.0.12 (owner): Compact density has two lines: row 1 = the sender name and the subject, row 2 = the preview (left) and the time (right edge). On hover / keyboard focus the icon strip takes the place of the
+// 1.0.12 (owner): Compact density has the small avatar (26 px) with the mailbox bar under it, and two lines: row 1 = the sender name and the subject, row 2 = the preview (left) and the time (right edge). On hover / keyboard focus the icon strip takes the place of the
 // time at the right end of row 2 (the preview gives way with its ellipsis); the row never changes its box, nothing overlaps (strip vs name, subject, preview), the time shows when the row is not hovered.
 // Long and short subjects, a long sender, ru / vi / de, light and dark.
 //   node scripts/test-compact-hover.mjs [--require-browser | --url=http://127.0.0.1:1420/] [--langs=ru,vi,de]
@@ -20,7 +20,7 @@ const THREADS = [
 ];
 const BOX = (id) => `(() => { const r = document.querySelector('.ml-row[data-thread="${id}"]'); if (!r) return null; const b = (e) => { if (!e) return null; const q = e.getBoundingClientRect(); return [q.left, q.top, q.right, q.bottom].map((n) => Math.round(n * 10) / 10); };
   const act = r.querySelector('.hover-actions'); const vis = (e) => !!e && getComputedStyle(e).display !== 'none';
-  return JSON.stringify({ row: b(r), pr: parseFloat(getComputedStyle(r).paddingRight), who: b(r.querySelector('.who')), subject: b(r.querySelector('.subject')), preview: b(r.querySelector('.preview')), date: vis(r.querySelector('.date')) ? b(r.querySelector('.date')) : null, strip: vis(act) ? b(act) : null, sub: b(r.querySelector('.ml-line2')) }); })()`;
+  return JSON.stringify({ row: b(r), pr: parseFloat(getComputedStyle(r).paddingRight), who: b(r.querySelector('.who')), subject: b(r.querySelector('.subject')), preview: b(r.querySelector('.preview')), date: vis(r.querySelector('.date')) ? b(r.querySelector('.date')) : null, strip: vis(act) ? b(act) : null, sub: b(r.querySelector('.ml-line2')), av: b(r.querySelector('.lead-avatar .avatar')), bar: b(r.querySelector('.ml-lead .acct-dot.under')), dotInName: !!r.querySelector('.ml-top .acct-dot'), check: b(r.querySelector('.lead-check')), checkVis: getComputedStyle(r.querySelector('.lead-check')).display !== 'none', avOp: getComputedStyle(r.querySelector('.lead-avatar')).opacity }); })()`;
 const hit = (a, b) => a && b && a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
 const mouse = (x, y) => cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
 try {
@@ -47,6 +47,13 @@ try {
         ok(Math.abs(rest.who[1] - rest.subject[1]) <= 4, `${tag}: the name and the subject are on row 1 (${rest.who[1]} / ${rest.subject[1]})`);
         ok(Math.abs(rest.date[2] - (rest.row[2] - rest.pr)) <= 1, `${tag}: the time's right edge is the right edge of the row's content (${rest.date[2]} / ${rest.row[2] - rest.pr})`);
         ok(rest.preview === null || (rest.preview[1] >= rest.who[3] - 1 && !hit(rest.preview, rest.date)), `${tag}: the preview is on row 2, left of the time (${JSON.stringify(rest.preview)})`);
+        // (owner) Compact shows the small avatar, the mailbox bar under it (several mailboxes), no dot before the name
+        ok(rest.av !== null && Math.abs(rest.av[2] - rest.av[0] - 26) <= 1 && Math.abs(rest.av[3] - rest.av[1] - 26) <= 1, `${tag}: the small avatar is 26 px (${JSON.stringify(rest.av)})`);
+        ok(rest.av && rest.av[2] <= rest.who[0] + 0.5 && rest.av[2] <= rest.subject[0] + 0.5, `${tag}: the name and the subject start right of the avatar (${JSON.stringify(rest.av)} / ${JSON.stringify(rest.who)})`);
+        ok(rest.av && rest.av[1] >= rest.row[1] && rest.av[3] <= rest.row[3], `${tag}: the avatar is inside the row`);
+        ok(!rest.dotInName, `${tag}: no account dot before the name`);
+        ok(rest.bar === null || (rest.av && rest.bar[1] >= rest.av[3] && rest.bar[3] <= rest.row[3] - 1 && Math.abs((rest.bar[0] + rest.bar[2]) / 2 - (rest.av[0] + rest.av[2]) / 2) <= 1 && rest.bar[2] <= rest.who[0]), `${tag}: the mailbox bar is under the avatar, centred, inside the row (${JSON.stringify(rest.bar)} / ${JSON.stringify(rest.av)})`);
+        ok(!rest.checkVis && rest.avOp === '1', `${tag}: at rest the avatar shows, not the select circle`);
         // hover
         const at = [rest.row[0] + (rest.row[2] - rest.row[0]) * 0.5, (rest.row[1] + rest.row[3]) / 2];
         await mouse(at[0], at[1]); await sleep(250);
@@ -56,6 +63,8 @@ try {
         ok(hov.strip && Math.abs(hov.strip[2] - rest.date[2]) <= 1 && hov.strip[1] >= hov.who[3] - 1, `${tag}: the strip is at the right end of row 2, where the time was (${JSON.stringify(hov.strip)} / time ${JSON.stringify(rest.date)})`);
         ok(hov.strip && hov.strip[1] >= hov.row[1] - 1 && hov.strip[3] <= hov.row[3] + 1, `${tag}: the strip is inside the row`);
         ok(hov.strip && !hit(hov.strip, hov.who) && !hit(hov.strip, hov.subject) && (hov.preview === null || !hit(hov.strip, hov.preview)), `${tag}: the strip does not touch the name, the subject or the preview (${JSON.stringify(hov.strip)})`);
+        ok(hov.checkVis && hov.avOp === '0' && hov.check && rest.av && hov.check[0] >= rest.av[0] && hov.check[2] <= rest.av[2] && hov.check[1] >= rest.av[1] && hov.check[3] <= rest.av[3], `${tag}: hover: the select circle replaces the avatar inside its box`);
+        ok(JSON.stringify(hov.av) === JSON.stringify(rest.av) && JSON.stringify(hov.bar) === JSON.stringify(rest.bar), `${tag}: the avatar and the bar keep their place hovered`);
         ok(hov.date === null, `${tag}: the strip replaces the time while it shows`);
         ok(JSON.stringify(hov.who) === JSON.stringify(rest.who) && JSON.stringify(hov.subject) === JSON.stringify(rest.subject) && (hov.preview === null || hov.preview[0] === rest.preview[0]), `${tag}: the name, the subject and the start of the preview keep their place`);
         // keyboard focus: the row itself, then the mouse away

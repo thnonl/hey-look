@@ -119,18 +119,15 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
         }}
         title={tr("mail.row.select")}
       >
-        {!dense && (
-          <div className="lead-avatar">
-            <Avatar name={t.participants[0] ?? "?"} size={34} />
-          </div>
-        )}
+        <div className="lead-avatar">
+          <Avatar name={t.participants[0] ?? "?"} size={dense ? 26 : 34} />
+        </div>
         <div className={`lead-check ${checked ? "on" : ""}`}>{checked && <Check size={12} />}</div>
-        {accountColor && !dense && <span className="acct-dot under" style={{ background: accountColor }} title={accountLabel} />}
+        {accountColor && <span className="acct-dot under" style={{ background: accountColor }} title={accountLabel} />}
       </div>
       <div className="ml-main">
         <div className="ml-top">
           {t.unread > 0 && <span className="unread-dot" aria-label={tr("mail.row.unread")} />}
-          {accountColor && dense && <span className="acct-dot" style={{ background: accountColor }} title={accountLabel} />}
           <span className="who ellipsis">{who}</span>
           {!dense && hover}
           {!dense && dateEl}

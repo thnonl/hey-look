@@ -528,13 +528,13 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
 .lead-check.on { background: var(--accent); border-color: var(--accent); display: flex; }
 .ml-row:hover .lead-check { display: flex; }
 .ml-row:hover .lead-avatar, .ml-row.checked .lead-avatar { opacity: 0; }
-[data-density="compact"] .ml-lead { width: 20px; height: 20px; margin-top: 0; }
-[data-density="compact"] .lead-check { inset: 2px; display: flex; }
+[data-density="compact"] .ml-lead { width: 26px; height: 26px; margin-top: 0; }
+[data-density="compact"] .lead-check { inset: 3px; }
 .ml-main { flex: 1; min-width: 0; }
 .ml-top { display: flex; align-items: center; gap: 6px; }
 .unread-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
 .acct-dot { width: 7px; height: 7px; border-radius: 2px; flex: none; } /* flat fill, no edge: the palette colors keep >= 3:1 on the light and the dark surface */
-/* mailbox marker: a small bar under the avatar (absolute, so the row never changes height); Compact has no avatar and keeps the dot before the name */
+/* mailbox marker: a small bar under the avatar (absolute, so the row never changes height); Compact has the same small avatar and bar */
 .acct-dot.under { position: absolute; left: 50%; top: calc(100% + 3px); width: 16px; height: 4px; transform: translateX(-50%); }
 /* (Source Sans 3 is taller above the line than the line box of a one-line row (.who .subject .preview .gs-main .lr-title .att-name): 2 px of room on top, moved back by the margin, so the dots of Ä and the stacked marks of Vietnamese capitals are not cut by overflow: hidden) */
 .who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-top: 2px; margin-top: -2px; }
