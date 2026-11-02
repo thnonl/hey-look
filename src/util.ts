@@ -52,11 +52,7 @@ export function fmtSize(n: number): string {
   return t("app.size.mb", { n: fmtNumber(n / 1024 / 1024, { ...plain, minimumFractionDigits: 1, maximumFractionDigits: 1 }) });
 }
 
-export function initials(s: string): string {
-  const parts = s.replace(/<.*>/, "").trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  return ((parts[0][0] ?? "") + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
-}
+export { initials } from "./initials";
 
 export function hue(s: string): number {
   let h = 0;
