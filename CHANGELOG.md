@@ -16,6 +16,7 @@
 - Reader window: Next and Previous go straight to the next message, without getting stuck on "Opening message…" or showing an empty window
 - Linux: a reader window keeps its own message instead of following the one selected in the main window
 - Mail list: read messages are no longer shown in bold
+- When a message was sent to one of your addresses with a copy to another, Reply, Reply all and Forward now use the address it was sent to, also in the mailbox that got the copy
 - Compose: the row of buttons no longer jumps while you type, and buttons that do not fit move to More actions
 - A long menu that does not fit in the window can now be scrolled, so you can reach every item
 - In menus, grey hint lines (such as "No templates yet") wrap onto a second line instead of being cut off
