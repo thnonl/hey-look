@@ -105,6 +105,9 @@ pub struct Cred(CredKind);
 #[cfg_attr(feature = "qa-secrets", allow(dead_code))] // (the system store is not built into a QA-secrets kit)
 enum CredKind {
     Os(keyring::Entry),
+    /// macOS: a secret of the one Keychain item (`secretblob.rs`)
+    #[cfg(all(target_os = "macos", not(feature = "qa-secrets")))]
+    Blob(String),
     #[cfg(feature = "qa-secrets")]
     File { service: String, user: String },
 }
@@ -113,6 +116,8 @@ impl Cred {
     pub fn get_password(&self) -> keyring::Result<String> {
         match &self.0 {
             CredKind::Os(e) => e.get_password(),
+            #[cfg(all(target_os = "macos", not(feature = "qa-secrets")))]
+            CredKind::Blob(user) => mac_blob().get(user),
             #[cfg(feature = "qa-secrets")]
             CredKind::File { service, user } => qa_store().and_then(|s| s.get(service, user).ok_or(keyring::Error::NoEntry)),
         }
@@ -121,6 +126,8 @@ impl Cred {
     pub fn set_password(&self, value: &str) -> keyring::Result<()> {
         match &self.0 {
             CredKind::Os(e) => e.set_password(value),
+            #[cfg(all(target_os = "macos", not(feature = "qa-secrets")))]
+            CredKind::Blob(user) => mac_blob().set(user, value),
             #[cfg(feature = "qa-secrets")]
             CredKind::File { service, user } => qa_store().and_then(|s| s.set(service, user, value).map_err(|e| keyring::Error::PlatformFailure(Box::new(e)))),
         }
@@ -129,6 +136,8 @@ impl Cred {
     pub fn delete_credential(&self) -> keyring::Result<()> {
         match &self.0 {
             CredKind::Os(e) => e.delete_credential(),
+            #[cfg(all(target_os = "macos", not(feature = "qa-secrets")))]
+            CredKind::Blob(user) => mac_blob().delete(user),
             #[cfg(feature = "qa-secrets")]
             CredKind::File { service, user } => qa_store().and_then(|s| match s.delete(service, user) {
                 Ok(true) => Ok(()),
@@ -187,8 +196,55 @@ pub fn entry_in(service: &str, user: &str) -> keyring::Result<Cred> {
     }
     #[cfg(feature = "qa-secrets")]
     return Ok(Cred(CredKind::File { service: service.to_string(), user: user.to_string() }));
+    #[cfg(all(target_os = "macos", not(feature = "qa-secrets")))]
+    {
+        if service == keyring_service() && user != crate::secretblob::BLOB_ACCOUNT {
+            return Ok(Cred(CredKind::Blob(user.to_string()))); // (only the app's own service; the migration of the oldest service name keeps using its items)
+        }
+    }
     #[cfg(not(feature = "qa-secrets"))]
-    keyring::Entry::new(service, user).map(|e| Cred(CredKind::Os(e)))
+    os_entry(service, user).map(|e| Cred(CredKind::Os(e)))
+}
+
+/// The only place that builds a keyring entry.
+#[cfg(not(feature = "qa-secrets"))]
+fn os_entry(service: &str, user: &str) -> keyring::Result<keyring::Entry> {
+    keyring::Entry::new(service, user)
+}
+
+/// macOS: the one Keychain item of the app's secrets over the system store (see `secretblob.rs`).
+#[cfg(all(target_os = "macos", not(feature = "qa-secrets")))]
+struct MacItems {
+    service: &'static str,
+}
+
+#[cfg(all(target_os = "macos", not(feature = "qa-secrets")))]
+impl crate::secretblob::Items for MacItems {
+    fn get_blob(&self) -> keyring::Result<Option<String>> {
+        match os_entry(self.service, crate::secretblob::BLOB_ACCOUNT)?.get_password() {
+            Ok(s) => Ok(Some(s)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+    fn set_blob(&self, json: &str) -> keyring::Result<()> {
+        os_entry(self.service, crate::secretblob::BLOB_ACCOUNT)?.set_password(json) // (keyring updates the existing item in place: one item, its permissions kept)
+    }
+    fn get_old(&self, user: &str) -> keyring::Result<String> {
+        os_entry(self.service, user)?.get_password()
+    }
+    fn set_old(&self, user: &str, value: &str) -> keyring::Result<()> {
+        os_entry(self.service, user)?.set_password(value)
+    }
+    fn delete_old(&self, user: &str) -> keyring::Result<()> {
+        os_entry(self.service, user)?.delete_credential()
+    }
+}
+
+#[cfg(all(target_os = "macos", not(feature = "qa-secrets")))]
+fn mac_blob() -> &'static crate::secretblob::Blobbed<MacItems> {
+    static BLOB: OnceLock<crate::secretblob::Blobbed<MacItems>> = OnceLock::new();
+    BLOB.get_or_init(|| crate::secretblob::Blobbed::new(MacItems { service: keyring_service() }, |m| crate::startup::line("secrets", m)))
 }
 
 /// Pure guard: an isolated copy may only use the isolated service.
@@ -308,6 +364,30 @@ mod tests {
                 assert!(!bare, "{path}: use identity::entry");
             }
         }
+    }
+
+    /// 1.0.12: the one Keychain item exists on macOS only (and not in a QA-secrets kit); Windows, Linux, the Store version and the QA file store keep what they had.
+    #[test]
+    fn source_guard_the_one_item_is_macos_only() {
+        let code = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/identity.rs")).unwrap();
+        let code = production_code(&code);
+        let lines: Vec<&str> = code.lines().collect();
+        let gate = "#[cfg(all(target_os = \"macos\", not(feature = \"qa-secrets\")))]";
+        let mut seen = 0;
+        for (i, l) in lines.iter().enumerate() {
+            let t = l.trim_start();
+            let blobby = t.contains("CredKind::Blob") || t.contains("mac_blob()") || t.starts_with("Blob(") || t.starts_with("struct MacItems") || t.starts_with("fn mac_blob") || t.starts_with("impl crate::secretblob::Items");
+            if blobby && !t.starts_with("//") {
+                seen += 1;
+                let prev = lines[..i].iter().rev().map(|x| x.trim()).find(|x| !x.is_empty() && !x.starts_with("///")).unwrap_or("");
+                assert!(prev == gate || prev.ends_with("=> mac_blob().get(user),") || prev.contains("mac_blob()") || t.contains("return Ok(Cred(CredKind::Blob"), "line {} is not gated to macOS: {t}", i + 1);
+            }
+        }
+        assert!(seen >= 6, "the macOS code is there ({seen})");
+        // the Os and File variants still serve every other build, and the lib registers the module without a platform gate (its logic is tested everywhere)
+        assert!(code.contains("os_entry(service, user).map(|e| Cred(CredKind::Os(e)))"));
+        let lib = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs")).unwrap();
+        assert!(lib.contains("mod secretblob;"));
     }
 
     #[test]
