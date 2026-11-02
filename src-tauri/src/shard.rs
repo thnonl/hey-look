@@ -64,6 +64,30 @@ fn create_sql(schema: &str) -> String {
     )
 }
 
+/// The index that the folder numbers read (`folder_infos`): thread and read state without the message rows and their bodies (1.0.12). It leaves out account_id (the file is one
+/// mailbox) so that no list query with account_id + folder finds it as good as idx_msg_folder, which also gives the date order. A file made before 1.0.12 gets it from
+/// `build_count_indexes` after the start (building it takes about a second per 50 000 messages, so it does not run while the window opens).
+fn count_index_sql(schema: &str) -> String {
+    format!("CREATE INDEX IF NOT EXISTS {schema}.idx_msg_fcounts ON messages(folder, seen, thread_id);")
+}
+
+/// Build the folder-number index in the files that lack it, one file per call of `step`, which the caller runs while it holds the database (and lets go between the files, so
+/// the window is served in between). `false` when nothing was left to build.
+pub fn build_next_count_index(conn: &Connection) -> bool {
+    for id in attached(conn).unwrap_or_default() {
+        let a = alias(&id);
+        let has = conn.query_row(&format!("SELECT 1 FROM {a}.sqlite_master WHERE type='index' AND name='idx_msg_fcounts'"), [], |_| Ok(())).is_ok();
+        if !has {
+            if let Err(e) = conn.execute_batch(&count_index_sql(&a)) {
+                eprintln!("could not build the folder-number index of {id}: {e}");
+                return false; // (the numbers are only slower without it; not retried in this run)
+            }
+            return true;
+        }
+    }
+    false
+}
+
 /// Account ids are UUIDs; anything else (path separators, quotes) is refused because the id becomes a file name and is
 /// written into SQL text of the view / triggers.
 pub fn valid_id(id: &str) -> bool {
@@ -119,6 +143,14 @@ fn attached(conn: &Connection) -> R<Vec<String>> {
     Ok(ids)
 }
 
+/// Ids of the mailboxes whose file is attached, for a list that reads the files one by one (empty in the old single-file layout, where `main.messages` holds all).
+pub fn account_ids(conn: &Connection) -> Vec<String> {
+    if legacy(conn) {
+        return vec![];
+    }
+    attached(conn).unwrap_or_default()
+}
+
 /// Schemas that hold `messages` rows: the attached shards, or `main` while the old layout is in use. For code that needs
 /// `rowid` (a view has none) or wants to walk one file at a time.
 pub fn message_schemas(conn: &Connection) -> Vec<String> {
@@ -147,7 +179,11 @@ fn attach(conn: &Connection, dir: Option<&Path>, id: &str) -> R<bool> {
     if dir.is_some() {
         conn.query_row(&format!("PRAGMA {a}.journal_mode=WAL"), [], |_| Ok(())).map_err(err)?;
     }
+    let fresh = conn.query_row(&format!("SELECT 1 FROM {a}.sqlite_master WHERE type='table' AND name='messages'"), [], |_| Ok(())).is_err();
     conn.execute_batch(&create_sql(&a)).map_err(err)?;
+    if fresh {
+        conn.execute_batch(&count_index_sql(&a)).map_err(err)?; // (a new file is empty: nothing to wait for)
+    }
     // a shard made by an earlier version lacks the columns added since (a new shard has them already: "duplicate column" is fine)
     add_column(conn, &format!("ALTER TABLE {a}.messages ADD COLUMN importance INTEGER NOT NULL DEFAULT 0"))?;
     // the receiving server's verdict on the sender of an invitation mail ('pass' | 'fail'; NULL = unknown), 1.0.7 W7.3
