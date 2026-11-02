@@ -1,0 +1,11 @@
+import { sleep, startHarness } from './cdp-harness.mjs';
+const H = await startHarness('dbg-strip2', { vitePort0: 5201 });
+const { evaluate, cdp } = H;
+await H.openApp('lang=en&nativemenu=off', 1280, 800); await sleep(2000);
+await evaluate(`window.__store.getState().setPrefs({ density: 'compact' }); 1`); await sleep(600);
+const Q = `(() => { const r = document.querySelectorAll('.ml-row')[3]; const s = r.querySelector('.ml-sub'); const cs = getComputedStyle(s); return JSON.stringify({ row: r.getBoundingClientRect().height, sub: s.getBoundingClientRect().height, minH: cs.minHeight, disp: cs.display, ai: cs.alignItems, kids: [...s.children].map((c) => [c.className.slice(0, 14), Math.round(c.getBoundingClientRect().height * 10) / 10, getComputedStyle(c).display]) }); })()`;
+console.log('rest', await evaluate(Q));
+const p = JSON.parse(await evaluate(`(() => { const b = document.querySelectorAll('.ml-row')[3].getBoundingClientRect(); return JSON.stringify([b.left + b.width / 2, b.top + b.height / 2]); })()`));
+await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: p[0], y: p[1] }); await sleep(300);
+console.log('hover', await evaluate(Q));
+await H.shutdown(); process.exit(0);

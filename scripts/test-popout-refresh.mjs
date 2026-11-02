@@ -12,7 +12,7 @@ const check = async (name, fn) => { try { await fn(); } catch (e) { failures.pus
 const waitFor = async (js, ms = 8000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { let v = false; try { v = await evaluate(js); } catch { /* reloading */ } if (v) return true; await sleep(60); } return false; };
 const assert = (c, m) => { if (!c) throw new Error(m); };
 // the body: a frame with text in it, shown (not hidden), with no cover over it
-const BODY = `(() => { const f = document.querySelector('iframe.msg-frame'); const d = f && f.contentDocument; return { frame: !!f, vis: f ? f.style.visibility !== 'hidden' : false, text: d && d.body ? d.body.innerText.trim().length : 0, cover: !!document.querySelector('.rp-opening'), subject: (document.querySelector('.rp-head h1') || {}).textContent || null }; })()`;
+const BODY = `(() => { const f = document.querySelector('iframe.msg-frame'); const d = f && f.contentDocument; return { frame: !!f, vis: f ? f.style.visibility !== 'hidden' : false, text: d && d.body ? d.body.innerText.trim().length : 0, sig: d && d.body ? d.body.innerText.trim().slice(0, 60) : '', cover: !!document.querySelector('.rp-opening'), subject: (document.querySelector('.rp-head h1') || {}).textContent || null }; })()`;
 const sampleFor = async (ms) => { const out = []; const t0 = Date.now(); while (Date.now() - t0 < ms) { try { out.push(await evaluate(BODY)); } catch { /* a frame being written */ } await sleep(50); } return out; };
 
 try {
@@ -39,14 +39,14 @@ try {
 
   await check('Next with a slow read: the body of the conversation before never shows under the new subject', async () => {
     const before = await evaluate(`(document.querySelector('.rp-head h1') || {}).textContent`);
+    const oldSig = (await evaluate(BODY)).sig;
     await evaluate(`window.__mockDelays = { thread: 1200 }; document.querySelectorAll('.rb.nav')[1].click(); 1`);
     const s = await sampleFor(2800);
     await evaluate(`window.__mockDelays = {}; 1`);
-    const shownOld = s.filter((x) => x.text >= 10 && !x.cover && x.subject === before);
-    const bodyWithoutCover = s.filter((x) => x.text >= 10 && x.subject !== before && x.cover);
-    assert(shownOld.length === 0 || s.findIndex((x) => x.subject !== before) < 0, `the old conversation's body was shown after the click (${shownOld.length} samples)`);
+    // (1.0.12: the old conversation stays on screen, WITH its own subject, until the next one is read and the window switches in one commit: the old body under the new subject is the fault)
+    const wrong = s.filter((x) => x.subject !== null && x.subject !== before && x.sig === oldSig);
+    assert(wrong.length === 0, `the old conversation's body was shown under the new subject (${wrong.length} samples)`);
     assert(s.some((x) => x.subject !== before && x.text >= 10 && !x.cover), 'the new conversation was never shown');
-    void bodyWithoutCover;
   });
 } catch (e) {
   failures.push(String(e && e.stack ? e.stack : e));

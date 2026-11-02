@@ -40,6 +40,30 @@ try {
     assert(await evaluate(BODY_OK), 'the body is there at the end');
   });
 
+  // Linux QA round 17: the first Next of a fresh reader showed a blank of about 120 ms (no cover): the reader switched to the next conversation first and read it afterwards, behind a loading screen. Now the
+  // conversation is read while the old body is still on screen and the reader starts with its messages. Strict: a sample is empty when neither a shown body nor the opening cover is on screen.
+  const strict = (s) => !(s.frame && s.vis && s.text > 10) && !s.cover;
+  const sampleFast = async (ms) => { const out = []; const t0 = Date.now(); while (Date.now() - t0 < ms) { try { out.push(await evaluate(STATE)); } catch { /* a frame being written */ } await sleep(20); } return out; };
+  for (const [what, delay, slow] of [['fast read', 0, 1], ['slow read (350 ms)', 350, 1], ['slow first measure (CPU x6) and a slow read', 200, 6]]) {
+    await check(`Next / Previous, ${what}: no empty sample at 20 ms (a body or the cover is always there)`, async () => {
+      await evaluate(`window.__mockDelays = { thread: ${delay} }; 1`);
+      if (slow > 1) await H.cdp('Emulation.setCPUThrottlingRate', { rate: slow });
+      try {
+        const all = [];
+        for (const dir of [1, 0, 1, 0]) {
+          await evaluate(`document.querySelectorAll('.rb.nav')[${dir}].click(); 1`);
+          all.push(...await sampleFast(delay + 900));
+        }
+        const bad = all.filter(strict);
+        assert(bad.length === 0, `${bad.length} of ${all.length} samples had neither a shown body nor the cover (${JSON.stringify(bad[0])})`);
+        assert(await waitFor(BODY_OK, 5000), 'the body is there at the end');
+      } finally {
+        if (slow > 1) await H.cdp('Emulation.setCPUThrottlingRate', { rate: 1 });
+        await evaluate(`window.__mockDelays = {}; 1`);
+      }
+    });
+  }
+
   await check('a message replaced by another one (the card unmount of the QA log): no committed state without a body', async () => {
     await sleep(800);
     const g0 = await gaps();

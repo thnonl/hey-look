@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import type { MessageFull } from "./api";
 import { holdState } from "./statusHold";
 import { useT } from "./i18n/react";
@@ -36,7 +36,8 @@ export function useOpeningPending(key: string | null, messages: MessageFull[], h
       setDoneFor(null);
     } else if (key && !waiting) setDoneFor(key);
   }, [key, last, waiting]);
-  useEffect(() => {
+  // a layout effect: a pane that starts with its messages already there (the reader after Next / Previous) draws its frame and measures it in the same commit, before a passive effect would be listening
+  useLayoutEffect(() => {
     const on = (e: Event) => setFramed((e as CustomEvent<string>).detail ?? null);
     document.addEventListener(FRAME_SHOWN, on);
     return () => document.removeEventListener(FRAME_SHOWN, on);

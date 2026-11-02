@@ -10,6 +10,7 @@ import { AlertTriangle, Archive, ChevronDown, ChevronUp, ChevronsDownUp, Chevron
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { forward, replyTo } from "../actions";
 import { api, type MessageFull } from "../api";
 import { copyToClipboard } from "../open";
@@ -58,8 +59,10 @@ export default function ReaderView({ init }: PopoutViewProps) {
   // Next / Previous (W4.4) put another conversation in the same window: the whole reader starts over for it (a new instance: its own load, its own translations and summary,
   // the subject takes the focus, the scroll is at the top)
   const [info, setInfo] = useState<ReaderInit | null>(first);
+  const [pre, setPre] = useState<Preloaded | null>(null);
   if (!info) return <ReaderFailed text={tNow("reading.popout.loadFailed", { error: tNow("reading.popout.noId") })} />;
-  return <Reader key={info.threadId} info={info} onShow={setInfo} />;
+  // the next conversation arrives with its messages already read (see `goTo`): the swap is one commit, the old body stays on screen until then
+  return <Reader key={info.threadId} info={info} pre={pre} onShow={(next, p) => flushSync(() => { if (p) useStore.setState({ messages: p.msgs }); setPre(p ?? null); setInfo(next); })} />;
 }
 
 function ReaderFailed({ text, retry }: { text: string; retry?: () => void }) {
@@ -78,7 +81,10 @@ function ReaderFailed({ text, retry }: { text: string; retry?: () => void }) {
   );
 }
 
-function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit) => void }) {
+/** The conversation Next / Previous is going to, read while the old one was still on screen. */
+type Preloaded = { msgs: MessageFull[]; meta: { pinned: boolean; snoozedUntil: number | null } | null };
+
+function Reader({ info, pre, onShow }: { info: ReaderInit; pre: Preloaded | null; onShow: (next: ReaderInit, pre?: Preloaded | null) => void }) {
   const t = useT();
   const lang = useLang();
   const messages = useStore((s) => s.messages);
@@ -86,10 +92,10 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
   const folders = useStore((s) => s.folders);
   const aiConfigured = useStore((s) => s.aiConfigured);
   const dialog = useStore((s) => s.dialog);
-  const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
+  const [phase, setPhase] = useState<"loading" | "ready" | "error">(pre ? "ready" : "loading"); // (a preloaded conversation has no loading screen: 1.0.12, the first Next showed one for ~120 ms)
   const [error, setError] = useState("");
   const [gone, setGone] = useState(false);
-  const [meta, setMeta] = useState<{ pinned: boolean; snoozedUntil: number | null }>({ pinned: false, snoozedUntil: null });
+  const [meta, setMeta] = useState<{ pinned: boolean; snoozedUntil: number | null }>(pre?.meta ?? { pinned: false, snoozedUntil: null });
   const [busy, setBusy] = useState(false); // a move waits for the main window
   /** the conversations before and after this one in the list (W4.4); `known` once the main window has answered */
   const [nb, setNb] = useState<{ prev: Neighbor | null; next: Neighbor | null; known: boolean }>({ prev: null, next: null, known: false });
@@ -105,7 +111,7 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
   const barRef = useRef<HTMLDivElement>(null);
 
   // what the database said last, what this window asked for since, and the bookkeeping of the loads
-  const base = useRef<MessageFull[]>([]);
+  const base = useRef<MessageFull[]>(pre?.msgs ?? []);
   const wanted = useRef<Wanted>({});
   const goneRef = useRef(false);
   const loadSeq = useRef(0);
@@ -229,7 +235,7 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
     };
     void (async () => {
       await loadPlatform(); // (Print and the Delete key differ on macOS)
-      useStore.setState({ selected: info.threadId, messages: [] }); // (nothing of the conversation shown before)
+      useStore.setState(pre ? { selected: info.threadId } : { selected: info.threadId, messages: [] }); // (nothing of the conversation shown before; a preloaded one is in the store already)
       void useStore.getState().refreshAi();
       off = await installReaderBridge({ reload: () => later("bridge") });
       if (dead) return off();
@@ -242,7 +248,8 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
           if (useStore.getState().messages.some((m) => m.invite)) later("calendar-changed");
         }),
       );
-      await loadRef.current(true);
+      if (pre) planRead(pre.msgs); // (read already, once: the mark-as-read rule only)
+      else await loadRef.current(true);
       void nbRef.current();
     })();
     return () => {
@@ -398,7 +405,17 @@ function Reader({ info, onShow }: { info: ReaderInit; onShow: (next: ReaderInit)
     try {
       const next: ReaderInit = { threadId: n.threadId, accountId: n.accountId, folder: n.folder, view: n.view, subject: n.subject, listAccount: info.listAccount ?? null };
       const r = await api.popoutShow(n.threadId, next);
-      if (r.status === "shown") onShow(next);
+      let pre: Preloaded | null = null;
+      if (r.status === "shown") {
+        // the next conversation is read BEFORE the window switches to it: the old body stays on screen meanwhile and the new reader starts with its messages, not with the loading screen
+        try {
+          const [msgs, meta] = await Promise.all([api.getThread(n.threadId, threadScope(next.folder)), api.threadMeta(n.threadId).catch(() => null)]);
+          if (msgs.length > 0 && !isGone(msgs, next.folder)) pre = { msgs, meta };
+        } catch {
+          /* (the reader reads it itself, with its loading screen) */
+        }
+      }
+      if (r.status === "shown") onShow(next, pre);
     } catch (e) {
       useStore.getState().showToast(() => friendlyError(e), undefined, "error");
     } finally {
