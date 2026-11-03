@@ -217,7 +217,7 @@ for (const uiTests of ["", "false"]) {
       "store-exe": "skipped",
       publish: "skipped",
       "apt-repo": "skipped",
-      "apt-repo-dryrun": "success",
+      "apt-repo-dryrun": "skipped", // (the repository is off: no runner for its dry run)
       msix: "success",
       "msix-check": "success",
       "msix-check-arm": "success",
@@ -277,7 +277,8 @@ check("(e) tag with APT_PUBLISH=true, apt-repo fails: the release stays publishe
 });
 check("(e) dry run: the dry-run job needs a green build, never the tag job", () => {
   assert.equal(run({ event: "workflow_dispatch", platforms: "all", fail: ["build"] }).result["apt-repo-dryrun"], "skipped");
-  assert.equal(run({ event: "workflow_dispatch", platforms: "linux" }).result["apt-repo-dryrun"], "success");
+  assert.equal(run({ event: "workflow_dispatch", platforms: "linux", aptPublish: "true" }).result["apt-repo-dryrun"], "success", "the repository is on: its dry run runs");
+  assert.equal(run({ event: "workflow_dispatch", platforms: "linux" }).result["apt-repo-dryrun"], "skipped", "the repository is off: no dry run of it");
   assert.equal(run({ event: "workflow_dispatch", platforms: "windows" }).result["apt-repo-dryrun"], "skipped");
   assert.equal(run({ event: "workflow_dispatch", platforms: "linux", testVersion: "0.9.0" }).result["apt-repo-dryrun"], "skipped");
   assert.equal(run({ event: "workflow_dispatch", platforms: "all", uiTests: "true" }).result["apt-repo"], "skipped");
@@ -465,6 +466,13 @@ check("(g) publish is not held back by the skipped store jobs, nor by a failing 
   assert.match(jobs.publish.cond, /contains\(fromJSON\('\["success","skipped"\]'\), needs\.store-exe\.result\)/, "publish does not accept a skipped store-exe");
   for (const fail of [["msix"], ["msix-check"], ["msix", "msix-check"]]) assert.equal(run({ event: "push", fail }).result.publish, "success", fail.join());
   assert.equal(run({ event: "workflow_dispatch", platforms: "all", fail: ["apt-repo-dryrun", "msix", "msix-check"] }).result.publish, "skipped", "a dry run never publishes");
+});
+check("(g) apt_dry: only the exact value true switches the dry run of the repository on, on any event", () => {
+  for (const value of ["", "false", "TRUE", "1", "true ", " true", "on"]) {
+    for (const event of ["push", "workflow_dispatch"]) assert.equal(runPlan({ event, aptPublish: value }).apt_dry, "false", `${event} '${value}'`);
+    assert.equal(run({ event: "workflow_dispatch", platforms: "linux", aptPublish: value }).result["apt-repo-dryrun"], "skipped", `'${value}'`);
+  }
+  for (const event of ["push", "workflow_dispatch"]) assert.equal(runPlan({ event, aptPublish: "true" }).apt_dry, "true", event);
 });
 check("(g) APT_PUBLISH: only a tag push with exactly the value true turns the APT job on", () => {
   for (const value of ["", "false", "TRUE", "True", "1", "yes", "true ", " true", "on", "tru"]) {

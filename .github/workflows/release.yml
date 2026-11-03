@@ -110,6 +110,7 @@ jobs:
       store_exe: ${{ steps.plan.outputs.store_exe }}
       store_submit: ${{ steps.plan.outputs.store_submit }}
       apt_publish: ${{ steps.plan.outputs.apt_publish }}
+      apt_dry: ${{ steps.plan.outputs.apt_dry }}
       arm: ${{ steps.plan.outputs.arm }}
       rust_linux: ${{ steps.plan.outputs.rust_linux }}
       rust_windows: ${{ steps.plan.outputs.rust_windows }}
@@ -248,6 +249,10 @@ jobs:
           apt_publish=false
           if [ "$EVENT" = "push" ] && [ "$APT_PUBLISH" = "true" ]; then apt_publish=true; fi
           echo "apt_publish=$apt_publish" >> "$GITHUB_OUTPUT"
+          # The dry-run job of the repository (apt-repo-dryrun) runs only while the repository is switched on (the same variable, exactly true), on a dry run too: with the variable unset its runner is wasted.
+          apt_dry=false
+          if [ "$APT_PUBLISH" = "true" ]; then apt_dry=true; fi
+          echo "apt_dry=$apt_dry" >> "$GITHUB_OUTPUT"
           echo "APT repository (APT_PUBLISH): $apt_publish"
 
   create-release:
@@ -1478,7 +1483,7 @@ jobs:
     # secret, has no Environment, pushes nothing and starts nothing. The result is the artifact apt-repo-dryrun (public key included, no private
     # key). Releases older than the checkout's version are added to the pool, so the upgrade test (install the previous version, then upgrade) runs.
     needs: [plan, build]
-    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && github.event.inputs.test_version == '' && needs.plan.outputs.tests == 'true' && needs.build.result == 'success' }}
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && github.event.inputs.test_version == '' && needs.plan.outputs.tests == 'true' && needs.plan.outputs.apt_dry == 'true' && needs.build.result == 'success' }}
     name: APT repository (dry run)
     runs-on: ubuntu-22.04
     timeout-minutes: 30
