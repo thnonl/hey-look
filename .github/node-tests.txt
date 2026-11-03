@@ -508,6 +508,7 @@ static | node --experimental-strip-types scripts/test-compose-start.mjs
 ui-e | node scripts/test-reply-golden.mjs --require-browser
 ui-e | node scripts/test-reply-own-account.mjs --require-browser
 ui-e | node scripts/test-reply-from-to.mjs --require-browser
+ui-e | node scripts/test-ribbon-fit.mjs --require-browser
 ui-e | node scripts/test-reply-images.mjs --require-browser
 # 1.0.7 D-006: the port boxes of Add account are text boxes (a number box adds one on ArrowUp / the mouse wheel: a typed SMTP port 31501 was reported saved as 31502); digits only, empty = no port, over 65535 refused
 static | node --experimental-strip-types scripts/test-port-field.mjs

@@ -1,11 +1,11 @@
 import {
   Archive, BrushCleaning, CalendarDays, CalendarPlus, CalendarRange, Clock, List as ListIcon, Upload, Command, FolderInput, Flag, Forward, Info, Keyboard, MailOpen, MailPlus, Mail, OctagonAlert, Pin, Reply, ReplyAll, Trash2,
 } from "lucide-react";
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useRef } from "react";
 import { forwardLast, newMail, replyLast, targets } from "../actions";
 import { api } from "../api";
 import { calTz, today } from "../calendar";
-import { useT } from "../i18n/react";
+import { useLang, useT } from "../i18n/react";
 import { friendlyError, useStore, scopeOf } from "../store";
 import { newEvent, newEventWindow } from "../newEvent";
 import { accountsOf, canMoveToJunk } from "../junk";
@@ -198,12 +198,40 @@ function HelpTab() {
   );
 }
 
+/**
+ * The row never scrolls sideways and never cuts a button (1.0.12, Windows QA BUG-7: Russian at 1800 px). A row whose labels do not fit on one line shows icons only (`data-icons`, the look the
+ * 1400 px rule gives the Home row); a row that does not fit even then (the View tab has no icons, a very narrow window) wraps to a second line (CSS). Measured with the row on one line, in the
+ * same task as the change, so no frame shows the wide row; again when the window, the language, the tab or the module changes.
+ */
+function useIconsWhenCrowded(box: React.RefObject<HTMLDivElement | null>, key: string) {
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const fit = () => {
+      const row = el.querySelector<HTMLElement>(".ribbon-row");
+      el.removeAttribute("data-icons");
+      if (!row) return;
+      row.style.flexWrap = "nowrap";
+      if (row.scrollWidth > row.clientWidth) el.setAttribute("data-icons", "1");
+      row.style.flexWrap = "";
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    void document.fonts?.ready.then(fit);
+    return () => ro.disconnect();
+  }, [box, key]);
+}
+
 export function Ribbon() {
   const t = useT();
+  const lang = useLang();
+  const box = useRef<HTMLDivElement>(null);
   const { ribbonTab, setRibbonTab, module } = useStore();
+  useIconsWhenCrowded(box, `${ribbonTab}|${module}|${lang}`);
   const tabs: ["home" | "view" | "help", string][] = [["home", t("app.ribbon.tabHome")], ["view", t("app.ribbon.tabView")], ["help", t("app.ribbon.tabHelp")]];
   return (
-    <div className="ribbon">
+    <div className="ribbon" ref={box}>
       <div className="ribbon-tabs">
         {tabs.map(([k, l]) => (
           <button key={k} className={ribbonTab === k ? "active" : ""} onClick={() => setRibbonTab(k)}>

@@ -306,7 +306,7 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .ribbon-tabs button { background: none; border: 0; padding: 8px 12px 7px; border-bottom: 2px solid transparent; color: var(--muted); font-weight: 500; transition: color .12s, border-color .12s; }
 .ribbon-tabs button.active { border-bottom-color: var(--accent); color: var(--fg); font-weight: 500; }
 .ribbon-tabs button:hover { color: var(--fg); }
-.ribbon-row { display: flex; align-items: stretch; padding: 5px 10px 7px; min-height: 54px; overflow-x: auto; }
+.ribbon-row { display: flex; flex-wrap: wrap; row-gap: 4px; align-items: stretch; padding: 5px 10px 7px; min-height: 54px; overflow-x: auto; }
 .rg { display: flex; align-items: center; gap: 2px; padding: 0 10px; border-right: 1px solid var(--border); }
 .rg:last-child { border-right: 0; }
 .rb { display: inline-flex; align-items: center; gap: 7px; background: none; border: 0; border-radius: var(--r-sm); padding: 7px 10px; white-space: nowrap; transition: background .12s, color .12s; }
@@ -316,6 +316,7 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .rb.primary:hover { background: var(--accent-hover) !important; }
 .rb-wrap { display: inline-block; }
 @media (max-width: 1400px) { .ribbon-row.home .rb:not(.primary) span { display: none; } .ribbon-row.home .rb:not(.primary) { padding: 8px; } }
+.ribbon[data-icons] .ribbon-row.home .rb:not(.primary) span { display: none; } .ribbon[data-icons] .ribbon-row.home .rb:not(.primary) { padding: 8px; }
 
 /* dropdown + menus */
 .dd { position: relative; display: inline-block; }
