@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 // Builds the Microsoft Store package (WP14 option A, spec WA.1) from the release exe, with the tools of the Windows SDK (makeappx, makepri):
-//   node scripts/msix-build.mjs --exe <hey-look.exe> --out <folder> [--version X.Y.Z] [--require-identity] [--test-sign] [--store-logos] [--github-output]
+//   node scripts/msix-build.mjs --exe <hey-look.exe> --out <folder> [--arch x64|arm64] [--version X.Y.Z] [--require-identity] [--test-sign] [--store-logos] [--github-output]
 // Identity from the environment: MSIX_IDENTITY_NAME, MSIX_PUBLISHER, MSIX_PUBLISHER_DISPLAY_NAME (public values from Partner Center > Product
 // identity; repository variables, not secrets). None set = a placeholder identity (CN=HeyLook-Dev) for a dry run; --require-identity (tag runs)
 // makes that an error. The version is the one of src-tauri/tauri.conf.json (X.Y.Z -> X.Y.Z.0) unless --version says another;
 // --expect-version X.Y.Z (a tag run: the tag) makes any other version an error.
 // Writes, in <folder>:
-//   HeyLook_<V>_x64.msix        the package for Partner Center (unsigned: the Store signs it after certification, MSIX-REQ)
-//   HeyLook_<V>_x64_test.msix   with --test-sign: a copy signed with a throw-away certificate whose subject is the Publisher (CI install check,
+//   HeyLook_<V>_<arch>.msix     (arch x64 unless --arch arm64 says another; the exe must be the one of that architecture) the package for Partner Center (unsigned: the Store signs it after certification, MSIX-REQ)
+//   HeyLook_<V>_<arch>_test.msix with --test-sign: a copy signed with a throw-away certificate whose subject is the Publisher (CI install check,
 //                               Windows Sandbox); HeyLook-test.cer is its PUBLIC half. The private key lives in a temp folder only for the
 //                               signing and is deleted at once; nothing private is ever written into <folder>
 //   store/                      with --store-logos: the listing images (box art, poster, tile)
@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { EXE_NAME, TEMPLATE, ROOT, checkManifest, fillManifest, findOpenssl, findSdkTool, msixVersion, packageImages, publisherToSubject, readReadiness, resolveIdentity, sha256File, storeLogos } from "./lib/msix.mjs";
+import { ARCHES, EXE_NAME, TEMPLATE, ROOT, checkManifest, fillManifest, findOpenssl, findSdkTool, msixVersion, packageImages, publisherToSubject, readReadiness, resolveIdentity, sha256File, storeLogos } from "./lib/msix.mjs";
 import { renderImages } from "./msix-assets.mjs";
 
 function run(tool, args, { cwd } = {}) {
@@ -61,7 +61,7 @@ export function testSign({ msix, publisher, outSigned, outCer, tmp }) {
   return { signed: outSigned, cer: outCer };
 }
 
-export async function build({ exe, out, version, expectVersion, requireIdentity = false, testSignIt = false, withStoreLogos = false, env = process.env, tmp }) {
+export async function build({ exe, out, arch = "x64", version, expectVersion, requireIdentity = false, testSignIt = false, withStoreLogos = false, env = process.env, tmp }) {
   if (process.platform !== "win32") throw new Error("the package is built on Windows (the Windows SDK tools makeappx and makepri)");
   const makeappx = findSdkTool("makeappx.exe");
   const makepri = findSdkTool("makepri.exe");
@@ -73,9 +73,10 @@ export async function build({ exe, out, version, expectVersion, requireIdentity 
   const v4 = msixVersion(v3);
   const identity = resolveIdentity({ name: env.MSIX_IDENTITY_NAME, publisher: env.MSIX_PUBLISHER, publisherDisplayName: env.MSIX_PUBLISHER_DISPLAY_NAME }, { requireIdentity });
   const ready = readReadiness().appPackagedMode;
+  if (!ARCHES.includes(arch)) throw new Error(`unknown architecture '${arch}' (x64 or arm64)`);
 
-  const manifest = fillManifest(fs.readFileSync(TEMPLATE, "utf8"), identity, v4);
-  const problems = checkManifest(manifest, { name: identity.name, publisher: identity.publisher, publisherDisplayName: identity.publisherDisplayName, version: v4 });
+  const manifest = fillManifest(fs.readFileSync(TEMPLATE, "utf8"), identity, v4, arch);
+  const problems = checkManifest(manifest, { name: identity.name, publisher: identity.publisher, publisherDisplayName: identity.publisherDisplayName, version: v4, arch });
   if (problems.length) throw new Error(`the manifest is not what the spec says:\n- ${problems.join("\n- ")}`);
   fs.mkdirSync(out, { recursive: true });
   const layout = path.join(out, "layout");
@@ -98,12 +99,12 @@ export async function build({ exe, out, version, expectVersion, requireIdentity 
   run(makepri, ["new", "/pr", layout, "/cf", priCfg, "/mn", path.join(layout, "AppxManifest.xml"), "/of", pri, "/o"]);
   fs.copyFileSync(pri, path.join(layout, "resources.pri"));
 
-  const msix = path.join(out, `HeyLook_${v3}_x64.msix`);
+  const msix = path.join(out, `HeyLook_${v3}_${arch}.msix`);
   run(makeappx, ["pack", "/d", layout, "/p", msix, "/o"]);
 
-  const result = { version: v3, msixVersion: v4, identity, ready, exe: { sha256: exeSha, bytes: fs.statSync(path.join(layout, EXE_NAME)).size }, msix: { file: path.basename(msix), bytes: fs.statSync(msix).size, sha256: sha256File(msix) } };
+  const result = { arch, version: v3, msixVersion: v4, identity, ready, exe: { sha256: exeSha, bytes: fs.statSync(path.join(layout, EXE_NAME)).size }, msix: { file: path.basename(msix), bytes: fs.statSync(msix).size, sha256: sha256File(msix) } };
   if (testSignIt) {
-    const signed = path.join(out, `HeyLook_${v3}_x64_test.msix`);
+    const signed = path.join(out, `HeyLook_${v3}_${arch}_test.msix`);
     const cer = path.join(out, "HeyLook-test.cer");
     testSign({ msix, publisher: identity.publisher, outSigned: signed, outCer: cer, tmp: tmp ?? path.join(os.tmpdir(), `hl-msix-sign-${randomBytes(4).toString("hex")}`) });
     result.test = { file: path.basename(signed), cer: path.basename(cer), bytes: fs.statSync(signed).size, sha256: sha256File(signed) };
@@ -120,11 +121,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const exe = val("--exe");
   const out = val("--out");
   if (!exe || !out) {
-    console.error("usage: node scripts/msix-build.mjs --exe <hey-look.exe> --out <folder> [--version X.Y.Z] [--expect-version X.Y.Z] [--require-identity] [--test-sign] [--store-logos] [--github-output]");
+    console.error("usage: node scripts/msix-build.mjs --exe <hey-look.exe> --out <folder> [--arch x64|arm64] [--version X.Y.Z] [--expect-version X.Y.Z] [--require-identity] [--test-sign] [--store-logos] [--github-output]");
     process.exit(2);
   }
   try {
-    const r = await build({ exe: path.resolve(exe), out: path.resolve(out), version: val("--version"), expectVersion: val("--expect-version"), requireIdentity: flag("--require-identity"), testSignIt: flag("--test-sign"), withStoreLogos: flag("--store-logos"), tmp: val("--tmp") });
+    const r = await build({ exe: path.resolve(exe), out: path.resolve(out), arch: val("--arch") ?? "x64", version: val("--version"), expectVersion: val("--expect-version"), requireIdentity: flag("--require-identity"), testSignIt: flag("--test-sign"), withStoreLogos: flag("--store-logos"), tmp: val("--tmp") });
     console.log(JSON.stringify(r, null, 2));
     if (flag("--github-output") && process.env.GITHUB_OUTPUT) {
       fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${r.version}\nfile=${r.msix.file}\nready=${r.ready}\ndev=${r.identity.dev}\n`);

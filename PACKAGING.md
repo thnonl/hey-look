@@ -134,7 +134,7 @@ CHANGELOG line; users run step 1 again.
 site (`gpg --show-keys /etc/apt/keyrings/heylook-archive-keyring.gpg`, compare with the fingerprint on the download page) or the sources file
 points at another key. `Hash Sum mismatch`: a cache served a half-old repository (the by-hash copies make this rare); run `sudo apt update`
 again after ten minutes. `E: The repository ... does not have a Release file`: the address in `heylook.sources` is wrong. On arm64 the
-repository is ignored (`Architectures: amd64`); there is no arm64 `.deb`.
+repository is ignored (`Architectures: amd64`); the arm64 `.deb` is only on the release page, the repository for arm64 is not built.
 
 ## OAuth client ids
 
@@ -214,7 +214,7 @@ system. In the dev preview of the page: `#managed=msstore` and `#autostartlock=u
 
 | File | What it is |
 |---|---|
-| `src-tauri/msix/AppxManifest.xml.in` | the manifest: identity from the variables below, version from `tauri.conf.json` (`1.0.7` becomes `1.0.7.0`), x64, Windows 10 1809 or later, the restricted capability `runFullTrust` and nothing else, the startup task `HeyLookStartup` (off), the 8 languages, `UpdateWhileInUse=defer` |
+| `src-tauri/msix/AppxManifest.xml.in` | the manifest: identity from the variables below, version from `tauri.conf.json` (`1.0.7` becomes `1.0.7.0`), x64 or arm64 (`{{ARCH}}`), Windows 10 1809 or later, the restricted capability `runFullTrust` and nothing else, the startup task `HeyLookStartup` (off), the 8 languages, `UpdateWhileInUse=defer` |
 | `src-tauri/msix/readiness.json` | `appPackagedMode`: does the app have its packaged mode (see above) |
 | `scripts/msix-build.mjs` | builds the package from the release exe with the Windows SDK (`makeappx`, `makepri`), and a copy signed with a throw-away certificate |
 | `scripts/msix-assets.mjs` | draws the package logos and the Store listing images from `docs/assets/favicon.svg` (headless Chrome or Edge); the PNGs are not committed |
@@ -249,9 +249,9 @@ to the new value. Setting the variables is only needed when a value changes (a v
 
 | Artifact | When | Contents |
 |---|---|---|
-| `msix-store` / `msix-store-NOT-READY` | tag runs, 14 days | `HeyLook_<V>_x64.msix`, **unsigned**: what you upload to Partner Center. Never attached to the GitHub release (users cannot install an unsigned MSIX) |
+| `msix-store` / `msix-store-NOT-READY` | tag runs, 14 days | `HeyLook_<V>.msixbundle` (the x64 and the arm64 package in one bundle, from 1.0.12) and the two packages `HeyLook_<V>_x64.msix`, `HeyLook_<V>_arm64.msix`, all **unsigned**: upload the bundle to Partner Center (with `ARM64_BUILD=false` there is no bundle and no arm64 package: upload the x64 package). Never attached to the GitHub release (users cannot install an unsigned MSIX) |
 | `msix-store-logos` | every run, 14 days on a tag, else 1 | box art 2160 x 2160 and 1080 x 1080, poster 1440 x 2160 and 720 x 1080, app tile 300 x 300 (Partner Center > Store listing) |
-| `msix-test` | every run, 1 day | `HeyLook_<V>_x64_test.msix` signed with a throw-away certificate whose subject is the Publisher (its key is deleted at once) and `HeyLook-test.cer`, its public half; for `msix-check` and, if you enable Windows Sandbox, for a look inside the Sandbox |
+| `msix-test`, `msix-test-arm64` | every run, 1 day | `HeyLook_<V>_x64_test.msix` (and `HeyLook_<V>_arm64_test.msix`) signed with a throw-away certificate whose subject is the Publisher (its key is deleted at once) and `HeyLook-test.cer`, its public half; for `msix-check` and, if you enable Windows Sandbox, for a look inside the Sandbox |
 | `msix-wack-report` | when the runner has the Windows App Certification Kit | the report; its FAIL lines are in the summary of `msix-check` (information, not a gate: the Store runs its own checks) |
 
 The job `msix-check` (every Windows run) trusts the throw-away certificate in the machine store of the runner (a virtual machine that is thrown away), installs the

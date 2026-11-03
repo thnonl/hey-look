@@ -1335,6 +1335,12 @@ mod tests {
         assert_eq!(manifest_keys(&p("windows", "x64", "nsis")), ["windows-x86_64-nsis", "windows-x86_64"]);
         assert_eq!(manifest_keys(&p("windows", "x64", "msi")), ["windows-x86_64-msi", "windows-x86_64"]);
         assert_eq!(manifest_keys(&p("linux", "x64", "deb")), ["linux-x86_64-deb", "linux-x86_64"]);
+        // native ARM64 builds (1.0.12): Windows on ARM and Linux on ARM ask for the aarch64 keys
+        assert_eq!(manifest_keys(&p("windows", "arm64", "nsis")), ["windows-aarch64-nsis", "windows-aarch64"]);
+        assert_eq!(manifest_keys(&p("windows", "arm64", "msi")), ["windows-aarch64-msi", "windows-aarch64"]);
+        assert_eq!(manifest_keys(&p("linux", "arm64", "appimage")), ["linux-aarch64-appimage", "linux-aarch64"]);
+        assert_eq!(manifest_keys(&p("linux", "arm64", "deb")), ["linux-aarch64-deb", "linux-aarch64"]);
+        assert_eq!(manifest_keys(&p("linux", "arm64", "rpm")), ["linux-aarch64-rpm", "linux-aarch64"]);
         // a copy whose bundle type is unknown looks for the plain key only
         assert_eq!(manifest_keys(&p("macos", "arm64", "unknown")), ["darwin-aarch64"]);
     }
@@ -1479,7 +1485,7 @@ mod tests {
         let script = include_str!("../../.github/scripts/make-latest-json.cjs");
         let published: Vec<&str> = script
             .lines()
-            .filter_map(|l| l.trim().strip_prefix('"')?.split_once("\": \"").map(|(k, _)| k))
+            .filter_map(|l| l.trim().strip_prefix('"')?.split_once("\": ").map(|(k, _)| k))
             .filter(|k| k.contains('-'))
             .collect();
         assert!(published.contains(&"darwin-aarch64-app") && published.contains(&"windows-x86_64-nsis"), "parsed the script: {published:?}");
@@ -1492,6 +1498,12 @@ mod tests {
             ("linux", "x64", "appimage"),
             ("linux", "x64", "deb"),
             ("linux", "x64", "rpm"),
+            // the native ARM64 builds (1.0.12)
+            ("windows", "arm64", "nsis"),
+            ("windows", "arm64", "msi"),
+            ("linux", "arm64", "appimage"),
+            ("linux", "arm64", "deb"),
+            ("linux", "arm64", "rpm"),
         ] {
             let platform = Platform { os: os.into(), arch: arch.into(), installer: installer.into(), label: String::new() };
             for key in manifest_keys(&platform) {

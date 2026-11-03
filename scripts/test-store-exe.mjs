@@ -62,7 +62,7 @@ check("latest.json: the offline installer is no asset of the updater", () => {
   const script = path.join(root, ".github/scripts/make-latest-json.cjs");
   const gen = (list) => {
     fs.writeFileSync(path.join(dir, "assets.json"), JSON.stringify(list.map((name, i) => ({ name, size: 1000 + i }))));
-    const r = spawnSync("node", [script, "generate", "--version", V, "--assets", path.join(dir, "assets.json"), "--sigs", sigs, "--notes", path.join(dir, "notes.md")], { encoding: "utf8" });
+    const r = spawnSync("node", [script, "generate", "--version", V, "--assets", path.join(dir, "assets.json"), "--sigs", sigs, "--notes", path.join(dir, "notes.md"), "--no-arm"], { encoding: "utf8" });
     return r;
   };
   const without = gen(names);

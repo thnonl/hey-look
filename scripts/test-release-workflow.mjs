@@ -118,9 +118,17 @@ export function check({ release, pages, stores, nodeTests }) {
     for (const n of want) if (!needsOf(j).includes(n)) fail(`(e) release.yml: job ${j} does not list ${n} in needs`);
   }
   if (!jobs['rust-tests-windows']) fail('(e) release.yml: no job rust-tests-windows');
-  else if (!/runs-on: windows-/.test(jobs['rust-tests-windows'])) fail('(e) release.yml: rust-tests-windows does not run on Windows');
+  // (1.0.12: the runners come from the plan job, x64 and ARM64: windows-2025-vs2026 and windows-11-arm)
+  else if (!/runs-on: (windows-|\$\{\{ matrix\.os \}\})/.test(jobs['rust-tests-windows']) || !/rw\+=\('"windows-2025-vs2026"'\)/.test(release)) fail('(e) release.yml: rust-tests-windows does not run on Windows');
   // the result of the new job counts like the other Rust job in the two conditions
   for (const j of ['sign-windows', 'publish']) if (!jobIf(jobs[j] || '').includes('needs.rust-tests-windows.result')) fail(`(e) release.yml: the if of ${j} does not look at rust-tests-windows`);
+
+  // (i) 1.0.12 ARM64: the two native ARM runners are named exactly (no -latest), the escape hatch ARM64_BUILD=false exists and the publish job follows it
+  for (const label of ['windows-11-arm', 'ubuntu-22.04-arm']) if (!release.includes('"platform":"' + label + '"')) fail('(i) release.yml: the plan job has no build leg on ' + label);
+  if (!/ARM64_BUILD: \$\{\{ vars\.ARM64_BUILD \}\}/.test(release) || !/\[ "\$ARM64_BUILD" = "false" \] && arm_ok=false/.test(release)) fail('(i) release.yml: the escape hatch ARM64_BUILD=false is missing from the plan job');
+  const pub = jobs.publish || '';
+  if (!/ARM: \$\{\{ needs\.plan\.outputs\.arm \}\}/.test(pub) || !/--no-arm/.test(pub)) fail('(i) release.yml: the publish job does not follow the plan job on the ARM64 files (--no-arm)');
+  if (!/matrix\.suffix/.test(release) || /^\s+name: windows-exe\s*$/m.test(jobs.build || '')) fail('(i) release.yml: the build artifacts of the two Windows builds would collide (name without matrix.suffix)');
 
   // (f)
   const ui = /^\s*ui_shards='([^']*)'\s*$/m.exec(release);
@@ -193,11 +201,13 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     mut('publish without rust-tests-windows', 'e', (c) => ({ ...c, release: c.release.replace('store-exe, node-tests, rust-tests, rust-tests-windows, audit]', 'store-exe, node-tests, rust-tests, audit]') })),
     mut('a Rust test job without -D warnings', 'h', (c) => ({ ...c, release: c.release.replace('RUSTFLAGS: "-D warnings" # (W9.8, as the Linux job)', '') })),
     mut('publish without the audit job', 'e', (c) => ({ ...c, release: c.release.replace('store-exe, node-tests, rust-tests, rust-tests-windows, audit]', 'store-exe, node-tests, rust-tests, rust-tests-windows]') })),
+    mut('no ARM64 escape hatch', 'i', (c) => ({ ...c, release: c.release.replace('ARM64_BUILD: ${{ vars.ARM64_BUILD }}', '') })),
+    mut('an ARM64 leg on an image that is not the native ARM runner', 'i', (c) => ({ ...c, release: c.release.replace('"platform":"windows-11-arm"', '"platform":"windows-2025-vs2026"') })),
     mut('a shard with a typo in node-tests.txt', 'f', (c) => ({ ...c, nodeTests: c.nodeTests + 'ui-z | node scripts/x.mjs\n' })),
     mut('a workflow shard without a command', 'f', (c) => ({ ...c, nodeTests: c.nodeTests.replace(/^ui-e \|.*$/gm, '') })),
     mut('a rehearsal that is not ignored on tag runs', 'g', (c) => ({ ...c, release: c.release.replace('rehearse_signing is ignored on a tag run', 'x') })),
     mut('an unmasked throw-away key', 'g', (c) => ({ ...c, release: c.release.replace('echo "::add-mask::$key"', '') })),
     mut('the SHA-1 pin on dry runs too', 'g', (c) => ({ ...c, release: c.release.replace("github.event_name == 'push' && env.MAC_CERT_SHA1 || ''", 'env.MAC_CERT_SHA1') })),
   ];
-  console.log(`ok - test-release-workflow (rules a-h on 3 workflows, ${done.length} mutations caught)`);
+  console.log(`ok - test-release-workflow (rules a-i on 3 workflows, ${done.length} mutations caught)`);
 }

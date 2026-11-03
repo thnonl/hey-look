@@ -29,7 +29,9 @@ name: Release
 # (a headless browser each, about 9 minutes in parallel) on every tag run and, in a dry run, only with the input `ui_tests` (default false).
 # A dry run without ui_tests therefore runs plan, static, the Rust tests and the builds; it never publishes, so nothing waits for the UI shards.
 # A tag run cannot skip them: the plan job lists them in the matrix of node-tests, and publish needs every shard to have succeeded.
-# A tag run always builds all three platforms. The checks that need all three (the asset list, latest.json) exist only in the
+# 1.0.12: Windows ARM64 and Linux ARM64 are built natively on the hosted ARM64 runners (platforms windows-arm64, linux-arm64, arm64; all = five legs; the repository
+# variable ARM64_BUILD=false leaves the two ARM64 legs out of `all` and of a tag run, CONTRIBUTING.md > ARM64 builds; the ARM64 installers go into the same SignPath request as the x64 ones).
+# A tag run always builds all three systems. The checks that need all three (the asset list, latest.json) exist only in the
 # tag run's publish job, so a subset dry run has nothing to skip; the plan job says what was chosen.
 on:
   push:
@@ -74,7 +76,9 @@ env:
   # The runner images, exactly (W11.8). No job uses a `-latest` label: the image must not change between the last dry run and the tag run (the publish
   # job runs only on a tag, so with `ubuntu-latest` its first run on a new image would have been the release itself). In use: ubuntu-24.04 (plan,
   # create-release, publish, the website deploy of pages.yml), windows-2025-vs2026 (every Windows job; the label of the image that windows-latest was),
-  # macos-26 (arm64, the universal build), ubuntu-22.04 (node tests, Rust tests, Linux build: the glibc floor of the Linux packages). To change one:
+  # macos-26 (arm64, the universal build), ubuntu-22.04 (node tests, Rust tests, Linux build: the glibc floor of the Linux packages), and the native ARM64 runners
+  # windows-11-arm and ubuntu-22.04-arm (1.0.12: the ARM64 builds, their Rust tests, smoke tests and the Store package check; ubuntu-22.04-arm has the same glibc floor, 2.35;
+  # the label windows-11-arm carries no image version, so the image can change between two runs: look at the image version in the log of the last dry run). To change one:
   # change the label, then a dry run platforms=all AND a rehearsal (rehearse_signing=true), both green, then commit. scripts/test-release-workflow.mjs fails on a `-latest` label.
   #
   # SHA-1 fingerprint of the project's self-signed macOS certificate, the same since 1.0.6 (a public fingerprint, not a secret). A tag run fails when the
@@ -106,6 +110,13 @@ jobs:
       store_exe: ${{ steps.plan.outputs.store_exe }}
       store_submit: ${{ steps.plan.outputs.store_submit }}
       apt_publish: ${{ steps.plan.outputs.apt_publish }}
+      arm: ${{ steps.plan.outputs.arm }}
+      rust_linux: ${{ steps.plan.outputs.rust_linux }}
+      rust_windows: ${{ steps.plan.outputs.rust_windows }}
+      msix_x64: ${{ steps.plan.outputs.msix_x64 }}
+      msix_arm: ${{ steps.plan.outputs.msix_arm }}
+      winarm: ${{ steps.plan.outputs.winarm }}
+      linarm: ${{ steps.plan.outputs.linarm }}
     steps:
       - id: plan
         shell: bash
@@ -123,26 +134,50 @@ jobs:
           STORE_EXE: ${{ vars.STORE_EXE }}
           STORE_SUBMIT: ${{ vars.STORE_SUBMIT }}
           APT_PUBLISH: ${{ vars.APT_PUBLISH }}
+          ARM64_BUILD: ${{ vars.ARM64_BUILD }}
         run: |
           set -euo pipefail
           want="all"
           if [ "$EVENT" = "workflow_dispatch" ]; then want="$(echo "${PLATFORMS:-all}" | tr 'A-Z' 'a-z' | tr -d ' ')"; fi
           [ -n "$want" ] || want="all"
-          win=false; mac=false; lin=false
+          # windows / linux = x64 (unchanged meaning); windows-arm64 / linux-arm64 = the native ARM64 builds (arm64 = both); all = all five.
+          # The repository variable ARM64_BUILD=false, exactly, is the escape hatch (owner 2026-11-03): `all` and a tag run then leave the two ARM legs out
+          # (a failing ARM leg must not hold back the x64 / macOS release); the asset checks of the publish job follow the output `arm`. An ARM leg asked
+          # for by name in a dry run is always built.
+          win=false; mac=false; lin=false; warm=false; larm=false
+          arm_ok=true
+          [ "$ARM64_BUILD" = "false" ] && arm_ok=false
           IFS=',' read -ra parts <<< "$want"
           for p in "${parts[@]}"; do
             case "$p" in
-              all) win=true; mac=true; lin=true ;;
+              all) win=true; mac=true; lin=true; if [ "$arm_ok" = true ]; then warm=true; larm=true; fi ;;
               windows) win=true ;;
               macos) mac=true ;;
               linux) lin=true ;;
-              *) echo "::error::Unknown platform '$p'. Use all, windows, macos, linux or a comma list."; exit 1 ;;
+              windows-arm64) warm=true ;;
+              linux-arm64) larm=true ;;
+              arm64) warm=true; larm=true ;;
+              *) echo "::error::Unknown platform '$p'. Use all, windows, windows-arm64, macos, linux, linux-arm64, arm64 or a comma list."; exit 1 ;;
             esac
           done
+          if [ "$arm_ok" = false ]; then echo "::warning::ARM64_BUILD=false: the ARM64 builds are left out of 'all' and of a tag run"; fi
           items=()
-          $win && items+=('{"name":"Windows","platform":"windows-2025-vs2026","args":""}')
-          $mac && items+=('{"name":"macOS (universal)","platform":"macos-26","args":"--target universal-apple-darwin"}')
-          $lin && items+=('{"name":"Linux","platform":"ubuntu-22.04","args":""}')
+          $win && items+=('{"name":"Windows","platform":"windows-2025-vs2026","args":"","suffix":""}')
+          $warm && items+=('{"name":"Windows (ARM64)","platform":"windows-11-arm","args":"","suffix":"-arm64"}')
+          $mac && items+=('{"name":"macOS (universal)","platform":"macos-26","args":"--target universal-apple-darwin","suffix":""}')
+          $lin && items+=('{"name":"Linux","platform":"ubuntu-22.04","args":"","suffix":""}')
+          $larm && items+=('{"name":"Linux (ARM64)","platform":"ubuntu-22.04-arm","args":"","suffix":"-arm64"}')
+          arm=false
+          if [ "$warm" = true ] && [ "$larm" = true ]; then arm=true; fi
+          echo "arm=$arm" >> "$GITHUB_OUTPUT"
+          # the runners of the Rust test jobs: the x64 ones as before, and the ARM64 ones whenever that ARM64 build is part of the run (cargo test on the real CPU)
+          rl=(); rw=()
+          $lin && rl+=('"ubuntu-22.04"'); $larm && rl+=('"ubuntu-22.04-arm"')
+          $win && rw+=('"windows-2025-vs2026"'); $warm && rw+=('"windows-11-arm"')
+          echo "rust_linux=[$(IFS=,; echo "${rl[*]:-}")]" >> "$GITHUB_OUTPUT"
+          echo "rust_windows=[$(IFS=,; echo "${rw[*]:-}")]" >> "$GITHUB_OUTPUT"
+          echo "winarm=$warm" >> "$GITHUB_OUTPUT"
+          echo "linarm=$larm" >> "$GITHUB_OUTPUT"
           matrix="{\"include\":[$(IFS=,; echo "${items[*]}")]}"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           # the node tests ran in the Linux build job before: they run whenever Linux is built
@@ -170,8 +205,8 @@ jobs:
           echo "Node test shards: $shards"
           echo "Event: $EVENT. Platforms to build: $want"
           echo "$matrix"
-          if [ "${#items[@]}" -lt 3 ]; then
-            echo "::notice::Subset run: only some platforms are built. A tag run always builds all three; the asset-list and latest.json checks run only there."
+          if [ "${#items[@]}" -lt 5 ]; then
+            echo "::notice::Subset run: only some platforms are built. A tag run builds all five (Windows and Linux for x64 and ARM64, macOS universal; fewer with ARM64_BUILD=false); the asset-list and latest.json checks run only there."
           fi
           # Windows signing with SignPath: only with all three SIGNPATH_* variables, never for a test build, on a tag run or a dry run that asks for it.
           signpath=false
@@ -191,12 +226,16 @@ jobs:
           echo "signpath=$signpath" >> "$GITHUB_OUTPUT"
           echo "Windows signing with SignPath: $signpath"
           # Microsoft Store (WP14). The MSIX package (option A) is made whenever Windows is built, except for a test build (its exe is a debug build).
-          msix=false
-          if [ "$win" = true ] && [ -z "$TEST_VERSION" ]; then msix=true; fi
+          # (1.0.12: the package of each architecture that is built; with both, the Store gets one bundle)
+          msix=false; msix_x64=false; msix_arm=false
+          if [ "$win" = true ] && [ -z "$TEST_VERSION" ]; then msix=true; msix_x64=true; fi
+          if [ "$warm" = true ] && [ -z "$TEST_VERSION" ]; then msix=true; msix_arm=true; fi
+          echo "msix_x64=$msix_x64" >> "$GITHUB_OUTPUT"
+          echo "msix_arm=$msix_arm" >> "$GITHUB_OUTPUT"
           # Option B (the signed offline EXE installer for the Store) is built but OFF (DEC-005): only the repository variable STORE_EXE=true, exactly,
           # turns it on. A dry run then builds it and keeps it as an artifact; a tag run attaches it to the release and serves it from the website.
           store_exe=false
-          if [ "$msix" = true ] && [ "$STORE_EXE" = "true" ]; then store_exe=true; fi
+          if [ "$msix_x64" = true ] && [ "$STORE_EXE" = "true" ]; then store_exe=true; fi
           # The submission to Partner Center (Entra application) is built but OFF (DEC-005): tag runs with STORE_SUBMIT=true, exactly.
           store_submit=false
           if [ "$EVENT" = "push" ] && [ "$STORE_SUBMIT" = "true" ]; then store_submit=true; fi
@@ -298,9 +337,13 @@ jobs:
     # before; the release checklist only names them. Same image and system packages as the Linux build. The frontend is not needed to compile
     # the tests, but the app macro wants the folder of the built frontend to exist, so an empty stand-in is made.
     needs: plan
-    if: ${{ needs.plan.outputs.tests == 'true' }}
-    name: Rust tests
-    runs-on: ubuntu-22.04
+    if: ${{ needs.plan.outputs.rust_linux != '[]' }}
+    name: Rust tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(needs.plan.outputs.rust_linux) }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     permissions:
       contents: read
@@ -400,9 +443,13 @@ jobs:
     # because the Rust job above is Linux only. Same Rust version and cache rules as the other Rust jobs; runs beside the builds, so the wall time of the run
     # does not grow (it must not take longer than the macOS build). The frontend is not needed to compile the tests: an empty stand-in folder is made.
     needs: plan
-    if: ${{ needs.plan.outputs.wintests == 'true' }}
-    name: Rust tests (Windows)
-    runs-on: windows-2025-vs2026
+    if: ${{ needs.plan.outputs.rust_windows != '[]' }}
+    name: Rust tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(needs.plan.outputs.rust_windows) }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     permissions:
       contents: read
@@ -814,7 +861,7 @@ jobs:
         if: runner.os == 'Windows' && needs.plan.outputs.msix == 'true' && steps.sign.outputs.profile == 'release'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: windows-exe
+          name: windows-exe${{ matrix.suffix }}
           path: src-tauri/target/release/hey-look.exe
           retention-days: 1
           if-no-files-found: error
@@ -842,6 +889,18 @@ jobs:
           fi
           echo "searching: ${targets[*]}"
           node .github/scripts/check-no-test-bridge.cjs "${targets[@]}"
+
+      # 1.0.12: the ARM64 builds are tested where they were made, on a real ARM64 machine (the hosted runner): the file is an ARM64 file, the Linux binary needs
+      # no newer glibc than 2.35, the package installs, and the installed program starts and makes its database (Windows: also the WebView2 runtime starts).
+      # A dry run builds unsigned, so this proves "installs and runs on ARM64", not the signatures of a tag run.
+      - name: ARM64 smoke test (Linux)
+        if: matrix.suffix == '-arm64' && runner.os == 'Linux' && steps.sign.outputs.profile == 'release'
+        run: bash .github/scripts/arm-smoke.sh
+
+      - name: ARM64 smoke test (Windows)
+        if: matrix.suffix == '-arm64' && runner.os == 'Windows' && steps.sign.outputs.profile == 'release'
+        shell: pwsh
+        run: .\.github\scripts\arm-smoke.ps1
 
       # WP15: the .deb must depend on the Ayatana tray library, not on libappindicator3-1 (which Debian 12 does not have). The APT repository
       # (jobs apt-repo and apt-repo-dryrun) installs it on Debian 12 as well.
@@ -883,7 +942,7 @@ jobs:
         if: runner.os == 'Windows' && needs.plan.outputs.signpath == 'true' && steps.sign.outputs.profile == 'release'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: windows-unsigned
+          name: windows-unsigned${{ matrix.suffix }}
           path: unsigned/*
           retention-days: 1
           if-no-files-found: error
@@ -894,7 +953,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: signatures-${{ runner.os }}
+          name: signatures-${{ runner.os }}${{ matrix.suffix }}
           path: |
             src-tauri/target/**/bundle/**/*.sig
             src-tauri/target/**/bundle/macos/*.app.tar.gz
@@ -1058,7 +1117,9 @@ jobs:
         if: steps.cfg.outputs.enabled == 'true'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: windows-unsigned
+          # windows-unsigned (x64) and windows-unsigned-arm64 (when the ARM64 Windows build ran): all files into one folder
+          pattern: windows-unsigned*
+          merge-multiple: true
           path: unsigned
 
       # SignPath reads the artifact of THIS job's workflow run by its id (origin verification)
@@ -1098,17 +1159,23 @@ jobs:
             if [ "$n" -ne 1 ]; then echo "::error::expected exactly one $2, found $n"; exit 1; fi
           }
           ls -l signed
-          setup=$(ls signed | grep -E -- '-setup\.exe$' || true); one "$setup" "signed *-setup.exe"
-          msi=$(ls signed | grep -E -- '\.msi$' || true); one "$msi" "signed *.msi"
-          setup_name="$setup"; msi_name="$msi"
-          if [ -n "$ID" ]; then
-            names=$(gh api "repos/$GITHUB_REPOSITORY/releases/$ID/assets" --paginate --jq '.[].name')
-            setup_name=$(printf '%s\n' "$names" | grep -E -- '-setup\.exe$' || true); one "$setup_name" "*-setup.exe in the draft release"
-            msi_name=$(printf '%s\n' "$names" | grep -E -- '\.msi$' || true); one "$msi_name" "*.msi in the draft release"
-          fi
           mkdir out
-          cp "signed/$setup" "out/$setup_name"
-          cp "signed/$msi" "out/$msi_name"
+          names=""
+          if [ -n "$ID" ]; then names=$(gh api "repos/$GITHUB_REPOSITORY/releases/$ID/assets" --paginate --jq '.[].name'); fi
+          # one pair (setup + msi) per architecture: the file names carry _x64 or _arm64 (the bundler's own names and the draft's names alike)
+          for arch in x64 arm64; do
+            setup=$(ls signed | grep -E -- "_${arch}-setup\.exe$" || true)
+            msi=$(ls signed | grep -E -- "_${arch}([._]|-).*msi$" || true)
+            if [ -z "$setup" ] && [ -z "$msi" ] && [ "$arch" = arm64 ]; then continue; fi
+            one "$setup" "signed $arch *-setup.exe"; one "$msi" "signed $arch *.msi"
+            setup_name="$setup"; msi_name="$msi"
+            if [ -n "$ID" ]; then
+              setup_name=$(printf '%s\n' "$names" | grep -E -- "_${arch}-setup\.exe$" || true); one "$setup_name" "$arch *-setup.exe in the draft release"
+              msi_name=$(printf '%s\n' "$names" | grep -E -- "_${arch}([._]|-).*msi$" || true); one "$msi_name" "$arch *.msi in the draft release"
+            fi
+            cp "signed/$setup" "out/$setup_name"
+            cp "signed/$msi" "out/$msi_name"
+          done
           ls -l out
 
       - name: Make the update signatures again
@@ -1137,14 +1204,16 @@ jobs:
       - name: Verify the update signatures
         if: steps.resign.outputs.done == 'true'
         shell: bash
-        run: node .github/scripts/verify-update-sigs.cjs --conf src-tauri/tauri.conf.json --min 2 out
+        run: node .github/scripts/verify-update-sigs.cjs --conf src-tauri/tauri.conf.json --min ${{ needs.plan.outputs.winarm == 'true' && 4 || 2 }} out
 
       - name: Verify the Authenticode signatures
         if: steps.cfg.outputs.enabled == 'true'
         shell: pwsh
+        env:
+          EXPECT: ${{ needs.plan.outputs.winarm == 'true' && '4' || '2' }}
         run: |
           $files = @(Get-ChildItem out -File | Where-Object { $_.Extension -in '.exe', '.msi' })
-          if ($files.Count -ne 2) { throw "expected 2 signed installers, found $($files.Count)" }
+          if ($files.Count -ne [int]$env:EXPECT) { throw "expected $($env:EXPECT) signed installers, found $($files.Count)" }
           $bad = 0
           foreach ($f in $files) {
             $s = Get-AuthenticodeSignature -FilePath $f.FullName
@@ -1180,6 +1249,8 @@ jobs:
       ID: ${{ needs.create-release.outputs.id }}
       # WP14 option B: with STORE_EXE the release must carry the Store's offline installer (exactly once), without it not at all
       STORE_EXE: ${{ needs.plan.outputs.store_exe }}
+      # 1.0.12: true when the two ARM64 builds are part of this run (ARM64_BUILD is not false); else the release has no ARM64 files at all
+      ARM: ${{ needs.plan.outputs.arm }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
@@ -1207,11 +1278,24 @@ jobs:
           done
           true
 
+      # ARM64_BUILD=false and "Re-run all jobs" after an ARM64 leg failed: whatever that leg (or an earlier attempt) already put into the DRAFT is taken out again,
+      # so the release is exactly the x64 / macOS set and the asset check below can say so. Only ARM64 names, only in the draft of this tag.
+      - name: Take ARM64 files out of the draft (ARM64_BUILD=false)
+        if: needs.plan.outputs.arm != 'true'
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases/$ID/assets" --paginate --jq '.[] | select(.name | test("_windows_arm64|_linux_arm64|_linux_aarch64")) | "\(.id) \(.name)"' | while read -r aid aname; do
+            echo "removing $aname from the draft"
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$aid"
+          done
+          true
+
       - name: Check installers and signatures
         run: |
           gh api "repos/$GITHUB_REPOSITORY/releases/$ID/assets" --paginate --jq '.[].name' > names.txt
           cat names.txt
           flag=""; if [ "$STORE_EXE" = true ]; then flag="--store-exe"; fi
+          # ARM64_BUILD=false: the release has no ARM64 files and says so (plan output arm)
+          if [ "$ARM" != true ]; then flag="$flag --no-arm"; fi
           bash .github/scripts/check-release-assets.sh "${GITHUB_REF_NAME#v}" --pre $flag < names.txt
 
       # Whatever happened to the files after the build (Authenticode, a re-upload), each update signature must still verify against the
@@ -1228,7 +1312,8 @@ jobs:
               gh api -H "Accept: application/octet-stream" "repos/$GITHUB_REPOSITORY/releases/assets/$aid" > "verify/$n"
             done
           done
-          node .github/scripts/verify-update-sigs.cjs --conf src-tauri/tauri.conf.json --min 6 verify
+          min=6; if [ "$ARM" = true ]; then min=11; fi
+          node .github/scripts/verify-update-sigs.cjs --conf src-tauri/tauri.conf.json --min "$min" verify
 
       - name: Write and upload latest.json
         run: |
@@ -1240,8 +1325,9 @@ jobs:
             gh api -H "Accept: application/octet-stream" "repos/$GITHUB_REPOSITORY/releases/assets/$aid" > "sigs/$aname"
           done
           bash .github/scripts/changelog-section.sh "$V" > notes.md
-          node .github/scripts/make-latest-json.cjs generate --version "$V" --assets assets.json --sigs sigs --notes notes.md > latest.json
-          node .github/scripts/make-latest-json.cjs check latest.json --version "$V"
+          noarm=""; if [ "$ARM" != true ]; then noarm="--no-arm"; fi
+          node .github/scripts/make-latest-json.cjs generate --version "$V" --assets assets.json --sigs sigs --notes notes.md $noarm > latest.json
+          node .github/scripts/make-latest-json.cjs check latest.json --version "$V" $noarm
           gh release upload "$GITHUB_REF_NAME" latest.json --clobber
 
       - name: Check the final asset list and latest.json
@@ -1250,8 +1336,9 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/releases/$ID/assets" --paginate --jq '.[].name' > names.txt
           cat names.txt
           flag=""; if [ "$STORE_EXE" = true ]; then flag="--store-exe"; fi
+          noarm=""; if [ "$ARM" != true ]; then flag="$flag --no-arm"; noarm="--no-arm"; fi
           bash .github/scripts/check-release-assets.sh "$V" $flag < names.txt
-          node .github/scripts/make-latest-json.cjs check latest.json --version "$V"
+          node .github/scripts/make-latest-json.cjs check latest.json --version "$V" $noarm
 
       - name: Publish and mark latest
         run: gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$ID" -F draft=false -f make_latest=true
@@ -1503,8 +1590,8 @@ jobs:
     permissions:
       contents: read
     outputs:
-      ready: ${{ steps.build.outputs.ready }}
-      version: ${{ steps.build.outputs.version }}
+      ready: ${{ steps.build.outputs.ready || steps.build_arm.outputs.ready }}
+      version: ${{ steps.build.outputs.version || steps.build_arm.outputs.version }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -1515,10 +1602,19 @@ jobs:
           node-version: 22
 
       - name: The exe of the build job
+        if: needs.plan.outputs.msix_x64 == 'true'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: windows-exe
           path: exe
+
+      # (1.0.12) the exe of the ARM64 build job: its package is made below, the Store gets both in one bundle
+      - name: The ARM64 exe of the build job
+        if: needs.plan.outputs.msix_arm == 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: windows-exe-arm64
+          path: exe-arm64
 
       # the same tests as the node shard `static` runs (the pure ones) and, here where the Windows SDK and a browser exist, a real pack and unpack
       - name: Tests of the package scripts
@@ -1527,6 +1623,7 @@ jobs:
 
       - name: Build the package
         id: build
+        if: needs.plan.outputs.msix_x64 == 'true'
         shell: bash
         env:
           MSIX_IDENTITY_NAME: ${{ vars.MSIX_IDENTITY_NAME || '40278Noamo.651773BC9C4C7' }}
@@ -1541,8 +1638,27 @@ jobs:
           node scripts/msix-build.mjs --exe exe/hey-look.exe --out msix-out --test-sign --store-logos --github-output --tmp "$RUNNER_TEMP/msix-sign" "${extra[@]}"
           ls -l msix-out
 
+      # the ARM64 package: the same identity and version, ProcessorArchitecture arm64, the exe of the ARM64 build (packing is the same for both architectures,
+      # it runs here on the x64 runner; the install check of this package runs on an ARM64 runner, job msix-check-arm)
+      - name: Build the ARM64 package
+        id: build_arm
+        if: needs.plan.outputs.msix_arm == 'true'
+        shell: bash
+        env:
+          MSIX_IDENTITY_NAME: ${{ vars.MSIX_IDENTITY_NAME || '40278Noamo.651773BC9C4C7' }}
+          MSIX_PUBLISHER: ${{ vars.MSIX_PUBLISHER || 'CN=FE739770-637C-437D-B2B9-DAA2E2EA56F1' }}
+          MSIX_PUBLISHER_DISPLAY_NAME: ${{ vars.MSIX_PUBLISHER_DISPLAY_NAME || 'Noamo' }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          extra=()
+          if [ "$EVENT" = "push" ]; then extra+=(--require-identity --expect-version "${GITHUB_REF_NAME#v}"); fi
+          node scripts/msix-build.mjs --arch arm64 --exe exe-arm64/hey-look.exe --out msix-out-arm64 --test-sign --github-output --tmp "$RUNNER_TEMP/msix-sign-arm64" "${extra[@]}"
+          ls -l msix-out-arm64
+
       # AC-WA.1.1: makeappx unpack of both packages, manifest as the spec says, hey-look.exe byte-identical to the exe of the NSIS build
       - name: Unpack and check both packages
+        if: needs.plan.outputs.msix_x64 == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -1551,42 +1667,71 @@ jobs:
             node scripts/msix-verify.mjs "$f" --from msix-out/msix-build.json --exe exe/hey-look.exe
           done
 
+      - name: Unpack and check both ARM64 packages
+        if: needs.plan.outputs.msix_arm == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in msix-out-arm64/HeyLook_*_arm64.msix msix-out-arm64/HeyLook_*_arm64_test.msix; do
+            echo "== $f"
+            node scripts/msix-verify.mjs "$f" --arch arm64 --from msix-out-arm64/msix-build.json --exe exe-arm64/hey-look.exe
+          done
+
+      # the one file for Partner Center: both architectures in one bundle (unsigned like the packages; the Store signs it)
+      - name: Bundle both packages
+        id: bundle
+        if: needs.plan.outputs.msix_x64 == 'true' && needs.plan.outputs.msix_arm == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/msix-bundle.mjs --x64 msix-out/HeyLook_*_x64.msix --arm64 msix-out-arm64/HeyLook_*_arm64.msix --out "msix-bundle/HeyLook_$(jq -r .version msix-out/msix-build.json).msixbundle"
+          ls -l msix-bundle
+
       # nothing private may leave the job
       - name: No key in the output
         shell: bash
         run: |
-          if find msix-out -type f \( -name '*.pfx' -o -name '*.key' -o -name '*.p12' -o -name '*.pem' \) | grep .; then echo "::error::key material in msix-out"; exit 1; fi
-          if grep -rIl 'PRIVATE KEY' msix-out; then echo "::error::a private key in msix-out"; exit 1; fi
-          if ls "$RUNNER_TEMP"/msix-sign/* > /dev/null 2>&1; then echo "::error::key files are left in the signing folder"; ls -l "$RUNNER_TEMP/msix-sign"; exit 1; fi
+          for d in msix-out msix-out-arm64 msix-bundle; do
+            [ -d "$d" ] || continue
+            if find "$d" -type f \( -name '*.pfx' -o -name '*.key' -o -name '*.p12' -o -name '*.pem' \) | grep .; then echo "::error::key material in $d"; exit 1; fi
+            if grep -rIl 'PRIVATE KEY' "$d"; then echo "::error::a private key in $d"; exit 1; fi
+          done
+          if ls "$RUNNER_TEMP"/msix-sign/* "$RUNNER_TEMP"/msix-sign-arm64/* > /dev/null 2>&1; then echo "::error::key files are left in the signing folder"; ls -l "$RUNNER_TEMP"/msix-sign "$RUNNER_TEMP"/msix-sign-arm64; exit 1; fi
           echo "no key material in the output"
 
       - name: Summary
         if: always()
         shell: bash
         env:
-          READY: ${{ steps.build.outputs.ready }}
+          READY: ${{ steps.build.outputs.ready || steps.build_arm.outputs.ready }}
         run: |
           {
             echo "### MSIX package (Microsoft Store)"
-            if [ -f msix-out/msix-build.json ]; then
-              jq -r '"version `\(.version)` (package version `\(.msixVersion)`), x64", "identity name `\(.identity.name)`, publisher `\(.identity.publisher)`, publisher display name `\(.identity.publisherDisplayName)`" + (if .identity.dev then " (PLACEHOLDER: the repository variables are not set)" else "" end), "hey-look.exe sha256 `\(.exe.sha256)` (the same as in the NSIS build job)", "", "| file | KB |", "|---|---:|", "| \(.msix.file) | \(.msix.bytes / 1024 | floor) |", (if .test then "| \(.test.file) (throw-away certificate) | \(.test.bytes / 1024 | floor) |" else empty end)' msix-out/msix-build.json
-              if [ "$READY" != "true" ]; then echo; echo "NOT FOR SUBMISSION: the app has no packaged mode yet (src-tauri/msix/readiness.json, WP14 part 2). The tag-run artifact is named msix-store-NOT-READY."; fi
-            else
-              echo "the package was not made"
+            for j in msix-out/msix-build.json msix-out-arm64/msix-build.json; do
+            if [ -f "$j" ]; then
+              jq -r '"version `\(.version)` (package version `\(.msixVersion)`), \(.arch // "x64")", "identity name `\(.identity.name)`, publisher `\(.identity.publisher)`, publisher display name `\(.identity.publisherDisplayName)`" + (if .identity.dev then " (PLACEHOLDER: the repository variables are not set)" else "" end), "hey-look.exe sha256 `\(.exe.sha256)` (the same as in the NSIS build job)", "", "| file | KB |", "|---|---:|", "| \(.msix.file) | \(.msix.bytes / 1024 | floor) |", (if .test then "| \(.test.file) (throw-away certificate) | \(.test.bytes / 1024 | floor) |" else empty end)' "$j"
             fi
+            done
+            if ! ls msix-out/msix-build.json msix-out-arm64/msix-build.json > /dev/null 2>&1; then echo "the package was not made"; fi
+            if [ "$READY" != "true" ] && [ -n "$READY" ]; then echo; echo "NOT FOR SUBMISSION: the app has no packaged mode yet (src-tauri/msix/readiness.json, WP14 part 2). The tag-run artifact is named msix-store-NOT-READY."; fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       # what the owner uploads to Partner Center (tag runs only, never the GitHub release)
+      # (1.0.12) the bundle HeyLook_<V>.msixbundle (both architectures) is what the owner uploads; the two packages are in the artifact as well
       - name: Keep the package for Partner Center
         if: github.event_name == 'push'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: ${{ steps.build.outputs.ready == 'true' && 'msix-store' || 'msix-store-NOT-READY' }}
-          path: msix-out/HeyLook_*_x64.msix
+          name: ${{ (steps.build.outputs.ready || steps.build_arm.outputs.ready) == 'true' && 'msix-store' || 'msix-store-NOT-READY' }}
+          path: |
+            msix-bundle/HeyLook_*.msixbundle
+            msix-out/HeyLook_*_x64.msix
+            msix-out-arm64/HeyLook_*_arm64.msix
           retention-days: 14
           if-no-files-found: error
 
       - name: Keep the Store listing images
+        if: needs.plan.outputs.msix_x64 == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: msix-store-logos
@@ -1596,6 +1741,7 @@ jobs:
 
       # the test-signed copy and its PUBLIC certificate (msix-check, Windows Sandbox)
       - name: Keep the test-signed copy
+        if: needs.plan.outputs.msix_x64 == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: msix-test
@@ -1606,12 +1752,49 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+      - name: Keep the test-signed ARM64 copy
+        if: needs.plan.outputs.msix_arm == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: msix-test-arm64
+          path: |
+            msix-out-arm64/HeyLook_*_arm64_test.msix
+            msix-out-arm64/HeyLook-test.cer
+            msix-out-arm64/msix-build.json
+          retention-days: 1
+          if-no-files-found: error
+
+  msix-check-arm:
+    # (1.0.12) the same install check as msix-check, for the ARM64 package, on a real ARM64 Windows machine (the hosted runner windows-11-arm): the package is
+    # installed, started through its package activation, looked at and removed. A throw-away certificate in a throw-away VM, no Environment, no secret.
+    needs: [plan, msix]
+    if: ${{ !cancelled() && needs.plan.outputs.msix_arm == 'true' && needs.msix.result == 'success' }}
+    name: MSIX install check (ARM64)
+    runs-on: windows-11-arm
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: The test-signed ARM64 package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: msix-test-arm64
+          path: msix-test
+
+      - name: Install, start, check and remove
+        shell: powershell
+        run: .\.github\scripts\msix-check.ps1 -Dir msix-test -Arch arm64
+
   msix-check:
     # WP14 option A (spec WA.4): installs the test-signed package on this disposable runner (the throw-away certificate goes into the machine store of the
     # VM, which is thrown away), starts it, checks it, removes it (.github/scripts/msix-check.ps1), and runs the Windows App Certification Kit when the
     # runner has one. No Environment, no secret. Windows PowerShell 5.1 (`shell: powershell`): the Appx cmdlets live there.
-    needs: [msix]
-    if: ${{ !cancelled() && needs.msix.result == 'success' }}
+    needs: [plan, msix]
+    if: ${{ !cancelled() && needs.plan.outputs.msix_x64 == 'true' && needs.msix.result == 'success' }}
     name: MSIX install check
     runs-on: windows-2025-vs2026
     timeout-minutes: 45
@@ -1647,8 +1830,8 @@ jobs:
     # SELLER_ID; variable STORE_PRODUCT_ID) is only asked for when the job runs, so without STORE_SUBMIT nothing waits and no secret is read.
     # Partner Center takes an update only after the first submission was made by hand (Microsoft: "You can't use the CLI to complete the first publication").
     # The commands are written from Microsoft's documentation of the Store Developer CLI and have never run (PACKAGING.md > Microsoft Store).
-    needs: [plan, publish, msix, msix-check]
-    if: ${{ !cancelled() && needs.plan.outputs.store_submit == 'true' && needs.publish.result == 'success' && needs.msix.result == 'success' && needs.msix-check.result == 'success' && needs.msix.outputs.ready == 'true' }}
+    needs: [plan, publish, msix, msix-check, msix-check-arm]
+    if: ${{ !cancelled() && needs.plan.outputs.store_submit == 'true' && needs.publish.result == 'success' && needs.msix.result == 'success' && needs.msix-check.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.msix-check-arm.result) && needs.msix.outputs.ready == 'true' }}
     name: Store submission (MSIX)
     runs-on: windows-2025-vs2026
     timeout-minutes: 60
@@ -1686,8 +1869,10 @@ jobs:
           PRODUCT_ID: ${{ vars.STORE_PRODUCT_ID }}
         run: |
           if (-not $env:PRODUCT_ID) { throw "the repository variable STORE_PRODUCT_ID is not set" }
-          $pkg = Get-ChildItem msix-store -Filter 'HeyLook_*_x64.msix' | Select-Object -First 1
-          if (-not $pkg) { throw "no HeyLook_*_x64.msix in the artifact msix-store" }
+          # (1.0.12) the bundle with both architectures; the x64 package alone only when the ARM64 builds were left out (ARM64_BUILD=false)
+          $pkg = Get-ChildItem msix-store -Recurse -Filter 'HeyLook_*.msixbundle' | Select-Object -First 1
+          if (-not $pkg) { $pkg = Get-ChildItem msix-store -Recurse -Filter 'HeyLook_*_x64.msix' | Select-Object -First 1 }
+          if (-not $pkg) { throw "no HeyLook_*.msixbundle or HeyLook_*_x64.msix in the artifact msix-store" }
           msstore publish msix-store --inputFile $pkg.FullName --appId $env:PRODUCT_ID
           if ($LASTEXITCODE -ne 0) { throw "msstore publish failed" }
 

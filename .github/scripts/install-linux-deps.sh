@@ -134,7 +134,8 @@ say "the cache did not hold everything: installing from the mirror"
 
 for attempt in 1 2 3; do
   case "$attempt" in
-    2) use_archive "http://archive.ubuntu.com/ubuntu/" ;;
+    # (only amd64 packages live on archive.ubuntu.com; arm64 ones are on ports.ubuntu.com, which the runner's own sources already name: attempt 2 is then the same host again)
+    2) if [ "${APT_ARCH:-$(dpkg --print-architecture 2> /dev/null || echo amd64)}" = amd64 ]; then use_archive "http://archive.ubuntu.com/ubuntu/"; else say "arm64: the sources stay as they are (archive.ubuntu.com has no arm64 packages)"; fi ;;
     3) restore_sources; say "the runner's own sources again (its mirror list tries the next mirror when one fails)" ;;
   esac
   stop_leftovers
