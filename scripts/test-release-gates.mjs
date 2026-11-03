@@ -39,7 +39,7 @@ for (let i = jobsAt + 1; i < yml.length; i++) {
   const c = /^    if:\s*(.*)$/.exec(l);
   if (c) cur.cond = c[1].trim().replace(/^\$\{\{\s*/, "").replace(/\s*\}\}$/, "");
 }
-for (const n of ["plan", "create-release", "node-tests", "rust-tests", "rust-tests-windows", "audit", "build", "sign-windows", "store-exe", "publish", "apt-repo", "apt-repo-dryrun", "msix", "msix-check", "store-url", "store-submit", "store-submit-exe"]) assert.ok(jobs[n], `job ${n} not found`);
+for (const n of ["plan", "create-release", "node-tests", "rust-tests", "rust-tests-windows", "audit", "build", "sign-windows", "store-exe", "publish", "apt-repo", "apt-repo-dryrun", "msix", "msix-check", "msix-check-arm", "store-url", "store-submit", "store-submit-exe"]) assert.ok(jobs[n], `job ${n} not found`);
 
 const planScript = (() => {
   const at = yml.findIndex((l, i) => i > jobs.plan.start && /^ {8}run: \|\s*$/.test(l));
@@ -54,7 +54,7 @@ const planFile = path.join(dir, "plan.sh");
 writeFileSync(planFile, planScript);
 
 // --- one run of the plan job ---
-const runPlan = ({ event, platforms = "", testVersion = "", uiTests = "", signDry = "false", signpathVars = false, storeExe = "", storeSubmit = "", rehearse = "", aptPublish = "" }) => {
+const runPlan = ({ event, platforms = "", testVersion = "", uiTests = "", signDry = "false", signpathVars = false, storeExe = "", storeSubmit = "", rehearse = "", aptPublish = "", arm64Build = "", signpathArm = "" }) => {
   const out = path.join(dir, "out.txt");
   writeFileSync(out, "");
   const r = spawnSync(bash, [posix(planFile)], {
@@ -74,6 +74,8 @@ const runPlan = ({ event, platforms = "", testVersion = "", uiTests = "", signDr
       STORE_EXE: storeExe,
       STORE_SUBMIT: storeSubmit,
       APT_PUBLISH: aptPublish,
+      ARM64_BUILD: arm64Build,
+      SP_ARM: signpathArm,
       GITHUB_OUTPUT: posix(out),
     },
   });
@@ -112,7 +114,7 @@ const evalCond = (cond, ctx) => {
 const simulate = ({ event, plan, fail = [], testVersion = "", outputs = {} }) => {
   const result = { plan: { result: "success", outputs: plan } };
   const legs = [];
-  const order = ["plan", "create-release", "node-tests", "rust-tests", "rust-tests-windows", "audit", "build", "sign-windows", "store-exe", "publish", "apt-repo", "apt-repo-dryrun", "msix", "msix-check", "store-url", "store-submit", "store-submit-exe"];
+  const order = ["plan", "create-release", "node-tests", "rust-tests", "rust-tests-windows", "audit", "build", "sign-windows", "store-exe", "publish", "apt-repo", "apt-repo-dryrun", "msix", "msix-check", "msix-check-arm", "store-url", "store-submit", "store-submit-exe"];
   for (const name of order.slice(1)) {
     const job = jobs[name];
     const needs = {};
@@ -219,6 +221,7 @@ for (const uiTests of ["", "false"]) {
       "apt-repo-dryrun": "success",
       msix: "success",
       "msix-check": "success",
+      "msix-check-arm": "success",
       "store-url": "skipped",
       "store-submit": "skipped",
       "store-submit-exe": "skipped",
@@ -400,7 +403,7 @@ check("(f) the jobs that publish name their Environment, the others have none an
     const next = text.slice(at + head.length).search(/\n  [a-z][\w-]*:\n/);
     return text.slice(at, next < 0 ? undefined : at + head.length + next);
   };
-  for (const name of ["msix", "msix-check", "store-url"]) {
+  for (const name of ["msix", "msix-check", "msix-check-arm", "store-url"]) {
     const b = block(name);
     assert.ok(!/^    environment:/m.test(b), `${name} has an Environment`);
     assert.ok(!/secrets\.(?!GITHUB_TOKEN)/.test(b), `${name} reads a secret`);
@@ -454,7 +457,7 @@ check("(g) tag, no repository variable: every job that runs is green, publish ru
   const bad = Object.entries(r.result).filter(([, v]) => v !== "success" && v !== "skipped");
   assert.deepEqual(bad, [], "a job is not green");
   const ran = Object.entries(r.result).filter(([, v]) => v === "success").map(([k]) => k).sort();
-  assert.deepEqual(ran, ["audit", "build", "create-release", "msix", "msix-check", "node-tests", "plan", "publish", "rust-tests", "rust-tests-windows"]);
+  assert.deepEqual(ran, ["audit", "build", "create-release", "msix", "msix-check", "msix-check-arm", "node-tests", "plan", "publish", "rust-tests", "rust-tests-windows"]);
 });
 check("(g) publish is not held back by the skipped store jobs, nor by a failing MSIX or APT dry-run check", () => {
   const needs = jobs.publish.needs;
@@ -550,6 +553,61 @@ check("(f) the Windows Rust tests run when Windows is built, and a failure there
   const bad = run({ event: "push", fail: ["rust-tests-windows"], signpathVars: true });
   assert.equal(bad.result.publish, "skipped");
   assert.equal(bad.result["sign-windows"], "skipped");
+});
+
+// (h) 1.0.12: the native ARM64 builds. A tag run and "all" build five legs; the variable ARM64_BUILD=false (exactly) leaves the two ARM legs out; a name asks for one.
+const legsOf = (opts) => JSON.parse(runPlan(opts).matrix).include.map((i) => i.platform + "|" + i.suffix);
+const X64 = ["windows-2025-vs2026|", "macos-26|", "ubuntu-22.04|"];
+const ARM = ["windows-11-arm|-arm64", "ubuntu-22.04-arm|-arm64"];
+check("(h) a tag run builds the five legs, with ARM64 outputs true", () => {
+  assert.deepEqual(legsOf({ event: "push" }).sort(), [...X64, ...ARM].sort());
+  const p = runPlan({ event: "push" });
+  assert.deepEqual([p.arm, p.winarm, p.linarm, p.msix_x64, p.msix_arm], ["true", "true", "true", "true", "true"]);
+  assert.equal(p.rust_linux, '["ubuntu-22.04","ubuntu-22.04-arm"]');
+  assert.equal(p.rust_windows, '["windows-2025-vs2026","windows-11-arm"]');
+});
+check("(h) ARM64_BUILD=false: a tag run is the x64 and macOS release as before; only the exact word counts", () => {
+  assert.deepEqual(legsOf({ event: "push", arm64Build: "false" }).sort(), [...X64].sort());
+  const p = runPlan({ event: "push", arm64Build: "false" });
+  assert.deepEqual([p.arm, p.winarm, p.linarm, p.msix_arm], ["false", "false", "false", "false"]);
+  assert.equal(p.rust_linux, '["ubuntu-22.04"]');
+  for (const v of ["", "FALSE", "0", "no", "true"]) assert.equal(runPlan({ event: "push", arm64Build: v }).arm, "true", "ARM64_BUILD=" + v);
+  const r = run({ event: "push", arm64Build: "false" });
+  assert.equal(r.result.publish, "success");
+  assert.equal(r.result["msix-check-arm"], "skipped");
+});
+check("(h) a dry run names the ARM legs it wants; all follows ARM64_BUILD, a name does not", () => {
+  assert.deepEqual(legsOf({ event: "workflow_dispatch", platforms: "windows-arm64" }), [ARM[0]]);
+  assert.deepEqual(legsOf({ event: "workflow_dispatch", platforms: "linux-arm64" }), [ARM[1]]);
+  assert.deepEqual(legsOf({ event: "workflow_dispatch", platforms: "arm64" }).sort(), [...ARM].sort());
+  assert.deepEqual(legsOf({ event: "workflow_dispatch", platforms: "windows-arm64,linux", arm64Build: "false" }).sort(), ["ubuntu-22.04|", ARM[0]].sort());
+  assert.deepEqual(legsOf({ event: "workflow_dispatch", platforms: "all", arm64Build: "false" }).sort(), [...X64].sort());
+  assert.deepEqual(legsOf({ event: "workflow_dispatch", platforms: "windows" }), ["windows-2025-vs2026|"], "windows is still x64 only");
+  assert.deepEqual(legsOf({ event: "workflow_dispatch", platforms: "linux" }), ["ubuntu-22.04|"], "linux is still x64 only");
+  assert.throws(() => runPlan({ event: "workflow_dispatch", platforms: "windows-x86" }), /plan script failed/);
+});
+check("(h) an ARM-only dry run: its Rust tests and its package check run, the x64 package and the node tests do not", () => {
+  const r = run({ event: "workflow_dispatch", platforms: "windows-arm64" });
+  assert.equal(r.result.msix, "success");
+  assert.equal(r.result["msix-check"], "skipped");
+  assert.equal(r.result["msix-check-arm"], "success");
+  assert.equal(r.result["rust-tests-windows"], "success");
+  assert.equal(r.result["rust-tests"], "skipped");
+  assert.equal(r.result["node-tests"], "skipped");
+  const l = run({ event: "workflow_dispatch", platforms: "linux-arm64" });
+  assert.equal(l.result["rust-tests"], "success");
+  assert.equal(l.result.msix, "skipped");
+});
+check("(h) a test build builds no package for any architecture", () => {
+  const p = runPlan({ event: "workflow_dispatch", platforms: "arm64", testVersion: "0.9.0" });
+  assert.deepEqual([p.msix, p.msix_x64, p.msix_arm], ["false", "false", "false"]);
+});
+check("(h) SignPath for the ARM64 installers only with SIGNPATH_ARM64=true, exactly, and only with the ARM64 Windows leg", () => {
+  assert.equal(runPlan({ event: "push", signpathVars: true }).signpath_arm, "false");
+  assert.equal(runPlan({ event: "push", signpathVars: true, signpathArm: "true" }).signpath_arm, "true");
+  assert.equal(runPlan({ event: "push", signpathVars: true, signpathArm: "TRUE" }).signpath_arm, "false");
+  assert.equal(runPlan({ event: "push", signpathVars: true, signpathArm: "true", arm64Build: "false" }).signpath_arm, "false");
+  assert.equal(runPlan({ event: "push", signpathArm: "true" }).signpath_arm, "false", "no SignPath, no ARM64 signing");
 });
 
 rmSync(dir, { recursive: true, force: true });
