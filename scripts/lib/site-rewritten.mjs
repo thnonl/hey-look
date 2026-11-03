@@ -23,12 +23,12 @@ export const REWRITTEN = {
       addIds: ['install-notes-h', 'install-windows', 'install-macos'],
       addLinks: ['vi/download.html#install-windows', 'vi/download.html#install-macos', 'vi/help.html#updates'],
       headingDelta: { 2: 1, 3: 1 },
-      ceiling: 630, // hard limit = measured size of the final copy
+      ceiling: 611, // hard limit = measured size of the final copy (with the ARM64 rows)
     },
     help: {
       addIds: ['folders'],
       addLinks: ['vi/download.html#install-macos', 'vi/help.html#folders', 'vi/help.html#google-review'],
-      ceiling: 1646, // hard limit = measured size of the final copy
+      ceiling: 1629, // hard limit = measured size of the final copy (after the ARM64 edit of #linux)
     },
   },
 };

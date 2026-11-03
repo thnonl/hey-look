@@ -30,6 +30,7 @@ export function cannedRelease(tag = CANNED_TAG) {
     assets: [
       asset(`HeyLook_${v}_windows_x64-setup.exe`, 12582912), asset(`HeyLook_${v}_windows_x64.msi`, 13631488), asset(`HeyLook_${v}_darwin_universal.dmg`, 20971520),
       asset(`HeyLook_${v}_linux_amd64.AppImage`, 15728640), asset(`HeyLook_${v}_linux_amd64.deb`, 9437184), asset(`HeyLook_${v}_linux_x86_64.rpm`, 9437184),
+      asset(`HeyLook_${v}_windows_arm64-setup.exe`, 12058624), asset(`HeyLook_${v}_windows_arm64.msi`, 13107200), asset(`HeyLook_${v}_linux_aarch64.AppImage`, 15204352), asset(`HeyLook_${v}_linux_arm64.deb`, 8912896), asset(`HeyLook_${v}_linux_aarch64.rpm`, 8912896),
     ],
   };
 }
