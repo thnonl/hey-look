@@ -894,6 +894,18 @@ jobs:
           echo "searching: ${targets[*]}"
           node .github/scripts/check-no-test-bridge.cjs "${targets[@]}"
 
+      # 1.0.12: the ARM64 builds are tested where they were made, on a real ARM64 machine (the hosted runner): the file is an ARM64 file, the Linux binary needs
+      # no newer glibc than 2.35, the package installs, and the installed program starts and makes its database (Windows: also the WebView2 runtime starts).
+      # A dry run builds unsigned, so this proves "installs and runs on ARM64", not the signatures of a tag run.
+      - name: ARM64 smoke test (Linux)
+        if: matrix.suffix == '-arm64' && runner.os == 'Linux' && steps.sign.outputs.profile == 'release'
+        run: bash .github/scripts/arm-smoke.sh
+
+      - name: ARM64 smoke test (Windows)
+        if: matrix.suffix == '-arm64' && runner.os == 'Windows' && steps.sign.outputs.profile == 'release'
+        shell: pwsh
+        run: .\.github\scripts\arm-smoke.ps1
+
       # WP15: the .deb must depend on the Ayatana tray library, not on libappindicator3-1 (which Debian 12 does not have). The APT repository
       # (jobs apt-repo and apt-repo-dryrun) installs it on Debian 12 as well.
       - name: The .deb depends on the Ayatana tray library
