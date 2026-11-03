@@ -168,6 +168,7 @@
     "allow-queue-action",
     "allow-cancel-action",
     "allow-load-older",
+    "allow-folder-ends",
     "allow-prune-to-limit",
     "allow-server-search",
     "allow-server-search-cancel",

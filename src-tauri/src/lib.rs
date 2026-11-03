@@ -2219,6 +2219,33 @@ async fn load_older(state: tauri::State<'_, AppState>, account_id: String, role:
     blocking(move || load_older_impl(&db, &account_id, &role, limit)).await
 }
 
+/// Which mailboxes have all of the folder's mail on this computer, down to its oldest message (1.0.13): the list footer says so at once instead of offering "Load older" until the person
+/// has pressed it once. A mailbox is listed when the `exhausted:` mark is set (a request or the background download found nothing older on the server; a renumbered folder or a
+/// prune drops the mark), or when nothing older can exist: the lowest stored UID is 1, or the folder was synced and is empty. The cap is not part of it (`limited` stays an answer of
+/// `load_older`).
+fn folder_ends_in(db: &Db, role: &str) -> R<Vec<String>> {
+    let ids: Vec<String> = db::list_accounts(&lock(db))?.into_iter().map(|a| a.id).collect();
+    let mut out = vec![];
+    for id in ids {
+        let done = is_exhausted(db, &id, role)
+            || match folder_state(db, &id, role) {
+                Ok((_, 1)) => true,
+                Ok((0, _)) => folderstate::recorded(&lock(db), &id, role),
+                _ => false,
+            };
+        if done {
+            out.push(id);
+        }
+    }
+    Ok(out)
+}
+
+#[tauri::command]
+async fn folder_ends(state: tauri::State<'_, AppState>, role: String) -> R<Vec<String>> {
+    let db = state.db.clone();
+    blocking(move || folder_ends_in(&db, &role)).await
+}
+
 // ---------- background download of the history ----------
 
 /// Accounts whose backfill thread is running (one per account).
@@ -7297,6 +7324,7 @@ pub fn run() {
             queue_action,
             cancel_action,
             load_older,
+            folder_ends,
             prune_to_limit,
             serversearch::server_search,
             serversearch::server_search_cancel,
@@ -8149,7 +8177,7 @@ mod capability_tests {
             "quit_now", "quit_cancelled", "sends_flushed", "quit_page_alive", "quit_dialog", "frontend_ready", "page_state", "page_pong", "show_window", "set_mail_available", "take_tray_compose",
             // calendar connections, sync triggers, mail actions that belong to the main page's intent layer
             "calendar_connect", "calendar_connect_caldav", "calendar_dav_password", "calendar_move_event", "calendar_create_calendar", "calendar_set_color", "calendar_disconnect", "calendar_sources", "calendar_set_sync", "calendar_sync_now", "sync_account", "refresh_badge", "thread_action",
-            "queue_action", "cancel_action", "sender_action", "load_older", "prune_to_limit", "server_search", "server_search_cancel", "server_open", "idle_states", "frame_info", "frame_caption_rect", "frame_system_menu", "test_notification", "notify_permission", "notify_caps", "open_notification_settings", "play_notify_sound", "create_mail_folder",
+            "queue_action", "cancel_action", "sender_action", "load_older", "folder_ends", "prune_to_limit", "server_search", "server_search_cancel", "server_open", "idle_states", "frame_info", "frame_caption_rect", "frame_system_menu", "test_notification", "notify_permission", "notify_caps", "open_notification_settings", "play_notify_sound", "create_mail_folder",
             // the caption colours are the main page's to hand over (W4.3): a window never sets its own
             "window_caption_colors",
             // a secondary window asks the main page (popout_request); only the main page answers
@@ -8187,7 +8215,7 @@ mod capability_tests {
         // what no secondary window ever gets (REQ-S2 and the quit, update and frame commands)
         let never = [
             "quit_now", "quit_cancelled", "sends_flushed", "quit_page_alive", "quit_dialog", "frontend_ready", "page_state", "page_pong", "popout_reply", "popout_save_all", "update_install",
-            "thread_action", "queue_action", "cancel_action", "sender_action", "prepare_action", "load_older", "prune_to_limit", "server_search", "server_search_cancel", "server_open", "frame_info", "frame_caption_rect", "frame_system_menu", "show_window", "set_mail_available",
+            "thread_action", "queue_action", "cancel_action", "sender_action", "prepare_action", "load_older", "folder_ends", "prune_to_limit", "server_search", "server_search_cancel", "server_open", "frame_info", "frame_caption_rect", "frame_system_menu", "show_window", "set_mail_available",
             "take_tray_compose", "idle_states", "window_caption_colors", "update_startup_state", "update_startup_ack", "refresh_badge", "sync_account", "popout_show", "popout_park", "popout_set_key", "mac_menu_state",
             "drag_begin", "drag_take", "send_message", "save_draft", "discard_draft", "recovery_save", "recovery_clear", "outbox_hold", "outbox_hold_send", "outbox_update", "outbox_reschedule", "create_mail_folder",
         ];
@@ -8475,6 +8503,31 @@ mod backfill_tests {
         assert_eq!(next_backfill(&db, ACC, &none, 5000).map(|t| t.3), Some(100));
         assert_eq!(next_backfill(&db, ACC, &none, 100).map(|t| t.3), Some(100));
         assert_eq!(next_backfill(&db_with(&rows(0, 100)), ACC, &none, 100), None);
+    }
+
+    #[test]
+    fn folder_ends_lists_the_mailboxes_that_have_the_whole_folder() {
+        let with = |rows: &[(&str, u32)]| {
+            let db = db_with(rows);
+            db::insert_account(&lock(&db), &account()).unwrap();
+            db
+        };
+        // older mail may exist: not listed
+        let db = with(&[("inbox", 900), ("inbox", 901)]);
+        assert!(folder_ends_in(&db, "inbox").unwrap().is_empty());
+        // the mark of a request or the background download (the sync that renumbers the folder, or a prune, deletes it)
+        db::set_setting(&lock(&db), &exhausted_key(ACC, "inbox"), "1").unwrap();
+        assert_eq!(folder_ends_in(&db, "inbox").unwrap(), vec![ACC.to_string()]);
+        assert!(folder_ends_in(&db, "sent").unwrap().is_empty(), "the mark is per folder");
+        lock(&db).execute("DELETE FROM settings WHERE key=?1", [exhausted_key(ACC, "inbox")]).unwrap();
+        assert!(folder_ends_in(&db, "inbox").unwrap().is_empty(), "the mark gone: the button is offered again");
+        // nothing below UID 1 can exist, with no mark at all
+        assert_eq!(folder_ends_in(&with(&[("inbox", 1), ("inbox", 2)]), "inbox").unwrap(), vec![ACC.to_string()]);
+        // an empty folder: the end only once a sync has recorded it (before that it is just not synced yet)
+        let empty = with(&[]);
+        assert!(folder_ends_in(&empty, "inbox").unwrap().is_empty());
+        folderstate::note_max_uid(&lock(&empty), ACC, "inbox", 0, false).unwrap();
+        assert_eq!(folder_ends_in(&empty, "inbox").unwrap(), vec![ACC.to_string()]);
     }
 
     #[test]

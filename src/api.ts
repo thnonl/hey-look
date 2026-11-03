@@ -756,6 +756,8 @@ export const api = {
   cancelAction: (id: string) => invoke<boolean>("cancel_action", { id }),
   /** Downloads up to `limit` (max 50) messages older than what is stored. Rejects with the server's error; never turns it into "none". */
   loadOlder: (accountId: string, role: string, limit = 50) => invoke<LoadOlderResult>("load_older", { accountId, role, limit }),
+  /** The mailboxes (ids) that have the whole folder of `role` on this computer, down to its oldest message: the persisted mark of an earlier request or of the background download. */
+  folderEnds: (role: string) => invoke<string[]>("folder_ends", { role }),
   /** Search the mail server(s) with the words and scope of the local search; headers only, nothing is stored (W6.7). */
   serverSearch: (filter: ThreadFilter) => invoke<ServerSearchResult>("server_search", { filter }),
   /** Stop the running server search (its connections are closed). */

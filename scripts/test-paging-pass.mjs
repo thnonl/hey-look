@@ -62,7 +62,9 @@ for (const name of ["setFocus", "setFilter", "setView", "setSearch", "setSearchS
 // the list read that was overtaken does not end "Loading…" / the skeleton of the one that still runs
 assert.match(store, /if \(listReads\.current\(run\)\) set\(\{ loading: false \}\);/);
 // a sync (new mail, new state of the folder) lets the passes try again
-assert.match(store, /exhausted: \{\}, limited: Object\.fromEntries\(\[\.\.\.prunedDuringSync\]\.map\(\(k\) => \[k, true as const\]\)\), moreError: false, moreFail: null/);
+assert.ok(!/syncing: false, exhausted: \{\}/.test(store), "a sync does not clear the marks of complete folders (1.0.13)");
+assert.match(store, /void get\(\)\.readEnds\(\);/, "the list read reads the marks of the folders again (1.0.13)");
+assert.match(store, /syncing: false, limited: Object\.fromEntries\(\[\.\.\.prunedDuringSync\]\.map\(\(k\) => \[k, true as const\]\)\), moreError: false, moreFail: null/);
 
 // ---- the list: the footer
 const list = readFileSync(new URL("../src/components/MessageList.tsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
