@@ -984,6 +984,13 @@ for (const [view, folder] of [["inbox", "inbox"], ["unread", "inbox"], ["pinned"
   assert.ok(!read("src/popout/readerLogic.ts").includes("neighborOf") && !read("src/popout/mainRequests.ts").includes("neighbors") && !read("src/popout/requestKinds.ts").includes("neighbors"));
   for (const f of ["src/i18n/ns/reading.ts", ...["de", "es", "fr", "ja", "ru", "vi", "zh-Hans"].map((l) => `src/i18n/locales/${l}/reading.ts`)]) assert.ok(!/reading.popout.(prev|next|noPrev|noNext)/.test(read(f)), `${f} has no Next / Previous text`);
   assert.ok(!/.rb.nav/.test(read("src/App.css")));
+  // 1.0.13: the reader loads the conversation with its home folder as the scope (so a message kept in two folders of one mailbox keeps the copy of the folder the window was opened from);
+  // `isGone` only says "gone" when no message of the conversation is in that folder
+  assert.ok(rv.includes("api.getThread(info.threadId, scopeOfView(info.folder))") && !rv.includes("threadScope"), "the reader loads with scopeOfView(info.folder)");
+  assert.equal(isGone([{ folder: "archive" }, { folder: "archive" }], "archive"), false, "the home folder has a copy");
+  assert.equal(isGone([{ folder: "inbox" }], "archive"), true, "no copy in the home folder");
+  assert.equal(isGone([], "archive"), true, "no copy at all");
+  assert.equal(isGone([{ folder: "inbox" }], "starred"), false, "a cross-folder view has no home folder");
   assert.ok(read("src/popout/openReader.ts").includes("listAccount: useStore.getState().accountId"), "the window is opened with the mailbox selection of the main window");
   // the main window's j / k row in Settings > Shortcuts stays the one row (the list of the main window keeps its keys)
   assert.equal((read("src/components/SettingsDialog.tsx").match(/"settings.keys.nextPrev"/g) ?? []).length, 1);

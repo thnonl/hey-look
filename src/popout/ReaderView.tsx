@@ -36,7 +36,7 @@ import { senderOf } from "../rowMenu";
 import { openRuleForThread } from "../ruleOpen";
 import { askMain, cancelRunningTranslations, installReaderBridge } from "./readerBridge";
 import {
-  allowedWhenGone, isFlagged, isGone, isUnread, markReadPlan, readerInit, readerKey, readerTitleText, threadScope, withWanted,
+  allowedWhenGone, isFlagged, isGone, isUnread, markReadPlan, readerInit, readerKey, readerTitleText, scopeOfView, withWanted,
   type ReaderAction, type ReaderInit, type Wanted,
 } from "./readerLogic";
 import { endDrag, startMailDrag } from "../dragWire";
@@ -155,7 +155,7 @@ function Reader({ info }: { info: ReaderInit }) {
       if (!first) diag(`read ${my} start why=${diagState.why}`);
       try {
         const [msgs, m, accounts, fl] = await Promise.all([
-          api.getThread(info.threadId, threadScope(info.folder)),
+          api.getThread(info.threadId, scopeOfView(info.folder)),
           api.threadMeta(info.threadId).catch(() => null),
           api.listAccounts().catch(() => null),
           api.listFolders().catch(() => null),

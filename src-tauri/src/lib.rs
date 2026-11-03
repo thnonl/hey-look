@@ -8530,6 +8530,36 @@ mod backfill_tests {
         assert_eq!(folder_ends_in(&empty, "inbox").unwrap(), vec![ACC.to_string()]);
     }
 
+    /// A folder the server renumbered (UIDVALIDITY changed, which is how a deleted and re-created mailbox looks) loses its "all of it is here" mark: the list offers "Load older" again.
+    #[test]
+    fn a_renumbered_folder_drops_its_end_mark_and_folder_ends_no_longer_lists_the_mailbox() {
+        let db = db_with(&[("inbox", 900), ("inbox", 901)]);
+        db::insert_account(&lock(&db), &account()).unwrap();
+        db::set_setting(&lock(&db), &exhausted_key(ACC, "inbox"), "1").unwrap();
+        assert_eq!(folder_ends_in(&db, "inbox").unwrap(), vec![ACC.to_string()], "marked: the end is known");
+        // the sync finds another UIDVALIDITY: the rows and the mark go (the sync does this inside its transaction)
+        reset_folder(&lock(&db), ACC, "inbox", "INBOX", &folderstate::Known::Validity(5), Some(6)).unwrap();
+        assert!(!is_exhausted(&db, ACC, "inbox"), "the persisted mark is cleared");
+        assert!(folder_ends_in(&db, "inbox").unwrap().is_empty(), "no rows and no mark: not listed");
+        // the folder is read again like a first sync (the newest page, its lowest UID above 1): the button is offered
+        for u in [900u32, 901] {
+            lock(&db)
+                .execute("INSERT INTO messages(id,account_id,folder,uid,thread_id,subject,from_name,from_email,to_addrs,cc_addrs,date,snippet) VALUES(?1,?2,'inbox',?3,'t','s','n','e@x.test','','',?3,'')", params![format!("again:{u}"), ACC, u])
+                .unwrap();
+        }
+        assert!(folder_ends_in(&db, "inbox").unwrap().is_empty(), "older mail may exist again: the end line is not shown");
+    }
+
+    /// A folder held back by the download cap is not "all here": the list keeps offering "Load older", which answers limited.
+    #[test]
+    fn a_folder_held_back_by_the_cap_is_not_listed_as_ended() {
+        let db = db_with(&(0..100).map(|u| ("inbox", u + 5)).collect::<Vec<_>>());
+        db::insert_account(&lock(&db), &account()).unwrap();
+        db::set_setting(&lock(&db), "max_download", "100").unwrap();
+        assert!(folder_ends_in(&db, "inbox").unwrap().is_empty(), "the cap is not part of the end mark");
+        assert!(load_older_impl(&db, ACC, "inbox", 50).unwrap().limited);
+    }
+
     #[test]
     fn load_older_at_the_cap_answers_limited_without_any_network_call() {
         let db = db_with(&(0..100).map(|u| ("inbox", u + 5)).collect::<Vec<_>>());
@@ -10074,6 +10104,27 @@ mod thread_copies_tests {
         let list = threads_for(&lock(&db), f).unwrap();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].count, 4);
+    }
+
+    /// 1.0.13: the reader window opened from a cross-folder list (Flagged) on a row whose lead copy is in All Mail asks for the conversation with that folder as its scope: the copy of the
+    /// home folder is the one kept, so `isGone(messages, home)` (some message has folder == home) cannot say "moved or deleted" for a live conversation.
+    #[test]
+    fn the_viewed_folder_keeps_its_copy_for_every_folder_not_only_trash_and_junk() {
+        // (the order the copies were stored in, and so the order a list reads them in, must not matter)
+        for order in [["inbox", "archive"], ["archive", "inbox"]] {
+        let (db, tid) = db_with_copies(&order);
+        for home in ["archive", "inbox"] {
+            let rows = view(&db, &tid, Some(home));
+            assert_eq!(rows.len(), 4, "{rows:?}");
+            assert!(rows.iter().any(|r| r.0 == home), "the home folder {home} has a message in the view");
+            assert!(rows.iter().all(|r| r.0 == home), "{rows:?}");
+        }
+        // no scope (a cross-folder view without a home): the Inbox copy, as before
+        assert!(view(&db, &tid, None).iter().all(|r| r.0 == "inbox"));
+        }
+        let (db, _) = db_with_copies(&["inbox", "archive"]);
+        // a conversation that exists nowhere has no message at all (the only "gone" case besides a home folder with no copy)
+        assert!(view(&db, "no-such-thread", Some("archive")).is_empty());
     }
 
     /// The actions work on every copy of a message (by conversation): the view shows one, the action list still has them all.
