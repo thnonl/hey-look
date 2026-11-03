@@ -1,6 +1,6 @@
 // WP11 W11.3 (REQ-11.3.6): the manifest step of the publish job (make-latest-json.cjs generate, then check, then the final asset-list check) has a dry-run check.
 // The publish job runs only in a tag run, so its scripts would meet a real release for the first time there. This test feeds them the asset list of a
-// release (the 7 installers and the 6 signatures that the build jobs upload, 13 names, as the publish job lists them) and the signature texts, and fails
+// release (the 12 installers and the 11 signatures that the build jobs upload, 23 names, as the publish job lists them) and the signature texts, and fails
 // when the manifest generator, its checker or check-release-assets.sh would refuse that release. The signatures are the texts of a minisign signature
 // (the publish job copies them; their cryptographic check is `verify-update-sigs.cjs --selftest`, which makes its own throw-away key). No network.
 // Run: node scripts/test-publish-manifest.mjs
@@ -24,10 +24,16 @@ const installers = [
   `HeyLook_${V}_linux_amd64.AppImage`,
   `HeyLook_${V}_linux_amd64.deb`,
   `HeyLook_${V}_linux_x86_64.rpm`,
+  // 1.0.12: the native ARM64 builds (names as the bundler writes them; see .github/scripts/check-release-assets.sh)
+  `HeyLook_${V}_windows_arm64-setup.exe`,
+  `HeyLook_${V}_windows_arm64.msi`,
+  `HeyLook_${V}_linux_aarch64.AppImage`,
+  `HeyLook_${V}_linux_arm64.deb`,
+  `HeyLook_${V}_linux_aarch64.rpm`,
 ];
 const signed = installers.filter((n) => !n.endsWith(".dmg"));
 const names = [...installers, ...signed.map((n) => `${n}.sig`)];
-assert.equal(names.length, 13);
+assert.equal(names.length, 23);
 
 const sigs = join(dir, "sigs");
 mkdirSync(sigs);
@@ -40,7 +46,7 @@ const out = execFileSync("node", [gen, "generate", "--version", V, "--assets", j
 writeFileSync(join(dir, "latest.json"), out);
 const manifest = JSON.parse(out);
 assert.equal(manifest.version, V);
-assert.equal(Object.keys(manifest.platforms).length >= 9, true, "the manifest names every platform key");
+assert.equal(Object.keys(manifest.platforms).length >= 18, true, "the manifest names every platform key");
 for (const [key, p] of Object.entries(manifest.platforms)) {
   assert.ok(p.signature && p.url.includes(`/v${V}/`), `${key}: signature and url`);
 }
@@ -62,7 +68,7 @@ assert.equal(check.status, 0, `check of a good manifest: ${check.stderr}`);
   assert.equal(longCheck.status, 0, `check of the manifest with cut notes: ${longCheck.stderr}`);
 }
 
-// the final list of the publish job: 13 names + latest.json = 14, accepted
+// the final list of the publish job: 23 names + latest.json = 24, accepted
 const finalList = [...names, "latest.json"].join("\n") + "\n";
 const ok = spawnSync("bash", [assetsCheck, V], { input: finalList, encoding: "utf8" });
 assert.equal(ok.status, 0, `check-release-assets on a complete release: ${ok.stdout}${ok.stderr}`);
@@ -79,4 +85,15 @@ assert.notEqual(noInstaller.status, 0, "a missing .rpm must fail the asset check
 writeFileSync(join(dir, "bad.json"), JSON.stringify({ ...manifest, version: "1.0.0" }));
 assert.notEqual(spawnSync("node", [gen, "check", join(dir, "bad.json"), "--version", V], { encoding: "utf8" }).status, 0, "a manifest of another version must fail the check");
 
-console.log(`ok - test-publish-manifest (13 names + latest.json, ${Object.keys(manifest.platforms).length} platform keys, generate/check/asset list, 3 negative controls)`);
+// ARM64_BUILD=false: the release has no ARM64 files, the plan job says so (output arm) and the publish job gives --no-arm to the generator, the checker and the asset check
+{
+  const x64names = names.filter((n) => !/arm64|aarch64/.test(n) || n.endsWith("linux_x86_64.rpm"));
+  writeFileSync(join(dir, "assets-x64.json"), JSON.stringify(x64names.map((name, i) => ({ name, size: 1000 + i, id: i + 1 }))));
+  const out2 = execFileSync("node", [gen, "generate", "--version", V, "--assets", join(dir, "assets-x64.json"), "--sigs", sigs, "--notes", join(dir, "notes.md"), "--no-arm"], { encoding: "utf8" });
+  writeFileSync(join(dir, "latest-x64.json"), out2);
+  assert.equal(spawnSync("node", [gen, "check", join(dir, "latest-x64.json"), "--version", V, "--no-arm"], { encoding: "utf8" }).status, 0, "the x64-only manifest passes with --no-arm");
+  assert.equal(spawnSync("bash", [assetsCheck, V, "--no-arm"], { input: [...x64names, "latest.json"].join("\n") + "\n", encoding: "utf8" }).status, 0, "the x64-only list passes with --no-arm (14 names)");
+  assert.notEqual(spawnSync("bash", [assetsCheck, V], { input: [...x64names, "latest.json"].join("\n") + "\n", encoding: "utf8" }).status, 0, "the x64-only list fails when ARM64 is wanted");
+}
+
+console.log(`ok - test-publish-manifest (23 names + latest.json, ${Object.keys(manifest.platforms).length} platform keys, generate/check/asset list, 3 negative controls)`);

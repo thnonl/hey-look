@@ -23,6 +23,12 @@ try {
     `HeyLook_${V}_linux_amd64.AppImage`,
     `HeyLook_${V}_linux_amd64.deb`,
     `HeyLook_${V}_linux_x86_64.rpm`,
+    // 1.0.12: the native ARM64 builds
+    `HeyLook_${V}_windows_arm64-setup.exe`,
+    `HeyLook_${V}_windows_arm64.msi`,
+    `HeyLook_${V}_linux_aarch64.AppImage`,
+    `HeyLook_${V}_linux_arm64.deb`,
+    `HeyLook_${V}_linux_aarch64.rpm`,
   ];
   const sigs = join(dir, "sigs");
   mkdirSync(sigs);
@@ -50,6 +56,11 @@ try {
     [{ os: "linux", arch: "x64", installer: "appimage" }, ".AppImage"],
     [{ os: "linux", arch: "x64", installer: "deb" }, ".deb"],
     [{ os: "linux", arch: "x64", installer: "rpm" }, ".rpm"],
+    [{ os: "windows", arch: "arm64", installer: "nsis" }, "-setup.exe"],
+    [{ os: "windows", arch: "arm64", installer: "msi" }, ".msi"],
+    [{ os: "linux", arch: "arm64", installer: "appimage" }, ".AppImage"],
+    [{ os: "linux", arch: "arm64", installer: "deb" }, ".deb"],
+    [{ os: "linux", arch: "arm64", installer: "rpm" }, ".rpm"],
   ];
   for (const [p, ext] of shipped) {
     for (const key of keysFor(p)) {
@@ -61,6 +72,13 @@ try {
       assert.ok(e.signature && e.size > 0, `${key}: signature and size`);
     }
   }
+  // each architecture gets its OWN file (an ARM64 key never points at the x64 installer and the other way round)
+  assert.match(platforms["windows-aarch64-nsis"].url, /_windows_arm64-setup\.exe$/);
+  assert.match(platforms["windows-x86_64-nsis"].url, /_windows_x64-setup\.exe$/);
+  assert.match(platforms["linux-aarch64-deb"].url, /_linux_arm64\.deb$/);
+  assert.match(platforms["linux-x86_64-deb"].url, /_linux_amd64\.deb$/);
+  assert.equal(platforms["windows-aarch64"].url, platforms["windows-aarch64-nsis"].url, "the plain Windows ARM64 key is the NSIS setup");
+  assert.equal(platforms["linux-aarch64"].url, platforms["linux-aarch64-appimage"].url, "the plain Linux ARM64 key is the AppImage");
   // the universal archive serves both Mac CPUs and both ways of naming (with and without the bundle type)
   const mac = ["darwin-aarch64-app", "darwin-x86_64-app", "darwin-aarch64", "darwin-x86_64"].map((k) => platforms[k].url);
   assert.equal(new Set(mac).size, 1);
@@ -69,6 +87,19 @@ try {
   // the checker the release workflow runs on the real manifest accepts it
   writeFileSync(join(dir, "latest.json"), out);
   execFileSync("node", [script, "check", join(dir, "latest.json"), "--version", V], { encoding: "utf8" });
+
+  // a release without ARM64 builds (ARM64_BUILD=false): --no-arm makes the generator and the checker want the x64 keys only
+  {
+    const x64only = names.filter((n) => !/arm64|aarch64/.test(n));
+    writeFileSync(join(dir, "assets-x64.json"), JSON.stringify(x64only.map((name, i) => ({ name, size: 1000 + i }))));
+    const out2 = execFileSync("node", [script, "generate", "--version", V, "--assets", join(dir, "assets-x64.json"), "--sigs", sigs, "--notes", join(dir, "notes.md"), "--no-arm"], { encoding: "utf8" });
+    assert.ok(!Object.keys(JSON.parse(out2).platforms).some((k) => /aarch64/.test(k) && !k.startsWith("darwin")), "no ARM64 key without ARM64 builds");
+    writeFileSync(join(dir, "latest-x64.json"), out2);
+    execFileSync("node", [script, "check", join(dir, "latest-x64.json"), "--version", V, "--no-arm"], { encoding: "utf8" });
+    assert.throws(() => execFileSync("node", [script, "check", join(dir, "latest-x64.json"), "--version", V], { encoding: "utf8", stdio: "pipe" }), "a manifest without the ARM64 keys is refused when they are wanted");
+    assert.throws(() => execFileSync("node", [script, "generate", "--version", V, "--assets", join(dir, "assets-x64.json"), "--sigs", sigs, "--notes", join(dir, "notes.md")], { encoding: "utf8", stdio: "pipe" }), "ARM64 wanted but missing");
+    assert.throws(() => execFileSync("node", [script, "generate", "--version", V, "--assets", join(dir, "assets.json"), "--sigs", sigs, "--notes", join(dir, "notes.md"), "--no-arm"], { encoding: "utf8", stdio: "pipe" }), "ARM64 files present although none are wanted");
+  }
 
   // the Rust side states the same mapping
   const rust = readFileSync(new URL("../src-tauri/src/update.rs", import.meta.url), "utf8").replace(/\r\n/g, "\n");

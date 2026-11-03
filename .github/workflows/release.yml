@@ -108,6 +108,8 @@ jobs:
       store_submit: ${{ steps.plan.outputs.store_submit }}
       apt_publish: ${{ steps.plan.outputs.apt_publish }}
       arm: ${{ steps.plan.outputs.arm }}
+      rust_linux: ${{ steps.plan.outputs.rust_linux }}
+      rust_windows: ${{ steps.plan.outputs.rust_windows }}
       msix_x64: ${{ steps.plan.outputs.msix_x64 }}
       msix_arm: ${{ steps.plan.outputs.msix_arm }}
       winarm: ${{ steps.plan.outputs.winarm }}
@@ -166,6 +168,12 @@ jobs:
           arm=false
           if [ "$warm" = true ] && [ "$larm" = true ]; then arm=true; fi
           echo "arm=$arm" >> "$GITHUB_OUTPUT"
+          # the runners of the Rust test jobs: the x64 ones as before, and the ARM64 ones whenever that ARM64 build is part of the run (cargo test on the real CPU)
+          rl=(); rw=()
+          $lin && rl+=('"ubuntu-22.04"'); $larm && rl+=('"ubuntu-22.04-arm"')
+          $win && rw+=('"windows-2025-vs2026"'); $warm && rw+=('"windows-11-arm"')
+          echo "rust_linux=[$(IFS=,; echo "${rl[*]:-}")]" >> "$GITHUB_OUTPUT"
+          echo "rust_windows=[$(IFS=,; echo "${rw[*]:-}")]" >> "$GITHUB_OUTPUT"
           echo "winarm=$warm" >> "$GITHUB_OUTPUT"
           echo "linarm=$larm" >> "$GITHUB_OUTPUT"
           matrix="{\"include\":[$(IFS=,; echo "${items[*]}")]}"
@@ -333,9 +341,13 @@ jobs:
     # before; the release checklist only names them. Same image and system packages as the Linux build. The frontend is not needed to compile
     # the tests, but the app macro wants the folder of the built frontend to exist, so an empty stand-in is made.
     needs: plan
-    if: ${{ needs.plan.outputs.tests == 'true' }}
-    name: Rust tests
-    runs-on: ubuntu-22.04
+    if: ${{ needs.plan.outputs.rust_linux != '[]' }}
+    name: Rust tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(needs.plan.outputs.rust_linux) }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     permissions:
       contents: read
@@ -435,9 +447,13 @@ jobs:
     # because the Rust job above is Linux only. Same Rust version and cache rules as the other Rust jobs; runs beside the builds, so the wall time of the run
     # does not grow (it must not take longer than the macOS build). The frontend is not needed to compile the tests: an empty stand-in folder is made.
     needs: plan
-    if: ${{ needs.plan.outputs.wintests == 'true' }}
-    name: Rust tests (Windows)
-    runs-on: windows-2025-vs2026
+    if: ${{ needs.plan.outputs.rust_windows != '[]' }}
+    name: Rust tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(needs.plan.outputs.rust_windows) }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     permissions:
       contents: read
@@ -1225,6 +1241,8 @@ jobs:
       ID: ${{ needs.create-release.outputs.id }}
       # WP14 option B: with STORE_EXE the release must carry the Store's offline installer (exactly once), without it not at all
       STORE_EXE: ${{ needs.plan.outputs.store_exe }}
+      # 1.0.12: true when the two ARM64 builds are part of this run (ARM64_BUILD is not false); else the release has no ARM64 files at all
+      ARM: ${{ needs.plan.outputs.arm }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
@@ -1252,11 +1270,24 @@ jobs:
           done
           true
 
+      # ARM64_BUILD=false and "Re-run all jobs" after an ARM64 leg failed: whatever that leg (or an earlier attempt) already put into the DRAFT is taken out again,
+      # so the release is exactly the x64 / macOS set and the asset check below can say so. Only ARM64 names, only in the draft of this tag.
+      - name: Take ARM64 files out of the draft (ARM64_BUILD=false)
+        if: needs.plan.outputs.arm != 'true'
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases/$ID/assets" --paginate --jq '.[] | select(.name | test("_windows_arm64|_linux_arm64|_linux_aarch64")) | "\(.id) \(.name)"' | while read -r aid aname; do
+            echo "removing $aname from the draft"
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$aid"
+          done
+          true
+
       - name: Check installers and signatures
         run: |
           gh api "repos/$GITHUB_REPOSITORY/releases/$ID/assets" --paginate --jq '.[].name' > names.txt
           cat names.txt
           flag=""; if [ "$STORE_EXE" = true ]; then flag="--store-exe"; fi
+          # ARM64_BUILD=false: the release has no ARM64 files and says so (plan output arm)
+          if [ "$ARM" != true ]; then flag="$flag --no-arm"; fi
           bash .github/scripts/check-release-assets.sh "${GITHUB_REF_NAME#v}" --pre $flag < names.txt
 
       # Whatever happened to the files after the build (Authenticode, a re-upload), each update signature must still verify against the
@@ -1273,7 +1304,8 @@ jobs:
               gh api -H "Accept: application/octet-stream" "repos/$GITHUB_REPOSITORY/releases/assets/$aid" > "verify/$n"
             done
           done
-          node .github/scripts/verify-update-sigs.cjs --conf src-tauri/tauri.conf.json --min 6 verify
+          min=6; if [ "$ARM" = true ]; then min=11; fi
+          node .github/scripts/verify-update-sigs.cjs --conf src-tauri/tauri.conf.json --min "$min" verify
 
       - name: Write and upload latest.json
         run: |
@@ -1285,8 +1317,9 @@ jobs:
             gh api -H "Accept: application/octet-stream" "repos/$GITHUB_REPOSITORY/releases/assets/$aid" > "sigs/$aname"
           done
           bash .github/scripts/changelog-section.sh "$V" > notes.md
-          node .github/scripts/make-latest-json.cjs generate --version "$V" --assets assets.json --sigs sigs --notes notes.md > latest.json
-          node .github/scripts/make-latest-json.cjs check latest.json --version "$V"
+          noarm=""; if [ "$ARM" != true ]; then noarm="--no-arm"; fi
+          node .github/scripts/make-latest-json.cjs generate --version "$V" --assets assets.json --sigs sigs --notes notes.md $noarm > latest.json
+          node .github/scripts/make-latest-json.cjs check latest.json --version "$V" $noarm
           gh release upload "$GITHUB_REF_NAME" latest.json --clobber
 
       - name: Check the final asset list and latest.json
@@ -1295,8 +1328,9 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/releases/$ID/assets" --paginate --jq '.[].name' > names.txt
           cat names.txt
           flag=""; if [ "$STORE_EXE" = true ]; then flag="--store-exe"; fi
+          noarm=""; if [ "$ARM" != true ]; then flag="$flag --no-arm"; noarm="--no-arm"; fi
           bash .github/scripts/check-release-assets.sh "$V" $flag < names.txt
-          node .github/scripts/make-latest-json.cjs check latest.json --version "$V"
+          node .github/scripts/make-latest-json.cjs check latest.json --version "$V" $noarm
 
       - name: Publish and mark latest
         run: gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$ID" -F draft=false -f make_latest=true

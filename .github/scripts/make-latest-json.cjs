@@ -1,7 +1,8 @@
 // Writes and checks the updater manifest `latest.json` of a release. No network access.
 //
-//   node make-latest-json.cjs generate --version 1.0.0 --assets assets.json --sigs <dir> --notes notes.md [--base-url <url>] > latest.json
-//   node make-latest-json.cjs check latest.json --version 1.0.0 [--base-url <url>]
+//   node make-latest-json.cjs generate --version 1.0.0 --assets assets.json --sigs <dir> --notes notes.md [--base-url <url>] [--no-arm] > latest.json
+//   node make-latest-json.cjs check latest.json --version 1.0.0 [--base-url <url>] [--no-arm]
+// --no-arm: the release has no ARM64 builds (ARM64_BUILD=false): no windows-aarch64 / linux-aarch64 keys are wanted or allowed.
 //
 // assets.json: [{ "name": "HeyLook_1.0.0_windows_x64-setup.exe", "size": 123 }, ...] (the draft's assets)
 // <dir>: one `<asset name>.sig` file per signed installer (the text of the .sig file)
@@ -12,20 +13,33 @@ const path = require("path");
 
 const REPO_BASE = (v) => `https://github.com/thnonl/hey-look/releases/download/v${v}/`;
 
-// updater platform key -> the installer it points to (asset name ends with)
+// updater platform key -> the installer it points to (the asset name ends with `ext`; `re` is the whole tail of the name, which carries the architecture the
+// bundler wrote: Windows x64 / arm64, Linux .deb amd64 / arm64, .rpm and .AppImage x86_64 / aarch64). 1.0.12: the keys of the ARM64 builds (`arm`) are
+// wanted unless `--no-arm` says the release has none (ARM64_BUILD=false).
+const WIN_X64_SETUP = /_windows_x64-setup\.exe$/;
+const WIN_ARM_SETUP = /_windows_arm64-setup\.exe$/;
 const PLATFORMS = {
-  "windows-x86_64-nsis": "-setup.exe",
-  "windows-x86_64": "-setup.exe",
-  "windows-x86_64-msi": ".msi",
-  "darwin-aarch64-app": ".app.tar.gz",
-  "darwin-x86_64-app": ".app.tar.gz",
-  "darwin-aarch64": ".app.tar.gz",
-  "darwin-x86_64": ".app.tar.gz",
-  "linux-x86_64-appimage": ".AppImage",
-  "linux-x86_64": ".AppImage",
-  "linux-x86_64-deb": ".deb",
-  "linux-x86_64-rpm": ".rpm",
+  "windows-x86_64-nsis": { ext: "-setup.exe", re: WIN_X64_SETUP },
+  "windows-x86_64": { ext: "-setup.exe", re: WIN_X64_SETUP },
+  "windows-x86_64-msi": { ext: ".msi", re: /_windows_x64\.msi$/ },
+  "windows-aarch64-nsis": { ext: "-setup.exe", re: WIN_ARM_SETUP, arm: true },
+  "windows-aarch64": { ext: "-setup.exe", re: WIN_ARM_SETUP, arm: true },
+  "windows-aarch64-msi": { ext: ".msi", re: /_windows_arm64\.msi$/, arm: true },
+  "darwin-aarch64-app": { ext: ".app.tar.gz", re: /\.app\.tar\.gz$/ },
+  "darwin-x86_64-app": { ext: ".app.tar.gz", re: /\.app\.tar\.gz$/ },
+  "darwin-aarch64": { ext: ".app.tar.gz", re: /\.app\.tar\.gz$/ },
+  "darwin-x86_64": { ext: ".app.tar.gz", re: /\.app\.tar\.gz$/ },
+  "linux-x86_64-appimage": { ext: ".AppImage", re: /_linux_amd64\.AppImage$/ },
+  "linux-x86_64": { ext: ".AppImage", re: /_linux_amd64\.AppImage$/ },
+  "linux-x86_64-deb": { ext: ".deb", re: /_linux_amd64\.deb$/ },
+  "linux-x86_64-rpm": { ext: ".rpm", re: /_linux_x86_64\.rpm$/ },
+  "linux-aarch64-appimage": { ext: ".AppImage", re: /_linux_aarch64\.AppImage$/, arm: true },
+  "linux-aarch64": { ext: ".AppImage", re: /_linux_aarch64\.AppImage$/, arm: true },
+  "linux-aarch64-deb": { ext: ".deb", re: /_linux_arm64\.deb$/, arm: true },
+  "linux-aarch64-rpm": { ext: ".rpm", re: /_linux_aarch64\.rpm$/, arm: true },
 };
+/** The platform entries this run wants: all, or without the ARM64 ones (`--no-arm`). */
+const wanted = (o) => Object.entries(PLATFORMS).filter(([, p]) => !(o["no-arm"] !== undefined && p.arm));
 
 const problems = [];
 const problem = (m) => problems.push(m);
@@ -33,7 +47,8 @@ const problem = (m) => problems.push(m);
 function args(argv) {
   const o = { _: [] };
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i].startsWith("--")) o[argv[i].slice(2)] = argv[++i];
+    if (argv[i] === "--no-arm") o["no-arm"] = "";
+    else if (argv[i].startsWith("--")) o[argv[i].slice(2)] = argv[++i];
     else o._.push(argv[i]);
   }
   return o;
@@ -85,10 +100,10 @@ function generate(o) {
   const base = o["base-url"];
   const prefix = base || REPO_BASE(version);
   const platforms = {};
-  for (const [key, ext] of Object.entries(PLATFORMS)) {
-    const found = assets.filter((a) => a.name.endsWith(ext) && !a.name.endsWith(`${ext}.sig`));
+  for (const [key, { ext, re }] of wanted(o)) {
+    const found = assets.filter((a) => re.test(a.name));
     if (found.length !== 1) {
-      problem(`${key}: expected exactly one asset ending in '${ext}', found ${found.length}`);
+      problem(`${key}: expected exactly one asset ending in '${re.source}', found ${found.length}`);
       continue;
     }
     const a = found[0];
@@ -107,7 +122,7 @@ function generate(o) {
   }
   // nothing may be left over: every asset is a known installer, its signature, or the manifest itself
   for (const a of assets) {
-    const known = Object.values(PLATFORMS).some((ext) => a.name.endsWith(ext) || a.name.endsWith(`${ext}.sig`)) || a.name.endsWith(".dmg");
+    const known = wanted(o).some(([, p]) => p.re.test(a.name) || p.re.test(a.name.replace(/\.sig$/, ""))) || a.name.endsWith(".dmg");
     // (WP14 option B: the Store's offline installer is a release asset that the updater never uses; it is not in latest.json and no platform key points at it)
     if (!known && a.name !== "latest.json" && a.name !== `HeyLook_${version}_windows_x64_offline.exe`) problem(`unexpected asset: ${a.name}`);
   }
@@ -136,7 +151,7 @@ function check(file, o) {
   }
   if (j.version !== version) problem(`version is '${j.version}', expected '${version}'`);
   const keys = Object.keys(j.platforms || {}).sort();
-  const want = Object.keys(PLATFORMS).sort();
+  const want = wanted(o).map(([k]) => k).sort();
   for (const k of want) if (!keys.includes(k)) problem(`missing platform ${k}`);
   for (const k of keys) if (!want.includes(k)) problem(`unexpected platform ${k}`);
   for (const k of keys) {
@@ -144,7 +159,7 @@ function check(file, o) {
     if (!want.includes(k)) continue;
     const up = urlProblem(String(p.url), version, base);
     if (up) problem(`${k}: ${up}`);
-    else if (!String(p.url).endsWith(PLATFORMS[k])) problem(`${k}: url does not end with ${PLATFORMS[k]}`);
+    else if (!PLATFORMS[k].re.test(String(p.url))) problem(`${k}: url does not end with ${PLATFORMS[k].re.source}`);
     const sp = signatureProblem(p.signature, version);
     if (sp) problem(`${k}: ${sp}`);
     if (!Number.isInteger(p.size) || p.size <= 0) problem(`${k}: size is not a positive number`);
