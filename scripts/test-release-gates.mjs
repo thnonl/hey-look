@@ -54,7 +54,7 @@ const planFile = path.join(dir, "plan.sh");
 writeFileSync(planFile, planScript);
 
 // --- one run of the plan job ---
-const runPlan = ({ event, platforms = "", testVersion = "", uiTests = "", signDry = "false", signpathVars = false, storeExe = "", storeSubmit = "", rehearse = "", aptPublish = "", arm64Build = "", signpathArm = "" }) => {
+const runPlan = ({ event, platforms = "", testVersion = "", uiTests = "", signDry = "false", signpathVars = false, storeExe = "", storeSubmit = "", rehearse = "", aptPublish = "", arm64Build = "" }) => {
   const out = path.join(dir, "out.txt");
   writeFileSync(out, "");
   const r = spawnSync(bash, [posix(planFile)], {
@@ -75,7 +75,6 @@ const runPlan = ({ event, platforms = "", testVersion = "", uiTests = "", signDr
       STORE_SUBMIT: storeSubmit,
       APT_PUBLISH: aptPublish,
       ARM64_BUILD: arm64Build,
-      SP_ARM: signpathArm,
       GITHUB_OUTPUT: posix(out),
     },
   });
@@ -602,12 +601,15 @@ check("(h) a test build builds no package for any architecture", () => {
   const p = runPlan({ event: "workflow_dispatch", platforms: "arm64", testVersion: "0.9.0" });
   assert.deepEqual([p.msix, p.msix_x64, p.msix_arm], ["false", "false", "false"]);
 });
-check("(h) SignPath for the ARM64 installers only with SIGNPATH_ARM64=true, exactly, and only with the ARM64 Windows leg", () => {
-  assert.equal(runPlan({ event: "push", signpathVars: true }).signpath_arm, "false");
-  assert.equal(runPlan({ event: "push", signpathVars: true, signpathArm: "true" }).signpath_arm, "true");
-  assert.equal(runPlan({ event: "push", signpathVars: true, signpathArm: "TRUE" }).signpath_arm, "false");
-  assert.equal(runPlan({ event: "push", signpathVars: true, signpathArm: "true", arm64Build: "false" }).signpath_arm, "false");
-  assert.equal(runPlan({ event: "push", signpathArm: "true" }).signpath_arm, "false", "no SignPath, no ARM64 signing");
+check("(h) the ARM64 Windows installers follow the x64 ones into SignPath: no variable of their own, the counts come from the legs that ran", () => {
+  const text = readFileSync(path.join(root, ".github/workflows/release.yml"), "utf8");
+  assert.ok(!/SIGNPATH_ARM64|signpath_arm|SP_ARM/.test(text), "no separate switch for the ARM64 signing");
+  const sign = blockOf(text, "sign-windows");
+  assert.ok(sign.includes("pattern: windows-unsigned*") && sign.includes("merge-multiple: true"), "both unsigned folders are fetched");
+  assert.equal((sign.match(/needs\.plan\.outputs\.winarm == 'true' && (?:'4'|4) \|\| (?:'2'|2)/g) ?? []).length, 2, "the signature minimum and the Authenticode count: 4 with the ARM leg, else 2");
+  assert.equal(runPlan({ event: "push", signpathVars: true }).signpath, "true");
+  assert.equal(runPlan({ event: "push", signpathVars: true }).winarm, "true");
+  assert.equal(runPlan({ event: "push", signpathVars: true, arm64Build: "false" }).winarm, "false");
 });
 
 rmSync(dir, { recursive: true, force: true });

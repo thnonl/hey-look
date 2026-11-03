@@ -30,7 +30,7 @@ name: Release
 # A dry run without ui_tests therefore runs plan, static, the Rust tests and the builds; it never publishes, so nothing waits for the UI shards.
 # A tag run cannot skip them: the plan job lists them in the matrix of node-tests, and publish needs every shard to have succeeded.
 # 1.0.12: Windows ARM64 and Linux ARM64 are built natively on the hosted ARM64 runners (platforms windows-arm64, linux-arm64, arm64; all = five legs; the repository
-# variable ARM64_BUILD=false leaves the two ARM64 legs out of `all` and of a tag run, CONTRIBUTING.md > ARM64 builds; SIGNPATH_ARM64=true adds their installers to the SignPath request).
+# variable ARM64_BUILD=false leaves the two ARM64 legs out of `all` and of a tag run, CONTRIBUTING.md > ARM64 builds; the ARM64 installers go into the same SignPath request as the x64 ones).
 # A tag run always builds all three systems. The checks that need all three (the asset list, latest.json) exist only in the
 # tag run's publish job, so a subset dry run has nothing to skip; the plan job says what was chosen.
 on:
@@ -101,7 +101,6 @@ jobs:
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       signpath: ${{ steps.plan.outputs.signpath }}
-      signpath_arm: ${{ steps.plan.outputs.signpath_arm }}
       tests: ${{ steps.plan.outputs.tests }}
       shards: ${{ steps.plan.outputs.shards }}
       ui_tests: ${{ steps.plan.outputs.ui_tests }}
@@ -131,7 +130,6 @@ jobs:
           SP_ORG: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
           SP_PROJECT: ${{ vars.SIGNPATH_PROJECT_SLUG }}
           SP_POLICY: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
-          SP_ARM: ${{ vars.SIGNPATH_ARM64 }}
           REQUIRE_WIN: ${{ vars.REQUIRE_WIN_SIGNING }}
           STORE_EXE: ${{ vars.STORE_EXE }}
           STORE_SUBMIT: ${{ vars.STORE_SUBMIT }}
@@ -226,12 +224,6 @@ jobs:
             exit 1
           fi
           echo "signpath=$signpath" >> "$GITHUB_OUTPUT"
-          # The ARM64 installers go into the same SignPath request only with the repository variable SIGNPATH_ARM64=true (the owner confirms that the SignPath
-          # artifact configuration and policy accept them); without it they stay unsigned (they still carry their update signatures) and a dry run proves the rest.
-          signpath_arm=false
-          if [ "$signpath" = true ] && [ "$warm" = true ] && [ "$SP_ARM" = "true" ]; then signpath_arm=true; fi
-          echo "signpath_arm=$signpath_arm" >> "$GITHUB_OUTPUT"
-          echo "SignPath for the ARM64 installers (SIGNPATH_ARM64): $signpath_arm"
           echo "Windows signing with SignPath: $signpath"
           # Microsoft Store (WP14). The MSIX package (option A) is made whenever Windows is built, except for a test build (its exe is a debug build).
           # (1.0.12: the package of each architecture that is built; with both, the Store gets one bundle)
@@ -939,7 +931,7 @@ jobs:
 
       # SignPath signs after the build (the sign-windows job): the unsigned installers go there as a workflow artifact.
       - name: Keep the unsigned Windows installers for SignPath
-        if: runner.os == 'Windows' && needs.plan.outputs.signpath == 'true' && (matrix.suffix == '' || needs.plan.outputs.signpath_arm == 'true') && steps.sign.outputs.profile == 'release'
+        if: runner.os == 'Windows' && needs.plan.outputs.signpath == 'true' && steps.sign.outputs.profile == 'release'
         shell: bash
         run: |
           mkdir unsigned
@@ -947,7 +939,7 @@ jobs:
           ls -l unsigned
 
       - name: Upload the unsigned Windows installers
-        if: runner.os == 'Windows' && needs.plan.outputs.signpath == 'true' && (matrix.suffix == '' || needs.plan.outputs.signpath_arm == 'true') && steps.sign.outputs.profile == 'release'
+        if: runner.os == 'Windows' && needs.plan.outputs.signpath == 'true' && steps.sign.outputs.profile == 'release'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: windows-unsigned${{ matrix.suffix }}
@@ -1125,7 +1117,7 @@ jobs:
         if: steps.cfg.outputs.enabled == 'true'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          # windows-unsigned (x64) and, with SIGNPATH_ARM64=true, windows-unsigned-arm64: all files into one folder
+          # windows-unsigned (x64) and windows-unsigned-arm64 (when the ARM64 Windows build ran): all files into one folder
           pattern: windows-unsigned*
           merge-multiple: true
           path: unsigned
@@ -1212,13 +1204,13 @@ jobs:
       - name: Verify the update signatures
         if: steps.resign.outputs.done == 'true'
         shell: bash
-        run: node .github/scripts/verify-update-sigs.cjs --conf src-tauri/tauri.conf.json --min ${{ needs.plan.outputs.signpath_arm == 'true' && 4 || 2 }} out
+        run: node .github/scripts/verify-update-sigs.cjs --conf src-tauri/tauri.conf.json --min ${{ needs.plan.outputs.winarm == 'true' && 4 || 2 }} out
 
       - name: Verify the Authenticode signatures
         if: steps.cfg.outputs.enabled == 'true'
         shell: pwsh
         env:
-          EXPECT: ${{ needs.plan.outputs.signpath_arm == 'true' && '4' || '2' }}
+          EXPECT: ${{ needs.plan.outputs.winarm == 'true' && '4' || '2' }}
         run: |
           $files = @(Get-ChildItem out -File | Where-Object { $_.Extension -in '.exe', '.msi' })
           if ($files.Count -ne [int]$env:EXPECT) { throw "expected $($env:EXPECT) signed installers, found $($files.Count)" }
