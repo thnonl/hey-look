@@ -1,6 +1,6 @@
 // The one place of the "Last updated" date of the four legal pages (privacy, terms, google-data, security) on the website, in all 8 languages (no dependencies).
 // To move the date (for example to the day of the merge):  node scripts/set-legal-date.mjs YYYY-MM-DD   (it rewrites this constant and the 32 pages; test-legal-dates then checks them)
-export const LEGAL_DATE = '2026-11-01';
+export const LEGAL_DATE = '2026-11-03';
 // Languages whose legal text was rewritten after LEGAL_DATE (coordinator 2026-11-01: English and Vietnamese first, the other six follow with their own rewrite and then move to one date again)
 export const LEGAL_DATE_AHEAD = {}; // all eight languages carry LEGAL_DATE since the final copy; add a language here only while it is ahead of the others
 export const legalDate = (code) => LEGAL_DATE_AHEAD[code] || LEGAL_DATE;
