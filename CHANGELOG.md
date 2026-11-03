@@ -10,6 +10,10 @@
 - macOS: after an update, Hey Look! asks for your Keychain password once instead of once for each saved password
 - The reader window no longer has Next and Previous buttons or keys
 
+### Added
+
+- Windows and Linux: downloads for computers with an ARM processor (such as Windows laptops with a Snapdragon processor), marked ARM64 on the download page and on GitHub
+
 ### Fixed
 
 - Pictures: when you show the pictures in a message, each one shows that it is loading, and a picture that cannot be loaded shows Retry straight away instead of a broken image

@@ -462,7 +462,7 @@ export function findProblems({ rows = REMOVED, read = (f) => fs.readFileSync(f, 
         if (process.env.GITHUB_REF_TYPE === 'tag') fail(`${name}: still holds the TODO-QA-1011 marker on a tag run (the 1.0.11 test statement is not written)`);
         else console.warn(`warning: ${name}: TODO-QA-1011 marker present, the machine-specific checks of the 1.0.11 test statement are skipped (this fails on a tag run)`);
       } else if (!/changes of 1\.0\.11 were tested on/.test(text)) fail(`${name}: the 1.0.11 test statement (changes of 1.0.11 were tested on ...) is missing`);
-      if (!/the downloadable macOS app and the Linux packages \(AppImage, \.deb, \.rpm\) were not installed or tested/i.test(text)) fail(`${name}: no longer says the downloadable macOS app and the Linux packages were not tested`);
+      if (!/the downloadable macOS app and the Linux packages \(AppImage, \.deb, \.rpm\) were not installed or tested|the downloadable macOS app, the Linux x64 packages \(AppImage, \.deb, \.rpm\) and the Linux ARM64 \.rpm and AppImage were not installed or tested/i.test(text)) fail(`${name}: no longer says the downloadable macOS app and the Linux packages were not tested`);
       if (!/Windows 10, Intel Macs and macOS 11 and 12/.test(text)) fail(`${name}: no longer says Windows 10, Intel Macs and macOS 11 and 12 were not tested`);
       if (/all (versions of )?macOS|every (version of )?macOS|all Linux (distributions|distros)/i.test(text)) fail(`${name}: claims more than was tested (all macOS versions / all Linux distributions)`);
       if (!todo && /on real hardware|MacBook|Intel Mac (was|were) tested|x86_64 virtual machine/i.test(text)) fail(`${name}: names a machine the 1.0.11 QA reports do not name`);
