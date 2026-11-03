@@ -240,6 +240,12 @@
   <releases>
     <!-- The version-bump commit of a release adds its entry FIRST (the newest release is the snap's version and the one the release
          workflow checks against the tag). -->
+    <release version="1.0.13" date="2026-11-03">
+      <description>
+        <p>Fixes for conversations that showed every message twice, for moving a message back to the Inbox on Gmail, for adding a Google account and for the Load older messages line.</p>
+      </description>
+      <url>https://github.com/thnonl/hey-look/releases/tag/v1.0.13</url>
+    </release>
     <release version="1.0.12" date="2026-11-03">
       <description>
         <p>A new interface font (Source Sans 3), a loading and a failed state for pictures you choose to show, and fixes for printing pictures that are still loading and for long calendar names in the sidebar.</p>
