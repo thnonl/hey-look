@@ -6,7 +6,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'self'; script-src 'self'; connect-src https://api.github.com; base-uri 'self'; form-action 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>功能 - Hey Look!</title>
-<meta name="description" content="Hey Look!所有经过核实的功能，按类别整理，并如实说明各项限制：撤销发送、定时发送、稍后提醒、搜索、日历、OpenPGP、AI、更新等等。">
+<meta name="description" content="Hey Look! 能做什么：多个账户、撤销发送、定时发送、稍后提醒、搜索、日历、OpenPGP 加密和可选的 AI 助手。本页最后列出了限制。">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#131417" media="(prefers-color-scheme: dark)">
@@ -27,7 +27,7 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Hey Look!">
 <meta property="og:title" content="功能 - Hey Look!">
-<meta property="og:description" content="Hey Look!所有经过核实的功能，按类别整理，并如实说明各项限制：撤销发送、定时发送、稍后提醒、搜索、日历、OpenPGP、AI、更新等等。">
+<meta property="og:description" content="Hey Look! 能做什么：多个账户、撤销发送、定时发送、稍后提醒、搜索、日历、OpenPGP 加密和可选的 AI 助手。本页最后列出了限制。">
 <meta property="og:url" content="https://heylook.namthai.site/zh/features.html">
 <meta property="og:locale" content="zh_CN">
 <meta property="og:locale:alternate" content="en_US">
@@ -41,12 +41,12 @@
 <meta property="og:image:type" content="image/jpeg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Hey Look! 邮件客户端窗口，显示收件箱，旁边是英文标语“Mail without the rent”。">
+<meta property="og:image:alt" content="Hey Look! 邮件应用窗口，显示收件箱，旁边是英文文字“Free, open source mail app”。">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="功能 - Hey Look!">
-<meta name="twitter:description" content="Hey Look!所有经过核实的功能，按类别整理，并如实说明各项限制：撤销发送、定时发送、稍后提醒、搜索、日历、OpenPGP、AI、更新等等。">
+<meta name="twitter:description" content="Hey Look! 能做什么：多个账户、撤销发送、定时发送、稍后提醒、搜索、日历、OpenPGP 加密和可选的 AI 助手。本页最后列出了限制。">
 <meta name="twitter:image" content="https://heylook.namthai.site/assets/og-image.jpg">
-<meta name="twitter:image:alt" content="Hey Look! 邮件客户端窗口，显示收件箱，旁边是英文标语“Mail without the rent”。">
+<meta name="twitter:image:alt" content="Hey Look! 邮件应用窗口，显示收件箱，旁边是英文文字“Free, open source mail app”。">
 <link rel="icon" href="../assets/icon-48.png" sizes="48x48" type="image/png">
 <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
 <!-- hl:seo-end -->
@@ -62,7 +62,7 @@
     <a class="brand" href="index.html" aria-label="Hey Look!首页"><svg aria-hidden="true" focusable="false"><use href="#hl-mark"/></svg><span>Hey Look!</span></a>
     <nav id="site-nav" class="nav" aria-label="主导航">
       <a href="index.html#story">导览</a>
-      <a href="index.html#free">您能得到什么</a>
+      <a href="index.html#free">免费</a>
       <a href="features.html" aria-current="page">功能</a>
       <a href="help.html">帮助</a>
       <a href="privacy.html">隐私</a>
@@ -93,37 +93,37 @@
   </div>
 </header>
 <main id="main">
-<section class="page-head"><div class="wrap"><p class="kicker">功能</p><h1>全部功能。<em>全都包含。</em></h1><p class="lead">Hey Look!能做什么，简而言之。限制写在最后。</p></div></section>
+<section class="page-head"><div class="wrap"><p class="kicker">功能</p><h1>Hey Look! <em>能做什么</em></h1><p class="lead">所有功能都免费。少数限制列在本页最后。</p></div></section>
 <div class="wrap layout feat"><aside class="toc" aria-label="本页内容"><h2>本页内容</h2><ol><li><a href="#accounts">邮箱</a></li><li><a href="#reading">阅读</a></li><li><a href="#writing">写邮件</a></li><li><a href="#organising">整理和搜索</a></li><li><a href="#calendar">日历</a></li><li><a href="#pgp">加密（OpenPGP）</a></li><li><a href="#ai">AI助手（可选）</a></li><li><a href="#notify">桌面和更新</a></li><li><a href="#data">隐私和数据</a></li><li><a href="#limits">限制</a></li></ol></aside>
 <div class="feat-body">
-<section class="fgroup" id="accounts" aria-labelledby="accounts-h"><header><p class="fg-n" aria-hidden="true">01</p><h2 id="accounts-h">邮箱</h2></header><ul class="fg-list"><li><h3>所有账户集中在一处</h3><p>用Google或Microsoft登录，或添加iCloud、Yahoo或任何其他IMAP/SMTP账户。Hey Look!会根据您的邮箱地址找到服务器设置。</p></li><li><h3>一个收件箱、推送和离线</h3><p>在一个列表中查看所有邮箱，或切换到其中一个。在支持推送的服务器上，收件箱的新邮件会立即送达。已下载的邮件无需联网即可阅读和搜索。</p></li></ul></section>
-<section class="fgroup" id="reading" aria-labelledby="reading-h"><header><p class="fg-n" aria-hidden="true">02</p><h2 id="reading-h">阅读</h2></header><ul class="fg-list"><li><h3>对话和订阅邮件</h3><p>邮件按对话分组，订阅邮件会移到“其他”选项卡（重点收件箱）。发件人支持时，一键即可取消订阅。</p></li><li><h3>为保护隐私已隐藏图片</h3><p>图片在您允许之前一直隐藏，因此跟踪像素始终被阻止。只有来自您曾写信的人和知名服务、并通过发件人验证的邮件，图片才会自动显示。您可以在设置中关闭此功能。右键点击隐藏的图片即可只显示这一张。有风险的附件和具有误导性的链接会先询问。</p></li></ul></section>
-<section class="fgroup" id="writing" aria-labelledby="writing-h"><header><p class="fg-n" aria-hidden="true">03</p><h2 id="writing-h">写邮件</h2></header><ul class="fg-list"><li><h3>富文本编辑器</h3><p>字体、颜色、列表、表格、图片和链接。粘贴的内容会被清理，回复会保留原邮件的样子。可以在主窗口中写，也可以在独立窗口中写。</p></li><li><h3>撤销发送和不丢内容</h3><p>最多60秒内可以撤回邮件，也可以安排到一年之内发送，需要Hey Look!正在运行。草稿在您写作时自动保存，崩溃后邮件也不会丢失。</p></li></ul></section>
-<section class="fgroup" id="organising" aria-labelledby="organising-h"><header><p class="fg-n" aria-hidden="true">04</p><h2 id="organising-h">整理和搜索</h2></header><ul class="fg-list"><li><h3>稍后提醒、规则和“整理”</h3><p>让对话在您选定的时间之前离开收件箱，也可以置顶或标记。归档、删除和移至垃圾邮件在几秒内可以撤销。规则处理新邮件；“整理”则按发件人逐个清理。</p></li><li><h3>搜索和命令栏</h3><p>可用<code>from:</code>和<code>has:attachment</code>这样的运算符搜索。Ctrl+K（macOS上为Cmd+K）可到达每条命令和每个文件夹。</p></li></ul></section>
-<section class="fgroup" id="calendar" aria-labelledby="calendar-h"><header><p class="fg-n" aria-hidden="true">05</p><h2 id="calendar-h">日历</h2></header><ul class="fg-list"><li><h3>邀请</h3><p>在邮件里就能接受、暂定或拒绝，提供月、周和日程视图、提醒和.ics文件。</p></li><li><h3>与Google、Microsoft和CalDAV同步</h3><p>可选，按邮箱设置：您的Google、Outlook或CalDAV日历（iCloud、Fastmail、Nextcloud等）会显示在本地日历旁边，两边的更改互相同步。</p></li></ul></section>
-<section class="fgroup" id="pgp" aria-labelledby="pgp-h"><header><p class="fg-n" aria-hidden="true">06</p><h2 id="pgp-h">加密（OpenPGP）</h2></header><ul class="fg-list"><li><h3>加密和签名</h3><p>生成或导入密钥，加密和签名邮件，解密并验证收到的邮件，发送前还能看到每位收件人是否有密钥。</p></li><li><h3>您的密钥</h3><p>私钥保存在应用的数据库中，由您的密码短语加锁。尚未与其他OpenPGP软件做过互通测试。</p></li></ul></section>
-<section class="fgroup" id="ai" aria-labelledby="ai-h"><header><p class="fg-n" aria-hidden="true">07</p><h2 id="ai-h">AI助手（可选）</h2></header><ul class="fg-list"><li><h3>您自己的端点</h3><p>用任何兼容OpenAI的端点（包括您自己电脑上的端点）来总结、翻译或撰写。只有在您点击按钮时，文字才会发送过去，解密后的OpenPGP文字也包括在内。</p></li><li><h3>长邮件和“取消”</h3><p>长邮件会分段翻译，最多60,000个字符。点击“取消”可以停止“翻译”“总结”或“用AI撰写”的请求。</p></li></ul></section>
-<section class="fgroup" id="notify" aria-labelledby="notify-h"><header><p class="fg-n" aria-hidden="true">08</p><h2 id="notify-h">桌面和更新</h2></header><ul class="fg-list"><li><h3>通知、托盘和更新</h3><p>Windows、Linux和macOS上有通知；macOS上程序坞图标还会显示未读数。关闭窗口后，Hey Look!会继续在托盘中运行。在您同意之前不会下载任何内容，只会安装签名有效的更新。</p></li><li><h3>八种语言</h3><p>英语、越南语、法语、简体中文、西班牙语、日语、德语和俄语。译文借助AI撰写，并经语言专家审校。</p></li></ul></section>
-<section class="fgroup" id="data" aria-labelledby="data-h"><header><p class="fg-n" aria-hidden="true">09</p><h2 id="data-h">隐私和数据</h2></header><ul class="fg-list"><li><h3>在您的电脑上</h3><p>邮件和设置是一个本地文件；密码和登录令牌保存在系统的凭据存储中。</p></li><li><h3>无需账户，没有分析代码，没有广告</h3><p>没有Hey Look!账户，也没有分析或广告代码。这类内容只有一条：偶尔提醒您可以支持这个项目，而且可以关闭。每一个连接都列在<a href="privacy.html">隐私政策</a>里。</p></li></ul></section>
-<section class="fgroup limits" id="limits" aria-labelledby="limits-h"><header><p class="fg-n" aria-hidden="true">!</p><h2 id="limits-h">限制，直白地说</h2><p class="fg-lead">Hey Look!哪些事做不到，或只能做到一部分。</p></header>
+<section class="fgroup" id="accounts" aria-labelledby="accounts-h"><header><p class="fg-n" aria-hidden="true">01</p><h2 id="accounts-h">邮箱</h2></header><ul class="fg-list"><li><h3>多个账户放在一个应用里</h3><p>用 Google 或 Microsoft 登录，或添加 iCloud、Yahoo 或其他支持 IMAP 的邮箱账户。Hey Look! 会根据您的邮箱地址找到设置。</p></li><li><h3>一个收件箱看所有邮件</h3><p>在一个列表里查看所有账户的邮件，也可以一次只看一个账户。新邮件通常会立即收到，已下载的邮件不联网也能阅读。</p></li></ul></section>
+<section class="fgroup" id="reading" aria-labelledby="reading-h"><header><p class="fg-n" aria-hidden="true">02</p><h2 id="reading-h">阅读</h2></header><ul class="fg-list"><li><h3>对话和订阅邮件</h3><p>邮件会按对话分组，订阅邮件放在单独的选项卡里。发件人支持时，点一下就能取消订阅。</p></li><li><h3>图片默认隐藏</h3><p>只有您允许时图片才会加载，所以图片隐藏时，跟踪像素无法加载。来自您写过信的人和知名服务的邮件，如果通过了发件人验证，图片可以自动显示；您可以在设置中关闭这项功能。程序和脚本附件，以及链接文字所示网址与实际不符的链接，都会先询问您。</p></li></ul></section>
+<section class="fgroup" id="writing" aria-labelledby="writing-h"><header><p class="fg-n" aria-hidden="true">03</p><h2 id="writing-h">写邮件</h2></header><ul class="fg-list"><li><h3>格式设置</h3><p>可以使用字体、颜色、列表、表格、图片和链接。粘贴的文字会被整理干净，回复会保留原邮件的样式。</p></li><li><h3>撤销发送、定时发送和草稿</h3><p>按下“发送”后的几秒内，您可以把邮件撤回，也可以安排稍后发送。草稿会在您写的时候自动保存。</p></li></ul></section>
+<section class="fgroup" id="organising" aria-labelledby="organising-h"><header><p class="fg-n" aria-hidden="true">04</p><h2 id="organising-h">整理和搜索</h2></header><ul class="fg-list"><li><h3>稍后提醒、规则和“整理”</h3><p>对话可以设为稍后提醒，到您选的时间再回来；也可以置顶或标记它。规则会自动分拣新邮件，“整理”可以一次处理某个发件人的全部邮件：归档、删除、标记为已读或阻止。归档和删除都可以撤销。</p></li><li><h3>搜索和命令栏</h3><p>可以搜索您的邮件。按 Ctrl+K（Mac 上为 Cmd+K）可以打开文件夹、切换账户、更改主题等。</p></li></ul></section>
+<section class="fgroup" id="calendar" aria-labelledby="calendar-h"><header><p class="fg-n" aria-hidden="true">05</p><h2 id="calendar-h">日历</h2></header><ul class="fg-list"><li><h3>邀请和日历</h3><p>在邮件里就能选择“接受”“暂定”或“拒绝”。日历有月、周和日程视图，还有提醒。</p></li><li><h3>与 Google、Microsoft 等同步</h3><p>如果需要，可以把邮箱连接到它的 Google、Outlook、iCloud、Fastmail 或 Nextcloud 日历。之后在任何一边所做的更改，两边都能看到。</p></li></ul></section>
+<section class="fgroup" id="pgp" aria-labelledby="pgp-h"><header><p class="fg-n" aria-hidden="true">06</p><h2 id="pgp-h">加密（OpenPGP）</h2></header><ul class="fg-list"><li><h3>加密和签名</h3><p>Hey Look! 可以用 OpenPGP 为邮件加密和签名，也能解密并验证收到的邮件。发送前，它会显示您可以给哪些收件人加密。</p></li><li><h3>您的密钥</h3><p>您的私钥保存在您的电脑上，由您自己设定的密码短语保护。</p></li></ul></section>
+<section class="fgroup" id="ai" aria-labelledby="ai-h"><header><p class="fg-n" aria-hidden="true">07</p><h2 id="ai-h">AI助手（可选）</h2></header><ul class="fg-list"><li><h3>由您选择的 AI 服务</h3><p>AI 助手可以总结、翻译或帮您写邮件，使用的是您在设置中配置的、兼容 OpenAI 的服务。只有在您按下按钮时，Hey Look! 才会把文字发给它，包括解密后的 OpenPGP 文字；而且从不发送“机密”邮件。</p></li><li><h3>长邮件</h3><p>长邮件会分段翻译，点“取消”可以停止任何 AI 请求。</p></li></ul></section>
+<section class="fgroup" id="notify" aria-labelledby="notify-h"><header><p class="fg-n" aria-hidden="true">08</p><h2 id="notify-h">桌面和更新</h2></header><ul class="fg-list"><li><h3>通知和更新</h3><p>有新邮件时，Hey Look! 会通知您。关闭窗口后，它会在后台继续运行（在 Linux 上，仅当桌面有托盘区域时）。它会自动更新，但要先征得您的同意。</p></li><li><h3>八种语言</h3><p>英语、越南语、法语、简体中文、西班牙语、日语、德语和俄语。可以在设置中选择。</p></li></ul></section>
+<section class="fgroup" id="data" aria-labelledby="data-h"><header><p class="fg-n" aria-hidden="true">09</p><h2 id="data-h">隐私和数据</h2></header><ul class="fg-list"><li><h3>在您的电脑上</h3><p>邮件和设置的副本保存在您的电脑上，密码保存在系统的密码存储中。</p></li><li><h3>没有分析，没有广告</h3><p>应用里没有分析代码和广告。<a href="privacy.html">隐私政策</a>列出了应用的每一个连接。</p></li></ul></section>
+<section class="fgroup limits" id="limits" aria-labelledby="limits-h"><header><p class="fg-n" aria-hidden="true">!</p><h2 id="limits-h">限制</h2><p class="fg-lead">Hey Look! 还做不到、或只能做到一部分的事。</p></header>
 <ul class="fg-list">
-<li><h3>安装程序</h3><p>未经代码签名，所以首次启动时SmartScreen和Gatekeeper会发出警告。macOS版没有经过公证：见<a href="download.html#install-notes">在macOS上首次启动</a>。</p></li>
-<li><h3>Linux</h3><p>通知按钮需要桌面的通知服务支持绘制按钮，托盘图标没有点击操作（请使用它的菜单），保存密码需要已解锁的密钥环，“机密”邮件也不会对屏幕截图隐藏。</p></li>
-<li><h3>文件夹</h3><p>可以在这里创建文件夹和一级子文件夹。重命名和删除文件夹需要在您的网页邮箱中进行。</p></li>
-<li><h3>邮件和写邮件</h3><p>推送覆盖收件箱和最多三个收藏夹文件夹；其他文件夹按定时检查。写邮件时没有纯文本模式。</p></li>
-<li><h3>日历</h3><p>部分工作或学校组织只允许管理员批准Microsoft日历权限。CalDAV仅用模拟服务器测试过。</p></li>
-<li><h3>Google登录</h3><p>在Google完成审核之前，登录时会显示警告。<a href="help.html#google-review">该怎么办</a></p></li></ul></section>
+<li><h3>安装程序</h3><p>Windows 和 macOS 首次打开应用时可能会发出警告：安装程序没有使用发布者证书签名，Apple 也没有为这个 Mac 应用做公证。<a href="download.html#install-notes">如何打开</a></p></li>
+<li><h3>Linux</h3><p>视桌面环境而定，通知按钮或托盘图标可能无法完全正常使用，“机密”邮件也不会对屏幕截图隐藏。保存密码需要 GNOME Keyring 或 KWallet。</p></li>
+<li><h3>文件夹</h3><p>您可以在 Hey Look! 中创建文件夹；要重命名或删除文件夹，请使用邮箱服务商的网页版。</p></li>
+<li><h3>邮件和写邮件</h3><p>写邮件时没有纯文本模式。OpenPGP 还没有与其他 OpenPGP 应用一起测试过。</p></li>
+<li><h3>日历</h3><p>部分工作或学校的 Microsoft 账户需要管理员允许访问日历。</p></li>
+<li><h3>Google 登录</h3><p>在 Google 完成对 Hey Look! 的审核之前，登录时 Google 会显示警告。<a href="help.html#google-review">如何继续</a></p></li></ul></section>
 </div></div>
 </main>
 <footer class="ftr">
   <div class="wrap">
-    <p class="thanks">感谢您使用Hey Look!它会一直保持免费和开源，是否支持它完全由您决定。<a href="support.html#support">支持本项目</a></p>
+    <p class="thanks">感谢您使用 Hey Look!，它一直免费、开源。</p>
     <div class="ftr-grid">
       <div class="ftr-brand"><a class="brand" href="index.html" aria-label="Hey Look!首页"><svg aria-hidden="true" focusable="false"><use href="#hl-mark"/></svg><span>Hey Look!</span></a>
-        <p>适用于Windows、macOS和Linux的桌面邮件客户端。免费、无广告、开源（MIT）。</p></div>
-      <div><h2>产品</h2><ul><li><a href="features.html">功能</a></li><li><a href="download.html">下载</a></li><li><a href="https://github.com/thnonl/hey-look/releases" rel="noopener">发行说明</a></li><li><a href="support.html#support">支持本项目</a></li></ul></div>
+        <p>适用于 Windows、macOS 和 Linux 的桌面邮件应用。免费、开源（MIT），没有广告。</p></div>
+      <div><h2>产品</h2><ul><li><a href="features.html">功能</a></li><li><a href="download.html">下载</a></li><li><a href="https://github.com/thnonl/hey-look/releases" rel="noopener">发行说明</a></li><li><a href="support.html#support">支持</a></li></ul></div>
       <div><h2>信任</h2><ul><li><a href="privacy.html">隐私政策</a></li><li><a href="terms.html">服务条款</a></li><li><a href="google-data.html">Google API数据使用</a></li><li><a href="security.html">安全</a></li></ul></div>
-      <div><h2>帮助</h2><ul><li><a href="help.html">帮助和常见问题</a></li><li><a href="support.html">支持本项目</a></li><li><a href="https://github.com/thnonl/hey-look/issues" rel="noopener">报告问题</a></li><li><a href="https://github.com/thnonl/hey-look" rel="noopener">GitHub上的源代码</a></li></ul></div>
+      <div><h2>帮助</h2><ul><li><a href="help.html">帮助和常见问题</a></li><li><a href="support.html">支持</a></li><li><a href="https://github.com/thnonl/hey-look/issues" rel="noopener">报告问题</a></li><li><a href="https://github.com/thnonl/hey-look" rel="noopener">GitHub上的源代码</a></li></ul></div>
     </div>
     <p class="limited">Hey Look!对从Google API获得的信息的使用，将遵守<a href="https://developers.google.com/terms/api-services-user-data-policy" rel="noopener noreferrer">Google API Services User Data Policy</a>（Google API服务用户数据政策），包括其中的Limited Use（有限使用）要求。<a href="google-data.html">详情</a></p>
     <div class="fine"><span>MIT许可证。版权所有 &copy; 2026 thnonl。</span><span>与Google、Microsoft或Apple无任何关联。产品名称归其各自所有者所有。</span></div>

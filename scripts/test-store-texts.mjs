@@ -77,7 +77,7 @@ for (const c of CODES) {
     assert.equal((upd.match(/<p>/g) ?? []).length, 3, "the Updates answer has three paragraphs (the old one and the two of the Store version)");
     // the privacy answer is unchanged in meaning: still says where the data is (nothing removed)
     const dl = read(`docs/${folder}download.html`);
-    const blk = /<div class="asset" id="store-block" hidden><strong>([^<]+)<\/strong><a class="btn btn-ghost" id="store-link" href="https:\/\/apps\.microsoft\.com\/detail\/" rel="noopener"><svg[^>]*><use href="#i-external"\/><\/svg><span class="t">([^<]+)<\/span><\/a><small>([^<]+)<\/small><\/div>/.exec(dl);
+    const blk = /<div class="asset" id="store-block" hidden><strong>([^<]+)<\/strong><a class="btn btn-ghost" id="store-link" href="https:\/\/apps\.microsoft\.com\/detail\/" rel="noopener"><svg[^>]*><use href="#i-external"\/><\/svg><span class="t">([^<]+)<\/span><\/a><small>((?:[^<]|<a [^>]*>[^<]*<\/a>)+)<\/small><\/div>/.exec(dl); // the text may carry a link inside it (the Vietnamese rewrite links "Khác biệt giữa hai bản" to help.html#updates)
     assert.ok(blk, "the Store block of the Windows card, hidden");
     assert.equal(blk[1], "Microsoft Store");
     assert.ok(blk[3].includes("Microsoft Store"), "the text names the Store");
@@ -97,8 +97,8 @@ check("site.js shows the Store block only for a Store ID", () => {
 });
 check("English help: the three paragraphs of the Store version", () => {
   const help = read("docs/help.html");
-  assert.ok(help.includes("A Store copy is updated only by the Store, has no updater of its own and does not check GitHub; Settings &gt; About says &ldquo;Updates come from the Microsoft Store.&rdquo;"));
-  assert.ok(help.includes("The Store version keeps its own mail, accounts and settings, apart from a copy installed from this website. Use one of them on a computer, not both."));
+  assert.ok(help.includes("Hey Look! is also in the Microsoft Store, and the Store installs its updates.")); // final copy 2026-11-02: the longer Store update sentence is gone from help
+  assert.ok(help.includes("The Store version keeps its own mail, accounts and settings. On one computer, use either the Store version or the version from this website, not both."));
   assert.ok(help.includes("The AI Assistant sends your request to the AI service you set up in Settings &gt; AI Assistant, and that service writes the answer. Hey Look! does not provide or control the AI model, and text written by AI can be wrong."));
 });
 console.log(`test-store-texts: ok (${n} checks)`);

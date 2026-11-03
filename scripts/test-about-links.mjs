@@ -95,7 +95,7 @@ assert.ok(!/GitHub repository/.test(dlg), "the old link text is gone");
 // the README says the same, and the pages exist on the site
 const readme = read("README.md");
 assert.ok(readme.includes(`**Website:** ${ABOUT_LINKS[0].url}`));
-assert.ok(readme.includes(`[buy me a coffee](${ABOUT_LINKS[1].url})`));
+assert.ok(!readme.includes("support.html"), "the README does not link the support page (owner 2026-11-02); the app's About links are separate"); // no donation talk outside the support page
 assert.ok(existsSync(new URL("../docs/support.html", import.meta.url)) && existsSync(new URL("../docs/index.html", import.meta.url)));
 
 // the changelog has the section of the next version at the top

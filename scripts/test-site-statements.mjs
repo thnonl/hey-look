@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LANGS, PAGES, DOCS } from './generate-site-languages.mjs';
+import { rewrittenHome } from './lib/site-rewritten.mjs';
 
 const ENT = { nbsp: ' ', amp: '&', quot: '"', lt: '<', gt: '>', rsquo: '\u2019', lsquo: '\u2018', ldquo: '\u201c', rdquo: '\u201d', hellip: '\u2026', copy: '\u00a9', bdquo: '\u201e', mdash: '\u2014', ndash: '\u2013' };
 export const plain = (src) => src
@@ -64,7 +65,39 @@ export const REMOVED = [
       ['ru', 'Полноценного редактора тем нет.'],
     ],
   },
-  // W10.6a: the translations were written with AI help and checked by language specialists; no "new / may contain mistakes" and no "more languages may come"
+  // W10.6a: no translation note at all (owner 2026-11-02): no AI, no "specialists", no "new / may contain mistakes", no "more languages may come"
+  // W11.1 (final copy 2026-11-02): the translation and specialists sentences, the donation sentences outside the support page, and the replaced fact sentences do not come back
+  {
+    row: 'W11.1',
+    items: [
+      ['en', 'The translations were written with AI help and checked by language specialists.'],
+      ['en', 'The translations were written with AI help'],
+      ['vi', 'Bản dịch được viết với sự hỗ trợ của AI rồi được chuyên viên ngôn ngữ rà soát.'],
+      ['fr', 'Les traductions ont été rédigées avec l’aide de l’IA et relues par des spécialistes de la langue.'],
+      ['zh', '译文借助AI撰写，并经语言专家审校。'],
+      ['es', 'Las traducciones se escribieron con ayuda de IA y las han revisado especialistas en idiomas.'],
+      ['ja', '翻訳はAIの支援を受けて作成され、言語の専門家による確認を経ています。'],
+      ['de', 'Die Übersetzungen wurden mit KI-Hilfe erstellt und von Sprachspezialisten geprüft.'],
+      ['ru', 'Переводы выполнены с помощью ИИ и проверены языковыми специалистами.'],
+      ['en', 'and supporting it is optional'],
+      ['fr', 'et le soutenir est facultatif'],
+      ['zh', '是否支持它完全由您决定'],
+      ['es', 'y apoyarlo es opcional'],
+      ['ja', '今後も無料のオープンソースであり続けます。支援は任意です。'],
+      ['de', 'und die Unterstützung ist freiwillig'],
+      ['ru', 'а поддержка проекта — по желанию'],
+      ['en', 'The only message of that kind is an occasional reminder that you can support the project, and you can turn it off.', ['features.html']],
+      ['en', 'Voluntary support (through Ko-fi, a bank transfer or otherwise) is a gift: it does not buy a license, features, support, updates or any other service.', ['terms.html']],
+      ['en', 'About 40 commands and every folder'],
+      ['en', 'reaches every command and folder'],
+      ['en', 'Other folders, and servers without push, are checked every 2 minutes by default.'],
+      ['en', 'The AppImage runs on any distro'],
+      ['en', 'Any distro with the AppImage'],
+      ['en', 'which stops tracking pixels'],
+      ['en', 'in the provider’s own window'],
+      ['en', 'Mail without the rent'],
+    ],
+  },
   {
     row: 'W10.6a',
     items: [
@@ -409,8 +442,8 @@ export function findProblems({ rows = REMOVED, read = (f) => fs.readFileSync(f, 
   for (const l of LANGS) {
     const f = path.join(DOCS, l.dir, 'index.html');
     const ledger = (/<section class="ledger"[\s\S]*?<\/section>/.exec(read(f)) || [''])[0];
-    if (!ledger) fail(`${path.relative(DOCS, f).replace(/\\/g, '/')}: the honest ledger section is missing`);
-    else if (/<li\b[^>]*>\s*<\/li>/.test(ledger) || /<ul\b[^>]*>\s*<\/ul>/.test(ledger) || (ledger.match(/<li\b/g) || []).length < 4) fail(`${path.relative(DOCS, f).replace(/\\/g, '/')}: an empty bullet or an empty column in the honest ledger`);
+    // final copy 2026-11-02, all 8 languages: the home page has no ledger any more (the limits are in features.html#limits, the install notes and help); it must really be gone
+    if (ledger) fail(`${path.relative(DOCS, f).replace(/\\/g, '/')}: the honest ledger was moved out of the home page and is back`);
   }
   // the Google sign-in has no number of people on any page (owner 2026-10-26: the text about a limit on people is gone from the whole product): no 100 within 80 characters of "Google", in any language, and nothing like it in the README or CONTRIBUTING
   for (const l of LANGS) {

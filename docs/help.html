@@ -41,12 +41,12 @@
 <meta property="og:image:type" content="image/jpeg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="The Hey Look! mail app window showing an inbox, next to the words “Mail without the rent”.">
+<meta property="og:image:alt" content="The Hey Look! mail app window showing an inbox, next to the words “Free, open source mail app”.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Help and FAQ - Hey Look!">
 <meta name="twitter:description" content="Install on Windows, macOS and Linux, add an account, shortcuts, undo send, updates, where your data lives, OpenPGP basics and known limitations.">
 <meta name="twitter:image" content="https://heylook.namthai.site/assets/og-image.jpg">
-<meta name="twitter:image:alt" content="The Hey Look! mail app window showing an inbox, next to the words “Mail without the rent”.">
+<meta name="twitter:image:alt" content="The Hey Look! mail app window showing an inbox, next to the words “Free, open source mail app”.">
 <link rel="icon" href="assets/icon-48.png" sizes="48x48" type="image/png">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
 <!-- hl:seo-end -->
@@ -62,7 +62,7 @@
     <a class="brand" href="index.html" aria-label="Hey Look! home"><svg aria-hidden="true" focusable="false"><use href="#hl-mark"/></svg><span>Hey Look!</span></a>
     <nav id="site-nav" class="nav" aria-label="Primary">
       <a href="index.html#story">The tour</a>
-      <a href="index.html#free">What you get</a>
+      <a href="index.html#free">Free</a>
       <a href="features.html">Features</a>
       <a href="help.html" aria-current="page">Help</a>
       <a href="privacy.html">Privacy</a>
@@ -93,7 +93,7 @@
   </div>
 </header>
 <main id="main">
-<section class="page-head"><div class="wrap"><p class="kicker">Help</p><h1>Help and FAQ</h1><p class="lead">Short answers to common questions. Open a question to read it.</p></div></section>
+<section class="page-head"><div class="wrap"><p class="kicker">Help</p><h1>Help and FAQ</h1><p class="lead">Open a question to read the answer.</p></div></section>
 <div class="wrap layout helppage"><aside class="toc" aria-label="On this page"><h2>On this page</h2><ol><li><a href="#g-install">Install and first start</a></li><li><a href="#g-accounts">Accounts and mailboxes</a></li><li><a href="#g-daily">Everyday use</a></li><li><a href="#g-privacy">Privacy and where your data lives</a></li><li><a href="#g-pgp">OpenPGP basics</a></li><li><a href="#g-report">Report a problem</a></li><li><a href="#g-limits">Known limitations</a></li></ol></aside>
 <div class="help-main">
   <div class="hq-tools" id="hq-tools" hidden>
@@ -103,31 +103,31 @@
   </div>
   <div id="hq-list">
   <section class="hq-group" id="g-install" aria-labelledby="g-install-h"><h2 id="g-install-h">Install and first start</h2>
-<details class="hq" id="windows"><summary>Windows warns before the first start</summary><div class="hq-a"><p>The installers are not code-signed yet. If SmartScreen appears, choose <strong>More info</strong>, then <strong>Run anyway</strong>. Use the .exe; the .msi is for managed installs.</p></div></details>
-<details class="hq" id="macos"><summary>macOS does not open the app the first time</summary><div class="hq-a"><p>The app is not notarised by Apple, so macOS blocks its first start once. Follow the <a href="download.html#install-notes">three steps on the download page</a>; updates start normally after that.</p></div></details>
+<details class="hq" id="windows"><summary>Windows warns before the first start</summary><div class="hq-a"><p>Windows may show a SmartScreen warning, because the installer is not signed with a publisher certificate. Choose <strong>More info</strong>, then <strong>Run anyway</strong>. Use the .exe; the .msi is for companies that install software centrally.</p></div></details>
+<details class="hq" id="macos"><summary>macOS does not open the app the first time</summary><div class="hq-a"><p>Apple has not notarised the app, so macOS blocks it the first time. Follow the three steps on the <a href="download.html#install-notes">download page</a> once; after that, the app and its updates open normally.</p></div></details>
 <details class="hq" id="macos-print"><summary>macOS asks about the local network when I print</summary><div class="hq-a"><p>The first time you print, macOS may ask whether Hey Look! may find devices on your local network. This lets the print window find your printers; Hey Look! uses the local network for nothing else.</p></div></details>
-<details class="hq" id="linux"><summary>Linux: which file, and what it needs</summary><div class="hq-a"><p>The AppImage runs on any distro; the .deb is for Debian and Ubuntu, the .rpm for Fedora and openSUSE. Passwords need GNOME Keyring or KWallet running and unlocked, and links open with <code>xdg-open</code>.</p></div></details>
+<details class="hq" id="linux"><summary>Linux: which file, and what it needs</summary><div class="hq-a"><p>The AppImage starts without installing; the .deb is for Debian and Ubuntu, the .rpm for Fedora and openSUSE. To save passwords, GNOME Keyring or KWallet must be running.</p></div></details>
   </section>
   <section class="hq-group" id="g-accounts" aria-labelledby="g-accounts-h"><h2 id="g-accounts-h">Accounts and mailboxes</h2>
-<details class="hq" id="add" open><summary>Add an account</summary><div class="hq-a"><p>Sign in with Google or Microsoft on the provider&rsquo;s own page, or add any other account with IMAP and SMTP: Hey Look! finds the servers from your address. iCloud and Yahoo need an app password from your account page. Some Microsoft work and school accounts need an admin to allow IMAP and SMTP. Before you add it, Test connection checks both servers and tells you which setting to fix.</p></div></details>
-<details class="hq" id="google-review"><summary>Google says &ldquo;Google hasn&rsquo;t verified this app&rdquo;, or Sign in with Google stops working</summary><div class="hq-a"><p>Hey Look! has not finished Google&rsquo;s review yet. Google shows this warning for every app under review; nothing is wrong with your account.</p>
+<details class="hq" id="add" open><summary>Add an account</summary><div class="hq-a"><p>Sign in with Google or Microsoft on their own page, or add another account with its email address and password; Hey Look! finds the settings. iCloud and Yahoo need an app password, which you create on their account page. Some work and school Microsoft accounts need an administrator&rsquo;s permission. Test connection tells you if a setting is wrong.</p></div></details>
+<details class="hq" id="google-review"><summary>Google says &ldquo;Google hasn&rsquo;t verified this app&rdquo;, or Sign in with Google stops working</summary><div class="hq-a"><p>Hey Look! has not finished Google&rsquo;s review yet. Google shows this warning until it has finished reviewing an app; nothing is wrong with your account.</p>
 <p>To continue, choose <strong>Advanced</strong>, then <strong>Go to Hey Look! (unsafe)</strong>, and allow the permissions if you agree with them (see <a href="google-data.html">Google API data use</a>).</p>
 <p>If sign-in with Google stops working, add a personal Gmail account with an <a href="https://myaccount.google.com/apppasswords" rel="noopener noreferrer">app password</a> instead, as an IMAP account with Gmail as the provider.</p></div></details>
-<details class="hq" id="push"><summary>Does new mail arrive at once?</summary><div class="hq-a"><p>Yes, for the Inbox and up to three Favorites folders, on servers that support push (IMAP IDLE), while Hey Look! is running. Other folders, and servers without push, are checked every 2 minutes by default.</p></div></details>
+<details class="hq" id="push"><summary>Does new mail arrive at once?</summary><div class="hq-a"><p>Yes, for the Inbox and up to three Favorites folders, if your mail server supports it and Hey Look! is running. Other folders are checked regularly; set how often in Settings &gt; Mailboxes &gt; Reading &amp; sync.</p></div></details>
   </section>
   <section class="hq-group" id="g-daily" aria-labelledby="g-daily-h"><h2 id="g-daily-h">Everyday use</h2>
 <details class="hq" id="keys"><summary>Keyboard shortcuts</summary><div class="hq-a"><p><kbd>Ctrl</kbd> <kbd>K</kbd> (<kbd>Cmd</kbd> <kbd>K</kbd> on macOS) opens the command bar. In the mail list: <kbd>c</kbd> new mail, <kbd>/</kbd> search, <kbd>j</kbd> and <kbd>k</kbd> move, <kbd>e</kbd> archive, <kbd>#</kbd> delete, <kbd>s</kbd> snooze, <kbd>r</kbd> reply.</p></div></details>
-<details class="hq" id="undo"><summary>Undo send and send later</summary><div class="hq-a"><p>After Send, a message waits 10 seconds by default (up to 60) so you can undo it; a normal Quit sends it at once. Send later needs Hey Look! to be running at that time; a message that was due while it was closed goes out at the next start by default.</p></div></details>
-<details class="hq" id="updates"><summary>Updates</summary><div class="hq-a"><p>A copy from this website checks GitHub when it starts and, at most every 2 hours, when its window comes back; after a failed check it tries again in 15 minutes. You can turn this off in Settings. Nothing is downloaded until you agree, and only a correctly signed update is installed. The .msi asks for administrator rights, the .deb and .rpm for your password.</p><p>Hey Look! is also in the Microsoft Store. A Store copy is updated only by the Store, has no updater of its own and does not check GitHub; Settings &gt; About says &ldquo;Updates come from the Microsoft Store.&rdquo;</p><p>The Store version keeps its own mail, accounts and settings, apart from a copy installed from this website. Use one of them on a computer, not both.</p></div></details>
-<details class="hq" id="language"><summary>Change the language</summary><div class="hq-a"><p>Choose it in Settings, under General. English is the default; Hey Look! does not follow the language of your system.</p></div></details>
+<details class="hq" id="undo"><summary>Undo send and send later</summary><div class="hq-a"><p>After you press Send, a message waits a few seconds so you can undo it; you can change how long in Settings. Send later needs Hey Look! to be running at the time you chose; if it was closed, the message goes out when you next open the app.</p></div></details>
+<details class="hq" id="updates"><summary>Updates</summary><div class="hq-a"><p>A copy from this website looks for updates by itself and installs one only after you agree. You can turn this off in Settings &gt; About. On Windows the .msi asks for administrator rights; on Linux the .deb and .rpm ask for your password.</p><p>Hey Look! is also in the Microsoft Store, and the Store installs its updates.</p><p>The Store version keeps its own mail, accounts and settings. On one computer, use either the Store version or the version from this website, not both.</p></div></details>
+<details class="hq" id="language"><summary>Change the language</summary><div class="hq-a"><p>Choose it in Settings &gt; General. English is the default; Hey Look! does not follow your system&rsquo;s language.</p></div></details>
   </section>
   <section class="hq-group" id="g-privacy" aria-labelledby="g-privacy-h"><h2 id="g-privacy-h">Privacy and where your data lives</h2>
-<details class="hq" id="where"><summary>Where is my data?</summary><div class="hq-a"><p>Mail and settings are in one local folder: <code>%APPDATA%\thnonl.heylook</code> on Windows, <code>~/Library/Application Support/thnonl.heylook</code> on macOS, <code>~/.local/share/thnonl.heylook</code> on Linux. Passwords and tokens are in your system&rsquo;s credential store; OpenPGP secret keys are in the app&rsquo;s database, locked by your passphrase.</p></div></details>
-<details class="hq" id="leaves"><summary>What leaves my computer?</summary><div class="hq-a"><p>Only what you use: your mail servers, Google or Microsoft sign-in and calendar, a CalDAV server if you set one up, the server lookup when you add an account, GitHub for updates, your AI endpoint, pictures you allow or that show automatically and unsubscribe requests. There is no analytics code. The <a href="privacy.html">privacy policy</a> lists every connection.</p></div></details>
-<details class="hq" id="remove"><summary>Uninstall, and remove everything</summary><div class="hq-a"><p>Remove your accounts in Settings (your mail stays on the server), uninstall the app, then delete its data folder and the entries whose names start with <code>heylook</code> in your system&rsquo;s credential store.</p></div></details>
+<details class="hq" id="where"><summary>Where is my data?</summary><div class="hq-a"><p>Mail and settings are in one local folder: <code>%APPDATA%\thnonl.heylook</code> on Windows, <code>~/Library/Application Support/thnonl.heylook</code> on macOS, <code>~/.local/share/thnonl.heylook</code> on Linux. Passwords and sign-in tokens are in your system&rsquo;s password store; OpenPGP secret keys are in the app&rsquo;s database, locked by your passphrase.</p></div></details>
+<details class="hq" id="leaves"><summary>What leaves my computer?</summary><div class="hq-a"><p>Only what you use: your mail servers; Google or Microsoft when you sign in or sync a calendar; a calendar server if you set one up; a lookup of your mail settings when you add an account; GitHub for updates; the AI service you set up; the servers that host pictures that are shown; and unsubscribe pages when you unsubscribe. There is no analytics. The <a href="privacy.html">privacy policy</a> lists every connection.</p></div></details>
+<details class="hq" id="remove"><summary>Uninstall, and remove everything</summary><div class="hq-a"><p>Remove your accounts in Settings (your mail stays on the server), uninstall the app, then delete its data folder and remove the saved Hey Look! passwords from your system&rsquo;s password store.</p></div></details>
   </section>
   <section class="hq-group" id="g-pgp" aria-labelledby="g-pgp-h"><h2 id="g-pgp-h">OpenPGP basics</h2>
-<details class="hq" id="pgp1"><summary>Make a key, encrypt, sign</summary><div class="hq-a"><p>Create a key in Settings, protected by a passphrase, and save the backup it offers. When you write, switch on Encrypt or Sign; Hey Look! shows whether each recipient has a key. Not yet tested with other OpenPGP software.</p></div></details>
+<details class="hq" id="pgp1"><summary>Make a key, encrypt, sign</summary><div class="hq-a"><p>Create a key in Settings, protect it with a passphrase, and save the backup it offers. When you write, turn on Encrypt or Sign; Hey Look! shows which recipients you can encrypt to.</p></div></details>
   </section>
   <section class="hq-group" id="g-report" aria-labelledby="g-report-h"><h2 id="g-report-h">Report a problem</h2>
 <details class="hq" id="bug"><summary>A bug or a feature idea</summary><div class="hq-a"><p>Open an issue on <a href="https://github.com/thnonl/hey-look/issues" rel="noopener">GitHub</a> and say which system and Hey Look! version you use (shown in Settings, under About). Issues are public, so never post private mail, passwords or tokens.</p></div></details>
@@ -135,22 +135,22 @@
 <details class="hq" id="ai-report"><summary>Content from the AI Assistant</summary><div class="hq-a"><p>The AI Assistant sends your request to the AI service you set up in Settings &gt; AI Assistant, and that service writes the answer. Hey Look! does not provide or control the AI model, and text written by AI can be wrong.</p><p>If the AI Assistant shows something harmful, offensive or illegal, tell us: open an issue on GitHub or write to namth.onl@gmail.com. Name the AI service and the model, and never include private mail or your API key. Please report it to your AI service as well.</p></div></details>
   </section>
   <section class="hq-group" id="g-limits" aria-labelledby="g-limits-h"><h2 id="g-limits-h">Known limitations</h2>
-<details class="hq" id="lim"><summary>What Hey Look! does not do yet</summary><div class="hq-a"><p>The installers are not code-signed, and there is no plain-text-only mode when writing. The full list is on the <a href="features.html#limits">Features page</a>.</p></div></details>
+<details class="hq" id="lim"><summary>What Hey Look! does not do yet</summary><div class="hq-a"><p>The installers are not signed with a publisher certificate, folders cannot be renamed or deleted in the app, and there is no plain-text-only mode for writing. The <a href="features.html#limits">Features page</a> lists every limit.</p></div></details>
   </section>
   </div>
   <p class="hq-none" id="hq-none" hidden>No question matches. Try one word, or <a href="https://github.com/thnonl/hey-look/issues" rel="noopener">ask on GitHub</a>.</p>
-  <p class="hq-foot">Not here? Write to <a href="mailto:namth.onl@gmail.com">namth.onl@gmail.com</a>, or see <a href="support.html">Support the project</a> if you would like to help.</p>
+  <p class="hq-foot">Not here? Write to <a href="mailto:namth.onl@gmail.com">namth.onl@gmail.com</a>.</p>
 </div></div>
 </main>
 <footer class="ftr">
   <div class="wrap">
-    <p class="thanks">Thank you for using Hey Look! It stays free and open source, and supporting it is optional. <a href="support.html#support">Support the project</a></p>
+    <p class="thanks">Thank you for using Hey Look! It stays free and open source.</p>
     <div class="ftr-grid">
       <div class="ftr-brand"><a class="brand" href="index.html" aria-label="Hey Look! home"><svg aria-hidden="true" focusable="false"><use href="#hl-mark"/></svg><span>Hey Look!</span></a>
-        <p>A desktop mail client for Windows, macOS and Linux. Free, no ads and open source (MIT).</p></div>
-      <div><h2>Product</h2><ul><li><a href="features.html">Features</a></li><li><a href="download.html">Download</a></li><li><a href="https://github.com/thnonl/hey-look/releases" rel="noopener">Release notes</a></li><li><a href="support.html#support">Support the project</a></li></ul></div>
+        <p>A desktop mail app for Windows, macOS and Linux. Free and open source (MIT), with no ads.</p></div>
+      <div><h2>Product</h2><ul><li><a href="features.html">Features</a></li><li><a href="download.html">Download</a></li><li><a href="https://github.com/thnonl/hey-look/releases" rel="noopener">Release notes</a></li><li><a href="support.html#support">Support</a></li></ul></div>
       <div><h2>Trust</h2><ul><li><a href="privacy.html">Privacy policy</a></li><li><a href="terms.html">Terms of service</a></li><li><a href="google-data.html">Google API data use</a></li><li><a href="security.html">Security</a></li></ul></div>
-      <div><h2>Help</h2><ul><li><a href="help.html">Help and FAQ</a></li><li><a href="support.html">Support the project</a></li><li><a href="https://github.com/thnonl/hey-look/issues" rel="noopener">Report an issue</a></li><li><a href="https://github.com/thnonl/hey-look" rel="noopener">Source on GitHub</a></li></ul></div>
+      <div><h2>Help</h2><ul><li><a href="help.html">Help and FAQ</a></li><li><a href="support.html">Support</a></li><li><a href="https://github.com/thnonl/hey-look/issues" rel="noopener">Report an issue</a></li><li><a href="https://github.com/thnonl/hey-look" rel="noopener">Source on GitHub</a></li></ul></div>
     </div>
     <p class="limited">Hey Look!&rsquo;s use of information received from Google APIs will adhere to the <a href="https://developers.google.com/terms/api-services-user-data-policy" rel="noopener noreferrer">Google API Services User Data Policy</a>, including the Limited Use requirements. <a href="google-data.html">Details</a></p>
     <div class="fine"><span>MIT License. Copyright &copy; 2026 thnonl.</span><span>Not affiliated with Google, Microsoft or Apple. Product names belong to their owners.</span></div>

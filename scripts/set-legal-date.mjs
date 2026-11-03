@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LANGS, DOCS } from './generate-site-languages.mjs';
-import { LEGAL_DATE, sentence, finder } from './lib/legal-date.mjs';
+import { LEGAL_DATE, legalDate, sentence, finder } from './lib/legal-date.mjs';
 
 export const PAGES = ['privacy', 'terms', 'google-data', 'security'];
 const LIB = fileURLToPath(new URL('./lib/legal-date.mjs', import.meta.url));
@@ -26,7 +26,7 @@ for (const l of LANGS) for (const p of PAGES) {
   const rx = finder(l.code);
   const m = rx.exec(src);
   if (!m) { console.error(`FAIL ${path.relative(DOCS, f)}: no "Last updated" sentence at the start of a lead paragraph`); process.exit(1); }
-  const next = src.replace(rx, (_, open) => open + sentence(l.code, iso));
+  const next = src.replace(rx, (_, open) => open + sentence(l.code, args.some((a) => a === iso) ? iso : legalDate(l.code)));
   if (next === src) same++; else { changed++; todo.push([f, next]); }
 }
 if (check) {

@@ -41,17 +41,16 @@ html,body{width:1200px;height:630px;overflow:hidden;font-family:"Segoe UI Variab
 body{position:relative;background:radial-gradient(900px 600px at 85% 10%,#1d7fd6 0%,rgba(29,127,214,0) 60%),linear-gradient(135deg,#0c4a86 0%,#082f57 55%,#06223f 100%)}
 .brand{position:absolute;left:64px;top:56px;display:flex;align-items:center;gap:18px;font-size:44px;font-weight:700;letter-spacing:-.02em}
 .brand img{width:68px;height:68px}
-h1{position:absolute;left:64px;top:196px;width:520px;font-size:78px;line-height:1.04;font-weight:800;letter-spacing:-.035em}
+h1{position:absolute;left:64px;top:190px;width:520px;font-size:70px;line-height:1.06;font-weight:800;letter-spacing:-.035em}
 h1 em{font-style:normal;color:#ffc94d}
-p{position:absolute;left:64px;top:430px;width:480px;font-size:30px;line-height:1.35;color:#d7e8fb}
+p{position:absolute;left:64px;top:392px;width:500px;font-size:30px;line-height:1.35;color:#d7e8fb}
 .os{position:absolute;left:64px;bottom:52px;display:flex;gap:12px;font-size:23px;font-weight:600}
 .os span{padding:7px 18px;border-radius:999px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28)}
 .win{position:absolute;left:590px;top:104px;width:1000px;height:480px;border-radius:18px;overflow:hidden;box-shadow:0 30px 80px rgba(0,10,30,.55),0 0 0 1px rgba(255,255,255,.18);background:url("${poster}") -331px -63px/1344px 756px no-repeat}
 </style>
 <div class="brand"><img src="${mark}" alt="">Hey Look!</div>
-<h1>Mail without the <em>rent.</em></h1>
-<p>Free, open-source desktop email. No account, no ads.</p>
-<div class="os"><span>Windows</span><span>macOS</span><span>Linux</span></div>
+<h1>Free, open source <em>mail app</em></h1>
+<p>Windows, macOS and Linux. No ads.</p>
 <div class="win"></div>`;
 
 const icon = (size, bg) => `<!doctype html><meta charset="utf-8"><style>html,body{margin:0;width:${size}px;height:${size}px;overflow:hidden;background:${bg}}img{display:block;width:${size}px;height:${size}px}</style><img src="${mark}" alt="">`;
