@@ -29,7 +29,9 @@ name: Release
 # (a headless browser each, about 9 minutes in parallel) on every tag run and, in a dry run, only with the input `ui_tests` (default false).
 # A dry run without ui_tests therefore runs plan, static, the Rust tests and the builds; it never publishes, so nothing waits for the UI shards.
 # A tag run cannot skip them: the plan job lists them in the matrix of node-tests, and publish needs every shard to have succeeded.
-# A tag run always builds all three platforms. The checks that need all three (the asset list, latest.json) exist only in the
+# 1.0.12: Windows ARM64 and Linux ARM64 are built natively on the hosted ARM64 runners (platforms windows-arm64, linux-arm64, arm64; all = five legs; the repository
+# variable ARM64_BUILD=false leaves the two ARM64 legs out of `all` and of a tag run, CONTRIBUTING.md > ARM64 builds; SIGNPATH_ARM64=true adds their installers to the SignPath request).
+# A tag run always builds all three systems. The checks that need all three (the asset list, latest.json) exist only in the
 # tag run's publish job, so a subset dry run has nothing to skip; the plan job says what was chosen.
 on:
   push:
@@ -74,7 +76,9 @@ env:
   # The runner images, exactly (W11.8). No job uses a `-latest` label: the image must not change between the last dry run and the tag run (the publish
   # job runs only on a tag, so with `ubuntu-latest` its first run on a new image would have been the release itself). In use: ubuntu-24.04 (plan,
   # create-release, publish, the website deploy of pages.yml), windows-2025-vs2026 (every Windows job; the label of the image that windows-latest was),
-  # macos-26 (arm64, the universal build), ubuntu-22.04 (node tests, Rust tests, Linux build: the glibc floor of the Linux packages). To change one:
+  # macos-26 (arm64, the universal build), ubuntu-22.04 (node tests, Rust tests, Linux build: the glibc floor of the Linux packages), and the native ARM64 runners
+  # windows-11-arm and ubuntu-22.04-arm (1.0.12: the ARM64 builds, their Rust tests, smoke tests and the Store package check; ubuntu-22.04-arm has the same glibc floor, 2.35;
+  # the label windows-11-arm carries no image version, so the image can change between two runs: look at the image version in the log of the last dry run). To change one:
   # change the label, then a dry run platforms=all AND a rehearsal (rehearse_signing=true), both green, then commit. scripts/test-release-workflow.mjs fails on a `-latest` label.
   #
   # SHA-1 fingerprint of the project's self-signed macOS certificate, the same since 1.0.6 (a public fingerprint, not a secret). A tag run fails when the
