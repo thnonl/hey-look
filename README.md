@@ -1,6 +1,6 @@
 # Hey Look!
 
-A desktop mail app for Windows, macOS and Linux. It is free and open source, with no ads and no analytics.
+A light and fast desktop mail client for Windows, macOS and Linux, built in Rust, that stays quick even with very large mailboxes. Free and open source, with no ads and no analytics.
 
 [![Animated preview of the Hey Look! window with sample mail](docs/media/preview.gif)](https://heylook.namthai.site/#film)
 
