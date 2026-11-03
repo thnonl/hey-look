@@ -105,9 +105,12 @@
       <h2><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-windows"/></svg>Windows</h2><p class="sub">Windows 10 và 11, 64-bit.</p>
       <div class="asset" data-asset="win-exe" data-pattern="HeyLook_&lt;version&gt;_windows_x64-setup.exe"><a class="btn btn-primary" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="Tải bộ cài (.exe)"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">Tải bộ cài (.exe)</span></a><span class="fn">HeyLook_&lt;version&gt;_windows_x64-setup.exe</span><small class="sz"></small></div>
       <div class="asset" data-asset="win-msi" data-pattern="HeyLook_&lt;version&gt;_windows_x64.msi"><a class="btn btn-ghost" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="Tải gói MSI"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">Tải gói MSI</span></a><span class="fn">HeyLook_&lt;version&gt;_windows_x64.msi</span><small class="sz"></small></div>
+      <p class="sub">Cho máy ARM64, ví dụ laptop chip Snapdragon:</p>
+      <div class="asset" data-asset="win-exe-arm64" data-pattern="HeyLook_&lt;version&gt;_windows_arm64-setup.exe"><a class="btn btn-ghost" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="Bộ cài ARM64 (.exe)"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">Bộ cài ARM64 (.exe)</span></a><span class="fn">HeyLook_&lt;version&gt;_windows_arm64-setup.exe</span><small class="sz"></small></div>
+      <div class="asset" data-asset="win-msi-arm64" data-pattern="HeyLook_&lt;version&gt;_windows_arm64.msi"><a class="btn btn-ghost" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="Gói MSI ARM64"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">Gói MSI ARM64</span></a><span class="fn">HeyLook_&lt;version&gt;_windows_arm64.msi</span><small class="sz"></small></div>
       <details><summary>Lưu ý cho Windows</summary>
         <p>Lần mở đầu tiên, SmartScreen có thể hiện cảnh báo. Cách xử lý: xem <a href="#install-windows">Cài đặt và các lưu ý</a>.</p>
-        <p>Gói MSI dành cho việc cài đặt do quản trị viên quản lý và không tự cài WebView2. Tệp setup.exe tự cài WebView2 nếu máy chưa có.</p></details>
+        <p>Bạn nên dùng tệp .exe. Gói MSI dành cho công ty cài phần mềm tập trung.</p></details>
       <div class="asset" id="store-block" hidden><strong>Microsoft Store</strong><a class="btn btn-ghost" id="store-link" href="https://apps.microsoft.com/detail/" rel="noopener"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-external"/></svg><span class="t">Tải xuống từ Microsoft</span></a><small>Hey Look! cũng có trên Microsoft Store. Bản Store do Store cài đặt và cập nhật, và lưu dữ liệu riêng. <a href="help.html#updates">Khác biệt giữa hai bản</a></small></div>
     </article>
     <article class="dl-card" id="card-macos"><span class="rec-b">Máy bạn đang dùng</span>
@@ -116,10 +119,14 @@
       <p>Lần mở đầu tiên, macOS chặn app một lần. Cách mở: xem <a href="#install-macos">Cài đặt và các lưu ý</a>.</p>
     </article>
     <article class="dl-card" id="card-linux"><span class="rec-b">Máy bạn đang dùng</span>
-      <h2><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-linux"/></svg>Linux</h2><p class="sub">Cho Linux 64-bit (x86_64): AppImage chạy trực tiếp, không cần cài; ngoài ra có gói .deb và .rpm.</p>
+      <h2><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-linux"/></svg>Linux</h2><p class="sub">AppImage, .deb hoặc .rpm.</p>
       <div class="asset" data-asset="lin-appimage" data-pattern="HeyLook_&lt;version&gt;_linux_amd64.AppImage"><a class="btn btn-primary" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="Tải AppImage"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">Tải AppImage</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_amd64.AppImage</span><small class="sz"></small></div>
       <div class="asset" data-asset="lin-deb" data-pattern="HeyLook_&lt;version&gt;_linux_amd64.deb"><a class="btn btn-ghost" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="Tải .deb (Debian, Ubuntu)"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">Tải .deb (Debian, Ubuntu)</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_amd64.deb</span><small class="sz"></small></div>
       <div class="asset" data-asset="lin-rpm" data-pattern="HeyLook_&lt;version&gt;_linux_x86_64.rpm"><a class="btn btn-ghost" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="Tải .rpm (Fedora, openSUSE)"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">Tải .rpm (Fedora, openSUSE)</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_x86_64.rpm</span><small class="sz"></small></div>
+      <p class="sub">Cho máy ARM64:</p>
+      <div class="asset" data-asset="lin-appimage-arm64" data-pattern="HeyLook_&lt;version&gt;_linux_aarch64.AppImage"><a class="btn btn-ghost" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="AppImage ARM64"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">AppImage ARM64</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_aarch64.AppImage</span><small class="sz"></small></div>
+      <div class="asset" data-asset="lin-deb-arm64" data-pattern="HeyLook_&lt;version&gt;_linux_arm64.deb"><a class="btn btn-ghost" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label=".deb ARM64"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">.deb ARM64</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_arm64.deb</span><small class="sz"></small></div>
+      <div class="asset" data-asset="lin-rpm-arm64" data-pattern="HeyLook_&lt;version&gt;_linux_aarch64.rpm"><a class="btn btn-ghost" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label=".rpm ARM64"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">.rpm ARM64</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_aarch64.rpm</span><small class="sz"></small></div>
       <!-- hl:apt-begin --><details id="apt"><summary>Cài qua APT để cập nhật cùng hệ thống</summary>
         <p>Dành cho Ubuntu 22.04 trở lên và Debian 12 trở lên, máy 64-bit (amd64). Bạn thêm kho Hey Look! một lần. Sau đó Hey Look! được cập nhật cùng các gói khác của hệ thống, và app không tự cập nhật nữa.</p>
         <p>1. Tải khóa ký của kho:</p>
@@ -135,7 +142,7 @@
         <div class="copy"><code>sudo apt remove hey-look &amp;&amp; sudo rm /etc/apt/sources.list.d/heylook.sources /etc/apt/keyrings/heylook-archive-keyring.gpg</code><button class="btn btn-ghost btn-sm" type="button">Sao chép</button></div></details><!-- hl:apt-end -->
       <details><summary>Lưu ý cho Linux</summary>
         <p>Nếu môi trường desktop không có khay hệ thống, đóng cửa sổ là thoát app.</p>
-        <p>Hey Look! mở liên kết và tệp đính kèm bằng lệnh <code>xdg-open</code>. Để lưu mật khẩu, máy cần chạy GNOME Keyring hoặc KWallet và đã mở khóa.</p></details>
+        <p>Để lưu mật khẩu, máy cần chạy GNOME Keyring hoặc KWallet.</p></details>
     </article>
   </div>
   <section id="install-notes" aria-labelledby="install-notes-h">
@@ -144,7 +151,7 @@
     <h3 id="install-windows">Windows</h3>
     <p>Nếu SmartScreen hiện cảnh báo &ldquo;Windows protected your PC&rdquo;, bấm <strong>More info</strong> (Thông tin thêm), rồi bấm <strong>Run anyway</strong> (Vẫn chạy).</p>
     <details id="install-macos" open><summary>Mở app lần đầu trên macOS (chỉ làm một lần)</summary>
-      <p>App được ký bằng chứng chỉ tự tạo (tự ký), nhưng chưa được Apple xác nhận (notarize). Vì vậy macOS chặn lần mở đầu tiên.</p>
+      <p>Apple chưa xác nhận (notarize) app, nên macOS chặn lần mở đầu tiên.</p>
       <ol><li>Mở tệp .dmg, kéo <strong>Hey Look!</strong> vào thư mục <strong>Applications</strong> (Ứng dụng), rồi mở app từ Applications, không mở từ cửa sổ của tệp .dmg.</li>
       <li>macOS báo &ldquo;Hey Look!&rdquo; <strong>Not Opened</strong> (không mở được). Bấm <strong>Done</strong> (Xong), không bấm Move to Trash (Chuyển vào Thùng rác).</li>
       <li>Mở <strong>System Settings &gt; Privacy &amp; Security</strong> (Cài đặt hệ thống &gt; Quyền riêng tư &amp; Bảo mật), cuộn xuống phần <strong>Security</strong> (Bảo mật), bấm <strong>Open Anyway</strong> (Vẫn mở), xác nhận bằng mật khẩu máy hoặc Touch ID, rồi bấm <strong>Open</strong> (Mở).</li></ol>

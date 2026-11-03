@@ -348,7 +348,9 @@
     if (storeBlock && /^[0-9A-Z]{12}$/.test(STORE_PRODUCT_ID)) { $('#store-link').href = STORE_LINK || 'https://apps.microsoft.com/detail/' + STORE_PRODUCT_ID; storeBlock.hidden = false; }
     var PATTERNS = {
       'win-exe': /_windows_x64-setup\.exe$/i, 'win-msi': /_windows_x64\.msi$/i, 'mac-dmg': /_darwin_universal\.dmg$/i,
-      'lin-appimage': /_linux_amd64\.AppImage$/i, 'lin-deb': /_linux_amd64\.deb$/i, 'lin-rpm': /_linux_x86_64\.rpm$/i
+      'lin-appimage': /_linux_amd64\.AppImage$/i, 'lin-deb': /_linux_amd64\.deb$/i, 'lin-rpm': /_linux_x86_64\.rpm$/i,
+      'win-exe-arm64': /_windows_arm64-setup\.exe$/i, 'win-msi-arm64': /_windows_arm64\.msi$/i,
+      'lin-appimage-arm64': /_linux_aarch64\.AppImage$/i, 'lin-deb-arm64': /_linux_arm64\.deb$/i, 'lin-rpm-arm64': /_linux_aarch64\.rpm$/i
     };
     var status = $('#dl-status');
     /* nodes: strings become text, elements are appended as they are (no HTML is parsed) */
