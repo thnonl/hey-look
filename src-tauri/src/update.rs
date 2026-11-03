@@ -1485,7 +1485,7 @@ mod tests {
         let script = include_str!("../../.github/scripts/make-latest-json.cjs");
         let published: Vec<&str> = script
             .lines()
-            .filter_map(|l| l.trim().strip_prefix('"')?.split_once("\": \"").map(|(k, _)| k))
+            .filter_map(|l| l.trim().strip_prefix('"')?.split_once("\": ").map(|(k, _)| k))
             .filter(|k| k.contains('-'))
             .collect();
         assert!(published.contains(&"darwin-aarch64-app") && published.contains(&"windows-x86_64-nsis"), "parsed the script: {published:?}");
@@ -1498,6 +1498,12 @@ mod tests {
             ("linux", "x64", "appimage"),
             ("linux", "x64", "deb"),
             ("linux", "x64", "rpm"),
+            // the native ARM64 builds (1.0.12)
+            ("windows", "arm64", "nsis"),
+            ("windows", "arm64", "msi"),
+            ("linux", "arm64", "appimage"),
+            ("linux", "arm64", "deb"),
+            ("linux", "arm64", "rpm"),
         ] {
             let platform = Platform { os: os.into(), arch: arch.into(), installer: installer.into(), label: String::new() };
             for key in manifest_keys(&platform) {
