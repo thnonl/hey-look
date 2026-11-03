@@ -1,7 +1,7 @@
 # The install check of the Microsoft Store package on a DISPOSABLE runner (WP14 option A, spec WA.4). Never run it on a PC you keep: it trusts a
 # throw-away certificate in the machine's store (Trusted People), installs the package and removes it again.
-#   pwsh .github/scripts/msix-check.ps1 -Dir <folder of the artifact msix-test> [-WackReport <file.xml>] [-WaitSeconds 30]
-# <folder> holds HeyLook_<V>_x64_test.msix (signed with the throw-away certificate, subject = the Publisher), HeyLook-test.cer (its PUBLIC half) and
+#   pwsh .github/scripts/msix-check.ps1 -Dir <folder of the artifact msix-test> [-Arch x64|arm64] [-WackReport <file.xml>] [-WaitSeconds 30]
+# <folder> holds HeyLook_<V>_<Arch>_test.msix (Arch x64 unless said otherwise; the arm64 one is checked on an ARM64 runner) (signed with the throw-away certificate, subject = the Publisher), HeyLook-test.cer (its PUBLIC half) and
 # msix-build.json (identity, `ready` = the app has its packaged mode, WP14 part 2). The script
 #   1. trusts the certificate and runs Add-AppxPackage on the test-signed package;
 #   2. starts the app through its package activation (IApplicationActivationManager, the way the Start menu does) and waits -WaitSeconds;
@@ -15,6 +15,7 @@
 # Writes a table to $env:GITHUB_STEP_SUMMARY. Exit 1 when a required check failed. Nothing is installed besides the package.
 param(
   [Parameter(Mandatory = $true)][string]$Dir,
+  [ValidateSet('x64', 'arm64')][string]$Arch = 'x64',
   [string]$WackReport = '',
   [int]$WaitSeconds = 30,
   [string]$SummaryFile = $env:GITHUB_STEP_SUMMARY
@@ -36,7 +37,7 @@ function Write-Summary([string[]]$Extra) {
   Add-Content -Path $SummaryFile -Value $lines
 }
 
-$msix = Get-ChildItem -Path $Dir -Filter 'HeyLook_*_x64_test.msix' | Select-Object -First 1
+$msix = Get-ChildItem -Path $Dir -Filter "HeyLook_*_${Arch}_test.msix" | Select-Object -First 1
 $cer = Join-Path $Dir 'HeyLook-test.cer'
 $info = Get-Content -Raw -Path (Join-Path $Dir 'msix-build.json') | ConvertFrom-Json
 if (-not $msix -or -not (Test-Path $cer)) { throw "the folder $Dir has no test-signed package or no HeyLook-test.cer" }

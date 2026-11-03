@@ -1335,6 +1335,12 @@ mod tests {
         assert_eq!(manifest_keys(&p("windows", "x64", "nsis")), ["windows-x86_64-nsis", "windows-x86_64"]);
         assert_eq!(manifest_keys(&p("windows", "x64", "msi")), ["windows-x86_64-msi", "windows-x86_64"]);
         assert_eq!(manifest_keys(&p("linux", "x64", "deb")), ["linux-x86_64-deb", "linux-x86_64"]);
+        // native ARM64 builds (1.0.12): Windows on ARM and Linux on ARM ask for the aarch64 keys
+        assert_eq!(manifest_keys(&p("windows", "arm64", "nsis")), ["windows-aarch64-nsis", "windows-aarch64"]);
+        assert_eq!(manifest_keys(&p("windows", "arm64", "msi")), ["windows-aarch64-msi", "windows-aarch64"]);
+        assert_eq!(manifest_keys(&p("linux", "arm64", "appimage")), ["linux-aarch64-appimage", "linux-aarch64"]);
+        assert_eq!(manifest_keys(&p("linux", "arm64", "deb")), ["linux-aarch64-deb", "linux-aarch64"]);
+        assert_eq!(manifest_keys(&p("linux", "arm64", "rpm")), ["linux-aarch64-rpm", "linux-aarch64"]);
         // a copy whose bundle type is unknown looks for the plain key only
         assert_eq!(manifest_keys(&p("macos", "arm64", "unknown")), ["darwin-aarch64"]);
     }

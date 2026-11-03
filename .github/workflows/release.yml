@@ -108,6 +108,8 @@ jobs:
       store_submit: ${{ steps.plan.outputs.store_submit }}
       apt_publish: ${{ steps.plan.outputs.apt_publish }}
       arm: ${{ steps.plan.outputs.arm }}
+      msix_x64: ${{ steps.plan.outputs.msix_x64 }}
+      msix_arm: ${{ steps.plan.outputs.msix_arm }}
       winarm: ${{ steps.plan.outputs.winarm }}
       linarm: ${{ steps.plan.outputs.linarm }}
     steps:
@@ -220,12 +222,16 @@ jobs:
           echo "SignPath for the ARM64 installers (SIGNPATH_ARM64): $signpath_arm"
           echo "Windows signing with SignPath: $signpath"
           # Microsoft Store (WP14). The MSIX package (option A) is made whenever Windows is built, except for a test build (its exe is a debug build).
-          msix=false
-          if [ "$win" = true ] && [ -z "$TEST_VERSION" ]; then msix=true; fi
+          # (1.0.12: the package of each architecture that is built; with both, the Store gets one bundle)
+          msix=false; msix_x64=false; msix_arm=false
+          if [ "$win" = true ] && [ -z "$TEST_VERSION" ]; then msix=true; msix_x64=true; fi
+          if [ "$warm" = true ] && [ -z "$TEST_VERSION" ]; then msix=true; msix_arm=true; fi
+          echo "msix_x64=$msix_x64" >> "$GITHUB_OUTPUT"
+          echo "msix_arm=$msix_arm" >> "$GITHUB_OUTPUT"
           # Option B (the signed offline EXE installer for the Store) is built but OFF (DEC-005): only the repository variable STORE_EXE=true, exactly,
           # turns it on. A dry run then builds it and keeps it as an artifact; a tag run attaches it to the release and serves it from the website.
           store_exe=false
-          if [ "$msix" = true ] && [ "$STORE_EXE" = "true" ]; then store_exe=true; fi
+          if [ "$msix_x64" = true ] && [ "$STORE_EXE" = "true" ]; then store_exe=true; fi
           # The submission to Partner Center (Entra application) is built but OFF (DEC-005): tag runs with STORE_SUBMIT=true, exactly.
           store_submit=false
           if [ "$EVENT" = "push" ] && [ "$STORE_SUBMIT" = "true" ]; then store_submit=true; fi
@@ -1542,8 +1548,8 @@ jobs:
     permissions:
       contents: read
     outputs:
-      ready: ${{ steps.build.outputs.ready }}
-      version: ${{ steps.build.outputs.version }}
+      ready: ${{ steps.build.outputs.ready || steps.build_arm.outputs.ready }}
+      version: ${{ steps.build.outputs.version || steps.build_arm.outputs.version }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -1554,10 +1560,19 @@ jobs:
           node-version: 22
 
       - name: The exe of the build job
+        if: needs.plan.outputs.msix_x64 == 'true'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: windows-exe
           path: exe
+
+      # (1.0.12) the exe of the ARM64 build job: its package is made below, the Store gets both in one bundle
+      - name: The ARM64 exe of the build job
+        if: needs.plan.outputs.msix_arm == 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: windows-exe-arm64
+          path: exe-arm64
 
       # the same tests as the node shard `static` runs (the pure ones) and, here where the Windows SDK and a browser exist, a real pack and unpack
       - name: Tests of the package scripts
@@ -1566,6 +1581,7 @@ jobs:
 
       - name: Build the package
         id: build
+        if: needs.plan.outputs.msix_x64 == 'true'
         shell: bash
         env:
           MSIX_IDENTITY_NAME: ${{ vars.MSIX_IDENTITY_NAME || '40278Noamo.651773BC9C4C7' }}
@@ -1580,8 +1596,27 @@ jobs:
           node scripts/msix-build.mjs --exe exe/hey-look.exe --out msix-out --test-sign --store-logos --github-output --tmp "$RUNNER_TEMP/msix-sign" "${extra[@]}"
           ls -l msix-out
 
+      # the ARM64 package: the same identity and version, ProcessorArchitecture arm64, the exe of the ARM64 build (packing is the same for both architectures,
+      # it runs here on the x64 runner; the install check of this package runs on an ARM64 runner, job msix-check-arm)
+      - name: Build the ARM64 package
+        id: build_arm
+        if: needs.plan.outputs.msix_arm == 'true'
+        shell: bash
+        env:
+          MSIX_IDENTITY_NAME: ${{ vars.MSIX_IDENTITY_NAME || '40278Noamo.651773BC9C4C7' }}
+          MSIX_PUBLISHER: ${{ vars.MSIX_PUBLISHER || 'CN=FE739770-637C-437D-B2B9-DAA2E2EA56F1' }}
+          MSIX_PUBLISHER_DISPLAY_NAME: ${{ vars.MSIX_PUBLISHER_DISPLAY_NAME || 'Noamo' }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          extra=()
+          if [ "$EVENT" = "push" ]; then extra+=(--require-identity --expect-version "${GITHUB_REF_NAME#v}"); fi
+          node scripts/msix-build.mjs --arch arm64 --exe exe-arm64/hey-look.exe --out msix-out-arm64 --test-sign --github-output --tmp "$RUNNER_TEMP/msix-sign-arm64" "${extra[@]}"
+          ls -l msix-out-arm64
+
       # AC-WA.1.1: makeappx unpack of both packages, manifest as the spec says, hey-look.exe byte-identical to the exe of the NSIS build
       - name: Unpack and check both packages
+        if: needs.plan.outputs.msix_x64 == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -1590,42 +1625,71 @@ jobs:
             node scripts/msix-verify.mjs "$f" --from msix-out/msix-build.json --exe exe/hey-look.exe
           done
 
+      - name: Unpack and check both ARM64 packages
+        if: needs.plan.outputs.msix_arm == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in msix-out-arm64/HeyLook_*_arm64.msix msix-out-arm64/HeyLook_*_arm64_test.msix; do
+            echo "== $f"
+            node scripts/msix-verify.mjs "$f" --arch arm64 --from msix-out-arm64/msix-build.json --exe exe-arm64/hey-look.exe
+          done
+
+      # the one file for Partner Center: both architectures in one bundle (unsigned like the packages; the Store signs it)
+      - name: Bundle both packages
+        id: bundle
+        if: needs.plan.outputs.msix_x64 == 'true' && needs.plan.outputs.msix_arm == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/msix-bundle.mjs --x64 msix-out/HeyLook_*_x64.msix --arm64 msix-out-arm64/HeyLook_*_arm64.msix --out "msix-bundle/HeyLook_$(jq -r .version msix-out/msix-build.json).msixbundle"
+          ls -l msix-bundle
+
       # nothing private may leave the job
       - name: No key in the output
         shell: bash
         run: |
-          if find msix-out -type f \( -name '*.pfx' -o -name '*.key' -o -name '*.p12' -o -name '*.pem' \) | grep .; then echo "::error::key material in msix-out"; exit 1; fi
-          if grep -rIl 'PRIVATE KEY' msix-out; then echo "::error::a private key in msix-out"; exit 1; fi
-          if ls "$RUNNER_TEMP"/msix-sign/* > /dev/null 2>&1; then echo "::error::key files are left in the signing folder"; ls -l "$RUNNER_TEMP/msix-sign"; exit 1; fi
+          for d in msix-out msix-out-arm64 msix-bundle; do
+            [ -d "$d" ] || continue
+            if find "$d" -type f \( -name '*.pfx' -o -name '*.key' -o -name '*.p12' -o -name '*.pem' \) | grep .; then echo "::error::key material in $d"; exit 1; fi
+            if grep -rIl 'PRIVATE KEY' "$d"; then echo "::error::a private key in $d"; exit 1; fi
+          done
+          if ls "$RUNNER_TEMP"/msix-sign/* "$RUNNER_TEMP"/msix-sign-arm64/* > /dev/null 2>&1; then echo "::error::key files are left in the signing folder"; ls -l "$RUNNER_TEMP"/msix-sign "$RUNNER_TEMP"/msix-sign-arm64; exit 1; fi
           echo "no key material in the output"
 
       - name: Summary
         if: always()
         shell: bash
         env:
-          READY: ${{ steps.build.outputs.ready }}
+          READY: ${{ steps.build.outputs.ready || steps.build_arm.outputs.ready }}
         run: |
           {
             echo "### MSIX package (Microsoft Store)"
-            if [ -f msix-out/msix-build.json ]; then
-              jq -r '"version `\(.version)` (package version `\(.msixVersion)`), x64", "identity name `\(.identity.name)`, publisher `\(.identity.publisher)`, publisher display name `\(.identity.publisherDisplayName)`" + (if .identity.dev then " (PLACEHOLDER: the repository variables are not set)" else "" end), "hey-look.exe sha256 `\(.exe.sha256)` (the same as in the NSIS build job)", "", "| file | KB |", "|---|---:|", "| \(.msix.file) | \(.msix.bytes / 1024 | floor) |", (if .test then "| \(.test.file) (throw-away certificate) | \(.test.bytes / 1024 | floor) |" else empty end)' msix-out/msix-build.json
-              if [ "$READY" != "true" ]; then echo; echo "NOT FOR SUBMISSION: the app has no packaged mode yet (src-tauri/msix/readiness.json, WP14 part 2). The tag-run artifact is named msix-store-NOT-READY."; fi
-            else
-              echo "the package was not made"
+            for j in msix-out/msix-build.json msix-out-arm64/msix-build.json; do
+            if [ -f "$j" ]; then
+              jq -r '"version `\(.version)` (package version `\(.msixVersion)`), \(.arch // "x64")", "identity name `\(.identity.name)`, publisher `\(.identity.publisher)`, publisher display name `\(.identity.publisherDisplayName)`" + (if .identity.dev then " (PLACEHOLDER: the repository variables are not set)" else "" end), "hey-look.exe sha256 `\(.exe.sha256)` (the same as in the NSIS build job)", "", "| file | KB |", "|---|---:|", "| \(.msix.file) | \(.msix.bytes / 1024 | floor) |", (if .test then "| \(.test.file) (throw-away certificate) | \(.test.bytes / 1024 | floor) |" else empty end)' "$j"
             fi
+            done
+            if ! ls msix-out/msix-build.json msix-out-arm64/msix-build.json > /dev/null 2>&1; then echo "the package was not made"; fi
+            if [ "$READY" != "true" ] && [ -n "$READY" ]; then echo; echo "NOT FOR SUBMISSION: the app has no packaged mode yet (src-tauri/msix/readiness.json, WP14 part 2). The tag-run artifact is named msix-store-NOT-READY."; fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       # what the owner uploads to Partner Center (tag runs only, never the GitHub release)
+      # (1.0.12) the bundle HeyLook_<V>.msixbundle (both architectures) is what the owner uploads; the two packages are in the artifact as well
       - name: Keep the package for Partner Center
         if: github.event_name == 'push'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: ${{ steps.build.outputs.ready == 'true' && 'msix-store' || 'msix-store-NOT-READY' }}
-          path: msix-out/HeyLook_*_x64.msix
+          name: ${{ (steps.build.outputs.ready || steps.build_arm.outputs.ready) == 'true' && 'msix-store' || 'msix-store-NOT-READY' }}
+          path: |
+            msix-bundle/HeyLook_*.msixbundle
+            msix-out/HeyLook_*_x64.msix
+            msix-out-arm64/HeyLook_*_arm64.msix
           retention-days: 14
           if-no-files-found: error
 
       - name: Keep the Store listing images
+        if: needs.plan.outputs.msix_x64 == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: msix-store-logos
@@ -1635,6 +1699,7 @@ jobs:
 
       # the test-signed copy and its PUBLIC certificate (msix-check, Windows Sandbox)
       - name: Keep the test-signed copy
+        if: needs.plan.outputs.msix_x64 == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: msix-test
@@ -1645,12 +1710,49 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+      - name: Keep the test-signed ARM64 copy
+        if: needs.plan.outputs.msix_arm == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: msix-test-arm64
+          path: |
+            msix-out-arm64/HeyLook_*_arm64_test.msix
+            msix-out-arm64/HeyLook-test.cer
+            msix-out-arm64/msix-build.json
+          retention-days: 1
+          if-no-files-found: error
+
+  msix-check-arm:
+    # (1.0.12) the same install check as msix-check, for the ARM64 package, on a real ARM64 Windows machine (the hosted runner windows-11-arm): the package is
+    # installed, started through its package activation, looked at and removed. A throw-away certificate in a throw-away VM, no Environment, no secret.
+    needs: [plan, msix]
+    if: ${{ !cancelled() && needs.plan.outputs.msix_arm == 'true' && needs.msix.result == 'success' }}
+    name: MSIX install check (ARM64)
+    runs-on: windows-11-arm
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: The test-signed ARM64 package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: msix-test-arm64
+          path: msix-test
+
+      - name: Install, start, check and remove
+        shell: powershell
+        run: .\.github\scripts\msix-check.ps1 -Dir msix-test -Arch arm64
+
   msix-check:
     # WP14 option A (spec WA.4): installs the test-signed package on this disposable runner (the throw-away certificate goes into the machine store of the
     # VM, which is thrown away), starts it, checks it, removes it (.github/scripts/msix-check.ps1), and runs the Windows App Certification Kit when the
     # runner has one. No Environment, no secret. Windows PowerShell 5.1 (`shell: powershell`): the Appx cmdlets live there.
-    needs: [msix]
-    if: ${{ !cancelled() && needs.msix.result == 'success' }}
+    needs: [plan, msix]
+    if: ${{ !cancelled() && needs.plan.outputs.msix_x64 == 'true' && needs.msix.result == 'success' }}
     name: MSIX install check
     runs-on: windows-2025-vs2026
     timeout-minutes: 45
@@ -1686,8 +1788,8 @@ jobs:
     # SELLER_ID; variable STORE_PRODUCT_ID) is only asked for when the job runs, so without STORE_SUBMIT nothing waits and no secret is read.
     # Partner Center takes an update only after the first submission was made by hand (Microsoft: "You can't use the CLI to complete the first publication").
     # The commands are written from Microsoft's documentation of the Store Developer CLI and have never run (PACKAGING.md > Microsoft Store).
-    needs: [plan, publish, msix, msix-check]
-    if: ${{ !cancelled() && needs.plan.outputs.store_submit == 'true' && needs.publish.result == 'success' && needs.msix.result == 'success' && needs.msix-check.result == 'success' && needs.msix.outputs.ready == 'true' }}
+    needs: [plan, publish, msix, msix-check, msix-check-arm]
+    if: ${{ !cancelled() && needs.plan.outputs.store_submit == 'true' && needs.publish.result == 'success' && needs.msix.result == 'success' && needs.msix-check.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.msix-check-arm.result) && needs.msix.outputs.ready == 'true' }}
     name: Store submission (MSIX)
     runs-on: windows-2025-vs2026
     timeout-minutes: 60
@@ -1725,8 +1827,10 @@ jobs:
           PRODUCT_ID: ${{ vars.STORE_PRODUCT_ID }}
         run: |
           if (-not $env:PRODUCT_ID) { throw "the repository variable STORE_PRODUCT_ID is not set" }
-          $pkg = Get-ChildItem msix-store -Filter 'HeyLook_*_x64.msix' | Select-Object -First 1
-          if (-not $pkg) { throw "no HeyLook_*_x64.msix in the artifact msix-store" }
+          # (1.0.12) the bundle with both architectures; the x64 package alone only when the ARM64 builds were left out (ARM64_BUILD=false)
+          $pkg = Get-ChildItem msix-store -Recurse -Filter 'HeyLook_*.msixbundle' | Select-Object -First 1
+          if (-not $pkg) { $pkg = Get-ChildItem msix-store -Recurse -Filter 'HeyLook_*_x64.msix' | Select-Object -First 1 }
+          if (-not $pkg) { throw "no HeyLook_*.msixbundle or HeyLook_*_x64.msix in the artifact msix-store" }
           msstore publish msix-store --inputFile $pkg.FullName --appId $env:PRODUCT_ID
           if ($LASTEXITCODE -ne 0) { throw "msstore publish failed" }
 

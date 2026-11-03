@@ -14,6 +14,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { versionOfName } from "./msix-bundle.mjs";
 import { DEV_IDENTITY, LANGUAGES, ROOT, STORE_DISPLAY_NAME, TEMPLATE, checkManifest, fillManifest, findOpenssl, findSdkTool, msixVersion, packageImages, pngInfo, publisherToSubject, readReadiness, resolveIdentity, storeLogos } from "./lib/msix.mjs";
 
 let n = 0;
@@ -85,6 +86,21 @@ check("template: filled with the Partner Center identity it is what AC-WA.1.1 sa
 check("template: the placeholder identity is a valid manifest too", () => {
   assert.deepEqual(checkManifest(fillManifest(template, DEV_IDENTITY, "1.0.7.0"), { name: "HeyLook.Dev", publisher: "CN=HeyLook-Dev", publisherDisplayName: "HeyLook Dev", version: "1.0.7.0" }), []);
 });
+check("template: the arm64 package (1.0.12): same identity and version, ProcessorArchitecture arm64, and only the architecture differs", () => {
+  const arm = fillManifest(template, { ...STORE, dev: false }, "1.0.7.0", "arm64");
+  assert.deepEqual(checkManifest(arm, { ...expectGood, arch: "arm64" }), []);
+  assert.ok(arm.includes('ProcessorArchitecture="arm64"'));
+  assert.equal(arm.replace('ProcessorArchitecture="arm64"', 'ProcessorArchitecture="x64"'), good, "the two manifests differ in the architecture only");
+  assert.ok(checkManifest(arm, expectGood).some((p) => /ProcessorArchitecture/.test(p)), "an arm64 manifest is refused where x64 is expected");
+  assert.ok(checkManifest(good, { ...expectGood, arch: "arm64" }).some((p) => /ProcessorArchitecture/.test(p)), "an x64 manifest is refused where arm64 is expected");
+  assert.throws(() => fillManifest(template, { ...STORE, dev: false }, "1.0.7.0", "x86"), /unknown architecture/);
+});
+check("bundle: the two packages must carry one version and the names of their architecture", () => {
+  assert.equal(versionOfName("C:/x/HeyLook_1.0.12_x64.msix", "x64"), "1.0.12");
+  assert.equal(versionOfName("HeyLook_1.0.12_arm64.msix", "arm64"), "1.0.12");
+  assert.equal(versionOfName("HeyLook_1.0.12_arm64.msix", "x64"), null);
+  assert.equal(versionOfName("HeyLook_1.0.12_x64_test.msix", "x64"), null, "the test-signed copy is never bundled");
+});
 check("template: the Store name (DEC-006), the product facts", () => {
   assert.equal(STORE_DISPLAY_NAME, "Hey Look! Mail Client");
   assert.equal((good.match(/Hey Look! Mail Client/g) ?? []).length >= 2, true);
@@ -100,7 +116,7 @@ check("template: the Store name (DEC-006), the product facts", () => {
 });
 check("template: placeholders", () => {
   assert.throws(() => fillManifest("<A>{{NOPE}}</A>", DEV_IDENTITY, "1.0.7.0"), /unknown placeholder/);
-  assert.deepEqual([...new Set([...template.matchAll(/\{\{([A-Z_]+)\}\}/g)].map((m) => m[1]))].sort(), ["NAME", "PUBLISHER", "PUBLISHER_DISPLAY_NAME", "VERSION"]);
+  assert.deepEqual([...new Set([...template.matchAll(/\{\{([A-Z_]+)\}\}/g)].map((m) => m[1]))].sort(), ["ARCH", "NAME", "PUBLISHER", "PUBLISHER_DISPLAY_NAME", "VERSION"]);
   const esc = fillManifest(template, { name: "a.b.c", publisher: "CN=x & y", publisherDisplayName: "A & B", dev: false }, "1.0.7.0");
   assert.ok(esc.includes('Publisher="CN=x &amp; y"') && esc.includes("<PublisherDisplayName>A &amp; B</PublisherDisplayName>"));
   assert.deepEqual(checkManifest(esc, { name: "a.b.c", publisher: "CN=x & y", publisherDisplayName: "A & B", version: "1.0.7.0" }), [], "the check reads the escaped text back");
@@ -213,9 +229,11 @@ check("workflow: the msix job", () => {
   assert.ok(b.includes("--test-sign") && b.includes("--store-logos") && b.includes("--github-output"));
   // the exe of the NSIS build, byte for byte, and the check of the package against it
   assert.ok(b.includes("name: windows-exe") && b.includes("--from msix-out/msix-build.json --exe exe/hey-look.exe"));
+  // 1.0.12: the ARM64 package from the exe of the ARM64 build, checked against it, and one bundle with both
+  assert.ok(b.includes("name: windows-exe-arm64") && b.includes("--arch arm64 --from msix-out-arm64/msix-build.json --exe exe-arm64/hey-look.exe") && b.includes("node scripts/msix-bundle.mjs --x64 msix-out/HeyLook_*_x64.msix --arm64 msix-out-arm64/HeyLook_*_arm64.msix"));
   // artifacts: msix-store on tag runs only, 14 days, never the GitHub release; msix-test 1 day with the public certificate only
   const store = /- name: Keep the package for Partner Center\n        if: github\.event_name == 'push'\n[\s\S]*?(?=\n      - name:|\n*$)/.exec(b)?.[0] ?? "";
-  assert.ok(store.includes("msix-store") && store.includes("msix-store-NOT-READY") && store.includes("retention-days: 14") && store.includes("path: msix-out/HeyLook_*_x64.msix"), "msix-store step");
+  assert.ok(store.includes("msix-store") && store.includes("msix-store-NOT-READY") && store.includes("retention-days: 14") && store.includes("msix-out/HeyLook_*_x64.msix") && store.includes("msix-out-arm64/HeyLook_*_arm64.msix") && store.includes("msix-bundle/HeyLook_*.msixbundle"), "msix-store step");
   const test = /- name: Keep the test-signed copy\n[\s\S]*$/.exec(b)?.[0] ?? "";
   assert.ok(test.includes("name: msix-test") && test.includes("retention-days: 1") && test.includes("HeyLook-test.cer") && !/\.pfx|\.key|\.pem/.test(test), "msix-test step");
   assert.ok(!/gh release|releases\//.test(b), "the package is never attached to the GitHub release");
@@ -230,9 +248,16 @@ check("workflow: publish does not wait for the Store package", () => {
 check("workflow: msix-check", () => {
   const b = block("msix-check");
   assert.match(b, /^    runs-on: windows-2025-vs2026$/m);
-  assert.match(b, /^    needs: \[msix\]$/m);
+  assert.match(b, /^    needs: \[plan, msix\]$/m);
   assert.ok(!/^    environment:/m.test(b) && !/secrets\./.test(b));
   assert.ok(b.includes("shell: powershell") && b.includes("msix-check.ps1") && b.includes("name: msix-test"));
+});
+check("workflow: msix-check-arm runs the install check of the arm64 package on an ARM64 machine", () => {
+  const b = block("msix-check-arm");
+  assert.match(b, /^    runs-on: windows-11-arm$/m);
+  assert.match(b, /^    needs: \[plan, msix\]$/m);
+  assert.ok(!/^    environment:/m.test(b) && !/secrets\./.test(b));
+  assert.ok(b.includes("shell: powershell") && b.includes("msix-check.ps1 -Dir msix-test -Arch arm64") && b.includes("name: msix-test-arm64"));
 });
 check("workflow: every action is pinned to a commit", () => {
   const all = [...yml.matchAll(/^\s+(?:- )?uses: ([^\s]+)/gm)].map((m) => m[1]);

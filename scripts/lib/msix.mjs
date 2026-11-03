@@ -53,9 +53,13 @@ export function resolveIdentity({ name = "", publisher = "", publisherDisplayNam
 
 const xmlEscape = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-/** The manifest from the template text, an identity and a version X.Y.Z.0. */
-export function fillManifest(template, identity, version4) {
-  const values = { NAME: identity.name, PUBLISHER: identity.publisher, PUBLISHER_DISPLAY_NAME: identity.publisherDisplayName, VERSION: version4 };
+/** The package architectures (1.0.12: x64 and arm64; the Store gets both in one bundle). */
+export const ARCHES = ["x64", "arm64"];
+
+/** The manifest from the template text, an identity, a version X.Y.Z.0 and the architecture (x64 unless said otherwise). */
+export function fillManifest(template, identity, version4, arch = "x64") {
+  if (!ARCHES.includes(arch)) throw new Error(`unknown architecture '${arch}' (x64 or arm64)`);
+  const values = { NAME: identity.name, PUBLISHER: identity.publisher, PUBLISHER_DISPLAY_NAME: identity.publisherDisplayName, VERSION: version4, ARCH: arch };
   const out = template.replace(/\{\{([A-Z_]+)\}\}/g, (_, k) => {
     if (!(k in values)) throw new Error(`the template has an unknown placeholder {{${k}}}`);
     return xmlEscape(values[k]);
@@ -81,7 +85,8 @@ export function checkManifest(xml, expect = {}) {
   if (expect.publisher !== undefined && get("Publisher") !== expect.publisher) bad.push(`Identity Publisher is '${get("Publisher")}', expected '${expect.publisher}'`);
   if (expect.version !== undefined && get("Version") !== expect.version) bad.push(`Identity Version is '${get("Version")}', expected '${expect.version}'`);
   if (!/^\d+\.\d+\.\d+\.0$/.test(get("Version") ?? "")) bad.push(`Identity Version '${get("Version")}' is not X.Y.Z.0`);
-  if (get("ProcessorArchitecture") !== "x64") bad.push(`ProcessorArchitecture is '${get("ProcessorArchitecture")}', expected x64`);
+  const wantArch = expect.arch ?? "x64";
+  if (get("ProcessorArchitecture") !== wantArch) bad.push(`ProcessorArchitecture is '${get("ProcessorArchitecture")}', expected ${wantArch}`);
   const props = /<Properties>[\s\S]*?<\/Properties>/.exec(xml)?.[0] ?? "";
   const pdn = decode(/<PublisherDisplayName>([^<]*)<\/PublisherDisplayName>/.exec(props)?.[1]);
   if (expect.publisherDisplayName !== undefined && pdn !== expect.publisherDisplayName) bad.push(`PublisherDisplayName is '${pdn}', expected '${expect.publisherDisplayName}'`);

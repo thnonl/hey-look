@@ -53,8 +53,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     const from = val("--from") ? JSON.parse(fs.readFileSync(val("--from"), "utf8")) : null;
     const exeFile = val("--exe");
     const expect = from
-      ? { name: from.identity.name, publisher: from.identity.publisher, publisherDisplayName: from.identity.publisherDisplayName, version: from.msixVersion, exeSha256: exeFile ? sha256File(exeFile) : from.exe.sha256 }
-      : { name: val("--name"), publisher: val("--publisher"), publisherDisplayName: val("--publisher-display-name"), version: val("--version"), exeSha256: val("--exe-sha256") };
+      ? { name: from.identity.name, publisher: from.identity.publisher, publisherDisplayName: from.identity.publisherDisplayName, version: from.msixVersion, arch: from.arch ?? "x64", exeSha256: exeFile ? sha256File(exeFile) : from.exe.sha256 }
+      : { name: val("--name"), publisher: val("--publisher"), publisherDisplayName: val("--publisher-display-name"), version: val("--version"), arch: val("--arch") ?? "x64", exeSha256: val("--exe-sha256") };
     const r = verify(path.resolve(msix), expect, { unpack: val("--unpack") ? path.resolve(val("--unpack")) : undefined });
     if (r.exeSha) console.log(`${EXE_NAME} sha256 ${r.exeSha}`);
     if (r.bad.length) {
