@@ -590,8 +590,9 @@ async fn google_sign_in(
     client_id: String,
     client_secret: String,
     display_name: String,
+    with_calendar: Option<bool>,
 ) -> R<Account> {
-    oauth_sign_in(app, state, Provider::Google, client_id, client_secret, None, display_name, None).await
+    oauth_sign_in(app, state, Provider::Google, client_id, client_secret, None, display_name, None, with_calendar.unwrap_or(false)).await
 }
 
 #[tauri::command]
@@ -603,7 +604,7 @@ async fn microsoft_sign_in(
     tenant: Option<String>,
     display_name: String,
 ) -> R<Account> {
-    oauth_sign_in(app, state, Provider::Microsoft, client_id, client_secret, tenant, display_name, None).await
+    oauth_sign_in(app, state, Provider::Microsoft, client_id, client_secret, tenant, display_name, None, false).await
 }
 
 /// The mail sign-in that waits for the browser (Add account, Sign in again): what the Cancel button ends.
@@ -626,10 +627,14 @@ async fn reauth_account(app: tauri::AppHandle, state: tauri::State<'_, AppState>
     };
     let (client_id, client_secret) = oauth_creds(&state.db, provider);
     let tenant = oauth_tenant(&state.db, provider);
-    oauth_sign_in(app, state, provider, client_id, client_secret, Some(tenant), String::new(), Some(acc.email)).await
+    oauth_sign_in(app, state, provider, client_id, client_secret, Some(tenant), String::new(), Some(acc.email), false).await
 }
 
 /// `expect`: the address the sign-in must be for (Sign in again); another account is refused before anything is stored.
+/// `with_calendar`: the first sign-in of a Google mailbox asks for mail and calendar on one consent page (`oauth::consent_purpose`); the calendar
+/// is kept when it was allowed. Not allowed (the page lets the person untick it) or not saved: the mailbox is added without calendar sync, and
+/// the calendar's own consent stays available.
+#[allow(clippy::too_many_arguments)]
 async fn oauth_sign_in(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
@@ -639,6 +644,7 @@ async fn oauth_sign_in(
     tenant: Option<String>,
     display_name: String,
     expect: Option<String>,
+    with_calendar: bool,
 ) -> R<Account> {
     let label = provider.label();
     let tenant = if provider == Provider::Microsoft { oauth::clean_tenant(&tenant.unwrap_or_default())? } else { String::new() };
@@ -656,7 +662,9 @@ async fn oauth_sign_in(
             label.to_uppercase()
         ));
     }
-    let pending = oauth::begin_for(provider, oauth::Purpose::Mail, &tenant, client_id.trim(), expect.as_deref())?;
+    // (a Sign in again never asks for the calendar: it renews the mail grant only)
+    let asked = oauth::consent_purpose(provider, with_calendar && expect.is_none() && calsync::Kind::Google.enabled());
+    let pending = oauth::begin_for(provider, asked, &tenant, client_id.trim(), expect.as_deref())?;
     let wait = pending.canceller();
     MAIL_WAIT.begin(wait.clone());
     if let Err(e) = open_target(&app, &pending.url, true) {
@@ -668,6 +676,7 @@ async fn oauth_sign_in(
     MAIL_WAIT.end(&wait);
     // (a cancel or a timeout ends here: nothing was stored, no account was added or changed)
     let signed = signed?;
+    let calendar_granted = oauth::judge_first_grant(provider, asked, &signed.scope)?;
     if let Some(want) = &expect {
         if !signed.email.eq_ignore_ascii_case(want) {
             return Err(i18n::coded(
@@ -746,6 +755,17 @@ async fn oauth_sign_in(
         acc.color = Some(db::pick_account_color(db::list_accounts(&c)?.iter().map(|a| a.color.as_deref())));
     }
     db::insert_account(&c, &acc)?;
+    drop(c);
+    // the calendar grant came with the mail one: the same token under the calendar's name, the source and the first calendar sync. A failure here
+    // leaves the mailbox as it is (mail only); the Settings switch and the sidebar offer still start the calendar's own consent.
+    if calendar_granted {
+        let has_source = calsync::store::source_of_account(&lock(&state.db), &acc.id).is_some();
+        if !has_source {
+            if let Err(e) = calsync::cmds::save_grant(&app, &state.db, &acc, calsync::Kind::Google, &signed) {
+                startup::line("calsync", &format!("{}: the calendar grant of the first sign-in was not kept: {e}", acc.id));
+            }
+        }
+    }
     Ok(acc)
 }
 

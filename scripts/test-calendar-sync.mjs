@@ -146,7 +146,13 @@ const step = oauth.slice(oauth.indexOf("const calendarStep = async"), oauth.inde
 assert.ok(step.includes("api.calendarConnect(acc.id)") && !step.includes("confirm("), "step 2 calls the backend without a question");
 const signedIn = oauth.indexOf("await api.googleSignIn(");
 assert.ok(signedIn > 0 && oauth.indexOf("void calendarStep(acc)") > signedIn, "the calendar step comes after the mail sign-in");
-assert.match(oauth, /alsoCal && showCal && !\(await api\.calendarSources\(\)[^;]*\.some\(\(x\) => x\.accountId === acc\.id\);/, "ticked box, a build that can connect the service, and no source yet");
+// (1.0.13: Google asks for mail and calendar on one consent page, so only Microsoft has this second step; the ticked box of Google goes into the sign-in itself)
+assert.match(oauth, /const oneConsent = kind === "google" && alsoCal && showCal;/, "Google: the ticked box makes the one consent page");
+assert.ok(oauth.includes("api.googleSignIn(cid, sec, name, oneConsent)"), "the Google sign-in carries the box");
+assert.match(oauth, /const synced = \(await api\.calendarSources\(\)[^;]*\.some\(\(x\) => x\.accountId === acc\.id\);/, "the sources are read after the sign-in");
+assert.match(oauth, /const withCal = !oneConsent && alsoCal && showCal && !synced;/, "second step: ticked box, a build that can connect the service, no source yet, and not when the one consent page asked for it");
+assert.ok(oauth.includes("accountAdded(acc, false, true)"), "one consent page that allowed the calendar: added with the calendar toast");
+assert.ok(oauth.includes('kind !== "google" &&') && oauth.includes("alsoCalendarHint"), "no hint about a second page for Google");
 assert.ok(oauth.includes("useState(true)"), "the box is ticked every time the card opens");
 const reauth = fs.readFileSync(path.join(root, "src/components/SignInHelp.tsx"), "utf8");
 assert.ok(!reauth.includes("calendarConnect") && !reauth.includes("calendarStep"), "Sign in again never starts a calendar step");

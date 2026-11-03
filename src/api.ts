@@ -693,8 +693,9 @@ export const api = {
   cancelTestConnection: () => invoke<void>("cancel_test_connection"),
   discoverServer: (email: string) => invoke<Discovered | null>("discover_server", { email }),
   googleEnvConfigured: () => invoke<boolean>("google_env_configured"),
-  googleSignIn: (clientId: string, clientSecret: string, displayName: string) =>
-    invoke<Account>("google_sign_in", { clientId, clientSecret, displayName }),
+  /** `withCalendar`: ask for mail and calendar on the one consent page (a new mailbox); a calendar the person unticks there is not an error, the mailbox is added without it. */
+  googleSignIn: (clientId: string, clientSecret: string, displayName: string, withCalendar = false) =>
+    invoke<Account>("google_sign_in", { clientId, clientSecret, displayName, withCalendar }),
   microsoftEnvConfigured: () => invoke<boolean>("microsoft_env_configured"),
   microsoftTenant: () => invoke<string>("microsoft_tenant"),
   microsoftSignIn: (clientId: string, clientSecret: string, tenant: string, displayName: string) =>

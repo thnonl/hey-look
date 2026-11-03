@@ -154,18 +154,25 @@ pub async fn calendar_connect(app: tauri::AppHandle, state: tauri::State<'_, App
         }
     };
     check_grant(provider, &acc.email, &signed.email, &signed.scope)?;
+    save_grant(&app, &db, &acc, kind, &signed)
+}
+
+/// Keep a calendar grant of a mailbox and start syncing it: the refresh token goes to `<account id>:calendar`, the access token to the cache,
+/// the source is created and the first sync requested. The caller has checked the grant (the address, the scopes). Used by the calendar
+/// consent and by the Google sign-in that asked for mail and calendar at once (the one token then sits under both names).
+pub fn save_grant(app: &tauri::AppHandle, db: &Db, acc: &db::Account, kind: Kind, signed: &oauth::Signed) -> R<SourceInfo> {
     let key = oauth::calendar_key(&acc.id);
     crate::identity::entry(&key)
         .and_then(|e| e.set_password(&signed.refresh_token))
         .map_err(|e| format!("CAL_ERROR: Couldn’t save the calendar sign-in: {e}"))?;
     oauth::cache_token(&key, &signed.access_token, signed.expires_in.saturating_sub(300).max(60));
     let info = {
-        let c = lock(&db);
+        let c = lock(db);
         let src = store::create_source(&c, &acc.id, kind, chrono::Utc::now().timestamp())?;
         store::sources_info(&c)?.into_iter().find(|s| s.id == src.id).ok_or("calendar source missing")?
     };
     super::request_sync(&acc.id);
-    changed(&app);
+    changed(app);
     Ok(info)
 }
 
