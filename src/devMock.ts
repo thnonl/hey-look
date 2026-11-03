@@ -1535,6 +1535,19 @@ export function installMock() {
       }
       case "google_sign_in": case "microsoft_sign_in": {
         const g = cmd === "google_sign_in";
+        // `window.__mockSignIns` lists the sign-ins (provider, withCalendar); a Google one with `withCalendar` is the one consent page for mail and calendar, and
+        // `__mockCalSync.firstConsent` says what the person allowed on it: "all" (the default), "mail" (the calendar unticked: the mailbox is added without calendar sync)
+        // or "nomail" (the mail permission unticked: the sign-in ends as a refusal and no mailbox is added)
+        (((window as unknown as { __mockSignIns?: unknown[] }).__mockSignIns) ??= []).push({ provider: g ? "google" : "microsoft", withCalendar: a.withCalendar === true });
+        const first = String(((window as unknown as { __mockCalSync?: { firstConsent?: string } }).__mockCalSync?.firstConsent) ?? "all");
+        if (g && a.withCalendar === true && first === "nomail") return later(900, () => { throw new Error("OAUTH_REFUSED|label=Google|reason=access_denied - the mail permission was not allowed: Google sign-in refused: access_denied - the mail permission was not allowed"); });
+        if (g && a.withCalendar === true && first !== "mail" && !signinMode()) {
+          return later(1200, () => {
+            const acc = mockNewAccount(`new.user${newSeq + 1}@gmail.com`, String(a.displayName || "New User"), "oauth_google", "imap.gmail.com", "smtp.gmail.com");
+            mockCalState("ok", acc.id);
+            return acc;
+          });
+        }
         if (a.clientId === "fail") return later(900, () => { throw new Error("OAUTH: sign-in was cancelled in the browser"); });
         if (signinMode()) return mockBrowserSignIn(g ? "Google" : "Microsoft", () =>
           mockNewAccount(g ? `new.user${newSeq + 1}@gmail.com` : `new.user${newSeq + 1}@outlook.com`, String(a.displayName || "New User"), g ? "oauth_google" : "oauth_microsoft", g ? "imap.gmail.com" : "outlook.office365.com", g ? "smtp.gmail.com" : "smtp.office365.com"));

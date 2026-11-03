@@ -434,7 +434,7 @@ interface State {
   sync: () => Promise<void>;
   /** A new account was added: close the dialogs, show its Inbox, start its first sync with a visible loading state. */
   /** A mailbox was added: it joins the folder pane, closes the dialog, opens its Inbox and starts its first sync. `deferEnd`: only the first and the last, see accountAddedDone. */
-  accountAdded: (acc: Account, deferEnd?: boolean) => Promise<void>;
+  accountAdded: (acc: Account, deferEnd?: boolean, withCalendar?: boolean) => Promise<void>;
   /** The end of a deferred accountAdded (the calendar step of Add account is over): closes the dialog, toasts, opens the Inbox of the new mailbox. */
   accountAddedDone: (acc: Account, withCalendar: boolean) => Promise<void>;
   /** Older mail of the open folder: up to MORE_CHUNKS x 50 per account, one request at a time. `manual` = the button (retry, ignores a previous error). */
@@ -1159,7 +1159,7 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  accountAdded: async (acc, deferEnd = false) => {
+  accountAdded: async (acc, deferEnd = false, withCalendar = false) => {
     // the backend list is the truth (it also assigns the colour); fall back to what we were given
     let accounts = await api.listAccounts().catch(() => get().accounts);
     if (!accounts.some((a) => a.id === acc.id)) accounts = [...accounts.filter((a) => a.email !== acc.email), acc];
@@ -1169,7 +1169,7 @@ export const useStore = create<State>((set, get) => ({
     // and accountAddedDone closes it and opens the Inbox when that step ends)
     set(deferEnd ? { accounts, firstSync: acc.id } : { accounts, dialog: null, firstSync: acc.id, filter: "all" });
     if (!deferEnd) {
-      get().showToast(t("errors.toast.accountAdded", { email: acc.email }), undefined, "success");
+      get().showToast(t(withCalendar ? "errors.toast.accountAddedCal" : "errors.toast.accountAdded", { email: acc.email }), undefined, "success");
       await get().setView("inbox", acc.id);
     }
     try {

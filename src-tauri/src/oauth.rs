@@ -15,10 +15,43 @@ use std::time::{Duration, Instant};
 
 /// What a sign-in is for. Mail and calendar are two separate grants with their own refresh tokens: a desktop app cannot add scopes
 /// to an existing grant (Google: no incremental authorisation for installed apps; Microsoft: a token request names one resource).
+/// The one exception is the first Google sign-in of a new mailbox (`MailAndCalendar`), which asks for both at once.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Purpose {
     Mail,
     Calendar,
+    /// Google only, the first sign-in of a NEW mailbox that is to sync its calendar: one consent screen for mail and calendar together
+    /// (one browser window, one refresh token). The token is kept under both names (`calendar_key`), so the two grants stay as
+    /// independent in the store as before. Microsoft cannot do this (a token request names one resource), so it never gets this purpose.
+    MailAndCalendar,
+}
+
+/// The purpose of the first sign-in of a mailbox: mail and calendar together only for Google, and only when the calendar is wanted.
+pub fn consent_purpose(provider: Provider, with_calendar: bool) -> Purpose {
+    if provider == Provider::Google && with_calendar {
+        Purpose::MailAndCalendar
+    } else {
+        Purpose::Mail
+    }
+}
+
+/// The checks after a combined consent, on the `scope` of the token response; true = the calendar scopes came with the mail ones.
+/// The consent page lets the person untick any permission: a missing mail permission ends the sign-in like a refusal (nothing is stored,
+/// no account is added); a missing or partial calendar permission is no error, the mailbox is added without calendar sync and the
+/// calendar's own consent (Settings > Calendar, the sidebar offer) stays available. A grant that does not say what it holds (empty) counts as
+/// mail only: the mail side is checked by the IMAP login, the calendar is asked again rather than assumed.
+/// Other purposes are not judged here (the mail-only sign-in keeps its check, the IMAP login).
+pub fn judge_first_grant(provider: Provider, asked: Purpose, granted: &str) -> R<bool> {
+    if asked != Purpose::MailAndCalendar {
+        return Ok(false);
+    }
+    let has = |want: &str| granted.split_whitespace().any(|g| g.trim_end_matches('/') == want.trim_end_matches('/'));
+    if !granted.trim().is_empty() && !has("https://mail.google.com/") {
+        let label = provider.label();
+        let why = "access_denied - the mail permission was not allowed";
+        return Err(crate::i18n::coded("OAUTH_REFUSED", &[("label", label), ("reason", why)], &format!("{label} sign-in refused: {why}")));
+    }
+    Ok(crate::calsync::cmds::granted_all(provider, granted))
 }
 
 /// Name of the credential-store entry (and of the access-token cache entry) of a calendar grant.
@@ -83,8 +116,15 @@ impl Provider {
     pub fn scope_for(self, purpose: Purpose) -> &'static str {
         match (self, purpose) {
             (Provider::Google, Purpose::Mail) => "https://mail.google.com/ openid email profile",
-            // One Outlook resource token covers both IMAP and SMTP AUTH.
-            (Provider::Microsoft, Purpose::Mail) => {
+            // the mail scopes and the calendar scopes side by side: exactly the scopes of the two separate consents, nothing more
+            (Provider::Google, Purpose::MailAndCalendar) if GOOGLE_CREATE_CALENDARS => {
+                "https://mail.google.com/ openid email profile https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.calendarlist.readonly https://www.googleapis.com/auth/calendar.app.created"
+            }
+            (Provider::Google, Purpose::MailAndCalendar) => {
+                "https://mail.google.com/ openid email profile https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.calendarlist.readonly"
+            }
+            // One Outlook resource token covers both IMAP and SMTP AUTH. (Microsoft is never asked for the combined purpose: `consent_purpose`.)
+            (Provider::Microsoft, Purpose::Mail | Purpose::MailAndCalendar) => {
                 "https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send offline_access openid email profile"
             }
             (Provider::Google, Purpose::Calendar) if GOOGLE_CREATE_CALENDARS => {
@@ -387,8 +427,8 @@ impl Pending {
             .to_string();
         let name = claims["name"].as_str().unwrap_or("").to_string();
         let expires = resp["expires_in"].as_i64().unwrap_or(3600);
-        // (a mail token is cached under the address until the caller knows the account id; a calendar token is cached by the caller)
-        if self.purpose == Purpose::Mail {
+        // (a mail token, also of the combined consent, is cached under the address until the caller knows the account id; a calendar token is cached by the caller)
+        if self.purpose != Purpose::Calendar {
             cache().lock().unwrap().insert(email.clone(), (access.to_string(), now() + expires));
         }
         let scope = resp["scope"].as_str().unwrap_or("").to_string();
@@ -746,6 +786,75 @@ Host: 127.0.0.1
         assert_eq!(signin_kind(&mail_token_error(Provider::Google, TokenFail::Missing("no stored Google token: x".into()))), Some("again"));
         assert_eq!(mail_token_error(Provider::Google, TokenFail::Offline("dns error".into())), "dns error");
         assert_eq!(signin_kind("Google sign-in cancelled"), None);
+    }
+
+    const ALL_GOOGLE: &str = "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://mail.google.com/ https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.calendarlist.readonly";
+
+    #[test]
+    fn the_first_google_consent_asks_for_mail_and_calendar_and_nothing_else() {
+        let set = |s: &str| s.split_whitespace().map(String::from).collect::<std::collections::BTreeSet<_>>();
+        let both = Provider::Google.scope_for(Purpose::MailAndCalendar);
+        // exactly the union of the two separate consents: what the consent screen of the Google project declares, no more, no full `calendar`
+        let mut union = set(Provider::Google.scope_for(Purpose::Mail));
+        union.extend(set(Provider::Google.scope_for(Purpose::Calendar)));
+        assert_eq!(set(both), union, "{both}");
+        assert!(both.contains("https://mail.google.com/") && both.contains("calendar.events") && both.contains("calendar.calendarlist.readonly"));
+        assert!(!both.split_whitespace().any(|s| s.ends_with("/auth/calendar")));
+        assert_eq!(both.split_whitespace().count(), set(both).len(), "no scope twice");
+        // who gets it: Google, with the calendar wanted; everything else is the mail sign-in as before
+        assert_eq!(consent_purpose(Provider::Google, true), Purpose::MailAndCalendar);
+        assert_eq!(consent_purpose(Provider::Google, false), Purpose::Mail);
+        assert_eq!(consent_purpose(Provider::Microsoft, true), Purpose::Mail, "a Microsoft token names one resource: two consents stay");
+        // the URL: one consent page, an offline grant, the refresh token comes back; the old incremental flag is not used
+        let q = |s: &str| urlencoding::encode(s).into_owned();
+        let p = begin_for(Provider::Google, Purpose::MailAndCalendar, "", "cid", None).unwrap();
+        assert!(p.url.contains(&format!("scope={}", q(both))) && p.url.contains("access_type=offline") && p.url.contains("prompt=consent"), "{}", p.url);
+        assert!(!p.url.contains("include_granted_scopes") && !p.url.contains("login_hint"), "{}", p.url);
+        // the mail-only sign-in (Sign in again, a calendar left unticked) is the one of before
+        let mail = begin_for(Provider::Google, consent_purpose(Provider::Google, false), "", "cid", Some("me@gmail.test")).unwrap();
+        assert!(mail.url.contains(&format!("scope={}", q("https://mail.google.com/ openid email profile"))) && !mail.url.contains("calendar"));
+    }
+
+    #[test]
+    fn what_the_first_consent_granted_decides_the_calendar_not_the_mailbox() {
+        let ask = Purpose::MailAndCalendar;
+        let judge = |granted: &str| judge_first_grant(Provider::Google, ask, granted);
+        // everything allowed: the calendar is kept
+        assert_eq!(judge(ALL_GOOGLE), Ok(true));
+        // the calendar unticked, wholly or in part: the mailbox is added, the calendar is not
+        let mail_only = "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://mail.google.com/";
+        assert_eq!(judge(mail_only), Ok(false));
+        assert_eq!(judge(&format!("{mail_only} https://www.googleapis.com/auth/calendar.events")), Ok(false));
+        assert_eq!(judge(&format!("{mail_only} https://www.googleapis.com/auth/calendar.calendarlist.readonly")), Ok(false));
+        // a grant that does not say what it holds: mail only (the IMAP login checks the mail side), the calendar is asked again later
+        assert_eq!(judge(""), Ok(false));
+        // the mail permission unticked: the sign-in ends as a refusal, whatever else was allowed (nothing is stored)
+        let no_mail = "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.calendarlist.readonly";
+        let e = judge(no_mail).unwrap_err();
+        assert!(e.starts_with("OAUTH_REFUSED|label=Google|reason=access_denied"), "{e}");
+        assert!(judge("openid email").is_err());
+        // (the same code and reason as a refusal in the browser: the UI shows the calm "not allowed" notice)
+        assert_eq!(signin_kind(&e), None);
+        // the other purposes are not judged (Sign in again, the calendar consent have their own checks)
+        assert_eq!(judge_first_grant(Provider::Google, Purpose::Mail, "openid email"), Ok(false));
+        assert_eq!(judge_first_grant(Provider::Microsoft, Purpose::Mail, ""), Ok(false));
+    }
+
+    #[test]
+    fn the_combined_code_exchange_keeps_one_refresh_token_with_every_granted_scope_and_caches_it_as_a_mail_token() {
+        let srv = token_server(json!({
+            "access_token": "AT", "refresh_token": "RT", "expires_in": 3599, "scope": ALL_GOOGLE,
+            "id_token": id_token(json!({ "email": "Both@Gmail.test", "name": "Both" })),
+        }));
+        let p = begin_for(Provider::Google, Purpose::MailAndCalendar, "", "cid", None).unwrap();
+        let got = p.exchange_at(&format!("{}/token", srv.base), "the-code", "cid", "secret").unwrap();
+        assert_eq!((got.email.as_str(), got.refresh_token.as_str()), ("Both@Gmail.test", "RT"));
+        assert_eq!(judge_first_grant(Provider::Google, Purpose::MailAndCalendar, &got.scope), Ok(true));
+        assert!(!srv.requests()[0].body.contains("scope="), "{}", srv.requests()[0].body);
+        // cached under the address like any mail token (the caller moves it to the account id)
+        assert!(cache().lock().unwrap().get("Both@Gmail.test").is_some());
+        // the calendar side accepts the same grant
+        assert!(crate::calsync::cmds::check_grant(Provider::Google, "both@gmail.test", &got.email, &got.scope).is_ok());
     }
 
     #[test]

@@ -9,6 +9,8 @@
 //  - The Calendar sidebar offer for mailboxes that existed before: shown for the first mailbox that can sync and does not, until answered once (Not now stays gone after a reload,
 //    Turn on... opens Settings > mailbox > Calendar with the question of W7.7 at once), never in the icon column, never when nothing qualifies.
 //  - 8 languages, light and dark, 960 x 560 and 1280 x 800: the agreed texts, no raw key, nothing clipped, a 40-character address wraps inside the sidebar notice.
+//  - 1.0.13: Google asks for mail and calendar on ONE consent page (no second step, no hint about a second page); the calendar unticked there = the mailbox is added with mail only and
+//    the sidebar offer stays; the mail permission unticked = no mailbox and the calm notice. Microsoft keeps the second step, so the step tests run on Microsoft.
 //  - The keyboard: Tab reaches the box between the name and the button, Space toggles it, Enter on Skip skips, Enter on Retry retries.
 //
 //   node scripts/test-calendar-at-signin.mjs [--require-browser | --url=http://127.0.0.1:1420/] [--quick] [--shots=dir]
@@ -57,6 +59,7 @@ const tab = () => key('Tab', 'Tab', 9);
 const store = (expr) => evaluate(`(() => { const s = window.__store.getState(); return ${expr}; })()`);
 const mock = (obj) => evaluate(`Object.assign(window.__mockCalSync, ${JSON.stringify(obj)}); 1`);
 const connects = () => evaluate('JSON.stringify(window.__mockCalConnects || [])').then(JSON.parse);
+const signIns = () => evaluate('JSON.stringify(window.__mockSignIns || [])').then(JSON.parse);
 const cancels = () => evaluate('window.__mockCalCancels || 0');
 const toasts = () => evaluate(`[...document.querySelectorAll('.toasts .toast-text')].map((x) => x.textContent.trim())`);
 const savedSetting = (k) => evaluate(`import('/src/api.ts').then((m) => m.api.getSetting(${JSON.stringify(k)}))`);
@@ -140,14 +143,15 @@ try {
   ok(c.cb !== null, 'Google: the box is shown');
   ok(c.cb && c.cb.checked && !c.cb.disabled, 'Google: the box is ticked');
   ok(c.cb && c.cb.label === 'Also sync my calendar', `Google: label "${c.cb?.label}"`);
-  ok(c.cb && c.cb.hint === 'After you sign in, a second Google page will ask you to allow access to your calendars.', `Google: hint "${c.cb?.hint}"`);
-  ok(c.cb && c.cb.desc && c.cb.desc === c.cb.hintId, 'the hint describes the box (aria-describedby)');
+  // (Google asks for mail and calendar on one page: there is no "second page" to announce, so the box has no hint; Microsoft keeps its second consent and its hint)
+  ok(c.cb && c.cb.hint === '' && c.cb.desc === null, `Google: no hint about a second page ("${c.cb?.hint}", ${c.cb?.desc})`);
   ok(c.order === 'name,cb,go', `the box sits between the display name and the Sign in button (${c.order})`);
   await shot('add-idle');
   await evaluate(`document.querySelectorAll('.settings-body .seg button')[1].click()`);
   await sleep(250);
   c = await card();
   ok(c.cb && c.cb.checked && c.cb.hint === 'After you sign in, a second Microsoft page will ask you to allow access to your calendars.', `Microsoft: hint "${c.cb?.hint}"`);
+  ok(c.cb && c.cb.desc && c.cb.desc === c.cb.hintId, 'Microsoft: the hint describes the box (aria-describedby)');
   // the label is clickable
   await click('.also-cal label span');
   ok(!(await card()).cb.checked, 'a click on the label unticks the box');
@@ -171,6 +175,7 @@ try {
   await click(GO);
   await waitFor(`window.__store.getState().accounts.some((a) => a.id === 'n1') && !window.__store.getState().dialog`, 'Settings to close', 8000);
   ok((await connects()).length === 0, 'unticked: no calendar_connect call');
+  ok(JSON.stringify(await signIns()) === '[{"provider":"google","withCalendar":false}]', `unticked: the Google sign-in asks for mail only (${JSON.stringify(await signIns())})`);
   ok((await store(`s.accountId`)) === 'n1' && (await store(`s.folder`)) === 'inbox', 'unticked: the Inbox of the new mailbox is open');
   ok((await toasts()).includes('Account new.user1@gmail.com added'), `unticked: toast "${(await toasts()).join(' | ')}"`);
   ok((await savedSetting('cal_offer_done')) === null, 'unticking the box is not an answer to the offer');
@@ -180,8 +185,8 @@ try {
   await waitFor(`document.querySelector('.cal-offer')`, 'the offer for the new mailbox');
   ok(norm(await evaluate(`document.querySelector('.cal-offer').textContent`)).startsWith('Also show the Google Calendar calendars of new.user1@gmail.com here?'), 'the offer names the new mailbox');
 
-  // ------------------------------------------------------------------ AC-7.9.3: ticked, mail OK, consent OK (Google and Microsoft)
-  for (const kind of ['google', 'microsoft']) {
+  // ------------------------------------------------------------------ AC-7.9.3: ticked, mail OK, consent OK (Microsoft: the second step; Google: see below)
+  for (const kind of ['microsoft']) {
     const label = kind === 'google' ? 'Google' : 'Microsoft';
     const addr = kind === 'google' ? 'new.user1@gmail.com' : 'new.user1@outlook.com';
     await openAdd('lang=en&light', 960, 560, kind);
@@ -199,7 +204,7 @@ try {
     ok((await dialogType()) === 'settings', `${tag}: Settings stays open`);
     ok((await store(`s.accounts.some((a) => a.id === 'n1')`)) && (await evaluate(`document.querySelector('.folder-pane')?.textContent.includes('Zed') || true`)), `${tag}: the mailbox is in the folder pane`);
     ok(!(await evaluate(`!!document.querySelector('.ask')`)), `${tag}: no question before the browser (the ticked box is the confirmation)`);
-    if (kind === 'google') await shot('step2-waiting');
+    if (kind === 'microsoft') await shot('step2-waiting');
     await waitFor(`!window.__store.getState().dialog`, `${kind}: Settings to close`, 8000);
     ok((await store(`s.accountId`)) === 'n1' && (await store(`s.folder`)) === 'inbox', `${kind}: the Inbox of the new mailbox opens`);
     const tt = await toasts();
@@ -213,6 +218,49 @@ try {
     ok(norm(await evaluate(`document.querySelector('.set-status').textContent`)).length > 3, `${kind}: with its status line`);
   }
 
+  // ------------------------------------------------------------------ 1.0.13: Google, ticked = ONE consent page for mail and calendar, no second step
+  {
+    await openAdd('lang=en&light', 960, 560);
+    await mock({ connectResult: 'ok', firstConsent: 'all' });
+    await click(GO);
+    await waitFor(`!window.__store.getState().dialog && window.__store.getState().accounts.some((a) => a.id === 'n1')`, 'Google one consent: Settings to close', 8000);
+    ok(JSON.stringify(await signIns()) === '[{"provider":"google","withCalendar":true}]', `one consent: the sign-in asks for mail and calendar together (${JSON.stringify(await signIns())})`);
+    ok((await connects()).length === 0, 'one consent: no second consent (no calendar_connect call)');
+    ok((await store(`s.accountId`)) === 'n1' && (await store(`s.folder`)) === 'inbox', 'one consent: the Inbox of the new mailbox opens');
+    const tt = await toasts();
+    ok(tt.includes('Account new.user1@gmail.com added with calendar sync') && tt.length === 1, `one consent: one toast "added with calendar sync" (${tt.join(' | ')})`);
+    await sleep(300);
+    ok((await savedSetting('cal_offer_done')) === '1', 'one consent: the sidebar offer is over');
+    ok((await evaluate(`window.__mockCalSync.get('n1')`)) !== null, 'one consent: the calendar of the new mailbox syncs');
+    await evaluate(`window.__store.getState().setDialog({ type: 'settings', tab: 'mb:n1', focus: 'calendar', nonce: Date.now() }); 1`);
+    await waitFor(`document.querySelector('#set-calendar .switch input')`, 'one consent: Settings > Calendar');
+    await sleep(300);
+    ok(await evaluate(`document.querySelector('#set-calendar .switch input').checked`), 'one consent: Settings > Calendar shows the switch on');
+
+    // the calendar unticked on Google's page (granular consent): the mailbox is added with mail only, no second page, the offer stays
+    await openAdd('lang=en&light', 960, 560);
+    await mock({ firstConsent: 'mail' });
+    await click(GO);
+    await waitFor(`!window.__store.getState().dialog && window.__store.getState().accounts.some((a) => a.id === 'n1')`, 'mail only: Settings to close', 8000);
+    ok((await connects()).length === 0, 'mail only: the account add did not fail and opened no second page');
+    ok((await store(`s.accountId`)) === 'n1' && (await toasts()).includes('Account new.user1@gmail.com added'), `mail only: Inbox and the plain toast (${(await toasts()).join(' | ')})`);
+    ok((await evaluate(`window.__mockCalSync.get('n1')`)) === null, 'mail only: calendar sync stays off');
+    ok((await savedSetting('cal_offer_done')) === null, 'mail only: the offer is not answered');
+    await evaluate(`window.__store.setState({ accounts: window.__store.getState().accounts.filter((a) => a.id === 'a1' || a.id === 'n1') }); 1`);
+    await showSidebar();
+    await waitFor(`document.querySelector('.cal-offer')`, 'mail only: the offer in the Calendar sidebar');
+    ok(norm(await evaluate(`document.querySelector('.cal-offer').textContent`)).startsWith('Also show the Google Calendar calendars of new.user1@gmail.com here?'), 'mail only: the offer (the existing consent path) names the mailbox');
+
+    // the mail permission unticked: no mailbox, the calm "not allowed" notice, no second page
+    await openAdd('lang=en&light', 960, 560);
+    await mock({ firstConsent: 'nomail' });
+    await click(GO);
+    await waitFor(`(document.querySelector('.signin-slot')?.textContent.trim().length || 0) > 3`, 'no mail: a notice', 8000);
+    ok(!(await store(`s.accounts.some((a) => a.id === 'n1')`)) && (await connects()).length === 0, 'no mail: no account, no second page');
+    ok((await dialogType()) === 'settings' && !(await card()).btns.some((b) => b.text === SK), `no mail: Settings stays on the card (${norm((await card()).slot)})`);
+    await mock({ firstConsent: 'all' });
+  }
+
   // ------------------------------------------------------------------ AC-7.9.4: Skip, Esc, the X, another tab: all end the step as Skip
   const ways = [
     ['Skip', async () => click(`${CARD} .row-inline button:last-child`)],
@@ -221,7 +269,7 @@ try {
     ['another Settings tab', async () => click('.settings-nav > button')],
   ];
   for (const [way, act] of ways) {
-    await openAdd('lang=en&light', 960, 560);
+    await openAdd('lang=en&light', 960, 560, 'microsoft');
     await mock({ connectResult: 'hang' });
     await click(GO);
     await waitFor(`document.querySelector('.signin-slot')?.textContent.includes('allow calendar access')`, `${way}: step 2`, 8000);
@@ -231,7 +279,7 @@ try {
     ok((await cancels()) === 1, `${way}: calendar_cancel_connect was called once (${await cancels()})`);
     ok((await store(`s.accountId`)) === 'n1' && (await store(`s.folder`)) === 'inbox', `${way}: the Inbox of the new mailbox opens`);
     const tt = await toasts();
-    ok(tt.includes('Account new.user1@gmail.com added') && tt.length === 1, `${way}: toast "added" only (${tt.join(' | ')})`);
+    ok(tt.includes('Account new.user1@outlook.com added') && tt.length === 1, `${way}: toast "added" only (${tt.join(' | ')})`);
     ok((await savedSetting('cal_offer_done')) === '1', `${way}: the offer is answered`);
     ok((await connects()).length === 1, `${way}: one call`);
     ok((await evaluate(`window.__mockCalSync.get('n1')`)) === null, `${way}: calendar sync stays off`);
@@ -245,8 +293,8 @@ try {
   }
 
   // ------------------------------------------------------------------ AC-7.9.5: every refusal shows the Settings notice, Retry and Continue
-  // (--quick, the CI run: one of each kind of sentence: refused, a mailbox that is not the one, blocked by the organization; the full run has every end for both services)
-  const REFUSALS = flag('quick') ? [['google', 'DENIED'], ['google', 'WRONG_ACCOUNT'], ['microsoft', 'BLOCKED']] : [['google', 'DENIED'], ['google', 'TIMEOUT'], ['google', 'WRONG_ACCOUNT'], ['google', 'PARTIAL'], ['google', 'BLOCKED'], ['google', 'ERROR'], ['microsoft', 'DENIED'], ['microsoft', 'BLOCKED'], ['microsoft', 'TIMEOUT']];
+  // (--quick, the CI run: one of each kind of sentence: refused, a mailbox that is not the one, blocked by the organization; the full run has every end. Google has no second step at Add account since 1.0.13; its Settings > Calendar sentences are in test-calendar-sync.mjs)
+  const REFUSALS = flag('quick') ? [['microsoft', 'DENIED'], ['microsoft', 'WRONG_ACCOUNT'], ['microsoft', 'BLOCKED']] : [['microsoft', 'DENIED'], ['microsoft', 'WRONG_ACCOUNT'], ['microsoft', 'PARTIAL'], ['microsoft', 'BLOCKED'], ['microsoft', 'ERROR'], ['microsoft', 'TIMEOUT']];
   for (const [kind, code] of REFUSALS) {
     const tag = `${kind} ${code}`;
     // the sentence Settings > Calendar shows for this end (a page of its own: leaving the Add account tab ends its step)
@@ -263,10 +311,10 @@ try {
     const got = norm(c.slot).replace(/[\w.+-]+@[\w.-]+/g, 'E');
     ok(got === want, `${tag}: the card shows the Settings sentence ("${got}" vs "${want}")`);
     ok(!/Turn the switch/.test(got), `${tag}: no "turn the switch on"`);
-    if (code === 'DENIED' && kind === 'google') await shot('step2-failed');
+    if (code === 'DENIED' && kind === 'microsoft') await shot('step2-failed');
   }
   // Retry and Continue on one card
-  await openAdd('lang=en&light', 960, 560);
+  await openAdd('lang=en&light', 960, 560, 'microsoft');
   await mock({ connectResult: 'DENIED', connectDelay: 300 });
   await click(GO);
   await waitFor(hasBtn('Retry'), 'Retry', 8000);
@@ -277,14 +325,14 @@ try {
   await mock({ connectResult: 'ok' });
   await clickText('Retry');
   await waitFor(`!window.__store.getState().dialog`, 'Retry to end well', 6000);
-  ok((await connects()).length === 3 && (await toasts()).includes('Account new.user1@gmail.com added with calendar sync'), `Retry ends well: the calendar toast (${(await toasts()).join(' | ')})`);
-  await openAdd('lang=en&light', 960, 560);
+  ok((await connects()).length === 3 && (await toasts()).includes('Account new.user1@outlook.com added with calendar sync'), `Retry ends well: the calendar toast (${(await toasts()).join(' | ')})`);
+  await openAdd('lang=en&light', 960, 560, 'microsoft');
   await mock({ connectResult: 'TIMEOUT', connectDelay: 300 });
   await click(GO);
   await waitFor(hasBtn('Continue without calendar'), 'Continue', 8000);
   await clickText('Continue without calendar');
   await waitFor(`!window.__store.getState().dialog`, 'Continue to close Settings', 5000);
-  ok((await store(`s.accountId`)) === 'n1' && (await toasts()).includes('Account new.user1@gmail.com added') && (await savedSetting('cal_offer_done')) === '1', 'Continue behaves as Skip: Inbox, plain toast, the offer is answered');
+  ok((await store(`s.accountId`)) === 'n1' && (await toasts()).includes('Account new.user1@outlook.com added') && (await savedSetting('cal_offer_done')) === '1', 'Continue behaves as Skip: Inbox, plain toast, the offer is answered');
 
   // ------------------------------------------------------------------ AC-7.9.6: a mail sign-in that ends without an account never starts the step
   await openAdd('lang=en&light&signin=slow', 960, 560);
@@ -302,7 +350,7 @@ try {
   await shot('mail-refused');
 
   // ------------------------------------------------------------------ AC-7.9.10: the keyboard
-  await openAdd('lang=en&light', 960, 560);
+  await openAdd('lang=en&light', 960, 560, 'microsoft');
   await evaluate(`document.querySelector(${JSON.stringify(CARD)}).querySelectorAll('input')[document.querySelector(${JSON.stringify(CARD)}).querySelectorAll('input').length - 2].focus(); 1`);
   const focusKind = () => evaluate(`(() => { const a = document.activeElement; return a.type === 'checkbox' ? 'cb' : a.tagName === 'INPUT' ? 'name' : a.textContent.trim(); })()`);
   ok((await focusKind()) === 'name', `the display name has the focus (${await focusKind()})`);
@@ -321,8 +369,8 @@ try {
   await mock({ connectResult: 'hang' });
   await enter();
   await waitFor(`!window.__store.getState().dialog`, 'Enter on Skip to skip', 5000);
-  ok((await cancels()) === 1 && (await toasts()).includes('Account new.user1@gmail.com added'), 'Enter on Skip skips');
-  await openAdd('lang=en&light', 960, 560);
+  ok((await cancels()) === 1 && (await toasts()).includes('Account new.user1@outlook.com added'), 'Enter on Skip skips');
+  await openAdd('lang=en&light', 960, 560, 'microsoft');
   await mock({ connectResult: 'DENIED', connectDelay: 300 });
   await click(GO);
   await waitFor(`[...document.querySelectorAll(${JSON.stringify(CARD + ' .row-inline button')})].some((b) => b.textContent.trim() === 'Retry')`, 'Retry by keyboard', 8000);
@@ -330,7 +378,7 @@ try {
   await mock({ connectResult: 'ok', connectDelay: 300 });
   await enter();
   await waitFor(`!window.__store.getState().dialog`, 'Enter on Retry to try again', 6000);
-  ok((await connects()).length === 2 && (await toasts()).includes('Account new.user1@gmail.com added with calendar sync'), 'Enter on Retry retries and ends well');
+  ok((await connects()).length === 2 && (await toasts()).includes('Account new.user1@outlook.com added with calendar sync'), 'Enter on Retry retries and ends well');
 
   // ------------------------------------------------------------------ AC-7.9.7: the offer for mailboxes that existed before
   const OFFER = '.cal-offer';
@@ -413,7 +461,7 @@ const offerInfo = () => evaluate(`(() => { const realLines = (n) => { const rg =
       await setLook(theme, lang);
       const tag = `${lang} ${theme} ${w}x${h}`;
       c = await card();
-      ok(c.cb && c.cb.label === tr(lang, 'settings.add.alsoCalendar') && c.cb.hint === tr(lang, 'settings.add.alsoCalendarHint', { provider: 'Google' }), `${tag}: the box and its hint say the agreed words`);
+      ok(c.cb && c.cb.label === tr(lang, 'settings.add.alsoCalendar') && c.cb.hint === '', `${tag}: the box says the agreed words (Google: no hint about a second page)`);
       ok(c.cb && !/\{\w+\}|settings\.add\./.test(c.cb.label + c.cb.hint), `${tag}: no raw key or placeholder on the card`);
       ok(c.cb && c.cardOver <= 1 && c.slotOver <= 1, `${tag}: the card is not clipped (${c.cardOver}, ${c.slotOver})`);
       ok(c.btns.every((b) => inside(b.box, c.card)), `${tag}: the button is inside the card`);
@@ -422,7 +470,7 @@ const offerInfo = () => evaluate(`(() => { const realLines = (n) => { const rg =
   }
   // the states of step 2 once, switched through the languages
   for (const state of ['waiting', 'failed']) {
-    await openAdd('lang=en&light', 960, 560);
+    await openAdd('lang=en&light', 960, 560, 'microsoft');
     await mock({ connectResult: state === 'waiting' ? 'hang' : 'DENIED', connectDelay: 300 });
     await click(GO);
     await waitFor(`[...document.querySelectorAll(${JSON.stringify(CARD + ' .row-inline button')})].some((b) => b.textContent.trim() === ${JSON.stringify(state === 'waiting' ? SK : 'Retry')})`, `the ${state} state`, 8000);
@@ -430,11 +478,11 @@ const offerInfo = () => evaluate(`(() => { const realLines = (n) => { const rg =
       await setLook(theme, lang);
       const tag = `${state} ${lang} ${theme}`;
       c = await card();
-      const email = 'new.user1@gmail.com';
+      const email = 'new.user1@outlook.com';
       if (state === 'waiting') {
         const lead = tr(lang, 'settings.add.calWaiting', { email });
         ok(norm(c.slot).startsWith(norm(lead)), `${tag}: the waiting line says "${lead}" (got "${c.slot.slice(0, 120)}")`);
-        ok(c.btns[0].text === tr(lang, 'settings.add.waitingFor', { provider: 'Google' }) && c.btns[1].text === tr(lang, 'settings.add.calSkip'), `${tag}: buttons ${c.btns.map((b) => b.text).join('|')}`);
+        ok(c.btns[0].text === tr(lang, 'settings.add.waitingFor', { provider: 'Microsoft' }) && c.btns[1].text === tr(lang, 'settings.add.calSkip'), `${tag}: buttons ${c.btns.map((b) => b.text).join('|')}`);
       } else {
         ok(norm(c.slot).startsWith(norm(tr(lang, 'calendar.err.denied'))), `${tag}: the refusal says "${tr(lang, 'calendar.err.denied')}" (got "${c.slot.slice(0, 120)}")`);
         ok(c.btns[1].text === tr(lang, 'common.retry') && c.btns[2].text === tr(lang, 'settings.add.calContinue'), `${tag}: buttons ${c.btns.map((b) => b.text).join('|')}`);

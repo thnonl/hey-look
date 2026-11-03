@@ -552,13 +552,22 @@ function OAuthBlock({ kind, onAppPassword }: { kind: OAuthKind; onAppPassword: (
     setEnded(null);
     waiting.current = true;
     try {
+      // Google: the box ticked = one consent page for mail and calendar (no second browser page); Microsoft keeps its second consent
+      const oneConsent = kind === "google" && alsoCal && showCal;
       const acc = kind === "google"
-        ? await api.googleSignIn(cid, sec, name)
+        ? await api.googleSignIn(cid, sec, name, oneConsent)
         : await api.microsoftSignIn(cid, "", tenant, name);
       waiting.current = false;
-      // the mailbox has no calendar source yet and the box is ticked: the calendar consent follows at once (a mailbox that already syncs skips it)
-      const withCal = alsoCal && showCal && !(await api.calendarSources().catch(() => [] as CalSource[])).some((x) => x.accountId === acc.id);
-      if (withCal) {
+      const synced = (await api.calendarSources().catch(() => [] as CalSource[])).some((x) => x.accountId === acc.id);
+      // the box is ticked and the mailbox has no calendar source yet (Microsoft): the calendar consent follows at once (a mailbox that already syncs skips it)
+      const withCal = !oneConsent && alsoCal && showCal && !synced;
+      if (oneConsent && synced) {
+        // the one consent page also allowed the calendar: it syncs already; the offer in the Calendar sidebar is over
+        const st = useStore.getState();
+        void st.answerCalOffer();
+        void st.loadCalSources().then(() => st.bumpCal());
+        void st.accountAdded(acc, false, true);
+      } else if (withCal) {
         // the mailbox joins the folder pane and its first sync starts now; this dialog stays until the step ends
         void useStore.getState().accountAdded(acc, true);
         void calendarStep(acc);
@@ -613,10 +622,10 @@ function OAuthBlock({ kind, onAppPassword }: { kind: OAuthKind; onAppPassword: (
           {showCal && (
             <div className="also-cal">
               <label>
-                <input type="checkbox" checked={alsoCal} disabled={busy || !!cal} aria-describedby={`also-cal-${kind}`} onChange={(e) => setAlsoCal(e.target.checked)} />
+                <input type="checkbox" checked={alsoCal} disabled={busy || !!cal} aria-describedby={kind !== "google" ? `also-cal-${kind}` : undefined} onChange={(e) => setAlsoCal(e.target.checked)} />
                 <span>{t("settings.add.alsoCalendar")}</span>
               </label>
-              <div id={`also-cal-${kind}`} className="muted small">{t("settings.add.alsoCalendarHint", { provider: cfg.label })}</div>
+              {kind !== "google" && <div id={`also-cal-${kind}`} className="muted small">{t("settings.add.alsoCalendarHint", { provider: cfg.label })}</div>}
             </div>
           )}
           <div className="row-inline">
