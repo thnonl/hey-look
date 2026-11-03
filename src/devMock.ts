@@ -1847,6 +1847,11 @@ export function installMock() {
         mockQueued.delete(String(a.id));
         return true;
       }
+      // the mailboxes that hold the whole folder (the backend keeps the mark of an earlier request): inbox = all of its mail downloaded, any other folder has nothing older in the mock
+      case "folder_ends": {
+        const role = String(a.role);
+        return accounts.map((x) => x.id).filter((id) => role !== "inbox" || mockMail.local[id] === undefined || mockMail.local[id] >= mockMail.total[id]);
+      }
       case "load_older": {
         // up to 50 older messages of one folder; rejects like an IMAP failure when `failIn` counts down to the call
         const id = String(a.accountId);

@@ -439,6 +439,8 @@ interface State {
   accountAddedDone: (acc: Account, withCalendar: boolean) => Promise<void>;
   /** Older mail of the open folder: up to MORE_CHUNKS x 50 per account, one request at a time. `manual` = the button (retry, ignores a previous error). */
   loadMore: (manual?: boolean) => Promise<void>;
+  /** Marks the mailboxes that already hold the whole folder in view as exhausted (the backend keeps that mark), so the footer says so at once. */
+  readEnds: () => Promise<void>;
   onBackfill: (p: BackfillProgress) => void;
   select: (id: string | null) => Promise<void>;
   /** The person opens a conversation (click, Enter, j / k, a notification): the message being written is left first (`leaveCompose`). */
@@ -612,6 +614,8 @@ const NO_PAGING = new Set(["starred", "pinned", "snoozed", "all", "scheduled"]);
 export const canPageBack = (folder: string, searching: boolean) => !searching && !NO_PAGING.has(folder);
 /** The IMAP-side role `load_older` takes for a view (the Unread view reads the Inbox). */
 const roleOf = (folder: string) => (folder === "unread" ? "inbox" : folder);
+/** Counts the folders that a load_older answer marked as done: a `folder_ends` read that began before it must not take the mark away. */
+let endsStamp = 0;
 export const exhaustedKey = (accountId: string, folder: string) => `${accountId}|${roleOf(folder)}`;
 
 /** Shown where the "Max emails to download" cap stopped the list (toast of "Load older messages"; the list footer words it the same). */
@@ -1117,6 +1121,7 @@ export const useStore = create<State>((set, get) => ({
         heldOpen = kept;
         // the rows are here: the list stops being "loading" now, not after the folder counts and the outbox have answered too (they only update their own numbers)
         set({ threads, loading: false });
+        void get().readEnds();
       }
       listSettled();
       await Promise.all([foldersP, outboxP]);
@@ -1152,8 +1157,8 @@ export const useStore = create<State>((set, get) => ({
         get().showToast(() => t("errors.toast.withAccount", { account: acct?.email ?? t("errors.toast.accountFallback"), error: friendlyError(reasons[first[0]]) }), undefined, "error");
       }
     } finally {
-      // new mail may have arrived and a failed fetch may work now: scrolling may ask the server for older mail again (except where this very sync pruned at the cap: those stay marked)
-      set({ syncing: false, exhausted: {}, limited: Object.fromEntries([...prunedDuringSync].map((k) => [k, true as const])), moreError: false, moreFail: null });
+      // a failed fetch may work now: scrolling may ask the server for older mail again (except where this very sync pruned at the cap: those stay marked). The folders that are complete stay marked: the backend keeps that mark and the list read below reads it again (readEnds)
+      set({ syncing: false, limited: Object.fromEntries([...prunedDuringSync].map((k) => [k, true as const])), moreError: false, moreFail: null });
       prunedDuringSync.clear();
       await get().refresh();
     }
@@ -1193,6 +1198,27 @@ export const useStore = create<State>((set, get) => ({
     await get().setView("inbox", acc.id);
   },
 
+  readEnds: async () => {
+    const stamp = endsStamp;
+    const { folder, search } = get();
+    if (!canPageBack(folder, search.trim().length > 0)) return;
+    const role = roleOf(folder);
+    let ids: string[];
+    try {
+      ids = await api.folderEnds(role);
+    } catch {
+      return; // (only the shortcut to "end of the list" is missing: the button still asks the server)
+    }
+    const now = get();
+    if (now.folder !== folder || now.loadingMore) return; // another view, or a request that is about to say it itself
+    const next: Record<string, true> = {};
+    // (an answer of load_older that came while this read was out is newer than the read: its marks are kept, only added to)
+    for (const [k, v] of Object.entries(now.exhausted)) if (stamp !== endsStamp || !k.endsWith("|" + role)) next[k] = v;
+    for (const id of ids) next[id + "|" + role] = true;
+    const same = Object.keys(next).length === Object.keys(now.exhausted).length && Object.keys(next).every((k) => now.exhausted[k]);
+    if (!same) set({ exhausted: next });
+  },
+
   loadMore: async (manual = false) => {
     const { accountId, accounts, folder, search, loadingMore, moreError } = get();
     if (loadingMore || !canPageBack(folder, search.trim().length > 0)) return;
@@ -1230,6 +1256,7 @@ export const useStore = create<State>((set, get) => ({
         added += r.added;
         if (r.exhausted) {
           active.delete(id);
+          endsStamp++;
           set((s) => ({ exhausted: { ...s.exhausted, [`${id}|${role}`]: true } }));
         } else if (r.limited) {
           // the cap, not the server: a mailbox stops being asked just like an exhausted one, but the footer says why
