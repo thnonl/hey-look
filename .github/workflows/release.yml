@@ -97,6 +97,7 @@ jobs:
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       signpath: ${{ steps.plan.outputs.signpath }}
+      signpath_arm: ${{ steps.plan.outputs.signpath_arm }}
       tests: ${{ steps.plan.outputs.tests }}
       shards: ${{ steps.plan.outputs.shards }}
       ui_tests: ${{ steps.plan.outputs.ui_tests }}
@@ -106,6 +107,9 @@ jobs:
       store_exe: ${{ steps.plan.outputs.store_exe }}
       store_submit: ${{ steps.plan.outputs.store_submit }}
       apt_publish: ${{ steps.plan.outputs.apt_publish }}
+      arm: ${{ steps.plan.outputs.arm }}
+      winarm: ${{ steps.plan.outputs.winarm }}
+      linarm: ${{ steps.plan.outputs.linarm }}
     steps:
       - id: plan
         shell: bash
@@ -119,30 +123,49 @@ jobs:
           SP_ORG: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
           SP_PROJECT: ${{ vars.SIGNPATH_PROJECT_SLUG }}
           SP_POLICY: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          SP_ARM: ${{ vars.SIGNPATH_ARM64 }}
           REQUIRE_WIN: ${{ vars.REQUIRE_WIN_SIGNING }}
           STORE_EXE: ${{ vars.STORE_EXE }}
           STORE_SUBMIT: ${{ vars.STORE_SUBMIT }}
           APT_PUBLISH: ${{ vars.APT_PUBLISH }}
+          ARM64_BUILD: ${{ vars.ARM64_BUILD }}
         run: |
           set -euo pipefail
           want="all"
           if [ "$EVENT" = "workflow_dispatch" ]; then want="$(echo "${PLATFORMS:-all}" | tr 'A-Z' 'a-z' | tr -d ' ')"; fi
           [ -n "$want" ] || want="all"
-          win=false; mac=false; lin=false
+          # windows / linux = x64 (unchanged meaning); windows-arm64 / linux-arm64 = the native ARM64 builds (arm64 = both); all = all five.
+          # The repository variable ARM64_BUILD=false, exactly, is the escape hatch (owner 2026-11-03): `all` and a tag run then leave the two ARM legs out
+          # (a failing ARM leg must not hold back the x64 / macOS release); the asset checks of the publish job follow the output `arm`. An ARM leg asked
+          # for by name in a dry run is always built.
+          win=false; mac=false; lin=false; warm=false; larm=false
+          arm_ok=true
+          [ "$ARM64_BUILD" = "false" ] && arm_ok=false
           IFS=',' read -ra parts <<< "$want"
           for p in "${parts[@]}"; do
             case "$p" in
-              all) win=true; mac=true; lin=true ;;
+              all) win=true; mac=true; lin=true; if [ "$arm_ok" = true ]; then warm=true; larm=true; fi ;;
               windows) win=true ;;
               macos) mac=true ;;
               linux) lin=true ;;
-              *) echo "::error::Unknown platform '$p'. Use all, windows, macos, linux or a comma list."; exit 1 ;;
+              windows-arm64) warm=true ;;
+              linux-arm64) larm=true ;;
+              arm64) warm=true; larm=true ;;
+              *) echo "::error::Unknown platform '$p'. Use all, windows, windows-arm64, macos, linux, linux-arm64, arm64 or a comma list."; exit 1 ;;
             esac
           done
+          if [ "$arm_ok" = false ]; then echo "::warning::ARM64_BUILD=false: the ARM64 builds are left out of 'all' and of a tag run"; fi
           items=()
-          $win && items+=('{"name":"Windows","platform":"windows-2025-vs2026","args":""}')
-          $mac && items+=('{"name":"macOS (universal)","platform":"macos-26","args":"--target universal-apple-darwin"}')
-          $lin && items+=('{"name":"Linux","platform":"ubuntu-22.04","args":""}')
+          $win && items+=('{"name":"Windows","platform":"windows-2025-vs2026","args":"","suffix":""}')
+          $warm && items+=('{"name":"Windows (ARM64)","platform":"windows-11-arm","args":"","suffix":"-arm64"}')
+          $mac && items+=('{"name":"macOS (universal)","platform":"macos-26","args":"--target universal-apple-darwin","suffix":""}')
+          $lin && items+=('{"name":"Linux","platform":"ubuntu-22.04","args":"","suffix":""}')
+          $larm && items+=('{"name":"Linux (ARM64)","platform":"ubuntu-22.04-arm","args":"","suffix":"-arm64"}')
+          arm=false
+          if [ "$warm" = true ] && [ "$larm" = true ]; then arm=true; fi
+          echo "arm=$arm" >> "$GITHUB_OUTPUT"
+          echo "winarm=$warm" >> "$GITHUB_OUTPUT"
+          echo "linarm=$larm" >> "$GITHUB_OUTPUT"
           matrix="{\"include\":[$(IFS=,; echo "${items[*]}")]}"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           # the node tests ran in the Linux build job before: they run whenever Linux is built
@@ -170,8 +193,8 @@ jobs:
           echo "Node test shards: $shards"
           echo "Event: $EVENT. Platforms to build: $want"
           echo "$matrix"
-          if [ "${#items[@]}" -lt 3 ]; then
-            echo "::notice::Subset run: only some platforms are built. A tag run always builds all three; the asset-list and latest.json checks run only there."
+          if [ "${#items[@]}" -lt 5 ]; then
+            echo "::notice::Subset run: only some platforms are built. A tag run builds all five (Windows and Linux for x64 and ARM64, macOS universal; fewer with ARM64_BUILD=false); the asset-list and latest.json checks run only there."
           fi
           # Windows signing with SignPath: only with all three SIGNPATH_* variables, never for a test build, on a tag run or a dry run that asks for it.
           signpath=false
@@ -189,6 +212,12 @@ jobs:
             exit 1
           fi
           echo "signpath=$signpath" >> "$GITHUB_OUTPUT"
+          # The ARM64 installers go into the same SignPath request only with the repository variable SIGNPATH_ARM64=true (the owner confirms that the SignPath
+          # artifact configuration and policy accept them); without it they stay unsigned (they still carry their update signatures) and a dry run proves the rest.
+          signpath_arm=false
+          if [ "$signpath" = true ] && [ "$warm" = true ] && [ "$SP_ARM" = "true" ]; then signpath_arm=true; fi
+          echo "signpath_arm=$signpath_arm" >> "$GITHUB_OUTPUT"
+          echo "SignPath for the ARM64 installers (SIGNPATH_ARM64): $signpath_arm"
           echo "Windows signing with SignPath: $signpath"
           # Microsoft Store (WP14). The MSIX package (option A) is made whenever Windows is built, except for a test build (its exe is a debug build).
           msix=false
@@ -814,7 +843,7 @@ jobs:
         if: runner.os == 'Windows' && needs.plan.outputs.msix == 'true' && steps.sign.outputs.profile == 'release'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: windows-exe
+          name: windows-exe${{ matrix.suffix }}
           path: src-tauri/target/release/hey-look.exe
           retention-days: 1
           if-no-files-found: error
@@ -872,7 +901,7 @@ jobs:
 
       # SignPath signs after the build (the sign-windows job): the unsigned installers go there as a workflow artifact.
       - name: Keep the unsigned Windows installers for SignPath
-        if: runner.os == 'Windows' && needs.plan.outputs.signpath == 'true' && steps.sign.outputs.profile == 'release'
+        if: runner.os == 'Windows' && needs.plan.outputs.signpath == 'true' && (matrix.suffix == '' || needs.plan.outputs.signpath_arm == 'true') && steps.sign.outputs.profile == 'release'
         shell: bash
         run: |
           mkdir unsigned
@@ -880,10 +909,10 @@ jobs:
           ls -l unsigned
 
       - name: Upload the unsigned Windows installers
-        if: runner.os == 'Windows' && needs.plan.outputs.signpath == 'true' && steps.sign.outputs.profile == 'release'
+        if: runner.os == 'Windows' && needs.plan.outputs.signpath == 'true' && (matrix.suffix == '' || needs.plan.outputs.signpath_arm == 'true') && steps.sign.outputs.profile == 'release'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: windows-unsigned
+          name: windows-unsigned${{ matrix.suffix }}
           path: unsigned/*
           retention-days: 1
           if-no-files-found: error
@@ -894,7 +923,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: signatures-${{ runner.os }}
+          name: signatures-${{ runner.os }}${{ matrix.suffix }}
           path: |
             src-tauri/target/**/bundle/**/*.sig
             src-tauri/target/**/bundle/macos/*.app.tar.gz
@@ -1058,7 +1087,9 @@ jobs:
         if: steps.cfg.outputs.enabled == 'true'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: windows-unsigned
+          # windows-unsigned (x64) and, with SIGNPATH_ARM64=true, windows-unsigned-arm64: all files into one folder
+          pattern: windows-unsigned*
+          merge-multiple: true
           path: unsigned
 
       # SignPath reads the artifact of THIS job's workflow run by its id (origin verification)
@@ -1098,17 +1129,23 @@ jobs:
             if [ "$n" -ne 1 ]; then echo "::error::expected exactly one $2, found $n"; exit 1; fi
           }
           ls -l signed
-          setup=$(ls signed | grep -E -- '-setup\.exe$' || true); one "$setup" "signed *-setup.exe"
-          msi=$(ls signed | grep -E -- '\.msi$' || true); one "$msi" "signed *.msi"
-          setup_name="$setup"; msi_name="$msi"
-          if [ -n "$ID" ]; then
-            names=$(gh api "repos/$GITHUB_REPOSITORY/releases/$ID/assets" --paginate --jq '.[].name')
-            setup_name=$(printf '%s\n' "$names" | grep -E -- '-setup\.exe$' || true); one "$setup_name" "*-setup.exe in the draft release"
-            msi_name=$(printf '%s\n' "$names" | grep -E -- '\.msi$' || true); one "$msi_name" "*.msi in the draft release"
-          fi
           mkdir out
-          cp "signed/$setup" "out/$setup_name"
-          cp "signed/$msi" "out/$msi_name"
+          names=""
+          if [ -n "$ID" ]; then names=$(gh api "repos/$GITHUB_REPOSITORY/releases/$ID/assets" --paginate --jq '.[].name'); fi
+          # one pair (setup + msi) per architecture: the file names carry _x64 or _arm64 (the bundler's own names and the draft's names alike)
+          for arch in x64 arm64; do
+            setup=$(ls signed | grep -E -- "_${arch}-setup\.exe$" || true)
+            msi=$(ls signed | grep -E -- "_${arch}([._]|-).*msi$" || true)
+            if [ -z "$setup" ] && [ -z "$msi" ] && [ "$arch" = arm64 ]; then continue; fi
+            one "$setup" "signed $arch *-setup.exe"; one "$msi" "signed $arch *.msi"
+            setup_name="$setup"; msi_name="$msi"
+            if [ -n "$ID" ]; then
+              setup_name=$(printf '%s\n' "$names" | grep -E -- "_${arch}-setup\.exe$" || true); one "$setup_name" "$arch *-setup.exe in the draft release"
+              msi_name=$(printf '%s\n' "$names" | grep -E -- "_${arch}([._]|-).*msi$" || true); one "$msi_name" "$arch *.msi in the draft release"
+            fi
+            cp "signed/$setup" "out/$setup_name"
+            cp "signed/$msi" "out/$msi_name"
+          done
           ls -l out
 
       - name: Make the update signatures again
@@ -1137,14 +1174,16 @@ jobs:
       - name: Verify the update signatures
         if: steps.resign.outputs.done == 'true'
         shell: bash
-        run: node .github/scripts/verify-update-sigs.cjs --conf src-tauri/tauri.conf.json --min 2 out
+        run: node .github/scripts/verify-update-sigs.cjs --conf src-tauri/tauri.conf.json --min ${{ needs.plan.outputs.signpath_arm == 'true' && 4 || 2 }} out
 
       - name: Verify the Authenticode signatures
         if: steps.cfg.outputs.enabled == 'true'
         shell: pwsh
+        env:
+          EXPECT: ${{ needs.plan.outputs.signpath_arm == 'true' && '4' || '2' }}
         run: |
           $files = @(Get-ChildItem out -File | Where-Object { $_.Extension -in '.exe', '.msi' })
-          if ($files.Count -ne 2) { throw "expected 2 signed installers, found $($files.Count)" }
+          if ($files.Count -ne [int]$env:EXPECT) { throw "expected $($env:EXPECT) signed installers, found $($files.Count)" }
           $bad = 0
           foreach ($f in $files) {
             $s = Get-AuthenticodeSignature -FilePath $f.FullName

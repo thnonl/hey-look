@@ -93,6 +93,12 @@ check "slow mirror: attempt 1 was on the runner's own mirror list" "$calls" line
 check "slow mirror: attempt 2 was on archive.ubuntu.com, not on the host of attempt 1" "$calls" line_has "$calls" 4 "http://archive.ubuntu.com/ubuntu/"
 check "slow mirror: the runner's own sources are back, the security host was never touched" "$(cat "$work/etc/sources.list")" bash -c 'grep -q "mirror+file:/etc/apt/apt-mirrors.txt" "$1" && ! grep -q azure "$1" && grep -q "http://security.ubuntu.com/ubuntu" "$1"' _ "$work/etc/sources.list"
 
+# 3b. the same on an arm64 runner: attempt 2 does NOT switch to archive.ubuntu.com (it has no arm64 packages), the sources stay the runner's own
+APT_ARCH=arm64 run "1 0 124 0 0 0"
+check "arm64: exit 0, attempt 2" "rc=$rc $out" bash -c '[ "$1" = 0 ] && echo "$2" | grep -q "installed in attempt 2"' _ "$rc" "$out"
+check "arm64: attempt 2 stayed on the runner's own sources" "$calls" bash -c '! echo "$1" | grep -q "http://archive.ubuntu.com/ubuntu/"' _ "$calls"
+unset APT_ARCH
+
 # 4. an update fails, an install runs out of time: the third attempt has the original sources again
 run "1 100 0 124 0 0 0"
 check "attempt 3 wins" "rc=$rc $out" bash -c '[ "$1" = 0 ] && echo "$2" | grep -q "installed in attempt 3"' _ "$rc" "$out"
