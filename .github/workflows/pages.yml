@@ -3,7 +3,7 @@ name: Pages
 # Validates and deploys the website in docs/ to GitHub Pages (https://heylook.namthai.site/).
 # It validates all SEO, metadata, language reciprocal links, word budgets, and 404 behavior,
 # then builds an optimized production bundle (_site) with minified CSS/JS and LCP preloads.
-# It runs when docs/, site scripts, or this workflow change on main or release branches, or manually.
+# It runs when docs/, site scripts, or this workflow change on main, or manually (not on release branches: the github-pages environment only allows main, so a deploy from a release branch always failed).
 #
 # The APT repository (https://heylook.namthai.site/apt, WP15, PACKAGING.md > APT repository) is part of the site: when the branch `apt` exists
 # (the release workflow writes it on every tag run: signed metadata, text only), its dists/ and pool.json are added under apt/, the .deb files
@@ -24,7 +24,7 @@ name: Pages
 # (scripts/test-apt-placeholder-guard.mjs keeps it that way): the APT repository is still decided by the branch check alone.
 on:
   push:
-    branches: [main, "release/**"]
+    branches: [main]
     paths:
       - "docs/**"
       - "scripts/build-site.mjs"
