@@ -3782,7 +3782,10 @@ fn act_on_session<T: std::io::Read + std::io::Write>(
                 if dst == "trash" && role == "trash" {
                     continue;
                 }
-                move_to_role(db, acc, s, &mut folders, &src, &expect, &uids, dst, create_missing).map_err(|e| refused(acc, e))?;
+                let left = move_to_role(db, acc, s, &mut folders, &src, role == "archive", &expect, &uids, dst, create_missing).map_err(|e| refused(acc, e))?;
+                if !left {
+                    continue; // (Gmail: the message stays in All Mail and its row stays too; the copy in the target folder comes with the next sync)
+                }
                 let c = lock(db);
                 for m in &group {
                     // (W13.2) the copy in the target folder, which a later sync finds, is moved mail, not new mail
@@ -3817,16 +3820,17 @@ fn move_to_role<T: std::io::Read + std::io::Write>(
     s: &mut imap::Session<T>,
     folders: &mut Folders,
     src: &str,
+    src_is_all_mail: bool,
     expect: &mail::Expect,
     uids: &[u32],
     dst: &str,
     create_missing: bool,
-) -> R<()> {
+) -> R<bool> {
     let tried = folders.map.get(dst).cloned();
     let mut first_error = None;
     if let Some(name) = &tried {
-        match mail::move_to(s, src, expect, uids, name) {
-            Ok(()) => return Ok(()),
+        match mail::move_to(s, src, src_is_all_mail, expect, uids, name) {
+            Ok(left) => return Ok(left),
             // (W6.1) a folder that changed is not "a destination that failed": nothing is tried again
             Err(e) if mail::is_folder_changed(&e) => return Err(e),
             Err(e) => first_error = Some(e),
@@ -3837,7 +3841,7 @@ fn move_to_role<T: std::io::Read + std::io::Write>(
         // the server has the folder we tried: the move failed for another reason
         return Err(first_error.unwrap_or_else(|| folder_missing(dst)));
     }
-    mail::move_to(s, src, expect, uids, &name)
+    mail::move_to(s, src, src_is_all_mail, expect, uids, &name)
 }
 
 /// The server folder for a role, looked up on the server: the saved list is replaced by a fresh LIST (once per action), and a standard
@@ -9997,6 +10001,17 @@ mod thread_copies_tests {
         let list = threads_for(&lock(&db), f).unwrap();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].count, 4);
+    }
+
+    /// The actions work on every copy of a message (by conversation): the view shows one, the action list still has them all.
+    #[test]
+    fn the_thread_actions_still_see_every_copy_after_the_view_shows_one() {
+        let (db, tid) = db_with_copies(&["inbox", "archive"]);
+        assert_eq!(get_thread_in(&db, &tid, None, true).unwrap().len(), 4);
+        let refs = thread_msgs(&lock(&db), &[tid]).unwrap();
+        assert_eq!(refs.len(), 8, "all copies are acted on");
+        assert_eq!(refs.iter().filter(|r| r.role == "inbox").count(), 4);
+        assert_eq!(refs.iter().filter(|r| r.role == "archive").count(), 4);
     }
 
     fn lock_conn_count(c: &Connection) -> i64 {

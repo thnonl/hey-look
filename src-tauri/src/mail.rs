@@ -1578,18 +1578,49 @@ fn expunge_ours<T: Read + Write>(s: &mut imap::Session<T>, uids: &[u32]) -> R<()
     Ok(())
 }
 
-pub fn move_to<T: Read + Write>(s: &mut imap::Session<T>, src: &str, expect: &Expect, uids: &[u32], dst: &str) -> R<()> {
+/// How a message is moved out of its folder.
+#[derive(Debug, PartialEq, Eq)]
+pub enum MovePlan {
+    /// `UID MOVE`, else `UID COPY` + `\Deleted` + `UID EXPUNGE` in the source folder (every server that is not Gmail, and Gmail for a message leaving a label or the Inbox)
+    MoveOrCopyExpunge,
+    /// `UID COPY` only: the message stays in the source folder
+    CopyOnly,
+}
+
+/// Gmail (1.0.13): a message in All Mail is the one object that every label points at; `\Deleted` + EXPUNGE in All Mail does not take a label off, it deletes the message (Gmail archives
+/// on an expunge in the Inbox or a label folder, but a message in All Mail has nothing left to be archived to: it goes to Trash and loses its labels). Moving a message OUT of All Mail
+/// (un-archive to the Inbox, to a label) is therefore a COPY alone: the copy adds the label and All Mail keeps its message. Every other move, and every other server, is as it was.
+pub fn move_plan(gmail: bool, src_is_all_mail: bool) -> MovePlan {
+    if gmail && src_is_all_mail {
+        MovePlan::CopyOnly
+    } else {
+        MovePlan::MoveOrCopyExpunge
+    }
+}
+
+/// Gmail announces its IMAP extensions with `X-GM-EXT-1`.
+fn is_gmail<T: Read + Write>(s: &mut imap::Session<T>) -> bool {
+    s.capabilities().map(|c| c.has_str("X-GM-EXT-1")).unwrap_or(false)
+}
+
+/// Move `uids` of `src` to `dst`. `src_is_all_mail`: the source folder is the account's archive role. Returns whether the messages left the source folder (false: Gmail kept them in All Mail).
+pub fn move_to<T: Read + Write>(s: &mut imap::Session<T>, src: &str, src_is_all_mail: bool, expect: &Expect, uids: &[u32], dst: &str) -> R<bool> {
     if uids.is_empty() {
-        return Ok(());
+        return Ok(true);
     }
     select_guarded(s, src, expect)?;
     let set = uids.iter().map(|u| u.to_string()).collect::<Vec<_>>().join(",");
+    if src_is_all_mail && move_plan(is_gmail(s), src_is_all_mail) == MovePlan::CopyOnly {
+        s.uid_copy(&set, dst).map_err(err)?;
+        return Ok(false);
+    }
     if s.uid_mv(&set, dst).is_ok() {
-        return Ok(());
+        return Ok(true);
     }
     s.uid_copy(&set, dst).map_err(err)?;
     s.uid_store(&set, "+FLAGS (\\Deleted)").map_err(err)?;
-    expunge_ours(s, uids)
+    expunge_ours(s, uids)?;
+    Ok(true)
 }
 
 pub fn delete_forever<T: Read + Write>(s: &mut imap::Session<T>, src: &str, expect: &Expect, uids: &[u32]) -> R<()> {
@@ -2639,5 +2670,14 @@ mod unsubscribe_body_tests {
         // lower-casing İ makes the text longer in bytes: the old byte offsets pointed into the middle of a character
         assert_eq!(find("", "İİİİİİİİİİİİİİİİİİİİİİİİİİ Unsubscribe https://x.example/u/8").as_deref(), Some("https://x.example/u/8"));
         assert_eq!(find("", "İİİİİİİİİİİİİİİİİİİİİİİİİİ https://x.example/u/9"), None);
+    }
+
+    /// 1.0.13: leaving All Mail on Gmail is a COPY alone (an expunge in All Mail deletes the message); everything else, and every other server, moves as before.
+    #[test]
+    fn a_move_out_of_all_mail_on_gmail_is_a_copy_alone_and_nothing_else_changes() {
+        assert_eq!(super::move_plan(true, true), super::MovePlan::CopyOnly, "Gmail, un-archive / move out of All Mail");
+        assert_eq!(super::move_plan(true, false), super::MovePlan::MoveOrCopyExpunge, "Gmail, archive from the Inbox (the expunge in the Inbox only takes the label off), delete, spam, a label to a label");
+        assert_eq!(super::move_plan(false, true), super::MovePlan::MoveOrCopyExpunge, "a plain IMAP server moves out of its Archive as always");
+        assert_eq!(super::move_plan(false, false), super::MovePlan::MoveOrCopyExpunge);
     }
 }
