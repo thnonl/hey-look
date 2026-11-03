@@ -17,6 +17,14 @@ ignore = [
     "RUSTSEC-2026-0367",
     "RUSTSEC-2026-0368",
     "RUSTSEC-2026-0369",
+    # zip 4.6.1: RUSTSEC-2026-0429 (ZipArchive::extract aborts the process on a symlink entry with a large declared size; dated 2026-10-22, high). Same crate, same only function
+    # (ZipArchive::extract), same exposure as the three entries above: our code never calls zip, the plugin extracts only after the minisign signature of the package was verified
+    # against our public key, our Windows packages are never a zip and the Windows build does not compile the zip crate. Fixed in zip >= 9.0.0: tauri-plugin-updater 2.14.1 (2026-10-28)
+    # depends on zip ^9 and Cargo.toml already allows it (a Cargo.lock change only; the patch is saved in the reports as zip9-cargo-lock.patch, cargo test --lib and cargo audit
+    # pass with it), but the macOS and Linux update path (tar.gz / AppImage unpacking) cannot be tested before this release: the bump is planned for 1.0.13 with a real update
+    # test on every platform, and then all four zip entries come out.
+    # 2026-11-03; approved by the owner (nam.hoang)
+    "RUSTSEC-2026-0429",
     # rsa 0.9.10: RUSTSEC-2023-0071 (Marvin attack: key recovery through timing seen over the network). No fixed version exists (0.10.0-rc.* is affected too).
     # Used only through pgp 0.21.0 (rPGP) in src/openpgp.rs, pgpstore.rs, pgpmail.rs: the optional OpenPGP keys of the user (RSA 3072) and RSA keys of others,
     # for signing, encrypting and decrypting mail on the user's own computer. No server of ours, and no network service answers with a decryption result or its
