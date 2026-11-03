@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.13 — unreleased
+
+### Fixed
+
+- A conversation no longer shows every message twice when the mailbox keeps a message in two folders (for example Gmail: Inbox and All Mail); lists that span folders count each message once
+- Gmail: a message moved back to the Inbox from All Mail is copied to the Inbox and stays in All Mail
+- Adding a Google account asks for mail and calendar on one Google page, instead of opening a second window for the calendar
+- Mail list: "Load older messages" is no longer shown when all mail is already loaded
+
 ## 1.0.12 — 2026-11-03
 
 ### Changed
