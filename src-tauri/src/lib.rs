@@ -2922,7 +2922,7 @@ fn locate_thread(state: tauri::State<AppState>, thread_id: String) -> Option<Thr
 
 /// One row of a list read: thread id, message id, mailbox, folder, subject, sender name, sender address, snippet, date, seen, flagged, has attachment, pinned, snoozed until,
 /// bulk (List-Unsubscribe), PGP bits, calendar method, importance.
-type ListRow = (String, String, String, String, String, String, String, String, i64, bool, bool, bool, bool, Option<i64>, bool, i64, Option<String>, i64);
+type ListRow = (String, String, String, String, String, String, String, String, i64, bool, bool, bool, bool, Option<i64>, bool, i64, Option<String>, i64, String);
 
 /// The most messages one list read takes (the conversations are made from them).
 const LIST_MESSAGE_CAP: usize = 4000;
@@ -2931,7 +2931,7 @@ const LIST_MESSAGE_CAP: usize = 4000;
 fn list_sql(table: &str, w: &[String], order: &str) -> String {
     format!(
         "SELECT m.thread_id,m.id,m.account_id,m.folder,m.subject,m.from_name,m.from_email,m.snippet,m.date,m.seen,m.flagged,m.has_attach,
-                COALESCE(tm.pinned,0), tm.snoozed_until, m.list_unsub IS NOT NULL, m.pgp, m.cal_method, m.importance
+                COALESCE(tm.pinned,0), tm.snoozed_until, m.list_unsub IS NOT NULL, m.pgp, m.cal_method, m.importance, COALESCE(m.message_id,'')
          FROM {table} m LEFT JOIN thread_meta tm ON tm.thread_id=m.thread_id
          WHERE {} ORDER BY m.date {order} LIMIT {LIST_MESSAGE_CAP}",
         w.join(" AND ")
@@ -2962,6 +2962,7 @@ fn read_list_rows(c: &Connection, table: &str, w: &[String], p: &[rusqlite::type
                 r.get::<_, i64>(15)?,
                 r.get::<_, Option<String>>(16)?,
                 r.get::<_, i64>(17)?,
+                r.get::<_, String>(18)?,
             ))
         })
         .map_err(err)?;
@@ -3116,8 +3117,13 @@ fn threads_for(c: &Connection, filter: ThreadFilter) -> R<Vec<ThreadSummary>> {
     }
     let mut order: Vec<String> = vec![];
     let mut map: HashMap<String, ThreadSummary> = HashMap::new();
+    let mut copies: std::collections::HashSet<(String, String)> = Default::default();
     for row in rows_all {
-        let (tid, mid, acct, folder, subject, fname, femail, snippet, date, seen, flagged, att, pinned, snooze, bulk, pgp, cal, imp) = row;
+        let (tid, mid, acct, folder, subject, fname, femail, snippet, date, seen, flagged, att, pinned, snooze, bulk, pgp, cal, imp, message_id) = row;
+        // a message the server keeps in two folders of one mailbox (Gmail: Inbox and All Mail) is one message of the list: a list over several folders (starred, pinned, a search) counts it once (1.0.13)
+        if !message_id.is_empty() && !copies.insert((acct.clone(), message_id)) {
+            continue;
+        }
         let who = if fname.is_empty() { femail } else { fname };
         let key = if filter.flat { mid } else { tid.clone() };
         let e = map.entry(key.clone()).or_insert_with(|| {
@@ -3463,8 +3469,47 @@ fn pack_thread(mut messages: Vec<MessageFull>) -> R<Vec<u8>> {
     Ok(out)
 }
 
+type ThreadRow = (MessageFull, i64, Option<Vec<u8>>);
+
+/// A message the server keeps in two folders of ONE mailbox (Gmail: the Inbox and All Mail, labels, Sent) is stored once per folder, with the same Message-ID and the same conversation; the
+/// conversation shows it once (1.0.13: every message of such a conversation appeared twice). One row per (mailbox, Message-ID), the others of that message are left out of the view only (the
+/// rows stay: moves, flags and the folder lists use them). Kept: the copy in the folder being looked at (`scope`: Trash or Junk), else one in Inbox, Sent or Drafts before Archive and the
+/// other folders, then the lowest UID. A message without a Message-ID is never merged, two mailboxes never merge. The date order of the rows is kept.
+fn one_copy_per_message(rows: Vec<ThreadRow>, scope: &str) -> Vec<ThreadRow> {
+    let rank = |m: &MessageFull| -> u8 {
+        if !scope.is_empty() && m.folder == scope {
+            0
+        } else if matches!(m.folder.as_str(), "inbox" | "sent" | "drafts") {
+            1
+        } else {
+            2
+        }
+    };
+    let uid = |m: &MessageFull| m.id.rsplit(':').next().and_then(|u| u.parse::<u32>().ok()).unwrap_or(u32::MAX);
+    let mut best: std::collections::HashMap<(String, String), usize> = Default::default();
+    for (i, (m, _, _)) in rows.iter().enumerate() {
+        let Some(mid) = m.message_id.as_deref().filter(|x| !x.is_empty()) else { continue };
+        let key = (m.account_id.clone(), mid.to_string());
+        match best.get(&key) {
+            Some(&j) if (rank(&rows[j].0), uid(&rows[j].0)) <= (rank(m), uid(m)) => {}
+            _ => {
+                best.insert(key, i);
+            }
+        }
+    }
+    rows.into_iter()
+        .enumerate()
+        .filter(|(i, (m, _, _))| match m.message_id.as_deref().filter(|x| !x.is_empty()) {
+            None => true,
+            Some(mid) => best.get(&(m.account_id.clone(), mid.to_string())) == Some(i),
+        })
+        .map(|(_, r)| r)
+        .collect()
+}
+
 fn get_thread_in(db: &Db, thread_id: &str, scope: Option<String>, light: bool) -> R<Vec<MessageFull>> {
     let cols = if light { MESSAGE_COLS_LIGHT } else { MESSAGE_COLS };
+    let scope_folder = scope.clone().unwrap_or_default();
     // the rows are read with the lock; the messages are opened without it
     let rows = {
         let c = lock(db);
@@ -3480,6 +3525,7 @@ fn get_thread_in(db: &Db, thread_id: &str, scope: Option<String>, light: bool) -
             .map_err(err)?;
         rows
     };
+    let rows = one_copy_per_message(rows, &scope_folder);
     Ok(rows
         .into_iter()
         .map(|(mut m, pgp, raw)| {
@@ -9828,5 +9874,132 @@ mod packed_thread_tests {
             let c = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("capabilities").join(format!("{f}.json"))).unwrap();
             assert!(c.contains("\"allow-get-thread\"") && c.contains("\"allow-get-thread-packed\""), "{f}: the two commands go together");
         }
+    }
+}
+
+/// 1.0.13: a message stored in two folders of one mailbox (Gmail: Inbox and All Mail) shows once in its conversation.
+#[cfg(test)]
+mod thread_copies_tests {
+    use super::*;
+
+    const A: &str = "11111111-2222-4333-8444-555555555555";
+    const B: &str = "66666666-7777-4888-8999-000000000000";
+
+    fn account(id: &str) -> Account {
+        Account {
+            id: id.into(), email: format!("{}@gmail.com", &id[..4]), display_name: "Me".into(), imap_host: "imap.gmail.com".into(), imap_port: 993, imap_ssl: true,
+            smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
+            smtp_username: String::new(), tls_insecure: false, reply_to: String::new(),
+        }
+    }
+
+    fn parsed(uid: u32, mid: Option<&str>, refs: &[&str], date: i64) -> mail::Parsed {
+        mail::Parsed {
+            uid, message_id: mid.map(String::from), refs: refs.iter().map(|s| s.to_string()).collect(), subject: "Verification".into(), from_name: "Google".into(), from_email: "noreply@google.com".into(), to: vec![], cc: vec![],
+            date, snippet: String::new(), html: None, text: Some("t".into()), seen: true, flagged: false, attachments: vec![],
+            list_unsub: None, list_unsub_post: false, pgp: 0, pgp_raw: None, ics: None, cal_method: None, importance: importance::Importance::Normal, auth: authres::Auth::Unknown, auth_ev: None, list_hdr: false, reply_hdr: None,
+        }
+    }
+
+    /// Four messages of one conversation, each in `folders` (uid = 100 * folder number + n).
+    fn db_with_copies(folders: &[&str]) -> (Db, String) {
+        let c = db::test_conn(&[A, B]);
+        for id in [A, B] {
+            db::insert_account(&c, &account(id)).unwrap();
+        }
+        for i in 1..=4u32 {
+            let mid = format!("m{i}@mail.test");
+            let refs: Vec<String> = (1..i).map(|k| format!("m{k}@mail.test")).collect();
+            let refs: Vec<&str> = refs.iter().map(String::as_str).collect();
+            for (n, f) in folders.iter().enumerate() {
+                insert_parsed(&c, &account(A), f, &parsed(100 * (n as u32 + 1) + i, Some(&mid), &refs, 1000 + i as i64)).unwrap();
+            }
+        }
+        let tid: String = c.query_row("SELECT DISTINCT thread_id FROM messages", [], |r| r.get(0)).unwrap();
+        (Arc::new(Mutex::new(c)), tid)
+    }
+
+    fn view(db: &Db, tid: &str, scope: Option<&str>) -> Vec<(String, Option<String>)> {
+        get_thread_in(db, tid, scope.map(String::from), true).unwrap().into_iter().map(|m| (m.folder, m.message_id)).collect()
+    }
+
+    #[test]
+    fn a_message_in_the_inbox_and_in_all_mail_shows_once_and_the_inbox_copy_is_kept() {
+        let (db, tid) = db_with_copies(&["inbox", "archive"]);
+        let rows = view(&db, &tid, None);
+        assert_eq!(rows.len(), 4, "{rows:?}");
+        assert!(rows.iter().all(|r| r.0 == "inbox"), "{rows:?}");
+        assert_eq!(rows.iter().map(|r| r.1.clone().unwrap()).collect::<Vec<_>>(), ["m1@mail.test", "m2@mail.test", "m3@mail.test", "m4@mail.test"], "date order kept");
+        // the rows are all still stored (moves, flags and the lists use them)
+        assert_eq!(lock(&db).query_row("SELECT COUNT(*) FROM messages", [], |r| r.get::<_, i64>(0)).unwrap(), 8);
+        // the other order of storing gives the same view
+        let (db, tid) = db_with_copies(&["archive", "inbox"]);
+        let rows = view(&db, &tid, None);
+        assert_eq!(rows.len(), 4);
+        assert!(rows.iter().all(|r| r.0 == "inbox"), "{rows:?}");
+    }
+
+    #[test]
+    fn inbox_sent_and_drafts_win_over_archive_and_the_lowest_uid_over_its_twin() {
+        let (db, tid) = db_with_copies(&["archive", "f:Work", "sent"]);
+        assert!(view(&db, &tid, None).iter().all(|r| r.0 == "sent"));
+        let (db, tid) = db_with_copies(&["inbox", "sent"]);
+        let ids: Vec<String> = get_thread_in(&db, &tid, None, true).unwrap().into_iter().map(|m| m.id).collect();
+        assert!(ids.iter().all(|i| i.contains(":inbox:")), "same rank: the lowest uid (the first folder) is kept: {ids:?}");
+    }
+
+    #[test]
+    fn the_folder_being_looked_at_keeps_its_copy() {
+        let (db, tid) = db_with_copies(&["inbox", "trash"]);
+        assert!(view(&db, &tid, None).iter().all(|r| r.0 == "inbox"), "trash is not in the view unless it is the scope");
+        let rows = view(&db, &tid, Some("trash"));
+        assert_eq!(rows.len(), 4);
+        assert!(rows.iter().all(|r| r.0 == "trash"), "{rows:?}");
+    }
+
+    #[test]
+    fn a_message_without_a_message_id_is_never_merged_and_two_mailboxes_never_merge() {
+        let c = db::test_conn(&[A, B]);
+        for id in [A, B] {
+            db::insert_account(&c, &account(id)).unwrap();
+        }
+        // no Message-ID: the thread is made from the folder and uid, so two copies are two messages
+        insert_parsed(&c, &account(A), "inbox", &parsed(1, None, &[], 10)).unwrap();
+        insert_parsed(&c, &account(A), "archive", &parsed(2, None, &[], 11)).unwrap();
+        assert_eq!(lock_conn_count(&c), 2);
+        let db: Db = Arc::new(Mutex::new(c));
+        let ids: Vec<String> = lock(&db).prepare("SELECT DISTINCT thread_id FROM messages").unwrap().query_map([], |r| r.get(0)).unwrap().filter_map(|r| r.ok()).collect();
+        let total: usize = ids.iter().map(|t| get_thread_in(&db, t, None, true).unwrap().len()).sum();
+        assert_eq!(total, 2, "nothing merged without a Message-ID");
+        // two mailboxes with the same Message-ID (the same mail sent to both): two entries
+        let c = db::test_conn(&[A, B]);
+        for id in [A, B] {
+            db::insert_account(&c, &account(id)).unwrap();
+            insert_parsed(&c, &account(id), "inbox", &parsed(1, Some("same@mail.test"), &[], 10)).unwrap();
+        }
+        let rows: Vec<(String, String)> = c.prepare("SELECT account_id, thread_id FROM messages").unwrap().query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().filter_map(|r| r.ok()).collect();
+        let db: Db = Arc::new(Mutex::new(c));
+        let n: usize = rows.iter().map(|r| r.1.clone()).collect::<std::collections::BTreeSet<_>>().iter().map(|t| get_thread_in(&db, t, None, true).unwrap().len()).sum();
+        assert_eq!(n, 2, "two mailboxes keep their own copy");
+    }
+
+    /// A list over several folders (the starred view, a search of the whole mailbox) counts a message kept in two folders once: the badge of the conversation says 4, not 8.
+    #[test]
+    fn a_list_over_several_folders_counts_a_message_in_two_folders_once() {
+        let (db, _tid) = db_with_copies(&["inbox", "archive"]);
+        lock(&db).execute("UPDATE messages SET flagged=1", []).unwrap();
+        let f: ThreadFilter = serde_json::from_value(serde_json::json!({ "accountId": null, "folder": "starred", "focus": null, "search": "", "flat": false, "unreadOnly": false, "flaggedOnly": false, "sortAsc": false, "scope": "current" })).unwrap();
+        let list = threads_for(&lock(&db), f).unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].count, 4, "one entry per message, not one per folder copy");
+        // the Inbox list (one folder) is as it was
+        let f: ThreadFilter = serde_json::from_value(serde_json::json!({ "accountId": null, "folder": "inbox", "focus": null, "search": "", "flat": false, "unreadOnly": false, "flaggedOnly": false, "sortAsc": false, "scope": "current" })).unwrap();
+        let list = threads_for(&lock(&db), f).unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].count, 4);
+    }
+
+    fn lock_conn_count(c: &Connection) -> i64 {
+        c.query_row("SELECT COUNT(*) FROM messages", [], |r| r.get(0)).unwrap()
     }
 }
