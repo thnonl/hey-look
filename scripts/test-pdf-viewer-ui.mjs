@@ -274,7 +274,11 @@ try {
       await evaluate(`document.querySelector('.pv-pdfjs').scrollTop = 3000; 1`);
       await sleep(150);
       await closeEsc();
-      assert.deepEqual(await evaluate(`({ canvases: document.querySelectorAll('canvas').length - ${baseCanvases}, pages: document.querySelectorAll('.pv-page, .pv-text-layer').length })`), { canvases: 0, pages: 0 }, `cycle ${i}: ${await evaluate(`[...document.querySelectorAll('canvas')].map((c) => c.parentElement.className + '/' + c.width + 'x' + c.height + '/' + c.outerHTML.slice(0, 80)).join(' ; ')`)} (base ${baseCanvases})`);
+      // (1.0.13: the cleanup of a closed viewer settles a moment after the close on a busy runner - a 300x150 canvas was still there in cycle 1 of a hosted run; the check waits for it with a bounded poll, 3 s, and fails with the same message when it never settles)
+      const leftOver = `({ canvases: document.querySelectorAll('canvas').length - ${baseCanvases}, pages: document.querySelectorAll('.pv-page, .pv-text-layer').length })`;
+      let left = await evaluate(leftOver);
+      for (let t0 = Date.now(); (left.canvases !== 0 || left.pages !== 0) && Date.now() - t0 < 3000; await sleep(50)) left = await evaluate(leftOver);
+      assert.deepEqual(left, { canvases: 0, pages: 0 }, `cycle ${i}: ${await evaluate(`[...document.querySelectorAll('canvas')].map((c) => c.parentElement.className + '/' + c.width + 'x' + c.height + '/' + c.outerHTML.slice(0, 80)).join(' ; ')`)} (base ${baseCanvases})`);
     }
     // one worker only: the page never made a second one
     assert.deepEqual(await evaluate('window.__csp'), []);
