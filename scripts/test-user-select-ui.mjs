@@ -127,10 +127,17 @@ try {
   await check('the compose body and the recipient field select as before (AC-13.3.6)', async () => {
     await evaluate(`window.__store.getState().openCompose({ accountId: 'a1', to: [], subject: 'Hello select', bodyHtml: '<p>alpha bravo charlie</p>' }); 1`);
     assert.ok(await waitFor(`!!document.querySelector('.cp-editor .tiptap')`, 10000), 'compose did not open');
+    await evaluate(`window.__store.setState({ toasts: [] }); 1`); // the error toast of the check above would sit over the body
     await sleep(500);
     const u = await evaluate(`getComputedStyle(document.querySelector('.cp-editor .tiptap')).userSelect`);
     assert.equal(u, 'text');
-    assert.ok((await selectedAfter('.cp-editor .tiptap p:nth-of-type(2)', 2)).length > 0, 'a word of the body');
+    // The body text is a direct child <p> of the editor (the empty .sig-above line is the typing line above the signature); a bare `p:nth-of-type(2)` would walk into the signature.
+    assert.ok((await selectedAfter('.cp-editor .tiptap > p:not(.sig-above)', 2)).length > 0, 'a word of the body');
+    // Accepted behaviour (BUG-2): the signature is not mouse-selectable and a click in it leaves the caret in the body.
+    if (await evaluate(`!!document.querySelector('.cp-editor .sig-block .sig-body p')`)) {
+      assert.equal(await selectedAfter('.cp-editor .sig-block .sig-body p', 2), '', 'a double-click in the signature selects nothing');
+      assert.ok(await evaluate(`!!document.querySelector('.cp-editor .tiptap')?.contains(document.getSelection()?.anchorNode) && !document.querySelector('.cp-editor .sig-block')?.contains(document.getSelection()?.anchorNode)`), 'the caret stays in the body');
+    }
     const subj = await evaluate(`getComputedStyle(document.querySelector('.compose-pane input[type=text], .compose-pane input:not([type])')).userSelect`);
     assert.equal(subj, 'text');
     await evaluate(`window.__store.getState().openCompose(null, { restore: false }); 1`);

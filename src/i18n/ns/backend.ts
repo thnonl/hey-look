@@ -36,6 +36,7 @@ export default define({
     "backend.AI_HTTP.plain": "The AI Assistant returned an error ({status}).",
     "backend.UPDATE_BUSY": "A download is already running.",
     "backend.UPDATE_NONE_READY": "No update is ready to install.",
+    "backend.UPDATE_OFF": "This copy of Hey Look! does not update itself.",
     "backend.OAUTH_CANCELLED": "{label} sign-in cancelled",
     "backend.OAUTH_TIMEOUT": "{label} sign-in timed out",
     "backend.OAUTH_REFUSED": "{label} sign-in was not completed: {reason}",

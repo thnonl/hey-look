@@ -37,6 +37,7 @@ export default defineLocale<typeof ns.en>({
   "backend.AI_HTTP.plain": "ИИ-помощник вернул ошибку ({status}).",
   "backend.UPDATE_BUSY": "Скачивание уже идёт.",
   "backend.UPDATE_NONE_READY": "Нет обновления, готового к установке.",
+  "backend.UPDATE_OFF": "Эта копия Hey Look! не обновляется сама.",
   "backend.OAUTH_CANCELLED": "Вход через {label} отменён",
   "backend.OAUTH_TIMEOUT": "Время ожидания входа через {label} истекло",
   "backend.OAUTH_REFUSED": "Вход через {label} не завершён: {reason}",

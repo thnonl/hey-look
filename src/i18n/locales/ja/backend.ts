@@ -37,6 +37,7 @@ export default defineLocale<typeof ns.en>({
   "backend.AI_HTTP.plain": "AIアシスタントがエラーを返しました（{status}）。",
   "backend.UPDATE_BUSY": "ダウンロードは既に実行中です。",
   "backend.UPDATE_NONE_READY": "インストールできるアップデートはありません。",
+  "backend.UPDATE_OFF": "このHey Look!は自動では更新されません。",
   "backend.OAUTH_CANCELLED": "{label}のサインインがキャンセルされました",
   "backend.OAUTH_TIMEOUT": "{label}のサインインがタイムアウトしました",
   "backend.OAUTH_REFUSED": "{label}のサインインが完了しませんでした：{reason}",

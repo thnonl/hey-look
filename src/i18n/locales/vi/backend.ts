@@ -37,6 +37,7 @@ export default defineLocale<typeof ns.en>({
   "backend.AI_HTTP.plain": "Trợ lý AI trả về lỗi ({status}).",
   "backend.UPDATE_BUSY": "Đã có một lượt tải xuống đang diễn ra.",
   "backend.UPDATE_NONE_READY": "Chưa có bản cập nhật nào sẵn sàng để cài đặt.",
+  "backend.UPDATE_OFF": "Bản Hey Look! này không tự cập nhật.",
   "backend.OAUTH_CANCELLED": "Đã hủy đăng nhập {label}",
   "backend.OAUTH_TIMEOUT": "Đăng nhập {label} đã hết thời gian chờ",
   "backend.OAUTH_REFUSED": "Chưa hoàn tất đăng nhập {label}: {reason}",

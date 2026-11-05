@@ -37,6 +37,7 @@ export default defineLocale<typeof ns.en>({
   "backend.AI_HTTP.plain": "Der KI-Assistent hat einen Fehler gemeldet ({status}).",
   "backend.UPDATE_BUSY": "Ein Download läuft bereits.",
   "backend.UPDATE_NONE_READY": "Es ist kein Update zur Installation bereit.",
+  "backend.UPDATE_OFF": "Diese Kopie von Hey Look! aktualisiert sich nicht selbst.",
   "backend.OAUTH_CANCELLED": "Anmeldung bei {label} abgebrochen",
   "backend.OAUTH_TIMEOUT": "Zeitüberschreitung bei der Anmeldung bei {label}",
   "backend.OAUTH_REFUSED": "Anmeldung bei {label} nicht abgeschlossen: {reason}",

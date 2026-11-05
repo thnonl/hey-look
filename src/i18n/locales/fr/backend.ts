@@ -37,6 +37,7 @@ export default defineLocale<typeof ns.en>({
   "backend.AI_HTTP.plain": "L’assistant IA a renvoyé une erreur ({status}).",
   "backend.UPDATE_BUSY": "Un téléchargement est déjà en cours.",
   "backend.UPDATE_NONE_READY": "Aucune mise à jour n’est prête à être installée.",
+  "backend.UPDATE_OFF": "Cette copie de Hey Look! ne se met pas à jour toute seule.",
   "backend.OAUTH_CANCELLED": "Connexion à {label} annulée",
   "backend.OAUTH_TIMEOUT": "Délai de connexion à {label} dépassé",
   "backend.OAUTH_REFUSED": "La connexion à {label} n’a pas abouti : {reason}",

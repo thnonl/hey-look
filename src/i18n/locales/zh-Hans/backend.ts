@@ -37,6 +37,7 @@ export default defineLocale<typeof ns.en>({
   "backend.AI_HTTP.plain": "AI 助手返回了错误（{status}）。",
   "backend.UPDATE_BUSY": "已有下载正在进行。",
   "backend.UPDATE_NONE_READY": "没有可安装的更新。",
+  "backend.UPDATE_OFF": "这个 Hey Look! 副本不会自动更新。",
   "backend.OAUTH_CANCELLED": "已取消 {label} 登录",
   "backend.OAUTH_TIMEOUT": "{label} 登录已超时",
   "backend.OAUTH_REFUSED": "{label} 登录未完成：{reason}",
