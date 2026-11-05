@@ -240,6 +240,12 @@
   <releases>
     <!-- The version-bump commit of a release adds its entry FIRST (the newest release is the snap's version and the one the release
          workflow checks against the tag). -->
+    <release version="1.0.14" date="2026-11-05">
+      <description>
+        <p>More room to write a message above your signature, and Hey Look! comes back to the front by itself after you sign in to Google or Microsoft in your browser.</p>
+      </description>
+      <url>https://github.com/thnonl/hey-look/releases/tag/v1.0.14</url>
+    </release>
     <release version="1.0.13" date="2026-11-03">
       <description>
         <p>Fixes for conversations that showed every message twice, for moving a message back to the Inbox on Gmail, for adding a Google account and for the Load older messages line.</p>

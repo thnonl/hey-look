@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.14 — 2026-11-05
+
+### Changed
+
+- Writing a message: the space where you type now takes most of the window, above your signature. A long signature is always shown in full, and a long message simply grows, so the whole message scrolls together with no gap before the signature
+- After you sign in to Google or Microsoft in your browser (to add an account, sign in again or connect a calendar), Hey Look! comes back to the front by itself, even when it was minimized or in the tray
+
+### Fixed
+
+- Writing a message: clicking anywhere in the empty space where you type puts the cursor there, not in the signature
+
 ## 1.0.13 — 2026-11-03
 
 ### Fixed
