@@ -96,6 +96,39 @@ for (const cfg of CFGS) {
   if (cfg.w === 960 || cfg.mode === 'popout') await shot(tag.replace(/\W+/g, '-'));
 }
 
+// 60% is a minimum: a long body (about 80 lines, typed or pasted) grows the typing area past the view; no inner scroll, no clipping, the
+// signature sits right below the last body line, and the whole editor scrolls as one so the last line and the signature can be reached
+for (const cfg of [{ mode: 'main', w: 1280, h: 720, kind: 'new', sig: 'short' }, { mode: 'main', w: 960, h: 560, kind: 'reply', sig: 'long' }, { mode: 'popout', w: 760, h: 680, kind: 'new', sig: 'short' }]) {
+  const tag = `long-body ${cfg.mode} ${cfg.w}x${cfg.h} ${cfg.kind} ${cfg.sig}-sig`;
+  try { await open(cfg); } catch (e) { ok(tag, false, String(e)); continue; }
+  const a0 = (await evaluate(PROBE)).above;
+  await clickAt(Math.round((a0.l + a0.r) / 2), a0.t + 8); await sleep(120);
+  const lines = Array.from({ length: 80 }, (_, i) => `<p>Body line ${i + 1}</p>`).join('');
+  await evaluate(`document.execCommand('insertHTML', false, ${JSON.stringify(lines)}); 1`);
+  await sleep(300);
+  const g = await evaluate(`(() => {
+    const e = document.querySelector('.cp-editor'), tip = e.querySelector('.tiptap'), sig = tip.querySelector('.sig-block'), above = tip.querySelector(':scope > .sig-above');
+    const ps = [...tip.children].filter((k) => k !== sig && !k.closest('.sig-block')), lastBody = [...tip.querySelectorAll(':scope > p')].filter((p) => /^Body line/.test(p.textContent)).pop();
+    const lb = lastBody && lastBody.getBoundingClientRect(), sb = sig.getBoundingClientRect();
+    const total = [...tip.querySelectorAll(':scope > p')].filter((p) => /^Body line/.test(p.textContent)).length;
+    e.scrollTop = e.scrollHeight;
+    const v = e.getBoundingClientRect(), lb2 = lastBody.getBoundingClientRect(), sb2 = sig.getBoundingClientRect();
+    return { view: e.clientHeight, lines: total, bodyBlocks: ps.length, scrollable: e.scrollHeight > e.clientHeight + 1, gap: Math.round(sb.top - lb.bottom), sigBottomReach: sb2.bottom <= v.bottom + 1, lastLineReach: lb2.top >= v.top - 1 && lb2.bottom <= v.bottom + 1 };
+  })()`);
+  const sc = await evaluate(`(() => { const tip = document.querySelector('.cp-editor .tiptap'); const above = tip.querySelector(':scope > .sig-above'); const bodyEls = [...tip.querySelectorAll(':scope > p')]; const h = bodyEls.reduce((a, p) => a + p.getBoundingClientRect().height, 0); return { bodyH: Math.round(h), tipScrolls: tip.scrollHeight > tip.clientHeight + 1, edScrolls: document.querySelector('.cp-editor').scrollHeight > document.querySelector('.cp-editor').clientHeight + 1 }; })()`);
+  console.log(tag, JSON.stringify({ ...g, ...sc }));
+  ok(tag, g.lines >= 80, `only ${g.lines} of 80 body lines were inserted`);
+  ok(tag, sc.bodyH > g.view, `the body text is ${sc.bodyH} px, not past the ${g.view} px view`);
+  ok(tag, !sc.tipScrolls, 'the body block has an inner scroll (scrollHeight > clientHeight)');
+  ok(tag, g.scrollable, 'the editor does not scroll for a long body');
+  ok(tag, g.gap >= 0 && g.gap <= 60, `the signature is ${g.gap} px below the last body line`);
+  ok(tag, g.lastLineReach || g.sigBottomReach, 'neither the last body line nor the signature is reachable by scrolling');
+  ok(tag, g.sigBottomReach, 'the signature bottom cannot be scrolled into view');
+  const lr = await evaluate(`(() => { const e = document.querySelector('.cp-editor'); e.scrollTop = 0; return 1; })()`);
+  const last = await evaluate(`(() => { const e = document.querySelector('.cp-editor'); const p = [...e.querySelectorAll('.tiptap > p')].filter((q) => /^Body line 80$/.test(q.textContent))[0]; p.scrollIntoView({ block: 'nearest' }); const b = p.getBoundingClientRect(), v = e.getBoundingClientRect(); return b.top >= v.top - 1 && b.bottom <= v.bottom + 1; })()`);
+  ok(tag, last, 'the last body line cannot be scrolled into view');
+}
+
 await H.shutdown();
 console.log(`${checks} checks, ${failures.length} failures`);
 process.exit(failures.length ? 1 : 0);
