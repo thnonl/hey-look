@@ -767,7 +767,7 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 .cp-pv .img-tools, .cp-pv .alt-pop { color: var(--fg); } /* the floating picture tools are app chrome: the app theme, not the preview */
 .cp-editor { flex: 1 0 var(--cp-body-min, 180px); overflow-y: auto; padding: 14px 20px; }
 .editor .tiptap { outline: none; min-height: 240px; }
-/* the typing area above the signature (signatureBody.ts marks the block): 60% of the client height of the body view (Compose.tsx sets --cp-typing-min in px from a ResizeObserver, 168px until then); the signature and the quote below it show in full and the whole body scrolls as one */
+/* the typing area above the signature (signatureBody.ts marks the block): 60% of the client height of the body view for the whole typing region: Compose.tsx sets --cp-typing-min in px = 60% minus the height of the blocks before this one (max 0), re-measured per frame on edits and resizes, 168px until then; the signature and the quote below it show in full and the whole body scrolls as one */
 .editor .tiptap > .sig-above { min-height: var(--cp-typing-min, 168px); }
 /* What the person writes looks like what is sent (editor/emailHtml.ts writes exactly these boxes): the message's default font and size, paragraphs without extra space, headings, lists and quotes with the same margins */
 .editor .tiptap, .rich-body .tiptap { font-family: var(--cp-font, Calibri, Carlito, Arial, sans-serif); font-size: var(--cp-size, 11pt); line-height: normal; }

@@ -13,7 +13,7 @@ import { arg, inputs, sleep, startHarness } from './cdp-harness.mjs';
 
 const H = await startHarness('test-compose-body-area', { vitePort0: 5580, cdpPort0: 9580 });
 const { evaluate, cdp } = H;
-const { clickAt, typeText, shot } = inputs(H, arg('shots'), 'body-area');
+const { clickAt, typeText, press, shot } = inputs(H, arg('shots'), 'body-area');
 const failures = [];
 let checks = 0;
 const ok = (tag, cond, msg) => { checks++; if (!cond) { failures.push(`[${tag}] ${msg}`); console.error(`FAIL [${tag}] ${msg}`); } };
@@ -127,6 +127,52 @@ for (const cfg of [{ mode: 'main', w: 1280, h: 720, kind: 'new', sig: 'short' },
   const lr = await evaluate(`(() => { const e = document.querySelector('.cp-editor'); e.scrollTop = 0; return 1; })()`);
   const last = await evaluate(`(() => { const e = document.querySelector('.cp-editor'); const p = [...e.querySelectorAll('.tiptap > p')].filter((q) => /^Body line 80$/.test(q.textContent))[0]; p.scrollIntoView({ block: 'nearest' }); const b = p.getBoundingClientRect(), v = e.getBoundingClientRect(); return b.top >= v.top - 1 && b.bottom <= v.bottom + 1; })()`);
   ok(tag, last, 'the last body line cannot be scrolled into view');
+}
+
+// BUG-1: 80 paragraphs typed with Enter (one Enter per line) and a 40-line signature: the 60% minimum is for the whole typing region, so the last
+// body line has the signature right under it (one normal paragraph gap), not a blank 60% block
+for (const cfg of [{ mode: 'main', w: 1280, h: 720, kind: 'new', sig: 'long' }, { mode: 'main', w: 960, h: 560, kind: 'reply', sig: 'long' }, { mode: 'popout', w: 560, h: 440, kind: 'new', sig: 'long' }]) {
+  const tag = `enter-body ${cfg.mode} ${cfg.w}x${cfg.h} ${cfg.kind} ${cfg.sig}-sig`;
+  try { await open(cfg); } catch (e) { ok(tag, false, String(e)); continue; }
+  const a0 = (await evaluate(PROBE)).above;
+  await clickAt(Math.round((a0.l + a0.r) / 2), a0.t + 8); await sleep(120);
+  for (let i = 1; i <= 80; i++) { await typeText(`L${i}`, 0); if (i < 80) await press('Enter', 'Enter'); }
+  await sleep(400);
+  const g = await evaluate(`(() => {
+    const e = document.querySelector('.cp-editor'), tip = e.querySelector('.tiptap'), sig = tip.querySelector('.sig-block');
+    const ps = [...tip.querySelectorAll(':scope > p')].filter((p) => /^L[0-9]+$/.test(p.textContent)), last = ps[ps.length - 1];
+    return { n: ps.length, gap: Math.round(sig.getBoundingClientRect().top - last.getBoundingClientRect().bottom), lastH: Math.round(last.getBoundingClientRect().height), sigScrolls: sig.querySelector('.sig-body').scrollHeight > sig.querySelector('.sig-body').clientHeight + 1 };
+  })()`);
+  console.log(tag, JSON.stringify(g));
+  ok(tag, g.n === 80, `${g.n} of 80 typed paragraphs`);
+  ok(tag, g.gap >= 0 && g.gap <= 24, `the signature is ${g.gap} px below the last body line (last block ${g.lastH} px)`);
+  ok(tag, !g.sigScrolls, 'the signature has an inner scroll');
+  // the 60% minimum still holds after the text is deleted again
+  await evaluate(`document.querySelector('.cp-editor .tiptap').focus(); 1`);
+  await press('a', 'KeyA', 2); await press('Backspace', 'Backspace'); await sleep(300);
+  const m = await evaluate(PROBE);
+  ok(tag, m.above && m.above.h >= Math.floor(m.view * 0.6) - 1, `after deleting the text the typing area is ${m.above?.h} px of a ${m.view} px view`);
+}
+
+// content that grows after the edit (a picture above the threshold that finishes loading later) (content grows without an edit): the signature still sits right under the last block
+{
+  const cfg = { mode: 'main', w: 1280, h: 720, kind: 'new', sig: 'long' }, tag = 'late-image main 1280x720 new long-sig';
+  try {
+    await open(cfg);
+    const a0 = (await evaluate(PROBE)).above;
+    await clickAt(Math.round((a0.l + a0.r) / 2), a0.t + 8); await sleep(120);
+    await typeText('Hello', 0); await press('Enter', 'Enter'); await typeText('After picture', 0); await sleep(200);
+    // content above grows without an edit, as when a picture finishes loading (no schema round trip): the first block gets 700 px later
+    await evaluate(`1`);
+    await sleep(300);
+    const before = await evaluate(`Math.round(document.querySelector('.cp-editor .tiptap > .sig-above').getBoundingClientRect().height)`);
+    await evaluate(`(() => { const st = document.createElement('style'); st.textContent = '.cp-editor .tiptap > p:first-child { min-height: 700px; }'; document.head.appendChild(st); return 1; })()`);
+    await sleep(500);
+    const g = await evaluate(`(() => { const tip = document.querySelector('.cp-editor .tiptap'), sig = tip.querySelector('.sig-block'), a = tip.querySelector(':scope > .sig-above'); return { gap: Math.round(sig.getBoundingClientRect().top - a.getBoundingClientRect().bottom), aboveH: Math.round(a.getBoundingClientRect().height) }; })()`);
+    console.log(tag, JSON.stringify({ before, ...g, p1: await evaluate(`Math.round(document.querySelector('.cp-editor .tiptap > p').getBoundingClientRect().height) + ' ' + document.querySelector('.cp-editor .tiptap > p').outerHTML`) }));
+    ok(tag, g.gap >= 0 && g.gap <= 24, `the signature is ${g.gap} px below the last block after the picture grew`);
+    ok(tag, g.aboveH <= 60, `the last block is ${g.aboveH} px after the picture grew (was ${before} px)`);
+  } catch (e) { ok(tag, false, String(e)); }
 }
 
 await H.shutdown();

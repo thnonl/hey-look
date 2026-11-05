@@ -685,17 +685,42 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   };
 
   // the typing area above the signature takes TYPING_SHARE of the visible body view (px, measured: no container units / :has(), App.css has a px fallback)
+  // The 60% is for the whole typing region (every block above the signature): the block right above the signature (.sig-above) only gets what the
+  // blocks before it do not already fill, so a long body has no blank gap above the signature. One measure per frame, idempotent (no loop).
   useEffect(() => {
     const el = bodyRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
+    if (!el || !editor || typeof ResizeObserver === "undefined") return;
+    let raf = 0;
+    let last = "";
     const set = () => {
+      raf = 0;
       const view = el.clientHeight;
-      if (view > 0) el.style.setProperty("--cp-typing-min", `${Math.round(view * TYPING_SHARE)}px`);
+      if (view <= 0) return;
+      const target = view * TYPING_SHARE;
+      const tip = el.querySelector<HTMLElement>(".tiptap");
+      const above = tip?.querySelector<HTMLElement>(":scope > .sig-above");
+      let min = target;
+      if (tip && above) {
+        const start = tip.getBoundingClientRect().top + (parseFloat(getComputedStyle(tip).paddingTop) || 0);
+        min = Math.max(0, target - (above.getBoundingClientRect().top - start));
+      }
+      const next = `${Math.round(min)}px`;
+      // unchanged: skip, so the observer on the editor root (its height follows this value) cannot loop
+      if (last !== next) el.style.setProperty("--cp-typing-min", (last = next));
+    };
+    const schedule = () => {
+      if (!raf) raf = requestAnimationFrame(set);
     };
     set();
-    const ro = new ResizeObserver(set);
+    const ro = new ResizeObserver(schedule);
     ro.observe(el);
-    return () => ro.disconnect();
+    ro.observe(editor.view.dom); // content that grows without an edit (a picture that loads late, reflow)
+    editor.on("update", schedule);
+    return () => {
+      ro.disconnect();
+      editor.off("update", schedule);
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, [editor]);
 
   // the placeholder follows the language while the message is open (a compose that was open when the language was switched kept the old text)
