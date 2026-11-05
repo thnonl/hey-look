@@ -78,6 +78,69 @@ pub fn show_main(app: &AppHandle) {
     }
 }
 
+// ---------- back to the app after the browser consent ----------
+
+/// Which window comes to the front when a browser consent ends: the window that started it, else the main window (it was closed, or a
+/// pop-out that is gone).
+pub fn consent_target(origin: &str, exists: impl Fn(&str) -> bool) -> String {
+    if exists(origin) { origin.to_string() } else { "main".to_string() }
+}
+
+/// Does the end of `finish` mean the person was in the browser? A cancel (the app's own button) and a timeout (nobody came) did not
+/// bring a redirect, so the window stays where it is; a success, a refusal and a failed exchange did, and the person has to see them.
+pub fn consent_returned<T>(result: &Result<T, String>) -> bool {
+    match result {
+        Ok(_) => true,
+        Err(e) => !(e.starts_with("OAUTH_CANCELLED") || e.starts_with("OAUTH_TIMEOUT")),
+    }
+}
+
+/// The browser consent is done: bring the app to the front by itself (restore it when minimized, show it when it sits in the tray, focus
+/// it). `origin` is the label of the window that started the flow. Reuses `show_main` / `popout::bring_to_front`, plus what a background
+/// process needs to get past the foreground lock:
+/// - Windows: tao's `set_focus` already does the Alt-key trick before `SetForegroundWindow`; on top of it the window is put on top for a
+///   moment (always-on-top on, then off), which raises it in the z-order even where the system only flashes the taskbar button.
+/// - macOS: the app is activated (`NSApp activateIgnoringOtherApps:`), otherwise `set_focus` only orders the window front inside an
+///   inactive app.
+/// - Linux: `set_focus` (gtk `present`); the window manager may still only mark the window as needing attention.
+pub fn raise_after_consent(app: &AppHandle, origin: &str) {
+    let app2 = app.clone();
+    let origin = origin.to_string();
+    let _ = app.run_on_main_thread(move || {
+        let label = consent_target(&origin, |l| app2.get_webview_window(l).is_some());
+        #[cfg(target_os = "macos")]
+        activate_app();
+        if label == "main" {
+            show_main(&app2);
+        } else {
+            crate::popout::bring_to_front(&app2, &label);
+        }
+        if let Some(w) = app2.get_webview_window(&label) {
+            #[cfg(windows)]
+            {
+                let _ = w.set_always_on_top(true);
+                let _ = w.set_always_on_top(false);
+            }
+            let _ = w.set_focus();
+        }
+    });
+}
+
+#[cfg(target_os = "macos")]
+fn activate_app() {
+    use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject, Bool};
+    // SAFETY: plain Objective-C messages on the main thread (`raise_after_consent` runs in `run_on_main_thread`).
+    unsafe {
+        if let Some(cls) = AnyClass::get(c"NSApplication") {
+            let ns_app: *mut AnyObject = msg_send![cls, sharedApplication];
+            if !ns_app.is_null() {
+                let _: () = msg_send![ns_app, activateIgnoringOtherApps: Bool::YES];
+            }
+        }
+    }
+}
+
 // ---------- badge icon (anti-aliased, real font) ----------
 
 static FONT: OnceLock<Option<fontdue::Font>> = OnceLock::new();
@@ -1429,6 +1492,53 @@ mod platform_tests {
         for word in ["autorelease", "CFRelease", "objc_release", ".release()", "msg_send"] {
             assert!(!src.contains(word), "shell.rs must not use {word}");
         }
+    }
+
+    #[test]
+    fn the_consent_brings_the_window_that_started_it_to_the_front() {
+        // the window that started it, else the main one (a closed pop-out)
+        assert_eq!(consent_target("main", |l| l == "main"), "main");
+        assert_eq!(consent_target("compose-2", |_| true), "compose-2");
+        assert_eq!(consent_target("compose-2", |l| l == "main"), "main");
+        // success, refusal and a failed exchange raise the app; the app's own Cancel and the timeout do not
+        assert!(consent_returned::<()>(&Ok(())));
+        assert!(consent_returned::<()>(&Err("OAUTH_REFUSED|label=Google|reason=access_denied: Google sign-in refused".into())));
+        assert!(consent_returned::<()>(&Err("token exchange failed: invalid_grant".into())));
+        assert!(!consent_returned::<()>(&Err(crate::i18n::coded("OAUTH_CANCELLED", &[("label", "Google")], "Google sign-in cancelled"))));
+        assert!(!consent_returned::<()>(&Err(crate::i18n::coded("OAUTH_TIMEOUT", &[("label", "Google")], "Google sign-in timed out"))));
+    }
+
+    /// The raise sits right after the wait for the browser in every flow (add account, Sign in again, calendar consent), and the helper
+    /// reuses the existing show/focus code and activates the app on macOS.
+    #[test]
+    fn every_consent_flow_raises_the_app_when_the_browser_is_done() {
+        let lib = crate::test_guard::non_test_code(include_str!("lib.rs"));
+        let sign = &lib[lib.find("async fn oauth_sign_in").unwrap()..];
+        let sign = &sign[..sign.find("
+}
+").unwrap()];
+        let wait = sign.find("pending.finish(").unwrap();
+        let raise = sign.find("shell::raise_after_consent(&app, &origin)").expect("mail sign-in does not raise the app");
+        assert!(raise > wait && sign.contains("shell::consent_returned(&signed)"));
+        for cmd in ["google_sign_in", "microsoft_sign_in", "reauth_account"] {
+            let f = &lib[lib.find(&format!("async fn {cmd}(")).unwrap()..];
+            assert!(f[..f.find("
+}
+").unwrap()].contains("window.label().to_string()"), "{cmd}");
+        }
+        let cal = crate::test_guard::non_test_code(include_str!("calsync/cmds.rs"));
+        let cc = &cal[cal.find("pub async fn calendar_connect").unwrap()..];
+        let cc = &cc[..cc.find("
+}
+").unwrap()];
+        assert!(cc.find("crate::shell::raise_after_consent(&app, window.label())").unwrap() > cc.find("pending.finish(").unwrap());
+        let sh = crate::test_guard::non_test_code(include_str!("shell.rs"));
+        let r = &sh[sh.find("pub fn raise_after_consent").unwrap()..];
+        let r = &r[..r.find("
+}
+").unwrap()];
+        assert!(r.contains("show_main(&app2)") && r.contains("popout::bring_to_front(&app2, &label)") && r.contains("activate_app()") && r.contains("set_focus()"), "{r}");
+        assert!(sh.contains("activateIgnoringOtherApps"));
     }
 
     #[test]

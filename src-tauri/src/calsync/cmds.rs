@@ -119,7 +119,7 @@ pub fn check_grant(provider: Provider, mailbox: &str, signed_email: &str, grante
 /// Turn calendar sync on for a mailbox: a separate consent in the browser with only the calendar scopes. The mail sign-in and its token
 /// are not touched. On success the calendar token is kept in the credential store and the first sync starts.
 #[tauri::command]
-pub async fn calendar_connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>, account_id: String) -> R<SourceInfo> {
+pub async fn calendar_connect(window: tauri::WebviewWindow, app: tauri::AppHandle, state: tauri::State<'_, AppState>, account_id: String) -> R<SourceInfo> {
     let db = state.db.clone();
     let (acc, kind) = {
         let c = lock(&db);
@@ -150,6 +150,9 @@ pub async fn calendar_connect(app: tauri::AppHandle, state: tauri::State<'_, App
             let (cid, csec) = (client_id.trim().to_string(), client_secret.trim().to_string());
             let signed = blocking(move || pending.finish(&cid, &csec)).await;
             *connecting() = None;
+            if crate::shell::consent_returned(&signed) {
+                crate::shell::raise_after_consent(&app, window.label());
+            }
             signed.map_err(|e| connect_error(&e, &acc.email))?
         }
     };

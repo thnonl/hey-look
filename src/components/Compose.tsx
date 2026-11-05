@@ -33,6 +33,7 @@ import { unwrapBase, type BaseFont } from "../editor/emailHtml";
 import { extractQuote, quotePictureBytes } from "../editor/quoteBlock";
 import { baseFromPrefs } from "../editor/baseFont";
 import { repairSignature, signatureGuard } from "../signatureGuard";
+import { bodyCaretSelection, sigAboveDecor } from "../signatureBody";
 import { BAR_ITEMS, BAR_ROW_MAX, isCompact, keptItems, overflowCount, type BarItem } from "../composeFit";
 import { composeHasContent, draftContent, isPersonEdit } from "../composeContent";
 import { autosaveDue, snapshotDue, timing, type AutosaveWhy } from "../autosave";
@@ -84,6 +85,8 @@ const approxBytes = (a: Att) => Math.floor((a.dataBase64.length * 3) / 4);
 const FindBar = lazy(() => import("../editor/FindBar").then((m) => ({ default: m.FindBar })));
 
 const LARGE_PICTURE = 1024 * 1024;
+/** The typing area above the signature is this share of the client height of the body view (the signature and the quote sit below it). */
+const TYPING_SHARE = 0.6;
 
 
 /**
@@ -100,7 +103,7 @@ const SignatureBlock = (cb: { mount: (el: HTMLElement) => void; unmount: (el: HT
     draggable: false,
     parseHTML: () => [{ tag: "div[data-sig-block]" }],
     renderHTML: () => ["div", { "data-sig-block": "" }],
-    addProseMirrorPlugins: () => [signatureGuard("signatureBlock")],
+    addProseMirrorPlugins: () => [signatureGuard("signatureBlock"), sigAboveDecor("signatureBlock")],
     addNodeView: () => () => {
       const dom = document.createElement("div");
       dom.className = "sig-block none";
@@ -669,6 +672,31 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       countPictures(ed);
     },
   });
+
+  // a press on the empty part of the body area (below or beside the text: the box itself, not a block in it) puts the caret in the typing paragraph
+  // above the signature, never on the signature or the quote; the browser would pick the nearest position, which can be next to the signature region
+  const focusBodyFromBlank = (e: React.MouseEvent<HTMLDivElement>) => {
+    const el = e.target as HTMLElement;
+    if (!editor || e.button !== 0 || !(el === e.currentTarget || el.classList.contains("editor") || el.classList.contains("tiptap"))) return;
+    const sel = bodyCaretSelection(editor.state, "signatureBlock");
+    e.preventDefault();
+    if (sel) editor.view.dispatch(editor.state.tr.setSelection(sel).scrollIntoView());
+    editor.view.focus();
+  };
+
+  // the typing area above the signature takes TYPING_SHARE of the visible body view (px, measured: no container units / :has(), App.css has a px fallback)
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const set = () => {
+      const view = el.clientHeight;
+      if (view > 0) el.style.setProperty("--cp-typing-min", `${Math.round(view * TYPING_SHARE)}px`);
+    };
+    set();
+    const ro = new ResizeObserver(set);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [editor]);
 
   // the placeholder follows the language while the message is open (a compose that was open when the language was switched kept the old text)
   const placeholderText = t("compose.editor.placeholder");
@@ -2418,7 +2446,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
         {link.node}
       </div>
 
-      <div className={`cp-editor cp-pv pv-${pv}`} style={{ ...previewVars(pv), "--cp-font": base.family, "--cp-size": `${base.size}pt` } as React.CSSProperties} data-preparing={preparing ? "" : undefined} ref={bodyRef} onScroll={picTools.sync}>
+      <div className={`cp-editor cp-pv pv-${pv}`} style={{ ...previewVars(pv), "--cp-font": base.family, "--cp-size": `${base.size}pt` } as React.CSSProperties} data-preparing={preparing ? "" : undefined} ref={bodyRef} onScroll={picTools.sync} onMouseDown={focusBodyFromBlank}>
         {find && editor && <Suspense fallback={null}><FindBar editor={editor} mode={find.mode} nonce={find.nonce} onClose={() => setFind(null)} /></Suspense>}
         {preparing ? (
           // the shell of an answer (W13.13): the status takes the place of the editor (same box, so nothing moves when the message fills in); it shows when the work takes more than 100 ms

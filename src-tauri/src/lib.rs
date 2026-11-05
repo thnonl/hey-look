@@ -585,6 +585,7 @@ fn check_new_account(
 
 #[tauri::command]
 async fn google_sign_in(
+    window: tauri::WebviewWindow,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     client_id: String,
@@ -592,11 +593,12 @@ async fn google_sign_in(
     display_name: String,
     with_calendar: Option<bool>,
 ) -> R<Account> {
-    oauth_sign_in(app, state, Provider::Google, client_id, client_secret, None, display_name, None, with_calendar.unwrap_or(false)).await
+    oauth_sign_in(app, state, window.label().to_string(), Provider::Google, client_id, client_secret, None, display_name, None, with_calendar.unwrap_or(false)).await
 }
 
 #[tauri::command]
 async fn microsoft_sign_in(
+    window: tauri::WebviewWindow,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     client_id: String,
@@ -604,7 +606,7 @@ async fn microsoft_sign_in(
     tenant: Option<String>,
     display_name: String,
 ) -> R<Account> {
-    oauth_sign_in(app, state, Provider::Microsoft, client_id, client_secret, tenant, display_name, None, false).await
+    oauth_sign_in(app, state, window.label().to_string(), Provider::Microsoft, client_id, client_secret, tenant, display_name, None, false).await
 }
 
 /// The mail sign-in that waits for the browser (Add account, Sign in again): what the Cancel button ends.
@@ -618,7 +620,7 @@ fn oauth_cancel() {
 
 /// "Sign in again" for a Google / Microsoft mailbox whose sign-in ended: the same address, the same account (its mail stays), a new token.
 #[tauri::command]
-async fn reauth_account(app: tauri::AppHandle, state: tauri::State<'_, AppState>, account_id: String) -> R<Account> {
+async fn reauth_account(window: tauri::WebviewWindow, app: tauri::AppHandle, state: tauri::State<'_, AppState>, account_id: String) -> R<Account> {
     let (acc, provider) = {
         let c = lock(&state.db);
         let acc = db::get_account(&c, &account_id)?;
@@ -627,10 +629,11 @@ async fn reauth_account(app: tauri::AppHandle, state: tauri::State<'_, AppState>
     };
     let (client_id, client_secret) = oauth_creds(&state.db, provider);
     let tenant = oauth_tenant(&state.db, provider);
-    oauth_sign_in(app, state, provider, client_id, client_secret, Some(tenant), String::new(), Some(acc.email), false).await
+    oauth_sign_in(app, state, window.label().to_string(), provider, client_id, client_secret, Some(tenant), String::new(), Some(acc.email), false).await
 }
 
 /// `expect`: the address the sign-in must be for (Sign in again); another account is refused before anything is stored.
+/// `origin`: the label of the window that started it; when the browser is done that window (else the main one) is brought to the front.
 /// `with_calendar`: the first sign-in of a Google mailbox asks for mail and calendar on one consent page (`oauth::consent_purpose`); the calendar
 /// is kept when it was allowed. Not allowed (the page lets the person untick it) or not saved: the mailbox is added without calendar sync, and
 /// the calendar's own consent stays available.
@@ -638,6 +641,7 @@ async fn reauth_account(app: tauri::AppHandle, state: tauri::State<'_, AppState>
 async fn oauth_sign_in(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
+    origin: String,
     provider: Provider,
     client_id: String,
     client_secret: String,
@@ -674,6 +678,10 @@ async fn oauth_sign_in(
     let (cid, csec) = (client_id.trim().to_string(), client_secret.trim().to_string());
     let signed = blocking(move || pending.finish(&cid, &csec)).await;
     MAIL_WAIT.end(&wait);
+    // the person comes back from the browser: the app comes to the front by itself (also on a refusal or a failed exchange, to show it)
+    if shell::consent_returned(&signed) {
+        shell::raise_after_consent(&app, &origin);
+    }
     // (a cancel or a timeout ends here: nothing was stored, no account was added or changed)
     let signed = signed?;
     let calendar_granted = oauth::judge_first_grant(provider, asked, &signed.scope)?;

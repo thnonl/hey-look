@@ -9,6 +9,7 @@ import { Schema } from "@tiptap/pm/model";
 import { EditorState, NodeSelection, TextSelection, AllSelection } from "@tiptap/pm/state";
 import { history, undo, redo } from "@tiptap/pm/history";
 import { repairSignature, signatureGuard } from "../src/signatureGuard.ts";
+import { blockAboveSignature, bodyCaretPos, sigAboveDecor } from "../src/signatureBody.ts";
 
 const schema = new Schema({
   nodes: {
@@ -149,3 +150,17 @@ const src = readFileSync(new URL("../src/components/Compose.tsx", import.meta.ur
 assert.match(src, /signatureGuard\("signatureBlock"\)/, "the editor registers the guard");
 assert.doesNotMatch(src, /insertContentAt\(ed\.state\.doc\.content\.size, \[\{ type: "signatureBlock" \}/, "no re-insert at the end of the document");
 console.log("ok - test-signature-guard");
+
+// the typing area above the signature (signatureBody.ts): the block right above the region is the one marked, and a click on blank space puts the caret at its end
+{
+  const s = mk(doc(p("Hello"), p("more"), sig(), N.blockquote.create(null, p("quoted"))));
+  const b = blockAboveSignature(s, "signatureBlock");
+  assert.equal(s.doc.nodeAt(b.pos).textContent, "more", "the block right above the signature");
+  assert.equal(bodyCaretPos(s, "signatureBlock"), b.pos + s.doc.nodeAt(b.pos).nodeSize - 1, "caret at the end of that paragraph");
+  const decos = sigAboveDecor("signatureBlock").props.decorations(s).find();
+  assert.equal(decos.length, 1);
+  assert.equal(decos[0].from, b.pos);
+  assert.equal(bodyCaretPos(mk(doc(img(), sig(), p(""))), "signatureBlock"), null, "a picture above the signature is not a text block");
+  assert.equal(blockAboveSignature(mk(doc(p("x"))), "signatureBlock"), null, "no signature region, nothing marked");
+  console.log("signature body area: ok");
+}

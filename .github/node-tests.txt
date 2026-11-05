@@ -157,6 +157,8 @@ ui-e | node scripts/test-settings-layout.mjs --quick --require-browser
 ui-d | node scripts/test-preview-layer.mjs --quick --require-browser
 # the compose pane at the smallest sizes: formatting row and body always in view, the header scrolls, Tab order and popovers, the labelled action row is one row in de and ru with the rest in More actions (thirteen of the combinations, with Meeting on at 946 x 552, in the 308 px pane next to the list when the list is asked for (the list is hidden below 1100 px while writing, W2.26) and in a window 80 px lower than the least one, Shift+Tab back from Where included; the full run is `node scripts/test-compose-fit.mjs`, about 8 minutes, 91 combinations)
 ui-f | node --experimental-strip-types scripts/test-compose-fit.mjs --quick --require-browser
+# the typing area above the signature is 60% of the editor view (168 px fallback), the signature is never capped and has no inner scroll, a click in the empty body focuses the paragraph above the signature (new / reply, short / long signature, main window and compose window)
+ui-b | node scripts/test-compose-body-area.mjs --require-browser
 # an open compose shows the placeholder and the accessible name of the body, and an open signature / template editor its accessible name, in the language in use after a language switch (and back); typed text and undo survive
 ui-c | node scripts/test-placeholder-lang.mjs --require-browser
 # 1.0.7 WP9c: the dev preview starts in the saved language with no English text drawn at any time and only that language's chunk fetched, all 8 languages one after the other without a raw key, nothing shown in two languages while a chunk loads, #langfail=fr gives the "Failed" toast and leaves language and setting, the pseudo-locale works
