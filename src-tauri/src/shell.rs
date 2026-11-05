@@ -109,7 +109,7 @@ pub fn raise_after_consent(app: &AppHandle, origin: &str) {
     let _ = app.run_on_main_thread(move || {
         let label = consent_target(&origin, |l| app2.get_webview_window(l).is_some());
         #[cfg(target_os = "macos")]
-        activate_app();
+        crate::macwin::activate_app();
         if label == "main" {
             show_main(&app2);
         } else {
@@ -124,21 +124,6 @@ pub fn raise_after_consent(app: &AppHandle, origin: &str) {
             let _ = w.set_focus();
         }
     });
-}
-
-#[cfg(target_os = "macos")]
-fn activate_app() {
-    use objc2::msg_send;
-    use objc2::runtime::{AnyClass, AnyObject, Bool};
-    // SAFETY: plain Objective-C messages on the main thread (`raise_after_consent` runs in `run_on_main_thread`).
-    unsafe {
-        if let Some(cls) = AnyClass::get(c"NSApplication") {
-            let ns_app: *mut AnyObject = msg_send![cls, sharedApplication];
-            if !ns_app.is_null() {
-                let _: () = msg_send![ns_app, activateIgnoringOtherApps: Bool::YES];
-            }
-        }
-    }
 }
 
 // ---------- badge icon (anti-aliased, real font) ----------
@@ -1537,8 +1522,8 @@ mod platform_tests {
         let r = &r[..r.find("
 }
 ").unwrap()];
-        assert!(r.contains("show_main(&app2)") && r.contains("popout::bring_to_front(&app2, &label)") && r.contains("activate_app()") && r.contains("set_focus()"), "{r}");
-        assert!(sh.contains("activateIgnoringOtherApps"));
+        assert!(r.contains("show_main(&app2)") && r.contains("popout::bring_to_front(&app2, &label)") && r.contains("macwin::activate_app()") && r.contains("set_focus()"), "{r}");
+        assert!(crate::test_guard::non_test_code(include_str!("macwin.rs")).contains("activateIgnoringOtherApps"));
     }
 
     #[test]

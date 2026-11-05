@@ -82,6 +82,20 @@ pub fn hold(label: &str, ns_window: *mut c_void) -> bool {
     true
 }
 
+/// The browser consent is done: make this app the active one so the window that `set_focus` orders front is really in front of the browser
+/// (`set_focus` alone only orders the window inside an inactive app). Main thread only (`shell::raise_after_consent` runs there).
+pub fn activate_app() {
+    // SAFETY: plain Objective-C messages on the main thread; the shared application is checked for null before it is messaged.
+    unsafe {
+        if let Some(cls) = AnyClass::get(c"NSApplication") {
+            let ns_app: *mut AnyObject = msg_send![cls, sharedApplication];
+            if !ns_app.is_null() {
+                let _: () = msg_send![ns_app, activateIgnoringOtherApps: Bool::YES];
+            }
+        }
+    }
+}
+
 /// `NSApp windows`: how many, and how many of them are visible. `None` when AppKit cannot be asked.
 ///
 /// SAFETY (caller): main thread.
