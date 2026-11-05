@@ -16,6 +16,19 @@ use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_updater::{Error as UpdErr, Update, UpdaterExt};
 use tokio::sync::oneshot;
 
+/// Pure: only the released app (the shipped identifier) updates itself. A copy with another identifier (the QA build,
+/// `thnonl.heylook.qa`) must never check, download or install: it would replace itself with the released version.
+pub fn updates_enabled_for(identifier: &str) -> bool {
+    identifier == crate::identity::SHIPPED_ID
+}
+
+/// Whether this process may update itself (decided from the identifier of the Tauri config).
+fn updates_enabled() -> bool {
+    updates_enabled_for(crate::identity::identifier())
+}
+
+const UPDATES_OFF: &str = "UPDATE_OFF: This build does not update itself.";
+
 const RELEASES_PAGE: &str = "https://github.com/thnonl/hey-look/releases/tag/";
 const NOTES_MAX_CHARS: usize = 4000;
 const CHECK_TIMEOUT: Duration = Duration::from_secs(15);
@@ -859,6 +872,11 @@ fn refuse_if_managed() -> R<()> {
 pub async fn check_update(app: AppHandle, state: tauri::State<'_, AppState>, upd: tauri::State<'_, UpdState>, trigger: String) -> R<UpdateResult> {
     let trigger = Trigger::parse(&trigger).ok_or_else(|| format!("unknown trigger: {trigger}"))?;
     let ctx = Ctx::live(&app);
+    if !updates_enabled() {
+        // no request, no stored offer: nothing for the page to show
+        note(&ctx, trigger, "skipped, this build has its own identifier (a QA copy) and never updates itself");
+        return Ok(ctx.result(Kind::Disabled, None));
+    }
     Ok(run_check(&app, &state.db, &BUSY, upd.flow_active(), &ctx, trigger).await)
 }
 
@@ -1002,6 +1020,9 @@ fn same_version(a: &str, b: &str) -> bool {
 #[tauri::command]
 pub async fn update_download(app: AppHandle, state: tauri::State<'_, AppState>, upd: tauri::State<'_, UpdState>, version: String, on_event: Channel<DlEvent>) -> R<()> {
     refuse_if_managed()?;
+    if !updates_enabled() {
+        return Err(UPDATES_OFF.into());
+    }
     let Some(_flag) = try_flag(&upd.downloading) else { return Err("UPDATE_BUSY: A download is already running.".into()) };
     upd.deferred.store(false, Ordering::SeqCst);
     let ch = on_event.clone();
@@ -1078,6 +1099,9 @@ fn forget_install(db: &Db) {
 #[tauri::command]
 pub async fn update_install(app: AppHandle, state: tauri::State<'_, AppState>, upd: tauri::State<'_, UpdState>, restart: bool, draft_saved: bool) -> R<()> {
     refuse_if_managed()?;
+    if !updates_enabled() {
+        return Err(UPDATES_OFF.into());
+    }
     let (update, bytes) = upd.ready.lock().unwrap_or_else(|p| p.into_inner()).take().ok_or("UPDATE_NONE_READY: No update is ready to install.")?;
     upd.deferred.store(false, Ordering::SeqCst);
     let db = state.db.clone();
@@ -1116,6 +1140,9 @@ pub async fn update_install(app: AppHandle, state: tauri::State<'_, AppState>, u
 
 /// The user chose "Later" in this run: install what is kept when the app ends (every exit path ends in `ExitRequested` / `Exit`).
 pub fn install_on_exit(app: &AppHandle) {
+    if !updates_enabled() {
+        return;
+    }
     let Some(upd) = app.try_state::<UpdState>() else { return };
     let Some((update, bytes)) = upd.take_for_exit() else { return };
     let db = app.state::<AppState>().db.clone();
@@ -1741,6 +1768,45 @@ mod tests {
             assert!(remember < install && install < forget, "{func}: write, install, then (on failure) forget");
             assert_eq!(body.matches("forget_install(").count(), 1, "{func}: the marker is cleared in one place only, the error branch");
         }
+    }
+
+    #[test]
+    fn only_the_shipped_identifier_updates_itself() {
+        assert!(updates_enabled_for(crate::identity::SHIPPED_ID));
+        assert!(!updates_enabled_for("thnonl.heylook.qa"));
+        assert!(!updates_enabled_for("thnonl.heylook.qa.bridge"));
+        // the real config: the release build is the shipped identifier, so its updater stays on
+        let conf = include_str!("../tauri.conf.json");
+        assert!(conf.contains(&format!("\"identifier\": \"{}\"", crate::identity::SHIPPED_ID)));
+        // unit tests never call identity::init: they run as the released app
+        assert!(updates_enabled());
+    }
+
+    #[test]
+    fn every_way_to_update_is_guarded_by_the_identifier() {
+        let src = include_str!("update.rs").replace('\r', "");
+        let code = &src[..src.find("#[cfg(test)]
+mod tests").unwrap()];
+        for func in ["pub async fn check_update", "pub async fn update_download", "pub async fn update_install", "pub fn install_on_exit"] {
+            let body = &code[code.find(func).unwrap()..];
+            let body = &body[..body[1..].find("
+}
+").unwrap()];
+            let guard = body.find("if !updates_enabled() {").unwrap_or_else(|| panic!("{func}: no QA guard"));
+            let first_work = ["Ctx::live", "try_flag(", "remember_install(", ".take()", "run_check("].iter().filter_map(|w| body.find(w)).min().unwrap();
+            assert!(guard < first_work || func.contains("check_update"), "{func}: the guard must come before any work");
+        }
+        let check = &code[code.find("pub async fn check_update").unwrap()..];
+        assert!(check.find("if !updates_enabled()").unwrap() < check.find("run_check(&app").unwrap());
+    }
+
+    #[test]
+    fn the_release_build_keeps_the_updater() {
+        let lib = include_str!("lib.rs");
+        assert!(lib.contains(".plugin(tauri_plugin_updater::Builder::new().build())"));
+        let conf = include_str!("../tauri.conf.json");
+        assert!(conf.contains("\"createUpdaterArtifacts\""));
+        assert!(!conf.contains("\"createUpdaterArtifacts\": false"));
     }
 
     // ---------- stub server + mock app ----------
