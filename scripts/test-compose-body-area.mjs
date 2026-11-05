@@ -175,6 +175,44 @@ for (const cfg of [{ mode: 'main', w: 1280, h: 720, kind: 'new', sig: 'long' }, 
   } catch (e) { ok(tag, false, String(e)); }
 }
 
+// BUG-2 (WebKitGTK QA row 1.6): a click inside the signature, then typing, puts the text in the body above it; the signature is unchanged and the editor keeps the focus.
+// Real mouse + key events. The picker in the signature head keeps its own press (focus goes to the select, not to the body).
+for (const cfg of [{ mode: 'main', w: 1280, h: 720, kind: 'new', sig: 'long' }, { mode: 'main', w: 960, h: 560, kind: 'reply', sig: 'short' }, { mode: 'popout', w: 760, h: 680, kind: 'new', sig: 'long' }]) {
+  const tag = `click-in-signature ${cfg.mode} ${cfg.w}x${cfg.h} ${cfg.kind} ${cfg.sig}-sig`;
+  try {
+    await open(cfg);
+    await evaluate(`document.activeElement && document.activeElement.blur(); document.querySelector('.cp-editor').scrollTop = 0; 1`);
+    const pt = await evaluate(`(() => { const b = document.querySelector('.sig-body'); b.scrollIntoView({ block: 'center' }); const r = b.getBoundingClientRect(), v = document.querySelector('.cp-editor').getBoundingClientRect(); const y = Math.round(Math.max(r.top, v.top) + (Math.min(r.bottom, v.bottom) - Math.max(r.top, v.top)) / 2); return [Math.round(r.left + 40), y]; })()`);
+    await clickAt(pt[0], pt[1]); await sleep(150);
+    const c = await evaluate(CARET);
+    ok(tag, c.in === 'sig-above' && c.focused, `a click inside the signature puts the caret in ${JSON.stringify(c)}`);
+    await typeText('ZZTEST', 5); await sleep(150);
+    const res = await evaluate(`(() => { const tip = document.querySelector('.cp-editor .tiptap'), a = tip.querySelector(':scope > .sig-above'); return { above: a && a.textContent, sig: tip.querySelector('.sig-body').textContent.length, whole: tip.querySelector('.sig-block').textContent.includes('ZZTEST'), active: document.activeElement === tip || tip.contains(document.activeElement) }; })()`);
+    const sigLen = (cfg.sig === 'long' ? longSig : shortSig).replace(/<[^>]+>/g, '').length;
+    ok(tag, res.above === 'ZZTEST', `typed text went to: ${JSON.stringify(res)}`);
+    ok(tag, res.sig === sigLen && !res.whole, `the signature changed: ${JSON.stringify(res)}`);
+    ok(tag, res.active, 'the editor lost the focus');
+    // the picker: a press on the select is not held back (the body does not grab the focus), and the select is usable with the keyboard
+    const sp = await evaluate(`(() => { const s = document.querySelector('.sig-head .sig-select'); if (!s) return null; s.scrollIntoView({ block: 'center' }); const r = s.getBoundingClientRect(); return [Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2), s.options.length]; })()`);
+    ok(tag, !!sp, 'no signature picker in the head');
+    if (sp) {
+      const prevented = await evaluate(`(() => { const s = document.querySelector('.sig-head .sig-select'), e = new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }); s.dispatchEvent(e); return e.defaultPrevented; })()`);
+      ok(tag, prevented === false, 'a press on the picker is default-prevented');
+      await clickAt(sp[0], sp[1]); await sleep(150);
+      await press('Escape', 'Escape'); await sleep(100);
+      const f = await evaluate(`document.activeElement && document.activeElement.className`);
+      ok(tag, /sig-select/.test(String(f)), `the picker did not get the focus (active: ${f})`);
+      if (sp[2] > 1) {
+        const before = await evaluate(`document.querySelector('.sig-head .sig-select').value`);
+        await press('ArrowDown', 'ArrowDown'); await sleep(200);
+        const after = await evaluate(`document.querySelector('.sig-head .sig-select').value`);
+        console.log(tag, 'picker', before, '->', after);
+        ok(tag, before !== after, `the picker value did not change (${before})`);
+      }
+    }
+  } catch (e) { ok(tag, false, String(e)); }
+}
+
 await H.shutdown();
 console.log(`${checks} checks, ${failures.length} failures`);
 process.exit(failures.length ? 1 : 0);

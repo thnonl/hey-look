@@ -104,13 +104,24 @@ const SignatureBlock = (cb: { mount: (el: HTMLElement) => void; unmount: (el: HT
     parseHTML: () => [{ tag: "div[data-sig-block]" }],
     renderHTML: () => ["div", { "data-sig-block": "" }],
     addProseMirrorPlugins: () => [signatureGuard("signatureBlock"), sigAboveDecor("signatureBlock")],
-    addNodeView: () => () => {
+    addNodeView: () => ({ editor }) => {
       const dom = document.createElement("div");
       dom.className = "sig-block none";
       dom.contentEditable = "false";
       dom.innerHTML = '<div class="sig-head"></div><div class="sig-body"></div>';
       const head = dom.querySelector<HTMLElement>(".sig-head")!;
       queueMicrotask(() => cb.mount(head));
+      // A press on the signature never types into it and must not take the focus away: WebKitGTK blurs the editor when a press lands in a non-editable
+      // island, and the typing was lost. The press is held back from the engine and the caret goes to the end of the typing block above the signature.
+      // The controls of the head (the picker: label + select) keep their own press. Side effect: the signature text cannot be selected with the mouse.
+      dom.addEventListener("mousedown", (e) => {
+        const control = (e.target as HTMLElement).closest("select, button, input, textarea, a, label, [role]"); // the editor itself has role=textbox
+        if (e.button !== 0 || (control && dom.contains(control))) return;
+        e.preventDefault();
+        const sel = bodyCaretSelection(editor.state, "signatureBlock");
+        if (sel) editor.view.dispatch(editor.state.tr.setSelection(sel));
+        editor.view.focus();
+      });
       return { dom, ignoreMutation: () => true, stopEvent: () => true, destroy: () => queueMicrotask(() => cb.unmount(head)) };
     },
   });
