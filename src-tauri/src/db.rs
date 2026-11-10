@@ -17,6 +17,7 @@ pub fn open(path: &Path) -> R<Connection> {
     let _ = crate::snippet::fix_stored(&conn);
     let _ = crate::snippet::fix_stored_links(&conn);
     let _ = crate::snippet::fix_stored_markers(&conn);
+    let _ = crate::snippet::fix_stored_css(&conn);
     let _ = crate::autoload::backfill(&conn); // (the addresses written to, once per mailbox: autoload.rs)
     Ok(conn)
 }

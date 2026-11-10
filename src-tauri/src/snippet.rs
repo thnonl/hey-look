@@ -98,9 +98,38 @@ fn named_entity(n: &str) -> Option<&'static str> {
         "times" => "\u{00D7}",
         "rarr" => "\u{2192}",
         "larr" => "\u{2190}",
-        _ => return None,
+        "OElig" => "\u{0152}",
+        "oelig" => "\u{0153}",
+        "Scaron" => "\u{0160}",
+        "scaron" => "\u{0161}",
+        "Yuml" => "\u{0178}",
+        "sbquo" => "\u{201A}",
+        "bdquo" => "\u{201E}",
+        "lsaquo" => "\u{2039}",
+        "rsaquo" => "\u{203A}",
+        "permil" => "\u{2030}",
+        _ => return LATIN1.iter().position(|e| *e == n).map(|p| LATIN1_TEXT[p]),
     })
 }
+
+/// Names of the HTML entities U+00A0 to U+00FF, in code point order ("&agrave;" in Vietnamese and French mail).
+const LATIN1: [&str; 96] = [
+    "nbsp", "iexcl", "cent", "pound", "curren", "yen", "brvbar", "sect", "uml", "copy", "ordf", "laquo", "not", "shy", "reg", "macr",
+    "deg", "plusmn", "sup2", "sup3", "acute", "micro", "para", "middot", "cedil", "sup1", "ordm", "raquo", "frac14", "frac12", "frac34", "iquest",
+    "Agrave", "Aacute", "Acirc", "Atilde", "Auml", "Aring", "AElig", "Ccedil", "Egrave", "Eacute", "Ecirc", "Euml", "Igrave", "Iacute", "Icirc", "Iuml",
+    "ETH", "Ntilde", "Ograve", "Oacute", "Ocirc", "Otilde", "Ouml", "times", "Oslash", "Ugrave", "Uacute", "Ucirc", "Uuml", "Yacute", "THORN", "szlig",
+    "agrave", "aacute", "acirc", "atilde", "auml", "aring", "aelig", "ccedil", "egrave", "eacute", "ecirc", "euml", "igrave", "iacute", "icirc", "iuml",
+    "eth", "ntilde", "ograve", "oacute", "ocirc", "otilde", "ouml", "divide", "oslash", "ugrave", "uacute", "ucirc", "uuml", "yacute", "thorn", "yuml",
+];
+/// The characters `LATIN1` names, as text.
+const LATIN1_TEXT: [&str; 96] = [
+    "\u{A0}", "¡", "¢", "£", "¤", "¥", "¦", "§", "¨", "©", "ª", "«", "¬", "\u{AD}", "®", "¯",
+    "°", "±", "²", "³", "´", "µ", "¶", "·", "¸", "¹", "º", "»", "¼", "½", "¾", "¿",
+    "À", "Á", "Â", "Ã", "Ä", "Å", "Æ", "Ç", "È", "É", "Ê", "Ë", "Ì", "Í", "Î", "Ï",
+    "Ð", "Ñ", "Ò", "Ó", "Ô", "Õ", "Ö", "×", "Ø", "Ù", "Ú", "Û", "Ü", "Ý", "Þ", "ß",
+    "à", "á", "â", "ã", "ä", "å", "æ", "ç", "è", "é", "ê", "ë", "ì", "í", "î", "ï",
+    "ð", "ñ", "ò", "ó", "ô", "õ", "ö", "÷", "ø", "ù", "ú", "û", "ü", "ý", "þ", "ÿ",
+];
 
 /// `&name;`, `&#123;` or `&#x1F;` at the start of `s` (which begins with `&`): the text it stands for and its length in bytes.
 fn entity(s: &str) -> Option<(String, usize)> {
@@ -300,14 +329,106 @@ pub fn truncate_words(s: &str) -> String {
 /// The snippet of a message. `real_text` is the text/plain part when the message has one (not text made from the HTML).
 /// Link markup, URLs and "view in browser" lines are left out (`preview_text`); the stored body is not touched, so search still
 /// finds every word of it.
+///
+/// A text part that holds style sheet text (`@media ... { .x { width: 100% } }`) was made from the HTML by a careless converter
+/// of the sender: the visible text of the HTML is used instead, and when there is no HTML the style rules are cut out of the text.
 pub fn make(real_text: Option<&str>, html: Option<&str>) -> String {
-    if let Some(c) = real_text.map(preview_text).filter(|c| !c.is_empty()) {
+    let text = real_text.map(strip_css);
+    let had_css = matches!((&text, real_text), (Some(t), Some(r)) if t.len() != r.len());
+    let from_html = || html.map(|h| preview(&html_text(h), false)).filter(|c| !c.is_empty());
+    if let Some(c) = had_css.then(from_html).flatten() {
         return truncate_words(&c);
     }
-    if let Some(c) = html.map(|h| preview(&html_text(h), false)).filter(|c| !c.is_empty()) {
+    if let Some(c) = text.as_deref().map(preview_text).filter(|c| !c.is_empty()) {
+        return truncate_words(&c);
+    }
+    if let Some(c) = from_html() {
         return truncate_words(&c);
     }
     String::new()
+}
+
+/// Index of the `}` that closes the `{` at `open`, nested blocks counted; `None` when the block is not closed.
+fn block_end(b: &[u8], open: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    for (k, c) in b.iter().enumerate().skip(open) {
+        match c {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(k);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Element names a style sheet of a mail starts a selector with.
+const CSS_ELEMENTS: &[&str] = &[
+    "html", "body", "table", "tbody", "thead", "tr", "td", "th", "div", "span", "p", "a", "img", "ul", "ol", "li", "h1", "h2", "h3",
+    "h4", "h5", "h6", "center", "font", "b", "i", "u", "strong", "em", "blockquote", "pre", "code", "hr", "br", "input", "button",
+    "sup", "sub", "small", "section", "header", "footer", "article", "nav", "main", "figure", "picture", "svg",
+];
+
+/// A CSS selector or at-rule head: ASCII selector characters only, no sentence.
+fn css_selector(s: &str) -> bool {
+    let s = s.trim();
+    !s.is_empty()
+        && s.len() <= 300
+        && (s.starts_with(['@', '.', '#', '*', '[', ':']) || {
+            // a selector that starts with a word starts with an element name ("body", "table td", "a:hover"), not with prose
+            let w = s.split(|c: char| !c.is_ascii_alphanumeric()).next().unwrap_or("").to_ascii_lowercase();
+            CSS_ELEMENTS.contains(&w.as_str())
+        })
+        && s.chars().all(|c| c.is_ascii_alphanumeric() || c.is_ascii_whitespace() || "-_.#:,*>+~[]=\"'()@%!/".contains(c))
+}
+
+/// The body of a CSS rule: declarations (`name: value;`), or nested rules only (`@media`).
+fn css_body(s: &str) -> bool {
+    if s.contains('{') {
+        return strip_css(s).trim().is_empty();
+    }
+    let decls: Vec<&str> = s.split(';').map(str::trim).filter(|d| !d.is_empty()).collect();
+    !decls.is_empty()
+        && decls.iter().all(|d| {
+            d.split_once(':').is_some_and(|(n, v)| {
+                let n = n.trim().trim_start_matches(['-', '*']);
+                !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') && !v.trim().is_empty()
+            })
+        })
+}
+
+/// Text with its CSS rules cut out (selector and block); everything else is kept as it was. Borrowed when there is no rule.
+fn strip_css(t: &str) -> std::borrow::Cow<'_, str> {
+    if !t.contains('{') {
+        return std::borrow::Cow::Borrowed(t);
+    }
+    let b = t.as_bytes();
+    let mut out = String::new();
+    let mut copied = 0usize;
+    let mut i = 0usize;
+    while let Some(open) = t[i..].find('{').map(|p| p + i) {
+        let Some(close) = block_end(b, open) else { break };
+        // the selector starts after the last rule, declaration or blank line before the block
+        let head = &t[copied..open];
+        let start = copied + [head.rfind('}'), head.rfind(';'), head.rfind("\n\n"), head.rfind("\r\n\r\n")].into_iter().flatten().max().map(|p| p + 1).unwrap_or(0);
+        if css_selector(&t[start..open]) && css_body(&t[open + 1..close]) {
+            out.push_str(&t[copied..start]);
+            out.push('\n');
+            copied = close + 1;
+            i = close + 1;
+        } else {
+            i = open + 1;
+        }
+    }
+    if copied == 0 {
+        return std::borrow::Cow::Borrowed(t);
+    }
+    out.push_str(&t[copied..]);
+    std::borrow::Cow::Owned(out)
 }
 
 // ---- readable preview: no link markup, URLs, tracking tokens or "view in browser" lines ----
@@ -1278,9 +1399,83 @@ pub fn fix_stored_markers(conn: &Connection) -> Result<usize, String> {
     Ok(changed)
 }
 
+/// Settings key that marks the one-time remake of snippets taken from a text part with style sheet text or Latin-1 entities as done.
+const CSS_FIXED_KEY: &str = "snippet_fix_v4";
+
+/// One-time remake of snippets stored from a text part that held style sheet text ("@media only screen and (max-width: 600px)
+/// .inner-body width: 100% !important;") or entities the scanner did not know then ("H&agrave;ng"): made again from the stored
+/// bodies with `make`. Never changes a body, never writes an empty snippet or one that still looks like CSS. Same batches as
+/// `fix_stored_links`. Returns the rows changed.
+pub fn fix_stored_css(conn: &Connection) -> Result<usize, String> {
+    let done: Option<String> = conn.query_row("SELECT value FROM settings WHERE key=?1", [CSS_FIXED_KEY], |r| r.get(0)).ok();
+    if done.is_some() {
+        return Ok(0);
+    }
+    let e = |x: rusqlite::Error| x.to_string();
+    let mut changed = 0usize;
+    for schema in crate::shard::message_schemas(conn) {
+        let table = format!("{schema}.messages");
+        let mut last = 0i64;
+        loop {
+            let batch: Vec<(i64, String, Option<String>, Option<String>)> = {
+                let mut st = conn
+                    .prepare(&format!(
+                        "SELECT rowid, snippet, body_html, body_text FROM {table} WHERE rowid>?1
+                           AND (body_html IS NOT NULL OR body_text IS NOT NULL)
+                           AND (snippet LIKE '%!important%' OR snippet LIKE '@%' OR snippet LIKE '%&%;%')
+                         ORDER BY rowid LIMIT 200"
+                    ))
+                    .map_err(e)?;
+                let rows = st.query_map([last], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).map_err(e)?.collect::<Result<Vec<_>, _>>().map_err(e)?;
+                rows
+            };
+            let Some(&(max, ..)) = batch.last() else { break };
+            let tx = conn.unchecked_transaction().map_err(e)?;
+            for (rid, old, html, text) in &batch {
+                let new = make(text.as_deref(), html.as_deref());
+                if !new.is_empty() && new != *old && !looks_like_junk(&new) && !new.contains("!important") {
+                    tx.execute(&format!("UPDATE {table} SET snippet=?1 WHERE rowid=?2"), params![new, rid]).map_err(e)?;
+                    changed += 1;
+                }
+            }
+            tx.commit().map_err(e)?;
+            last = max;
+        }
+    }
+    conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?1,'1')", [CSS_FIXED_KEY]).map_err(e)?;
+    Ok(changed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The start of SePay's text part (2026-11-10): the sender's converter kept the style sheet and the entities of the HTML.
+    const SEPAY_TEXT: &str = "@media only screen and (max-width: 600px) {\n .inner-body {\n width: 100% !important;\n }\n\n .footer {\n width: 100% !important;\n }\n }\n\n @media only screen and (max-width: 500px) {\n .button {\n width: 100% !important;\n }\n }\n\n\n\n\nH&agrave;ng trăm giao dịch mỗi ng&agrave;y, xuất h&oacute;a đơn\nkh&ocirc;ng c&ograve;n l&agrave; việc phải l&agrave;m thủ c&ocirc;ng.\n";
+    const SEPAY_HTML: &str = "<html><head></head><body style=\"margin: 0;\">\n    <style>\n        @media  only screen and (max-width: 600px) {\n            .inner-body {\n                width: 100% !important;\n            }\n        }\n    </style>\n<table><tr><td><p><img src=\"https://example.com/a.jpg\"></p>\n<p dir=\"ltr\">H&agrave;ng tr\u{103}m giao d\u{1ECB}ch m\u{1ED7}i ng&agrave;y, xu\u{1EA5}t h&oacute;a \u{111}\u{1A1}n kh&ocirc;ng c&ograve;n l&agrave; vi\u{1EC7}c.</p></td></tr></table></body></html>";
+
+    #[test]
+    fn a_text_part_with_a_style_sheet_gives_the_html_text() {
+        let s = make(Some(SEPAY_TEXT), Some(SEPAY_HTML));
+        assert!(s.starts_with("Hàng trăm giao dịch mỗi ngày, xuất hóa đơn không còn là việc"), "{s}");
+        // no HTML: the rules are cut out of the text part
+        let t = make(Some(SEPAY_TEXT), None);
+        assert!(t.starts_with("Hàng trăm giao dịch mỗi ngày, xuất hóa đơn không còn là việc phải làm thủ công."), "{t}");
+        for p in [&s, &t, &notification_preview(&t)] {
+            for bad in ["@media", "!important", "inner-body", "{", "&agrave;", "&"] {
+                assert!(!p.contains(bad), "{bad:?} in {p:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn text_with_braces_that_is_not_css_is_kept() {
+        for keep in ["Hello {name}, your code is 1234.", "Use {a: 1; b: 2} in JSON", "Xin chào {tên}: hẹn gặp; tạm biệt"] {
+            assert_eq!(strip_css(keep), keep);
+        }
+        assert_eq!(strip_css("Hi\n\n.btn { color: red; }\nthere").replace('\n', " ").split_whitespace().collect::<Vec<_>>(), ["Hi", "there"]);
+        assert_eq!(decode_entities("&Eacute;t&eacute; &ccedil;a &uuml;"), "Été ça ü");
+    }
 
     /// The text part of Google's "security alert" mail, as the owner saw it in the toast (the picture alt text first, then the words, then links).
     const GOOGLE_ALERT: &str = "[image: Google]\r\nYou allowed Claude for Google Drive access to some of your Google Account data\r\n\r\nnam@example.com\r\n\r\nIf you didn't allow this, check activity: https://accounts.google.com/AccountChooser?Email=nam@example.com&continue=https://myaccount.google.com/alert/nt/1761563412?rfn%3D311%26rfnc%3D1%26eid%3D-3414%26et%3D0\r\n\r\nYou can also see security activity at\r\nhttps://myaccount.google.com/notifications\r\n";
@@ -1767,7 +1962,7 @@ Real words here", "")), "", "alone {t:?}");
             ("Path /a/b/c/d/e/f/g/h/i/j/k/l/m/n/o?x=1&y=2 end", "Path end"),
             ("tel:+84901234567 or mailto:x@y.example", "or"),
             // entities and invisible characters
-            ("Tom &amp; Jerry&nbsp;&mdash; caf&eacute; &#8217;s &#x1F525;", "Tom & Jerry \u{2014} caf&eacute; \u{2019}s \u{1F525}"),
+            ("Tom &amp; Jerry&nbsp;&mdash; caf&eacute; &#8217;s &#x1F525;", "Tom & Jerry \u{2014} café \u{2019}s \u{1F525}"),
             ("Pad\u{200B}ded\u{200C}\u{00A0}\u{034F}\u{FEFF}\u{00AD} te\u{2060}xt", "Padded text"),
             // rules and runs of separators
             ("Offer ----------\n__________\n=========\n* * * * *\n\u{2500}\u{2500}\u{2500}\u{2500} ends", "Offer ends"),
