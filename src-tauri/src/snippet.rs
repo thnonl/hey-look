@@ -335,14 +335,20 @@ pub fn truncate_words(s: &str) -> String {
 pub fn make(real_text: Option<&str>, html: Option<&str>) -> String {
     let text = real_text.map(strip_css);
     let had_css = matches!((&text, real_text), (Some(t), Some(r)) if t.len() != r.len());
-    let from_html = || html.map(|h| preview(&html_text(h), false)).filter(|c| !c.is_empty());
-    if let Some(c) = had_css.then(from_html).flatten() {
-        return truncate_words(&c);
+    // the visible text of the HTML, its own rules cut out, and whether it had any: an HTML whose visible text holds style sheet
+    // text is the text part itself, made into HTML by the parser for a mail without one, so it is no better than the text part
+    let from_html = html.map(|h| {
+        let t = html_text(h);
+        let c = strip_css(&t);
+        (c.len() != t.len(), preview(&c, false))
+    });
+    if let Some((false, c)) = from_html.as_ref().filter(|(_, c)| had_css && !c.is_empty()) {
+        return truncate_words(c);
     }
     if let Some(c) = text.as_deref().map(preview_text).filter(|c| !c.is_empty()) {
         return truncate_words(&c);
     }
-    if let Some(c) = from_html() {
+    if let Some((_, c)) = from_html.filter(|(_, c)| !c.is_empty()) {
         return truncate_words(&c);
     }
     String::new()

@@ -1904,6 +1904,18 @@ mod tests {
         assert_eq!(parse(2, both.as_bytes(), false, false, 0).unwrap().html.as_deref(), Some("<p>html  text</p>"));
     }
 
+    #[test]
+    fn a_text_only_mail_that_starts_with_a_style_sheet_has_a_snippet_of_its_words() {
+        // SePay's text part (2026-11-10) sent alone: the HTML the parser makes from it must not bring the rules back
+        let body = "@media only screen and (max-width: 600px) {\r\n .inner-body {\r\n width: 100% !important;\r\n }\r\n }\r\n\r\n\r\n\r\nH&agrave;ng tr\u{103}m giao d\u{1ECB}ch m\u{1ED7}i ng&agrave;y, xu\u{1EA5}t h&oacute;a \u{111}\u{1A1}n\r\nkh&ocirc;ng c&ograve;n l&agrave; vi\u{1EC7}c ph\u{1EA3}i l&agrave;m.\r\n";
+        let raw = format!("From: Team SePay <team@sepay.vn>\r\nSubject: t\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n{body}");
+        let p = parse(1, raw.as_bytes(), false, false, 0).unwrap();
+        assert!(p.snippet.starts_with("Hàng trăm giao dịch mỗi ngày, xuất hóa đơn không còn là việc phải làm."), "{}", p.snippet);
+        for bad in ["@media", "!important", "inner-body", "{", "&"] {
+            assert!(!p.snippet.contains(bad), "{bad:?} in {:?}", p.snippet);
+        }
+    }
+
     /// W2.25: the fixture the quote test (scripts/test-quote.mjs) uses as the HTML of a text/plain original is what the converter makes of its source.
     #[test]
     fn the_plain_layout_quote_fixture_is_what_the_converter_makes() {
