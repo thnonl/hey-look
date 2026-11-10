@@ -299,7 +299,8 @@ jobs:
     if: ${{ needs.plan.outputs.tests == 'true' }}
     name: Node tests (${{ matrix.shard }})
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    # (ui-b took 25 minutes on 2026-11-10 and ran into 30 twice on a slow runner the same day)
+    timeout-minutes: 45
     permissions:
       contents: read
     env:
