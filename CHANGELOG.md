@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.15 — 2026-11-10
+
+### Fixed
+
+- Message previews in the message list and in notifications: for some newsletters, the preview showed lines of code instead of the first words of the message, and some accented letters showed as codes. Previews now show the first words of the message with the right accents, including messages you already have
+
 ## 1.0.14 — 2026-11-05
 
 ### Changed
