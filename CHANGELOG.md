@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.17 — 2026-11-12
+
+### Changed
+
+- Pictures in a message: while they load, each one shows as a plain grey box of the right size instead of a spinning circle, and a thin bar at the top of the message shows how much is left. Each picture fades in gently when it arrives
+
+### Fixed
+
+- The text under pictures no longer jumps down when the pictures arrive or when you choose to show hidden pictures
+
 ## 1.0.16 — 2026-11-12
 
 ### Fixed

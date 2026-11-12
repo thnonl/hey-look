@@ -240,6 +240,12 @@
   <releases>
     <!-- The version-bump commit of a release adds its entry FIRST (the newest release is the snap's version and the one the release
          workflow checks against the tag). -->
+    <release version="1.0.17" date="2026-11-12">
+      <description>
+        <p>Pictures in a message now load quietly: each one shows as a plain grey box instead of a spinning circle, and a thin bar at the top shows how much is left. The text under the pictures no longer jumps when they arrive or when you show hidden pictures.</p>
+      </description>
+      <url>https://github.com/thnonl/hey-look/releases/tag/v1.0.17</url>
+    </release>
     <release version="1.0.16" date="2026-11-12">
       <description>
         <p>Fixes message previews in the list and in notifications that still showed bits of web page code for some support surveys and newsletters, instead of what the message says.</p>

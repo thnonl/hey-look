@@ -2,7 +2,7 @@
 // Pure rules plus one DOM reader; imports nothing.
 
 /** The pictures of the frame that are not there yet: boxes that say they load (hidden-picture boxes, large inline pictures), pictures that wait for the backend, pictures still decoding. A failed one is done. */
-export function countPendingPictures(doc: Document): number {
+function countPendingPictures(doc: Document): number {
   let n = doc.querySelectorAll('.hl-bp[data-state="loading"], .hl-ph[aria-busy="true"], img[data-hl-wait]').length;
   for (const i of Array.from(doc.querySelectorAll<HTMLImageElement>("img[src]"))) if (!i.hasAttribute("data-hl-wait") && !i.complete) n++;
   return n;

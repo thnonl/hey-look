@@ -17,7 +17,7 @@
     "reason": "B4. No lazy chunk of the 1.0.7 release is above 21 KB gzip today; 170 KB leaves room for the PDF.js module of WP5 only through a named exception."
   },
   "cssGzip": {
-    "bytes": 27000,
+    "bytes": 27500,
     "reason": "B5, the final budget of spec-107-wp9 section 2.1. Measured at WP9d: 24,074 B (one render-blocking stylesheet)."
   },
   "fontsBytes": {
@@ -119,6 +119,7 @@
   ],
   "history": [
     { "date": "2026-10-30", "branch": "release/v1.0.11", "field": "langChunkGzip", "old": 58500, "new": 59500, "reason": "The WP4 language review (848975b7: ru wording, zh-Hans spacing) and the 1.0.11 texts grew the ru chunk to 58,528 B (the largest); 1,000 B of headroom. Same kind of reset as 3e901579 (set from the merged build). BA approved 2026-10-30 (measured + about 1,000 B, rounded to 500)." },
+    { "date": "2026-11-12", "branch": "feature/image-load-bar", "field": "cssGzip", "old": 27000, "new": 27500, "reason": "1.0.17: the picture progress bar of the reading pane (.pic-bar: track, fill, fade, reduced motion) is app CSS; measured 27,099 B, 401 B headroom kept." },
     { "date": "2026-10-27", "branch": "candidate/v1.0.10", "field": "cssGzip", "old": 26500, "new": 27000, "reason": "public/fonts/fonts.css (the three @font-face rules of Inter with their unicode-range lists, about 560 B gzip) is a stylesheet of index.html and counts here; measured 26,630 B." },
     { "date": "2026-10-27", "branch": "candidate/v1.0.10", "field": "fontsBytes", "old": null, "new": 75000, "reason": "The interface font Inter ships with the app (public/fonts: latin, vietnamese, cyrillic, 57,280 B woff2); two new entries, total and largest file." },
     { "date": "2026-10-19", "branch": "feature/v107-wp9a", "field": "all", "old": null, "new": "interim budgets", "reason": "First version: measured on the branch head (cf70a5a + W9.9) plus the allowances of spec-107-wp9 section 2.1." },

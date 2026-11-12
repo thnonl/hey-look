@@ -99,5 +99,5 @@ assert.ok(!readme.includes("support.html"), "the README does not link the suppor
 assert.ok(existsSync(new URL("../docs/support.html", import.meta.url)) && existsSync(new URL("../docs/index.html", import.meta.url)));
 
 // the changelog has the section of the next version at the top
-assert.match(read("CHANGELOG.md"), /^# Changelog\n\n## (1.0.16 — unreleased|1.0.16 —|1.0.15 — unreleased|1\.0\.15 —|1\.0\.14 — unreleased|1\.0\.14 —|1\.0\.13 — unreleased|1\.0\.13 —|1\.0\.12 — unreleased|1\.0\.12 —|Unreleased \(1\.0\.11\)|1\.0\.11 — unreleased|1\.0\.11 —|1\.0\.10 —)/); // (the version being worked on, or the last one released)
+assert.match(read("CHANGELOG.md"), /^# Changelog\n\n## (1.0.17 — unreleased|1.0.17 —|1.0.16 — unreleased|1.0.16 —|1.0.15 — unreleased|1\.0\.15 —|1\.0\.14 — unreleased|1\.0\.14 —|1\.0\.13 — unreleased|1\.0\.13 —|1\.0\.12 — unreleased|1\.0\.12 —|Unreleased \(1\.0\.11\)|1\.0\.11 — unreleased|1\.0\.11 —|1\.0\.10 —)/); // (the version being worked on, or the last one released)
 console.log("ok - test-about-links");
