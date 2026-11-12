@@ -116,8 +116,8 @@ function remoteImageUrls(html: string): string[] {
  * on every one of those, and WebKit collects such documents late (Mac round 13: the main page grew by about 5 MB per reader window opened on the same 2 MB mail). With the same inputs the
  * same string comes back and nothing is parsed. One entry per cleaned result; the result is dropped from CLEANED by size and count, and the entry goes with it.
  */
-const SHOWN = new WeakMap<object, { key: string; html: string }>();
-function shownHtml(clean: { html: string }, allowed: boolean, settled: boolean, done: ReadonlySet<string>, m: MessageFull, loaded: Record<string, string>, state: Record<string, { status: "loading" | "failed"; error?: string }>, lang: string, version: number, shown: Record<string, string>, fresh: (key: string) => boolean): string {
+const SHOWN = new WeakMap<object, { key: string; html: string; pending: number }>();
+function shownHtml(clean: { html: string }, allowed: boolean, settled: boolean, done: ReadonlySet<string>, m: MessageFull, loaded: Record<string, string>, state: Record<string, { status: "loading" | "failed"; error?: string }>, lang: string, version: number, shown: Record<string, string>, fresh: (key: string) => boolean): { html: string; pending: number } {
   const key = [
     allowed ? 1 : 0,
     allowed && settled ? 1 : 0,
@@ -129,9 +129,9 @@ function shownHtml(clean: { html: string }, allowed: boolean, settled: boolean, 
     Object.entries(shown).map(([k, v]) => `${k}:${v.length}`).join(","),
   ].join("|");
   const hit = SHOWN.get(clean);
-  if (hit && hit.key === key) return hit.html;
+  if (hit && hit.key === key) return hit;
   const out = pictureHtml(allowed ? inlineImages(clean.html, settled, done, fresh) : clean.html, m, loaded, state, shown, fresh);
-  SHOWN.set(clean, { key, html: out });
+  SHOWN.set(clean, { key, ...out });
   return out;
 }
 
@@ -145,7 +145,8 @@ function pictureBoxTexts(state: PictureBoxState, alt: string): PictureBoxTexts {
 }
 
 /** Pictures the sync did not embed: loaded ones become data: URIs, the rest become click-to-load placeholders. */
-function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string>, state: Record<string, { status: "loading" | "failed"; error?: string }>, shown: Record<string, string>, fresh: (key: string) => boolean): string {
+function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string>, state: Record<string, { status: "loading" | "failed"; error?: string }>, shown: Record<string, string>, fresh: (key: string) => boolean): { html: string; pending: number } {
+  let pending = 0; // pictures that are on their way in this HTML (loading boxes, loading large pictures): the bar starts from this, before the frame has a document to count in
   const doc = new DOMParser().parseFromString(html, "text/html");
   // a remote picture that is blocked (1.0.10): a button-like box of the size the mail gave it - a shield with a picture in it, "Picture hidden for privacy", how to show it, the alt text;
   // nothing at all for a tracking pixel or a picture the mail hides itself. Enter / Space / a click show this one picture, the right-click menu has "Show all" (ReadingPane `hookDoc`).
@@ -164,7 +165,11 @@ function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string
       return;
     }
     const size = hiddenPictureBox({ width: img.getAttribute("width"), height: img.getAttribute("height"), style: img.getAttribute("style"), hidden: img.hasAttribute("hidden") });
-    if (size.hidden) return waiting ? undefined : img.remove(); // (a pixel that waits stays as it is: the layout does not move when it arrives)
+    if (size.hidden) {
+      if (waiting) pending++;
+      else img.remove();
+      return;
+    } // (a pixel that waits stays as it is: the layout does not move when it arrives)
     const alt = (img.getAttribute("alt") ?? "").trim();
     const box = doc.createElement("span");
     box.className = "hl-bp hl-bpx";
@@ -202,8 +207,10 @@ function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string
       label.textContent = alt;
       box.append(label);
     }
-    if (waiting) setPictureBoxState(box, "loading", pictureBoxTexts("loading", alt), FAILED_PICTURE_RETRY_SVG);
-    else if (img.hasAttribute("data-hl-failed")) setPictureBoxState(box, "failed", pictureBoxTexts("failed", alt), FAILED_PICTURE_RETRY_SVG);
+    if (waiting) {
+      pending++;
+      setPictureBoxState(box, "loading", pictureBoxTexts("loading", alt), FAILED_PICTURE_RETRY_SVG);
+    } else if (img.hasAttribute("data-hl-failed")) setPictureBoxState(box, "failed", pictureBoxTexts("failed", alt), FAILED_PICTURE_RETRY_SVG);
     img.replaceWith(box);
   });
   doc.querySelectorAll("img[src^='cid:']").forEach((img) => {
@@ -223,6 +230,7 @@ function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string
       ph.disabled = true;
       ph.textContent = t("reading.pic.missing", { cid });
     } else if (st?.status === "loading") {
+      pending++;
       ph.setAttribute("aria-busy", "true"); // (no spinner: the bar over the message shows the progress)
       ph.append(t("reading.pic.loading", { size: fmtSize(meta.size) }));
     } else if (st?.status === "failed") {
@@ -240,7 +248,7 @@ function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string
     ph.setAttribute("aria-label", meta ? t("reading.pic.showLabel", { name: meta.name, size: fmtSize(meta.size) }) : t("reading.pic.missingLabel"));
     img.replaceWith(ph);
   });
-  return doc.body.innerHTML;
+  return { html: doc.body.innerHTML, pending };
 }
 
 function inlineImages(html: string, settled: boolean, done: ReadonlySet<string>, fresh: (key: string) => boolean): string {
@@ -437,10 +445,13 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     diag(`card mount m=${m.id}`);
     return () => diag(`card unmount m=${m.id}`);
   }, [m.id]);
+  const pendingRef = useRef(0);
   const html = useMemo(
     () => {
       hlMark("open:pics:start");
-      const out = shownHtml(clean, allowed, settledFor === clean, doneRef.current, m, loadedPics, picState, lang, version, shownRef.current, isFresh);
+      const built = shownHtml(clean, allowed, settledFor === clean, doneRef.current, m, loadedPics, picState, lang, version, shownRef.current, isFresh);
+      const out = built.html;
+      pendingRef.current = built.pending;
       hlMark("open:pics:end");
       diag(`html built m=${m.id} changed=${lastHtml.current !== out} len=${out.length}`); // (reader window only; logs)
       lastHtml.current = out;
@@ -448,6 +459,14 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     },
     [clean, allowed, settledFor, version, m, loadedPics, picState, lang], // eslint-disable-line react-hooks/exhaustive-deps
   );
+
+  // The bar starts from the HTML itself, not from the frame: on WebKit the frame document is hooked late (its load waits for the pictures), the round must start with the boxes.
+  // The fade-in is fail-safe: whatever the engine does with the animation, a picture that arrived is plain (visible) 400 ms later.
+  useEffect(() => {
+    setPicProgress((p) => stepProgress(p, pendingRef.current));
+    const id = setTimeout(() => frameRef.current?.contentDocument?.querySelectorAll("img[data-hl-new]").forEach((i) => i.removeAttribute("data-hl-new")), 400);
+    return () => clearTimeout(id);
+  }, [html, frameRef]);
 
   // a picture that was not embedded at sync time: fetch it from the server (click, or by the auto-load setting)
   const loadPicture = useCallback(
@@ -513,6 +532,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
           if (v) img.setAttribute(a, v);
         }
         img.setAttribute("data-hl-new", "1");
+        setTimeout(() => img.removeAttribute("data-hl-new"), 400); // (fail-safe, see the effect on the html)
         b.replaceWith(img);
       }
       // the focus goes on to the next hidden picture, or stays in the message

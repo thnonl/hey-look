@@ -39,3 +39,10 @@ assert.ok(css.includes("prefers-reduced-motion:reduce){.hl-bpx[data-state=loadin
 const app = readFileSync(new URL("../src/App.css", import.meta.url), "utf8");
 assert.ok(/prefers-reduced-motion: reduce\) \{ \.pic-bar, \.pic-bar > i \{ transition: none/.test(app), "the bar does not animate under reduced motion");
 console.log("picture progress: ok");
+
+// 8. Linux round: the round starts from the HTML (pending boxes counted while it is built), not from the frame document (WebKit hooks that late); the fade is fail-safe
+const rp = readFileSync(new URL("../src/components/ReadingPane.tsx", import.meta.url), "utf8");
+assert.ok(rp.includes("setPicProgress((p) => stepProgress(p, pendingRef.current))"), "the bar is seeded from the built HTML");
+assert.ok(rp.includes('querySelectorAll("img[data-hl-new]").forEach((i) => i.removeAttribute("data-hl-new"))'), "the fade mark is removed after 400 ms");
+assert.ok(css.includes("display:inline-block;vertical-align:baseline"), "the loading box has the baseline of a picture");
+console.log("picture progress (linux round): ok");

@@ -49,11 +49,11 @@ ${HIDDEN_PICTURE_CSS}`;
 
 /**
  * What the frame (not the printed page) adds for pictures on their way (1.0.17): a hidden-picture box that loads is a quiet filled box of the same size (no icon, no text, no dashes; the
- * space of the lines stays, so nothing moves) with a very slow shimmer; a picture that just arrived fades in. The bar over the message shows the progress. Both animations are off when the
+ * box keeps its size, so nothing moves) with a very slow shimmer; a picture that just arrived fades in. The loading box is an inline-block that clips (its baseline is its bottom edge, like the picture that replaces it): the line is as high with the box as with the picture, on every engine. The bar over the message shows the progress. Both animations are off when the
  * system asks for less motion. A printed page keeps the plain box of HIDDEN_PICTURE_CSS (@media screen here).
  */
-export const MAIL_FRAME_LOADING_CSS = `@media screen{.hl-bpx[data-state=loading],.hl-bpx[data-state=loading]:hover{cursor:progress;border-style:solid;border-color:transparent;background:#eceef1 linear-gradient(90deg,#eceef1 0,#f4f5f7 50%,#eceef1 100%) 0 0/200% 100%;animation:hlshim 2.6s ease-in-out infinite}
-.hl-bpx[data-state=loading] .hl-bp-ico,.hl-bpx[data-state=loading] .hl-bp-main,.hl-bpx[data-state=loading] .hl-bp-alt{visibility:hidden}
+export const MAIL_FRAME_LOADING_CSS = `@media screen{.hl-bpx[data-state=loading],.hl-bpx[data-state=loading]:hover{display:inline-block;vertical-align:baseline;cursor:progress;border-style:solid;border-color:transparent;background:#eceef1 linear-gradient(90deg,#eceef1 0,#f4f5f7 50%,#eceef1 100%) 0 0/200% 100%;animation:hlshim 2.6s ease-in-out infinite}
+.hl-bpx[data-state=loading] .hl-bp-ico,.hl-bpx[data-state=loading] .hl-bp-main,.hl-bpx[data-state=loading] .hl-bp-alt{display:none}
 @keyframes hlshim{0%{background-position:100% 0}100%{background-position:-100% 0}}
 img[data-hl-new]{animation:hlfade .15s ease-out}@keyframes hlfade{from{opacity:0}to{opacity:1}}
 @media (prefers-reduced-motion:reduce){.hl-bpx[data-state=loading],.hl-bpx[data-state=loading]:hover{animation:none}img[data-hl-new]{animation:none}}}`;
