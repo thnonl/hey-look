@@ -176,6 +176,13 @@ function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string
     if (!waiting) box.setAttribute("data-hl-pic", "1"); // (a box that waits is no button: no click, no menu, no focus)
     box.setAttribute("data-tier", size.tier);
     if (url) box.setAttribute("data-src", url);
+    if (waiting) {
+      // what it takes to put the picture where the box is without writing the frame again (patchArrivals): its address and the <img> the mail had
+      const wsrc = img.getAttribute("data-hl-wsrc");
+      if (wsrc) box.setAttribute("data-hl-wsrc", wsrc);
+      const raw = img.outerHTML;
+      if (raw.length <= 2000) box.setAttribute("data-hl-img", raw);
+    }
     for (const a of ["width", "height", "style", "alt"] as const) {
       const v = img.getAttribute(a);
       if (v) box.setAttribute(`data-img-${a}`, v);
@@ -230,6 +237,8 @@ function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string
     ph.type = "button";
     ph.className = "hl-ph";
     ph.setAttribute("data-cid", cid);
+    const rawImg = img.outerHTML;
+    if (rawImg.length <= 2000) ph.setAttribute("data-hl-img", rawImg);
     const st = state[cid];
     if (!meta) {
       ph.disabled = true;
@@ -256,6 +265,96 @@ function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string
   return { html: doc.body.innerHTML, pending };
 }
 
+/** The picture that replaces a box or a placeholder of the frame: the <img> the mail had (kept in data-hl-img), else one made from the attributes the box remembers; it fades in once. */
+function pictureFor(holder: HTMLElement, data: string): HTMLImageElement {
+  const doc = holder.ownerDocument;
+  let img: HTMLImageElement | null = null;
+  const raw = holder.getAttribute("data-hl-img");
+  if (raw) {
+    const tpl = doc.createElement("template");
+    tpl.innerHTML = raw;
+    img = tpl.content.querySelector("img");
+  }
+  if (!img) {
+    img = doc.createElement("img");
+    for (const a of ["width", "height", "style", "alt"] as const) {
+      const v = holder.getAttribute(`data-img-${a}`);
+      if (v) img.setAttribute(a, v);
+    }
+  }
+  for (const a of ["data-hl-wait", "data-hl-wsrc", "data-hl-blocked", "data-hl-failed", "data-hl-src"]) img.removeAttribute(a);
+  img.setAttribute("src", data);
+  img.setAttribute("data-hl-new", "1");
+  const shown = img;
+  setTimeout(() => shown.removeAttribute("data-hl-new"), 400); // (fail-safe, see the effect on the html)
+  return img;
+}
+
+/**
+ * Pictures that arrived (address or cid:id -> came / failed) are put into the frame document that shows the message, where their loading box or placeholder is: the frame is not written
+ * again, so the pictures that are there already are not recreated and do not fade again (1.0.18; only the one that arrived fades in, once). Returns the pictures put in (their `load`
+ * changes the height), or null when the document has something that cannot be done in place (a waiting box that does not know its address): the caller writes the frame then.
+ */
+function patchArrivals(doc: Document, arrivals: ReadonlyMap<string, boolean>, dataOf: (key: string) => string | undefined): HTMLImageElement[] | null {
+  if (doc.querySelector("img[data-hl-wait]:not([data-hl-wsrc]), .hl-bp:not([data-hl-pic]):not([data-hl-wsrc])")) return null;
+  const put: HTMLImageElement[] = [];
+  doc.querySelectorAll<HTMLElement>("[data-hl-wsrc], source[data-hl-srcset], .hl-ph[data-cid]").forEach((el) => {
+    const key = el.hasAttribute("data-cid") ? `cid:${el.getAttribute("data-cid")}` : (el.getAttribute("data-hl-wsrc") ?? el.getAttribute("data-hl-srcset") ?? "");
+    const came = arrivals.get(key);
+    if (came === undefined) return;
+    const data = came ? dataOf(key) : undefined;
+    if (el.tagName === "SOURCE") {
+      if (data) {
+        el.setAttribute("srcset", data);
+        el.removeAttribute("data-hl-srcset");
+      }
+    } else if (el.tagName === "IMG") {
+      // a pixel that waited (no box): it gets its picture, or goes when there is none (the same as the frame written again would do)
+      if (data) {
+        el.setAttribute("src", data);
+        el.removeAttribute("data-hl-wait");
+        el.removeAttribute("data-hl-wsrc");
+        el.setAttribute("data-hl-new", "1");
+        setTimeout(() => el.removeAttribute("data-hl-new"), 400);
+        put.push(el as HTMLImageElement);
+      } else el.remove();
+    } else if (el.classList.contains("hl-ph")) {
+      if (data) {
+        const img = pictureFor(el, data);
+        el.replaceWith(img);
+        put.push(img);
+      } else {
+        el.classList.add("bad");
+        el.removeAttribute("aria-busy");
+        const b = el.ownerDocument.createElement("b");
+        b.textContent = t("reading.pic.failed");
+        el.replaceChildren(b, ` ${t("common.retry")}`);
+      }
+    } else if (data) {
+      const img = pictureFor(el, data);
+      el.replaceWith(img);
+      put.push(img);
+    } else {
+      el.removeAttribute("data-hl-wsrc");
+      el.removeAttribute("data-hl-img");
+      el.setAttribute("data-src", key);
+      el.setAttribute("data-hl-pic", "1");
+      setPictureBoxState(el, "failed", pictureBoxTexts("failed", el.getAttribute("data-img-alt") ?? ""), FAILED_PICTURE_RETRY_SVG);
+      fitHiddenBox(el);
+    }
+  });
+  return put;
+}
+
+let nextCleanId = 0;
+const CLEAN_IDS = new WeakMap<object, number>();
+/** A number for a cleaned mail (the frame is written again when it changes). */
+const cleanIdOf = (c: object): number => {
+  let n = CLEAN_IDS.get(c);
+  if (n === undefined) CLEAN_IDS.set(c, (n = ++nextCleanId));
+  return n;
+};
+
 function inlineImages(html: string, settled: boolean, done: ReadonlySet<string>, fresh: (key: string) => boolean): string {
   const doc = new DOMParser().parseFromString(html, "text/html");
   doc.querySelectorAll("img[src]").forEach((i) => {
@@ -275,7 +374,10 @@ function inlineImages(html: string, settled: boolean, done: ReadonlySet<string>,
         i.setAttribute("data-hl-blocked", "1");
         i.setAttribute("data-hl-failed", "1");
         if (abs.length <= 4096) i.setAttribute("data-hl-src", abs);
-      } else i.setAttribute("data-hl-wait", "1");
+      } else {
+        i.setAttribute("data-hl-wait", "1");
+        if (abs.length <= 4096) i.setAttribute("data-hl-wsrc", abs); // (the address it waits for: the picture is put in place when it arrives, see patchArrivals)
+      }
     }
   });
   settleSources(doc, cachedImage);
@@ -369,12 +471,17 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   const sender = normSender(m.fromEmail);
   const rin: RemoteInput = { global: loadRemote, trusted: !!sender && trustedSet.has(sender), autoReason: m.autoReason, noAuto: !!sender && noAutoSet.has(sender), autoOn, folder: m.folder, encrypted: !!m.security?.encrypted, auth: m.auth, allow };
   const [version, setVersion] = useState(0); // bumps when images arrive from the backend
-  // pictures that arrived a moment ago (address or cid:id -> time): the frame is built again for each arrival and only these fade in, not every picture again
-  const freshRef = useRef<Map<string, number>>(new Map());
-  const markFresh = (key: string) => freshRef.current.set(key, Date.now());
-  const isFresh = (key: string) => Date.now() - (freshRef.current.get(key) ?? -Infinity) < 1500;
+  // pictures that arrived and are not in the frame yet (address or cid:id -> came / failed): they are put into the frame in place (patchArrivals) or, when the frame has to be written
+  // anyway, they are the only ones that fade in; once the frame has them they are gone from here, so a picture fades in once and a later write never fades it again
+  const arrivalsRef = useRef<Map<string, boolean>>(new Map());
+  const markArrival = (key: string, came: boolean) => arrivalsRef.current.set(key, came);
+  const isFresh = (key: string) => arrivalsRef.current.get(key) === true;
+  const frameSigRef = useRef(""); // what the frame was written for, apart from the pictures (see the layout effect that writes it)
   const [picProgress, setPicProgress] = useState(PIC_IDLE); // how many pictures are on their way (the bar over the message)
-  useEffect(() => setPicProgress(PIC_IDLE), [m.id]);
+  useEffect(() => {
+    setPicProgress(PIC_IDLE);
+    arrivalsRef.current.clear();
+  }, [m.id]);
   const doneRef = useRef<Set<string>>(new Set()); // the addresses the backend has answered for (a picture or none), one by one
   const [settledFor, setSettledFor] = useState<unknown>(null); // the cleaned mail whose pictures the backend has answered for (all of them came, or failed)
   const [loadedPics, setLoadedPics] = useState<Record<string, string>>({});
@@ -479,7 +586,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
       setPicState((s) => ({ ...s, [cid]: { status: "loading" } }));
       try {
         const d = await api.inlineImage(m.id, cid);
-        markFresh(`cid:${cid}`);
+        markArrival(`cid:${cid}`, true);
         setLoadedPics((s) => ({ ...s, [cid]: `data:${d.mime};base64,${d.dataBase64}` }));
         setPicState((s) => {
           const n = { ...s };
@@ -487,6 +594,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
           return n;
         });
       } catch (e) {
+        markArrival(`cid:${cid}`, false);
         setPicState((s) => ({ ...s, [cid]: { status: "failed", error: friendlyError(e) } }));
       }
     },
@@ -581,9 +689,9 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
       if (live) setVersion((v) => v + 1);
     };
     doneRef.current = new Set();
-    void loadRemoteImages(missing, false, (u) => {
+    void loadRemoteImages(missing, false, (u, ok) => {
       doneRef.current.add(u);
-      markFresh(u);
+      markArrival(u, ok);
       if (live && timer === undefined) timer = setTimeout(repaint, 120);
     }).then(() => {
       if (!live) return;
@@ -864,6 +972,22 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   useLayoutEffect(() => {
     const frame = frameRef.current;
     if (!frame) return;
+    // A picture that arrives goes into the document the frame has, in place; the frame is written again for any other change (another message, the pictures allowed, the language, ...)
+    const sig = `${m.id}|${allowed ? 1 : 0}|${lang}|${csp}|${m.confidential ? 1 : 0}|${cleanIdOf(clean)}|${m.attachments.filter((a) => a.cid).map((a) => `${a.cid}:${a.size}`).join(",")}`;
+    const live = frame.contentDocument;
+    if (sig === frameSigRef.current && arrivalsRef.current.size > 0 && live && hooked.current === live && live.documentElement?.hasAttribute("data-hm-doc") && live.body) {
+      const put = patchArrivals(live, arrivalsRef.current, (k) => (k.startsWith("cid:") ? loadedPics[k.slice(4)] : cachedImage(k)));
+      if (put) {
+        arrivalsRef.current.clear();
+        put.forEach((i) => {
+          i.addEventListener("load", measure);
+          i.addEventListener("error", measure);
+        });
+        return;
+      }
+    }
+    frameSigRef.current = sig;
+    arrivalsRef.current.clear(); // (the document written now has them: only these fade in)
     hooked.current = null;
     stopObserve.current();
     diagState.rewriteAt = nowMs();
@@ -887,6 +1011,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     const t0 = Date.now();
     const look = () => {
       const doc = frameRef.current?.contentDocument;
+      if (doc && doc === hooked.current) return; // (the pictures that arrived were put into this document in place: nothing to hook again)
       if (doc && doc !== hooked.current && doc.documentElement?.hasAttribute("data-hm-doc") && doc.readyState !== "loading" && doc.body) return hookRef.current();
       if (Date.now() - t0 < 10000) timer = window.setTimeout(look, 15);
     };

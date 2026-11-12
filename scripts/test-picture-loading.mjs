@@ -28,6 +28,7 @@ const THREADS = [
   ['lP', 'Print', { fromName: 'Shop', fromEmail: 'print@shop.example', html: `<p>Look</p><img src="${u('p1')}" width="200" height="100" alt="one"><img src="${u('unreachable-p2')}" width="200" height="100" alt="two">`, auth: 'pass' }],
   ['lX', 'Slow and 404', { fromName: 'Shop', fromEmail: 'slow@shop.example', html: `<p>Look</p><img src="${u('x-ok')}" width="200" height="100" alt="quick"><img src="https://img.shop.example/404/x-gone.png" width="200" height="100" alt="gone"><img src="https://img.shop.example/slow/3000/x-slow.png" width="200" height="100" alt="slow">`, auth: 'pass' }],
   ['lY', 'Slow and 404, written to', { fromName: 'Friend', fromEmail: 'friend2@example.org', html: `<p>Look</p><img src="https://img.shop.example/404/y-gone.png" width="200" height="100" alt="gone"><img src="https://img.shop.example/slow/3000/y-slow.png" width="200" height="100" alt="slow">`, auth: 'pass', autoReason: 'wrote' }],
+  ['lT', 'Staggered', { fromName: 'Friend', fromEmail: 'stagger@example.org', html: `<p>Look</p>${[300, 700, 1100, 1500, 1900].map((ms, i) => `<img src="https://img.shop.example/slow/${ms}/t${i}.png" width="200" height="100" alt="t${i}">`).join('')}<img src="${u('unreachable-t5')}" width="200" height="100" alt="t5"><p>End</p>`, auth: 'pass', autoReason: 'wrote' }],
   ['lW', 'Written to', { fromName: 'Friend', fromEmail: 'friend@example.org', html: `<p>Look</p><img src="${u('w1')}" width="200" height="100" alt="one"><img src="${u('unreachable-w2')}" width="200" height="100" alt="gone"><img src="${u('w3')}" alt="nosize"><img src="${u('w4')}" width="1" height="1">`, auth: 'pass', autoReason: 'wrote' }],
 ];
 const FR = `document.querySelector('.rp-msg.open iframe.msg-frame')`;
@@ -272,6 +273,41 @@ try {
   noBroken(s, 'reader show one');
   ok(s[0].boxes[0].state === 'loading' && !s[0].boxes[0].spin && JSON.stringify(s[0].boxes[0].size) === JSON.stringify(rb.boxes[0].size), `reader: loading box, same size (${JSON.stringify(s[0].boxes[0])})`);
   ok(s[s.length - 1].imgs.some((i) => i.ok), 'reader: the picture shows');
+  // ======================================================================== P9 pictures that arrive one by one (1.0.18): the ones that are there stay as they are
+  tag = 'staggered';
+  await start();
+  await open('lS');
+  await evaluate(`window.__remoteFetchCalls = []; window.__store.getState().select(null); 1`);
+  await sleep(150);
+  await evaluate(`window.__stag = null; window.__store.getState().select('lT'); 1`);
+  ok(await until(`!!${FR} && !!${DOC} && ${DOC}.querySelectorAll('.hl-bp, img').length > 0`, 8000), 'staggered: the message shows');
+  // the probe: every picture of the frame gets a mark when first seen; a picture without it later is a new element (the frame was written again). Opacity is read for the pictures that arrived 200+ ms ago.
+  const stagProbe = `(() => { const d = ${DOC}; if (!d) return null; const t = Date.now(); if (d.__stag === undefined) d.__stag = { born: {}, rewrites: 0, relit: 0, low: 0, first: t };
+    const st = d.__stag; for (const i of d.images) { if ((i.getAttribute('src') || '').slice(0, 10) !== 'data:image') continue; const alt = i.getAttribute('alt'); if (!i.__seen) { i.__seen = t; st.born[alt] = (st.born[alt] || 0) + 1; }
+      else if (t - i.__seen > 250 && parseFloat(getComputedStyle(i).opacity) < 1) st.low++; if (t - i.__seen > 450 && i.hasAttribute('data-hl-new')) st.relit++; }
+    return { born: st.born, low: st.low, relit: st.relit, boxes: d.querySelectorAll('.hl-bp').length, failed: d.querySelectorAll('.hl-bp.bad').length, same: d.__stag === st }; })()`;
+  let stagLast = null;
+  const stagT0 = Date.now();
+  while (Date.now() - stagT0 < 9000) {
+    let r = null; try { r = await evaluate(stagProbe); } catch { /* a frame being written */ }
+    if (r) { stagLast = r; const n = Object.values(r.born).length; if (n >= 5 && r.failed >= 1 && Date.now() - stagT0 > 3500) break; }
+    await sleep(25);
+  }
+  ok(!!stagLast, 'staggered: probe ran');
+  if (stagLast) {
+    ok(Object.keys(stagLast.born).length === 5, `staggered: five pictures arrived (${JSON.stringify(stagLast.born)})`);
+    ok(Object.values(stagLast.born).every((n) => n === 1), `staggered: no picture was created more than once, so the frame was not written per arrival (${JSON.stringify(stagLast.born)})`);
+    ok(stagLast.low === 0, `staggered: no picture that was shown dropped below full opacity again (${stagLast.low} samples)`);
+    ok(stagLast.relit === 0, `staggered: no picture kept data-hl-new after its fade (${stagLast.relit} samples)`);
+    ok(stagLast.failed === 1, `staggered: the failed picture is a failed box in place (${stagLast.failed})`);
+  }
+  // the bar ends and the frame, written again for a language-independent reason (the pictures switch), keeps every picture visible without a new fade
+  const stagAfter = await evaluate(`(() => { const d = ${DOC}; return { imgs: [...d.images].filter((i) => (i.getAttribute('src') || '').startsWith('data:')).length, loading: d.querySelectorAll('.hl-bp[data-state=loading], img[data-hl-wait]').length }; })()`);
+  ok(stagAfter.imgs === 5 && stagAfter.loading === 0, `staggered: five pictures, nothing still loading (${JSON.stringify(stagAfter)})`);
+  await evaluate(`window.__store.getState().setPrefs({ loadRemote: true }); 1`);
+  await sleep(700);
+  const stagLit = await evaluate(`(() => { const d = ${DOC}; return d ? [...d.images].filter((i) => i.hasAttribute('data-hl-new')).length : -1; })()`);
+  ok(stagLit === 0, `staggered: a frame written for another reason fades no already-shown picture (${stagLit} with data-hl-new)`);
 } catch (e) {
   failures.push(`[${tag}] ${e && e.stack ? e.stack : e}`);
   console.error(e);
