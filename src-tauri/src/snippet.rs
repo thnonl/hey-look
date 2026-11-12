@@ -332,18 +332,29 @@ pub fn truncate_words(s: &str) -> String {
 ///
 /// A text part that holds style sheet text (`@media ... { .x { width: 100% } }`) was made from the HTML by a careless converter
 /// of the sender: the visible text of the HTML is used instead, and when there is no HTML the style rules are cut out of the text.
+///
+/// A text part that is HTML markup itself (`<div style="..."><p>Dobrý den</p>`, Zendesk survey mail) is read as HTML the same way:
+/// the HTML part first, else the visible text of the markup.
 pub fn make(real_text: Option<&str>, html: Option<&str>) -> String {
-    let text = real_text.map(strip_css);
-    let had_css = matches!((&text, real_text), (Some(t), Some(r)) if t.len() != r.len());
-    // the visible text of the HTML, its own rules cut out, and whether it had any: an HTML whose visible text holds style sheet
-    // text is the text part itself, made into HTML by the parser for a mail without one, so it is no better than the text part
+    let markup = real_text.is_some_and(is_markup);
+    let text: Option<std::borrow::Cow<'_, str>> =
+        real_text.map(|t| if markup { std::borrow::Cow::Owned(strip_css(&html_text(t)).into_owned()) } else { strip_css(t) });
+    let had_css = matches!((&text, real_text), (Some(t), Some(r)) if !markup && t.len() != r.len());
+    // the visible text of the HTML, its own rules cut out, and whether it is suspect: an HTML whose visible text holds style sheet
+    // text or markup is the text part itself, made into HTML by the parser for a mail without one, so it is no better than the text part
     let from_html = html.map(|h| {
         let t = html_text(h);
         let c = strip_css(&t);
-        (c.len() != t.len(), preview(&c, false))
+        (c.len() != t.len() || is_markup(&c), preview(&c, false))
     });
-    if let Some((false, c)) = from_html.as_ref().filter(|(_, c)| had_css && !c.is_empty()) {
+    if let Some((false, c)) = from_html.as_ref().filter(|(_, c)| (had_css || markup) && !c.is_empty()) {
         return truncate_words(c);
+    }
+    if markup {
+        // (already visible text: entities decoded once by the scanner)
+        if let Some(c) = text.as_deref().map(|t| preview(t, false)).filter(|c| !c.is_empty()) {
+            return truncate_words(&c);
+        }
     }
     if let Some(c) = text.as_deref().map(preview_text).filter(|c| !c.is_empty()) {
         return truncate_words(&c);
@@ -352,6 +363,27 @@ pub fn make(real_text: Option<&str>, html: Option<&str>) -> String {
         return truncate_words(&c);
     }
     String::new()
+}
+
+/// Whether a text is HTML markup: at least three tags of common elements (`<div`, `</p>`, `<br>`, ...). A plain text with one
+/// `<b>` or an address in angle brackets (`<https://...>`) is not.
+fn is_markup(s: &str) -> bool {
+    const TAGS: &[&str] = &["div", "p", "br", "span", "table", "td", "tr", "a", "img", "strong", "b", "i", "u", "ul", "ol", "li", "h1", "h2", "h3", "font", "center", "html", "body", "style", "head", "meta"];
+    let b = s.as_bytes();
+    let mut n = 0;
+    let mut from = 0;
+    while let Some(p) = s[from..].find('<').map(|p| p + from) {
+        from = p + 1;
+        let start = if b.get(p + 1) == Some(&b'/') { p + 2 } else { p + 1 };
+        let end = (start..b.len()).find(|&k| !b[k].is_ascii_alphanumeric()).unwrap_or(b.len());
+        if end > start && matches!(b.get(end), Some(b' ' | b'>' | b'/' | b'\t' | b'\r' | b'\n')) && TAGS.contains(&s[start..end].to_ascii_lowercase().as_str()) {
+            n += 1;
+            if n >= 3 {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Index of the `}` that closes the `{` at `open`, nested blocks counted; `None` when the block is not closed.
@@ -1049,7 +1081,8 @@ fn collapse_rules(s: &str) -> String {
 fn drop_empty_brackets(s: &str) -> String {
     let mut t = s.to_string();
     for _ in 0..4 {
-        let n = t.replace("()", "").replace("[]", "").replace("( )", "").replace("[ ]", "");
+        // ("<>" is what is left of a link in angle brackets: "<> BẠN SẼ VẪN LÀ HỘI VIÊN ...")
+        let n = t.replace("()", "").replace("[]", "").replace("( )", "").replace("[ ]", "").replace("<>", "").replace("< >", "");
         if n == t {
             break;
         }
@@ -1413,7 +1446,22 @@ const CSS_FIXED_KEY: &str = "snippet_fix_v4";
 /// bodies with `make`. Never changes a body, never writes an empty snippet or one that still looks like CSS. Same batches as
 /// `fix_stored_links`. Returns the rows changed.
 pub fn fix_stored_css(conn: &Connection) -> Result<usize, String> {
-    let done: Option<String> = conn.query_row("SELECT value FROM settings WHERE key=?1", [CSS_FIXED_KEY], |r| r.get(0)).ok();
+    remake_where(conn, CSS_FIXED_KEY, "snippet LIKE '%!important%' OR snippet LIKE '@%' OR snippet LIKE '%&%;%'")
+}
+
+/// Settings key that marks the one-time remake of snippets taken from a text part that held HTML markup as done.
+const MARKUP_FIXED_KEY: &str = "snippet_fix_v5";
+
+/// One-time remake of snippets stored from a text part that was HTML markup itself (Zendesk survey mail: the text/plain part is
+/// `<div style="max-width: 500px; ...">`): made again from the stored bodies with `make`, like `fix_stored_css`.
+pub fn fix_stored_markup(conn: &Connection) -> Result<usize, String> {
+    remake_where(conn, MARKUP_FIXED_KEY, "snippet LIKE '<%' OR snippet LIKE '%</%' OR snippet LIKE '%style=%'")
+}
+
+/// The rows of every mail file whose snippet matches `cond` (SQL on the `snippet` column) get a snippet made again from their stored
+/// bodies, once (`key` in settings). Never changes a body, never writes an empty snippet or one that still looks like CSS or markup.
+fn remake_where(conn: &Connection, key: &str, cond: &str) -> Result<usize, String> {
+    let done: Option<String> = conn.query_row("SELECT value FROM settings WHERE key=?1", [key], |r| r.get(0)).ok();
     if done.is_some() {
         return Ok(0);
     }
@@ -1428,7 +1476,7 @@ pub fn fix_stored_css(conn: &Connection) -> Result<usize, String> {
                     .prepare(&format!(
                         "SELECT rowid, snippet, body_html, body_text FROM {table} WHERE rowid>?1
                            AND (body_html IS NOT NULL OR body_text IS NOT NULL)
-                           AND (snippet LIKE '%!important%' OR snippet LIKE '@%' OR snippet LIKE '%&%;%')
+                           AND ({cond})
                          ORDER BY rowid LIMIT 200"
                     ))
                     .map_err(e)?;
@@ -1439,7 +1487,7 @@ pub fn fix_stored_css(conn: &Connection) -> Result<usize, String> {
             let tx = conn.unchecked_transaction().map_err(e)?;
             for (rid, old, html, text) in &batch {
                 let new = make(text.as_deref(), html.as_deref());
-                if !new.is_empty() && new != *old && !looks_like_junk(&new) && !new.contains("!important") {
+                if !new.is_empty() && new != *old && !looks_like_junk(&new) && !new.contains("!important") && !new.contains("style=") {
                     tx.execute(&format!("UPDATE {table} SET snippet=?1 WHERE rowid=?2"), params![new, rid]).map_err(e)?;
                     changed += 1;
                 }
@@ -1448,7 +1496,7 @@ pub fn fix_stored_css(conn: &Connection) -> Result<usize, String> {
             last = max;
         }
     }
-    conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?1,'1')", [CSS_FIXED_KEY]).map_err(e)?;
+    conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?1,'1')", [key]).map_err(e)?;
     Ok(changed)
 }
 
@@ -1472,6 +1520,27 @@ mod tests {
                 assert!(!p.contains(bad), "{bad:?} in {p:?}");
             }
         }
+    }
+
+    /// The text part of Teya's Zendesk survey mail (2026-10-23): HTML markup, not text.
+    const TEYA_TEXT: &str = "<div style=\"max-width: 500px; margin: 0 auto; box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);\"> <div style=\"margin-bottom: 0; text-align: center;\"> <img src=\"https://example.com/h.png\" alt=\"Header Image\" style=\"height: 180px;\"> </div><div style=\"line-height: 1.5;\"> <p style=\"margin: 8px 0;\">Dobrý den, <span style=\"margin-left: 5px;\"></span></p><p style=\"margin: 8px 0;\">byli jste spokojeni se zákaznickou podporou?</p><div style=\"text-align: center;\"> <a href=\"https://example.com/survey\" style=\"color: #000;\">Ohodnoťte nás</a> </div><p>Děkujeme.</p></div></div>\n\n--------------------------------\nThis email is a service from Teya Czechia.\n";
+
+    #[test]
+    fn a_text_part_that_is_html_markup_gives_its_visible_text() {
+        let html = "<html><body><div><p>Dobrý den,</p><p>byli jste spokojeni se zákaznickou podporou?</p></div></body></html>";
+        for s in [make(Some(TEYA_TEXT), Some(html)), make(Some(TEYA_TEXT), None)] {
+            assert!(s.starts_with("Dobrý den, byli jste spokojeni se zákaznickou podporou?"), "{s}");
+            for bad in ["<", ">", "style", "div", "max-width", "px"] {
+                assert!(!s.contains(bad), "{bad:?} in {s:?}");
+            }
+        }
+        // plain text with an address in angle brackets, a lone tag or a comparison stays text
+        for keep in ["See <https://example.com/a> for details, then reply.", "Use <b> for bold and a < b > c in maths.", "Hi <name>, your <code> is ready"] {
+            assert!(!is_markup(keep), "{keep}");
+            let s = make(Some(keep), Some("<p>other</p>"));
+            assert!(s != "other" && !s.is_empty(), "the text part is used for {keep:?}: {s}");
+        }
+        assert_eq!(preview_text("<> BẠN SẼ VẪN LÀ HỘI VIÊN"), "BẠN SẼ VẪN LÀ HỘI VIÊN");
     }
 
     #[test]

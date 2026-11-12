@@ -1905,6 +1905,16 @@ mod tests {
     }
 
     #[test]
+    fn a_text_only_mail_whose_text_is_html_markup_has_a_snippet_of_its_words() {
+        // Zendesk survey mail (Teya, 2026-10-23) sent with only its text part, which is markup
+        let body = "<div style=\"max-width: 500px; margin: 0 auto;\"> <div style=\"text-align: center;\"> <img src=\"https://example.com/h.png\" alt=\"Header Image\"> </div><p style=\"margin: 8px 0;\">Dobr\u{FD} den,</p><p style=\"margin: 8px 0;\">byli jste spokojeni se z\u{E1}kaznickou podporou?</p></div>\r\n";
+        let raw = format!("From: Teya Czechia <pomoc@teya.com>\r\nSubject: t\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n{body}");
+        let p = parse(1, raw.as_bytes(), false, false, 0).unwrap();
+        assert!(p.snippet.starts_with("Dobrý den, byli jste spokojeni se zákaznickou podporou?"), "{}", p.snippet);
+        assert!(!p.snippet.contains('<') && !p.snippet.contains("style"), "{}", p.snippet);
+    }
+
+    #[test]
     fn a_text_only_mail_that_starts_with_a_style_sheet_has_a_snippet_of_its_words() {
         // SePay's text part (2026-11-10) sent alone: the HTML the parser makes from it must not bring the rules back
         let body = "@media only screen and (max-width: 600px) {\r\n .inner-body {\r\n width: 100% !important;\r\n }\r\n }\r\n\r\n\r\n\r\nH&agrave;ng tr\u{103}m giao d\u{1ECB}ch m\u{1ED7}i ng&agrave;y, xu\u{1EA5}t h&oacute;a \u{111}\u{1A1}n\r\nkh&ocirc;ng c&ograve;n l&agrave; vi\u{1EC7}c ph\u{1EA3}i l&agrave;m.\r\n";
