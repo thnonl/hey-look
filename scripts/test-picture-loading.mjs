@@ -248,6 +248,24 @@ try {
   const failedColours = `(() => { const b = ${DOC}.querySelector('.hl-bp[data-state=failed]'); const c = getComputedStyle(b); return { border: c.borderTopColor, color: c.color, ico: getComputedStyle(b.querySelector('.hl-bp-ico')).color, hint: getComputedStyle(b.querySelector('.hl-bp-hint')).color }; })()`;
   const df = await evaluate(failedColours);
   ok(df.border === 'rgb(240, 120, 140)' && df.color === 'rgb(240, 120, 140)' && df.ico === 'rgb(240, 120, 140)' && df.hint === 'rgb(240, 120, 140)', `dark failed box is light red on the dark surface: ${JSON.stringify(df)}`);
+  // OBS-1 (Linux QA): a mail with pictures that load by themselves is written into the message frame the same number of times at open in dark as in light (the dev preview runs React.StrictMode, which doubles the layout effect: 2 in both;
+  // a release build writes once), before any picture arrives. The dark walk's hidden frame (darkMail.ts) is another frame and is not counted here.
+  const wrote = {};
+  for (const th of ['dark', 'light']) {
+    tag = `writes-${th}`;
+    await start(th);
+    await evaluate(`window.__store.getState().select(null); 1`);
+    await sleep(150);
+    const w0 = await evaluate(`window.__mailFrame.writes`);
+    await evaluate(`window.__store.getState().select('lW'); 1`);
+    ok(await until(`!!${FR}`, 6000), `${th}: opened`);
+    await sleep(900); // (before the first picture comes: SLOW_MS)
+    const w1 = await evaluate(`window.__mailFrame.writes`);
+    console.log(`${th}: frame writes at open = ${w1 - w0}`);
+    wrote[th] = w1 - w0;
+    ok(w1 - w0 >= 1 && w1 - w0 <= 2, `${th}: frame writes at open (${w1 - w0})`);
+  }
+  ok(wrote.dark === wrote.light, `dark writes the message frame as often as light at open (${JSON.stringify(wrote)})`);
   tag = 'light';
   await start('light');
   await open('lF');

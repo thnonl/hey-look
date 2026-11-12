@@ -413,6 +413,7 @@ function walkInScratch(mail: MailDarkInput, base: RGB): { sheet: string; tags: I
       const f = document.createElement("iframe");
       f.setAttribute("sandbox", frameSandbox(navigator.userAgent));
       f.setAttribute("aria-hidden", "true");
+      f.setAttribute("data-hm-scratch", "1"); // (so a probe counting frame documents can tell it from the message frame: the walk opens its document twice, ~25 ms apart, in dark only)
       f.tabIndex = -1;
       f.title = "";
       // laid out like the message frame (its width decides the mail's media queries) but out of sight and out of reach
