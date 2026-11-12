@@ -1821,3 +1821,9 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 .cp-sent-tick { stroke-dasharray: 40; stroke-dashoffset: 40; animation: cp-sent-draw .3s ease-out .3s forwards; }
 .cp-sent-lbl { color: var(--fg); font-weight: 500; animation: sb-pop .3s ease-out .35s both; }
 @keyframes cp-sent-draw { to { stroke-dashoffset: 0; } }
+
+/* the progress of the pictures of one message (1.0.17, PictureBar): 3 px over the top edge of the message body, no space of its own */
+.pic-bar { height: 3px; margin-bottom: -3px; z-index: 1; pointer-events: none; overflow: hidden; background: color-mix(in srgb, var(--accent), transparent 85%); transition: opacity .2s ease-out .1s; }
+.pic-bar > i { display: block; height: 100%; background: var(--accent); transition: width .15s ease-out; }
+.pic-bar[data-fade] { opacity: 0; }
+@media (prefers-reduced-motion: reduce) { .pic-bar, .pic-bar > i { transition: none; } }

@@ -113,13 +113,13 @@ export function fitHiddenBox(b: HTMLElement): boolean {
   return b.getAttribute("data-tier") !== before;
 }
 
-/** What a hidden-picture box shows while its picture is fetched (UX-1 of 1.0.12) and when that failed: `loading` (a spinner, "Showing picture…") or `failed` (a retry arrow, the failure and "Retry"). */
+/** What a hidden-picture box shows while its picture is fetched (UX-1 of 1.0.12) and when that failed: `loading` (a quiet filled box with no text: the bar over the message shows the progress) or `failed` (a retry arrow, the failure and "Retry"). */
 export type PictureBoxState = "loading" | "failed";
 /** The words of one state (the caller has them translated): the main line, the hint line (empty: none), the accessible name and tooltip of the box, and the announcement. */
 export type PictureBoxTexts = { main: string; hint: string; label: string; title: string; status: string };
 
 /**
- * Puts a hidden-picture box into `loading` or `failed`; the box keeps its size (the style the reading pane set) and its alt line. The icon becomes a spinner / a retry arrow, the lines
+ * Puts a hidden-picture box into `loading` or `failed`; the box keeps its size (the style the reading pane set) and its alt line. The icon becomes the retry arrow of `failed` (a loading box draws no icon: the CSS hides it), the lines
  * change, `aria-busy` marks the fetch and a polite status line (.hl-bp-sr, in every tier: the small box shows no text) announces the change. A loading box is no button (role img, out of the tab order),
  * a failed one is the Retry button. Pure DOM, no layout read: the caller fits the tier afterwards (fitHiddenBox) when the box is on screen.
  */
@@ -143,11 +143,7 @@ export function setPictureBoxState(box: HTMLElement, state: PictureBoxState, tex
   box.removeAttribute("data-hm"); // (the dark walker's colour pin of the box, darkMail.ts: it was made for the colours of the state before; the CSS of the state draws the box)
   const ico = box.querySelector<HTMLElement>(".hl-bp-ico");
   if (ico) {
-    if (loading) {
-      const spin = doc.createElement("span");
-      spin.className = "hl-spin";
-      ico.replaceChildren(spin);
-    } else ico.innerHTML = retryIconSvg;
+    if (!loading) ico.innerHTML = retryIconSvg; // (a loading box keeps what it has: the CSS draws no icon for it, and its size does not depend on it)
   }
   const main = box.querySelector<HTMLElement>(".hl-bp-main");
   if (main) main.textContent = texts.main;

@@ -101,6 +101,7 @@
   "node --experimental-strip-types scripts/test-signature-picture.mjs": 0,
   "node --experimental-strip-types scripts/test-row-menu.mjs": 0,
   "node --experimental-strip-types scripts/test-account-order.mjs": 0,
+  "node --experimental-strip-types scripts/test-picture-progress.mjs": 0,
   "node --experimental-strip-types scripts/test-account-label.mjs": 0,
   "node --experimental-strip-types scripts/test-sidebar-state.mjs": 0,
   "node --experimental-strip-types scripts/test-context-guard.mjs": 0,

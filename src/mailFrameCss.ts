@@ -36,7 +36,8 @@ export const FAILED_PICTURE_RETRY_SVG = "<svg viewBox='0 0 24 24' fill='none' st
 /** The dark presentation of that box (the screen frame only: a printed page is always light). */
 export const HIDDEN_PICTURE_DARK_CSS = `html.hm-dark .hl-bpx{background:#262a30;border-color:#6b7280;color:#c3c9d1}html.hm-dark .hl-bpx:hover{background:#2d3239}html.hm-dark .hl-bpx:focus-visible{outline-color:#8fb4e3}
 html.hm-dark .hl-bp-hint,html.hm-dark .hl-bpx .hl-bp-alt{color:#c3c9d1}html.hm-dark .hl-bpx .hl-bp-ico{color:#a9c8f0}html.hm-dark .hl-bpx .hl-bp-ico svg path:first-child{fill:#33425a}
-html.hm-dark .hl-bpx.bad{border-color:#f0788c;color:#f0788c}html.hm-dark .hl-bpx.bad .hl-bp-hint{color:#f0788c}html.hm-dark .hl-bpx.bad .hl-bp-ico{color:#f0788c}html.hm-dark .hl-bpx.bad .hl-bp-ico svg path:first-child{fill:none}`;
+html.hm-dark .hl-bpx.bad{border-color:#f0788c;color:#f0788c}html.hm-dark .hl-bpx.bad .hl-bp-hint{color:#f0788c}html.hm-dark .hl-bpx.bad .hl-bp-ico{color:#f0788c}html.hm-dark .hl-bpx.bad .hl-bp-ico svg path:first-child{fill:none}
+@media screen{html.hm-dark .hl-bpx[data-state=loading],html.hm-dark .hl-bpx[data-state=loading]:hover{border-color:transparent;background:#2a2f36 linear-gradient(90deg,#2a2f36 0,#323841 50%,#2a2f36 100%) 0 0/200% 100%}}`;
 
 /** Everything up to the placeholders of blocked pictures. */
 export const MAIL_FRAME_CSS = `body{font:14px/1.5 "Segoe UI Variable","Segoe UI",system-ui,sans-serif;margin:0;padding:10px 12px;word-wrap:break-word;background:var(--hm-bg);color:var(--hm-fg)}
@@ -46,7 +47,13 @@ img{max-width:100%;height:auto;cursor:zoom-in}blockquote{margin:0 0 0 .8ex;borde
 ${BLOCKED_PICTURE_CSS}
 ${HIDDEN_PICTURE_CSS}`;
 
-/** The spinner of a picture that is being loaded, also the one inside a hidden-picture box (UX-1 of 1.0.12; a still ring when the system asks for less motion). The frame only: nothing is loaded in a printed page. */
-export const MAIL_FRAME_SPIN_CSS = `.hl-spin{width:14px;height:14px;border:2px solid #9aa3af;border-top-color:transparent;border-radius:50%;animation:hlspin 1s linear infinite;flex:none}@keyframes hlspin{to{transform:rotate(360deg)}}
-.hl-bpx .hl-bp-ico .hl-spin{display:block;box-sizing:border-box;width:calc(100% - 8px);height:calc(100% - 8px);margin:4px;border:3px solid currentColor;border-top-color:transparent}.hl-bpx[data-tier=small] .hl-bp-ico .hl-spin{border-width:2px}
-@media (prefers-reduced-motion:reduce){.hl-spin{animation:none}}`;
+/**
+ * What the frame (not the printed page) adds for pictures on their way (1.0.17): a hidden-picture box that loads is a quiet filled box of the same size (no icon, no text, no dashes; the
+ * space of the lines stays, so nothing moves) with a very slow shimmer; a picture that just arrived fades in. The bar over the message shows the progress. Both animations are off when the
+ * system asks for less motion. A printed page keeps the plain box of HIDDEN_PICTURE_CSS (@media screen here).
+ */
+export const MAIL_FRAME_LOADING_CSS = `@media screen{.hl-bpx[data-state=loading],.hl-bpx[data-state=loading]:hover{cursor:progress;border-style:solid;border-color:transparent;background:#eceef1 linear-gradient(90deg,#eceef1 0,#f4f5f7 50%,#eceef1 100%) 0 0/200% 100%;animation:hlshim 2.6s ease-in-out infinite}
+.hl-bpx[data-state=loading] .hl-bp-ico,.hl-bpx[data-state=loading] .hl-bp-main,.hl-bpx[data-state=loading] .hl-bp-alt{visibility:hidden}
+@keyframes hlshim{0%{background-position:100% 0}100%{background-position:-100% 0}}
+img[data-hl-new]{animation:hlfade .15s ease-out}@keyframes hlfade{from{opacity:0}to{opacity:1}}
+@media (prefers-reduced-motion:reduce){.hl-bpx[data-state=loading],.hl-bpx[data-state=loading]:hover{animation:none}img[data-hl-new]{animation:none}}}`;

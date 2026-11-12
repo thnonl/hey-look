@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// 1.0.12 UX-1: a hidden picture that is being shown says so (a spinner in the box from the click until the result) and a picture that could not be fetched is one failed box with Retry.
+// 1.0.12 UX-1: a hidden picture that is being shown says so (a quiet filled box, no spinner and no text, from the click until the result; the bar over the message counts them) and a picture that could not be fetched is one failed box with Retry.
 // Never a broken or empty <img> in between. In the dev preview (src/devMock.ts: the backend fetch of pictures answers after `window.__remoteFetchDelayMs`; an address that contains
 // "unreachable" gets no picture, `window.__remoteFetchCalls` lists the calls).
 //   P1 Show this picture (click): the box is loading within one frame, same size, no <img> without a picture before the result; the picture keeps its alt; the others are not touched
-//   P2 the small box: spinner only, no text; the status line and the name of the box say it      P3 several boxes at once, each its own state (one fails, one shows)
+//   P2 the small box: no spinner, no text; the status line and the name of the box say it      P3 several boxes at once, each its own state (one fails, one shows)
 //   P4 Show pictures (the notice link) and the automatic rule: loading boxes instead of src-less pictures, then the pictures; a failure: failed box with Retry
 //   P5 failed: one state, Retry starts loading again (a second fetch)   P6 dark and light theme   P7 the reader window (pop-out)
 //   node scripts/test-picture-loading.mjs [--require-browser | --url=http://127.0.0.1:1420/]
@@ -50,7 +50,7 @@ const open = async (id) => {
 };
 // one sample of the frame: every box (state, size, text, icon), every picture (has it an address, is it a data: picture)
 const SNAP = (doc) => `(() => { const d = ${doc}; if (!d) return null; const r = (e) => { const q = e.getBoundingClientRect(); return [Math.round(q.width), Math.round(q.height)]; };
-  const vis = (e) => !!e && getComputedStyle(e).display !== 'none';
+  const vis = (e) => !!e && getComputedStyle(e).display !== 'none' && getComputedStyle(e).visibility !== 'hidden';
   return { boxes: [...d.querySelectorAll('.hl-bp')].map((b) => ({ state: b.getAttribute('data-state'), busy: b.getAttribute('aria-busy'), bad: b.classList.contains('bad'), size: r(b), tier: b.getAttribute('data-tier'), alt: b.getAttribute('data-img-alt'), label: b.getAttribute('aria-label'), role: b.getAttribute('role'), tab: b.getAttribute('tabindex'), focused: d.activeElement === b, spin: !!b.querySelector('.hl-spin'), main: vis(b.querySelector('.hl-bp-main')) ? b.querySelector('.hl-bp-main').textContent : null, hint: vis(b.querySelector('.hl-bp-hint')) ? b.querySelector('.hl-bp-hint').textContent : null, status: b.querySelector('.hl-bp-sr') ? b.querySelector('.hl-bp-sr').textContent : null })),
     imgs: [...d.images].map((i) => ({ src: (i.getAttribute('src') || '').slice(0, 10), alt: i.getAttribute('alt'), size: r(i), ok: i.complete && i.naturalWidth > 0, done: i.complete })) }; })()`;
 const snap = (doc = DOC) => evaluate(SNAP(doc));
@@ -89,7 +89,7 @@ try {
   ok(s[0].t < 250 && s[0].boxes[1].state === 'loading', `the box is loading at the first sample (${s[0].t} ms, ${s[0].boxes[1] && s[0].boxes[1].state})`);
   const L = s[0].boxes[1];
   ok(L.role === 'img' && L.tab === '-1', `loading box is no button and out of the tab order (${L.role}, tabindex ${L.tab})`);
-  ok(L.tier === 'full' && L.busy === 'true' && L.spin && L.main === 'Showing picture…' && L.hint === null && L.status === 'Showing picture…', `loading box: ${JSON.stringify(L)}`);
+  ok(L.tier === 'full' && L.busy === 'true' && !L.spin && L.main === null && L.hint === null && L.status === 'Showing picture…', `loading box: ${JSON.stringify(L)}`);
   ok(/two/.test(L.label) && L.alt === 'two', `the alt text is kept in the name of the box (${L.label})`);
   ok(JSON.stringify(L.size) === JSON.stringify(before.boxes[1].size), `loading box keeps its size ${JSON.stringify(before.boxes[1].size)} (${JSON.stringify(L.size)})`);
   ok(s.slice(0, -1).every((x) => x.boxes.length === 3 && x.boxes[1].state === 'loading' && JSON.stringify(x.boxes[1].size) === JSON.stringify(L.size)), 'loading all the way, never another size or state');
@@ -107,8 +107,8 @@ try {
   s = await sample(clickAll(), (x) => x.imgs.length === 3, 6000);
   noBroken(s, 'tiers');
   const mid = s[1] || s[0];
-  ok(mid.boxes.every((b) => b.state === 'loading' && b.spin && b.busy === 'true'), 'all three load at once, each with a spinner');
-  ok(mid.boxes[0].main === null && mid.boxes[0].hint === null, 'small box: spinner only, no text');
+  ok(mid.boxes.every((b) => b.state === 'loading' && !b.spin && b.busy === 'true'), 'all three load at once, each quiet (no spinner)');
+  ok(mid.boxes[0].main === null && mid.boxes[0].hint === null, 'small box: no spinner, no text');
   ok(mid.boxes[0].status === 'Showing picture…' && /Showing picture/.test(mid.boxes[0].label), 'small box: the status line and the name say it (screen reader)');
   ok(mid.boxes.every((b, i) => JSON.stringify(b.size) === JSON.stringify(sz.boxes[i].size)), 'no box changes its size');
 
@@ -130,7 +130,7 @@ try {
   tag = 'retry';
   await evaluate(`window.__remoteFetchCalls = []; 1`);
   s = await sample(clickBox(0), (x) => x.boxes[0] && x.boxes[0].state === 'failed' && x.t > 300, 6000);
-  ok(s[0].boxes[0].state === 'loading' && s[0].boxes[0].spin && s[0].boxes[0].busy === 'true', `Retry: loading again at once (${s[0].boxes[0].state})`);
+  ok(s[0].boxes[0].state === 'loading' && !s[0].boxes[0].spin && s[0].boxes[0].busy === 'true', `Retry: loading again at once (${s[0].boxes[0].state})`);
   ok(s.slice(0, -1).every((x) => x.boxes[0].state === 'loading') && s.every((x) => x.imgs.length === 1), 'Retry: loading all the way, nothing else changes');
   ok(s[s.length - 1].boxes[0].state === 'failed', 'Retry: failed again (the address is still unreachable)');
   ok((await calls()).flat().length === 1, 'Retry: a second fetch');
@@ -181,9 +181,18 @@ try {
   // ======================================================================== P4 Show pictures (notice link)
   tag = 'show-all';
   await open('lB');
+  // 1.0.17: one thin bar for the whole message, recorded every 25 ms from the click on
+  await evaluate(`window.__bar = []; const t0 = performance.now(); window.__barTimer = setInterval(() => { const b = document.querySelector('.rp-msg.open .pic-bar'); window.__bar.push(b ? { t: Math.round(performance.now() - t0), role: b.getAttribute('role'), min: b.getAttribute('aria-valuemin'), max: b.getAttribute('aria-valuemax'), now: b.getAttribute('aria-valuenow'), label: b.getAttribute('aria-label'), h: Math.round(b.getBoundingClientRect().height), fade: b.hasAttribute('data-fade') } : { t: Math.round(performance.now() - t0) }); }, 25); 1`);
   s = await sample(`document.querySelector('.rp-msg.open .notice button.link:not([data-trust])').click(); 1`, (x) => x.imgs.length === 3 && x.imgs.every((i) => i.ok), 7000);
   noBroken(s, 'show pictures');
-  ok(s[0].t < 300 && s[0].boxes.length === 3 && s[0].boxes.every((b) => b.state === 'loading' && b.spin && b.busy === 'true'), `after "Show pictures": three loading boxes at once (${JSON.stringify(s[0].boxes.map((b) => b.state))})`);
+  await sleep(600);
+  const bar = await evaluate(`(clearInterval(window.__barTimer), window.__bar)`);
+  const shownBar = bar.filter((b) => b.role);
+  ok(shownBar.length > 0 && shownBar[0].t >= 250, `the bar waits for 300 ms (first seen at ${shownBar[0] && shownBar[0].t} ms)`);
+  ok(shownBar.every((b) => b.role === 'progressbar' && b.min === '0' && b.max === '3' && b.label === 'Showing picture…' && b.h === 3), `a progressbar of 3 px for 3 pictures (${JSON.stringify(shownBar[0])})`);
+  ok(shownBar.some((b) => b.now === '3') && !bar[bar.length - 1].role, 'full at the end, then gone');
+  ok(await evaluate(`(() => { const i = [...${DOC}.querySelectorAll('img')]; return i.length === 3 && i.every((x) => x.hasAttribute('data-hl-new') && getComputedStyle(x).animationName === 'hlfade'); })()`), 'the pictures that just arrived fade in');
+  ok(s[0].t < 300 && s[0].boxes.length === 3 && s[0].boxes.every((b) => b.state === 'loading' && !b.spin && b.busy === 'true'), `after "Show pictures": three loading boxes at once (${JSON.stringify(s[0].boxes.map((b) => b.state))})`);
   ok(s[0].boxes.every((b) => b.size[0] === 200 && b.size[1] === 100), `at the size of the hidden boxes (${JSON.stringify(s[0].boxes.map((b) => b.size))})`);
   ok(s[0].boxes.every((b) => b.role === 'img' && b.label.includes(b.alt)), 'not buttons while loading, named with the alt');
   ok(s[s.length - 1].imgs.map((i) => i.alt).join() === 'one,two,three', 'the pictures come in with their alt text');
@@ -228,7 +237,7 @@ try {
   await evaluate(clickBox(1));
   await sleep(200);
   const dl = await evaluate(`(() => { const b = ${DOC}.querySelector('.hl-bp[data-state=loading]'); const c = getComputedStyle(b); const sp = b.querySelector('.hl-spin'); return { bg: c.backgroundColor, color: c.color, spin: sp ? getComputedStyle(sp).borderLeftColor : null, dark: ${DOC}.documentElement.classList.contains('hm-dark') }; })()`);
-  ok(dl.dark && dl.spin === 'rgb(169, 200, 240)' && dl.bg !== 'rgb(246, 247, 249)', `dark loading box: ${JSON.stringify(dl)}`);
+  ok(dl.dark && dl.spin === null && dl.bg !== 'rgb(246, 247, 249)', `dark loading box: ${JSON.stringify(dl)}`);
   const hasFailed = `!!${DOC}.querySelector('.hl-bp[data-state=failed]')`;
   ok(await until(hasFailed, 4000), 'dark: failed');
   const failedColours = `(() => { const b = ${DOC}.querySelector('.hl-bp[data-state=failed]'); const c = getComputedStyle(b); return { border: c.borderTopColor, color: c.color, ico: getComputedStyle(b.querySelector('.hl-bp-ico')).color, hint: getComputedStyle(b.querySelector('.hl-bp-hint')).color }; })()`;
@@ -257,7 +266,7 @@ try {
   // (the logo of this mail is inside a link: a click stays the link's, Enter shows the picture)
   s = await sample(`(() => { const b = ${rdoc}.querySelector('.hl-bp'); b.focus(); b.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); return 1; })()`, (x) => x.imgs.some((i) => i.ok), 7000, rdoc);
   noBroken(s, 'reader show one');
-  ok(s[0].boxes[0].state === 'loading' && s[0].boxes[0].spin && JSON.stringify(s[0].boxes[0].size) === JSON.stringify(rb.boxes[0].size), `reader: loading box, same size (${JSON.stringify(s[0].boxes[0])})`);
+  ok(s[0].boxes[0].state === 'loading' && !s[0].boxes[0].spin && JSON.stringify(s[0].boxes[0].size) === JSON.stringify(rb.boxes[0].size), `reader: loading box, same size (${JSON.stringify(s[0].boxes[0])})`);
   ok(s[s.length - 1].imgs.some((i) => i.ok), 'reader: the picture shows');
 } catch (e) {
   failures.push(`[${tag}] ${e && e.stack ? e.stack : e}`);

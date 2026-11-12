@@ -24,11 +24,13 @@ import { revealSaved } from "../reveal";
 import { mailKey, setMailDark, taggedMailDocument } from "../darkMail";
 import { LANGS, t, type Key, type Lang } from "../i18n";
 import { useLang, useT } from "../i18n/react";
+import { PictureBar } from "./PictureBar";
+import { PIC_IDLE, stepProgress, watchPictures } from "../pictureProgress";
 import { fmtNumber } from "../i18n/format";
 import { tx } from "../i18n/rich";
 import { DARK_CANVAS, frameBaseCss, frameRootClass, pressCanvas } from "../mailCanvas";
 import { useAppDark } from "../useAppDark";
-import { FAILED_PICTURE_RETRY_SVG, HIDDEN_PICTURE_DARK_CSS, HIDDEN_PICTURE_SHIELD_SVG, MAIL_FRAME_CSS, MAIL_FRAME_SPIN_CSS } from "../mailFrameCss";
+import { FAILED_PICTURE_RETRY_SVG, HIDDEN_PICTURE_DARK_CSS, HIDDEN_PICTURE_SHIELD_SVG, MAIL_FRAME_CSS, MAIL_FRAME_LOADING_CSS } from "../mailFrameCss";
 import { reapply as reapplyColorScheme, rewriteMailHtml } from "../colorSchemeMedia";
 import { eff } from "../prefs";
 import { addNoAuto, addTrusted, canOffer, ensureTrustedLoaded, normSender, noticeState, remoteAllowed, remoteAllowedFor, removeNoAuto, removeTrusted, useTrusted, type RemoteInput } from "../trustedSenders";
@@ -115,7 +117,7 @@ function remoteImageUrls(html: string): string[] {
  * same string comes back and nothing is parsed. One entry per cleaned result; the result is dropped from CLEANED by size and count, and the entry goes with it.
  */
 const SHOWN = new WeakMap<object, { key: string; html: string }>();
-function shownHtml(clean: { html: string }, allowed: boolean, settled: boolean, done: ReadonlySet<string>, m: MessageFull, loaded: Record<string, string>, state: Record<string, { status: "loading" | "failed"; error?: string }>, lang: string, version: number, shown: Record<string, string>): string {
+function shownHtml(clean: { html: string }, allowed: boolean, settled: boolean, done: ReadonlySet<string>, m: MessageFull, loaded: Record<string, string>, state: Record<string, { status: "loading" | "failed"; error?: string }>, lang: string, version: number, shown: Record<string, string>, fresh: (key: string) => boolean): string {
   const key = [
     allowed ? 1 : 0,
     allowed && settled ? 1 : 0,
@@ -128,7 +130,7 @@ function shownHtml(clean: { html: string }, allowed: boolean, settled: boolean, 
   ].join("|");
   const hit = SHOWN.get(clean);
   if (hit && hit.key === key) return hit.html;
-  const out = pictureHtml(allowed ? inlineImages(clean.html, settled, done) : clean.html, m, loaded, state, shown);
+  const out = pictureHtml(allowed ? inlineImages(clean.html, settled, done, fresh) : clean.html, m, loaded, state, shown, fresh);
   SHOWN.set(clean, { key, html: out });
   return out;
 }
@@ -143,7 +145,7 @@ function pictureBoxTexts(state: PictureBoxState, alt: string): PictureBoxTexts {
 }
 
 /** Pictures the sync did not embed: loaded ones become data: URIs, the rest become click-to-load placeholders. */
-function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string>, state: Record<string, { status: "loading" | "failed"; error?: string }>, shown: Record<string, string>): string {
+function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string>, state: Record<string, { status: "loading" | "failed"; error?: string }>, shown: Record<string, string>, fresh: (key: string) => boolean): string {
   const doc = new DOMParser().parseFromString(html, "text/html");
   // a remote picture that is blocked (1.0.10): a button-like box of the size the mail gave it - a shield with a picture in it, "Picture hidden for privacy", how to show it, the alt text;
   // nothing at all for a tracking pixel or a picture the mail hides itself. Enter / Space / a click show this one picture, the right-click menu has "Show all" (ReadingPane `hookDoc`).
@@ -208,6 +210,7 @@ function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string
     const cid = (img.getAttribute("src") ?? "").slice(4);
     if (loaded[cid]) {
       img.setAttribute("src", loaded[cid]);
+      if (fresh(`cid:${cid}`)) img.setAttribute("data-hl-new", "1");
       return;
     }
     const meta = m.attachments.find((a) => a.cid === cid);
@@ -220,10 +223,8 @@ function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string
       ph.disabled = true;
       ph.textContent = t("reading.pic.missing", { cid });
     } else if (st?.status === "loading") {
-      ph.setAttribute("aria-busy", "true");
-      const spin = doc.createElement("span");
-      spin.className = "hl-spin";
-      ph.append(spin, t("reading.pic.loading", { size: fmtSize(meta.size) }));
+      ph.setAttribute("aria-busy", "true"); // (no spinner: the bar over the message shows the progress)
+      ph.append(t("reading.pic.loading", { size: fmtSize(meta.size) }));
     } else if (st?.status === "failed") {
       ph.classList.add("bad");
       const b = doc.createElement("b");
@@ -242,12 +243,16 @@ function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string
   return doc.body.innerHTML;
 }
 
-function inlineImages(html: string, settled: boolean, done: ReadonlySet<string>): string {
+function inlineImages(html: string, settled: boolean, done: ReadonlySet<string>, fresh: (key: string) => boolean): string {
   const doc = new DOMParser().parseFromString(html, "text/html");
   doc.querySelectorAll("img[src]").forEach((i) => {
     const src = i.getAttribute("src") ?? "";
     const data = cachedImage(src);
-    if (data) return i.setAttribute("src", data);
+    if (data) {
+      i.setAttribute("src", data);
+      if (fresh(src.trim().startsWith("//") ? `https:${src.trim()}` : src.trim())) i.setAttribute("data-hl-new", "1"); // (just arrived: it fades in)
+      return;
+    }
     // The webview never asks the sender's host for a picture (1.0.11 BUG-2: an auto-shown picture was fetched twice, by the backend and by the page): what the backend has not brought yet waits
     // without an address (data-hl-wait), and what it could not bring is a hidden-picture box (click to try again). The frame's CSP is img-src data: in every case.
     if (/^(https?:)?\/\//i.test(src.trim())) {
@@ -351,6 +356,12 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   const sender = normSender(m.fromEmail);
   const rin: RemoteInput = { global: loadRemote, trusted: !!sender && trustedSet.has(sender), autoReason: m.autoReason, noAuto: !!sender && noAutoSet.has(sender), autoOn, folder: m.folder, encrypted: !!m.security?.encrypted, auth: m.auth, allow };
   const [version, setVersion] = useState(0); // bumps when images arrive from the backend
+  // pictures that arrived a moment ago (address or cid:id -> time): the frame is built again for each arrival and only these fade in, not every picture again
+  const freshRef = useRef<Map<string, number>>(new Map());
+  const markFresh = (key: string) => freshRef.current.set(key, Date.now());
+  const isFresh = (key: string) => Date.now() - (freshRef.current.get(key) ?? -Infinity) < 1500;
+  const [picProgress, setPicProgress] = useState(PIC_IDLE); // how many pictures are on their way (the bar over the message)
+  useEffect(() => setPicProgress(PIC_IDLE), [m.id]);
   const doneRef = useRef<Set<string>>(new Set()); // the addresses the backend has answered for (a picture or none), one by one
   const [settledFor, setSettledFor] = useState<unknown>(null); // the cleaned mail whose pictures the backend has answered for (all of them came, or failed)
   const [loadedPics, setLoadedPics] = useState<Record<string, string>>({});
@@ -429,7 +440,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   const html = useMemo(
     () => {
       hlMark("open:pics:start");
-      const out = shownHtml(clean, allowed, settledFor === clean, doneRef.current, m, loadedPics, picState, lang, version, shownRef.current);
+      const out = shownHtml(clean, allowed, settledFor === clean, doneRef.current, m, loadedPics, picState, lang, version, shownRef.current, isFresh);
       hlMark("open:pics:end");
       diag(`html built m=${m.id} changed=${lastHtml.current !== out} len=${out.length}`); // (reader window only; logs)
       lastHtml.current = out;
@@ -444,6 +455,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
       setPicState((s) => ({ ...s, [cid]: { status: "loading" } }));
       try {
         const d = await api.inlineImage(m.id, cid);
+        markFresh(`cid:${cid}`);
         setLoadedPics((s) => ({ ...s, [cid]: `data:${d.mime};base64,${d.dataBase64}` }));
         setPicState((s) => {
           const n = { ...s };
@@ -500,6 +512,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
           const v = b.getAttribute(`data-img-${a}`);
           if (v) img.setAttribute(a, v);
         }
+        img.setAttribute("data-hl-new", "1");
         b.replaceWith(img);
       }
       // the focus goes on to the next hidden picture, or stays in the message
@@ -545,6 +558,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     doneRef.current = new Set();
     void loadRemoteImages(missing, false, (u) => {
       doneRef.current.add(u);
+      markFresh(u);
       if (live && timer === undefined) timer = setTimeout(repaint, 120);
     }).then(() => {
       if (!live) return;
@@ -577,7 +591,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     <style>${frameBaseCss()}
     ${MAIL_FRAME_CSS}
     ${lockedNow.current ? CONFIDENTIAL_FRAME_CSS : ""}
-    ${MAIL_FRAME_SPIN_CSS}
+    ${MAIL_FRAME_LOADING_CSS}
     ${HIDDEN_PICTURE_DARK_CSS}</style>
     </head><body>`,
       rewriteMailHtml(html, darkNow.current),
@@ -797,7 +811,9 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     // no native webview menu in the mail either: Copy on selected text, Open link / Copy link address on a link (confidential mail has no menu at all)
     // (Confidential mail has no menu at all, but the frame still passes Ctrl+Q on Linux: a key pressed in a frame never reaches the window, D-112)
     const unguard = lockedNow.current ? guardFrameQuitKey(doc) : guardFrame(frame, doc, { search: true, picture: (box) => picMenuRef.current(box) });
+    const stopPics = watchPictures(doc, (n) => setPicProgress((p) => stepProgress(p, n)));
     stopObserve.current = () => {
+      stopPics();
       unlock?.();
       unguard?.();
       imgs.forEach((i) => {
@@ -887,6 +903,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
         </div>
       )}
       {/* no script can run (CSP script-src none; on Chromium the sandbox forbids scripts too); allow-same-origin only lets us read height / hook links */}
+      <PictureBar progress={picProgress} />
       <iframe
         ref={frameRef}
         className="msg-frame"

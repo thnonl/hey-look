@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { buildPrintDoc, printCsp } from "../src/printDoc.ts";
-import { MAIL_FRAME_CSS, MAIL_FRAME_SPIN_CSS } from "../src/mailFrameCss.ts";
+import { MAIL_FRAME_CSS, MAIL_FRAME_LOADING_CSS } from "../src/mailFrameCss.ts";
 
 let n = 0;
 const check = (label, fn) => {
@@ -67,7 +67,7 @@ check("no rule that only the frame needs, and no app CSS (REQ-5.3.2)", () => {
   const d = buildPrintDoc({ html: "<p>x</p>", csp: CSP_BLOCKED, subject: "s" });
   assert.ok(!d.includes("html,body{overflow:hidden!important"), "the trailing overflow:hidden rule of the frame is not in the print");
   assert.ok(!d.includes("min-height:0!important"), "no frame height rule");
-  assert.ok(!d.includes("hl-spin") && !d.includes(MAIL_FRAME_SPIN_CSS.trim().slice(0, 20)), "no picture spinner");
+  assert.ok(!d.includes("hl-spin") && !d.includes(MAIL_FRAME_LOADING_CSS.trim().slice(0, 20)), "no picture spinner");
   assert.ok(d.includes(MAIL_FRAME_CSS), "the same mail rules as the frame");
   for (const appRule of [".rp-", ".fp-", ".ml-row", ".modal", ".icon-btn", ".toolbar", "--bg2", "--accent"]) assert.ok(!d.includes(appRule), `app CSS ${appRule} in the print`);
   assert.ok(!d.includes("<script") && !d.includes("<link") && !d.includes("<base"), "nothing that loads");
@@ -81,7 +81,7 @@ check("the print document is no bigger than the mail plus a fixed frame of a few
 
 check("the frame uses the shared CSS (one place for the mail rules)", () => {
   const rp = read("src/components/ReadingPane.tsx");
-  assert.ok(rp.includes("${MAIL_FRAME_CSS}") && rp.includes("${MAIL_FRAME_SPIN_CSS}") && !rp.includes("body{font:14px/1.5"), "the frame takes the rules from mailFrameCss.ts");
+  assert.ok(rp.includes("${MAIL_FRAME_CSS}") && rp.includes("${MAIL_FRAME_LOADING_CSS}") && !rp.includes("body{font:14px/1.5"), "the frame takes the rules from mailFrameCss.ts");
   assert.ok(!/from "\.\//.test(read("src/mailFrameCss.ts")), "mailFrameCss.ts imports nothing");
 });
 

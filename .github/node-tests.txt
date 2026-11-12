@@ -110,6 +110,7 @@ static | node --experimental-strip-types scripts/test-signature-picture.mjs
 static | node --experimental-strip-types scripts/test-row-menu.mjs
 static | node --experimental-strip-types scripts/test-rule-suggest.mjs
 static | node --experimental-strip-types scripts/test-account-order.mjs
+static | node --experimental-strip-types scripts/test-picture-progress.mjs
 static | node --experimental-strip-types scripts/test-account-label.mjs
 static | node --experimental-strip-types scripts/test-sidebar-state.mjs
 static | node --experimental-strip-types scripts/test-context-guard.mjs
