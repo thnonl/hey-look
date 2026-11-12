@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.16 — 2026-11-12
+
+### Fixed
+
+- Message previews in the message list and in notifications: some support surveys and newsletters still showed bits of web page code instead of the message's words. Previews now show what the message says, including messages you already have
+
 ## 1.0.15 — 2026-11-10
 
 ### Fixed
