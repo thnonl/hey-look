@@ -200,12 +200,17 @@ function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string
     const hint = doc.createElement("span");
     hint.className = "hl-bp-hint";
     hint.textContent = t(mac ? "reading.pic.hiddenHintMac" : "reading.pic.hiddenHint");
-    box.append(ico, main, hint);
+    // the lines sit in an inner column: the box itself is an inline-block that clips, so its baseline is its bottom edge, like the picture that replaces it (the text below never moves)
+    const inner = doc.createElement("span");
+    inner.className = "hl-bp-in";
+    if (size.height === "auto") inner.style.minHeight = "82px"; // (the box minimum 96 px less its padding and border: the lines stay centred in it)
+    inner.append(ico, main, hint);
+    box.append(inner);
     if (alt && size.tier === "full" && (size.height === "auto" || parseFloat(size.height) >= ALT_MIN_HEIGHT)) {
       const label = doc.createElement("span");
       label.className = "hl-bp-alt";
       label.textContent = alt;
-      box.append(label);
+      inner.append(label);
     }
     if (waiting) {
       pending++;

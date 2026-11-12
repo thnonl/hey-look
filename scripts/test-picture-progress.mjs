@@ -44,5 +44,5 @@ console.log("picture progress: ok");
 const rp = readFileSync(new URL("../src/components/ReadingPane.tsx", import.meta.url), "utf8");
 assert.ok(rp.includes("setPicProgress((p) => stepProgress(p, pendingRef.current))"), "the bar is seeded from the built HTML");
 assert.ok(rp.includes('querySelectorAll("img[data-hl-new]").forEach((i) => i.removeAttribute("data-hl-new"))'), "the fade mark is removed after 400 ms");
-assert.ok(css.includes("display:inline-block;vertical-align:baseline"), "the loading box has the baseline of a picture");
+assert.ok(css.includes(".hl-bpx{position:relative;display:inline-block;vertical-align:baseline}"), "the loading box has the baseline of a picture");
 console.log("picture progress (linux round): ok");
