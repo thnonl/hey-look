@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.18 — 2026-11-13
+
+### Fixed
+
+- Pictures in a message: the pictures already showing no longer blink while the rest are still loading. Each picture fades in once, when it arrives, and then stays still
+
 ## 1.0.17 — 2026-11-12
 
 ### Changed

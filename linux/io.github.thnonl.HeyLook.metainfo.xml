@@ -240,6 +240,12 @@
   <releases>
     <!-- The version-bump commit of a release adds its entry FIRST (the newest release is the snap's version and the one the release
          workflow checks against the tag). -->
+    <release version="1.0.18" date="2026-11-13">
+      <description>
+        <p>Pictures in a message no longer blink while the rest are still loading. Each picture fades in once, when it arrives, and then stays still.</p>
+      </description>
+      <url>https://github.com/thnonl/hey-look/releases/tag/v1.0.18</url>
+    </release>
     <release version="1.0.17" date="2026-11-12">
       <description>
         <p>Pictures in a message now load quietly: each one shows as a plain grey box instead of a spinning circle, and a thin bar at the top shows how much is left. The text under the pictures no longer jumps when they arrive or when you show hidden pictures.</p>
