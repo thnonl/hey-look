@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.20 — 2026-11-19
+
+### Fixed
+
+- Pictures in a message: a newsletter with many pictures could flash once right after its pictures loaded, mostly when you opened it again and most clearly in dark mode. The message now stays still
+
 ## 1.0.19 — 2026-11-19
 
 ### Fixed

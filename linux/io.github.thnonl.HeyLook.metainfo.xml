@@ -240,6 +240,12 @@
   <releases>
     <!-- The version-bump commit of a release adds its entry FIRST (the newest release is the snap's version and the one the release
          workflow checks against the tag). -->
+    <release version="1.0.20" date="2026-11-19">
+      <description>
+        <p>Pictures in a message: a newsletter with many pictures could flash once right after its pictures loaded, mostly when you opened it again and most clearly in dark mode. The message now stays still.</p>
+      </description>
+      <url>https://github.com/thnonl/hey-look/releases/tag/v1.0.20</url>
+    </release>
     <release version="1.0.19" date="2026-11-19">
       <description>
         <p>Some pictures in newsletters never appeared, even after Retry. They now appear like the other pictures.</p>
