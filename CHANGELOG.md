@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.19 — 2026-11-19
+
+### Fixed
+
+- Pictures in a message: some pictures in newsletters never appeared, even after Retry. They now appear like the other pictures
+
 ## 1.0.18 — 2026-11-13
 
 ### Fixed
