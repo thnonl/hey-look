@@ -689,7 +689,9 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     let timer: ReturnType<typeof setTimeout> | undefined;
     const repaint = () => {
       timer = undefined;
-      if (live) setVersion((v) => v + 1);
+      // (nothing arrived that the frame does not have: a picture that came between the last repaint and its render was put in with that render, and this timer is its own - the HTML of a
+      // bumped version only lost the "just arrived" marks then, and the frame must not be written for that)
+      if (live && arrivalsRef.current.size > 0) setVersion((v) => v + 1);
     };
     doneRef.current = new Set();
     void loadRemoteImages(missing, false, (u, ok) => {

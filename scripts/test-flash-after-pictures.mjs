@@ -101,9 +101,29 @@ async function run(theme) {
   ok(snaps[`${theme} reopened`] === snaps[`${theme} first open`], `the reopened mail ends with the same document as the first open (${snaps[`${theme} reopened`].length} / ${snaps[`${theme} first open`].length} chars)`);
 }
 
+// A picture that arrives in the few ms between the repaint timer of the pictures before it and the render that timer asked for: that render puts it in the frame in place and
+// clears the arrivals, and the timer that picture started then bumped the version with nothing left to put in (the HTML only lost the "just arrived" marks): the effect took
+// "nothing to patch" for "write the frame" (the owner's BUG-1: a whole mail written at +0.7 s on a busy main thread). The main thread is held for 100 ms across both timers, as the
+// 3 MB of pictures of the real mail do. Each trial is a new mail (the pictures are not cached); the frame is written twice at most (StrictMode mount).
+async function race(theme) {
+  for (const b of [221, 229, 237]) {
+    tag = `${theme} late picture ${b} ms`;
+    const id = `rc${b}`;
+    const img = (n, ms) => `<img src="https://h.example.net/${id}/slow/${ms}/${n}.png" width="48" height="48" alt="${n}">`;
+    await evaluate(`window.__mockAddThread('${id}', 'Race ${b}', { fromName: 'Grab', fromEmail: 'news@mkt.grab.com', html: ${JSON.stringify(`<table><tr><td>${img('a', 80)} ${img('b', b)} ${img('c', 700)}</td></tr></table>`)}, auth: 'pass', autoReason: 'wrote' }); window.__store.getState().refresh().then(() => 1)`);
+    await sleep(300);
+    await evaluate(`window.__w0 = window.__mailFrame.writes; window.__store.getState().select('${id}'); setTimeout(() => { const e = performance.now() + 100; while (performance.now() < e); }, ${b - 10}); 1`);
+    await sleep(1600);
+    const writes = await evaluate('window.__mailFrame.writes - window.__w0');
+    ok(await evaluate(`${DOC}.images.length`) === 3 && writes <= 2, `the frame was written at most twice (StrictMode mount) while three pictures came, the third ${b} ms in, behind a busy main thread (${writes} writes)`);
+  }
+}
+
 try {
   await run('light');
+  await race('light');
   await run('dark');
+  await race('dark');
 } catch (e) {
   failures.push(`[${tag}] ${e && e.stack ? e.stack : e}`);
   console.error(e);
