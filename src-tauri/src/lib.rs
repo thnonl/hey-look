@@ -30,6 +30,7 @@ mod secretblob;
 mod authres;
 mod autoload;
 mod remote_ok;
+mod remoteimg;
 mod importance;
 mod idle;
 mod legacy_names;
@@ -6843,26 +6844,38 @@ async fn fetch_remote_images(urls: Vec<String>) -> R<HashMap<String, String>> {
     for u in urls.into_iter().filter(|u| u.starts_with("http://") || u.starts_with("https://")).take(60) {
         let c = client.clone();
         handles.push(tauri::async_runtime::spawn(async move {
-            let r = c.get(&u).send().await.ok()?;
+            let r = match c.get(&u).send().await {
+                Ok(r) => r,
+                Err(e) => {
+                    remoteimg::log_refused(&u, if e.is_timeout() { "timeout" } else if e.is_connect() { "connect failed" } else { "request failed" });
+                    return None;
+                }
+            };
             if !r.status().is_success() {
+                remoteimg::log_refused(&u, &format!("http {}", r.status().as_u16()));
                 return None;
             }
-            let ct = r
-                .headers()
-                .get(reqwest::header::CONTENT_TYPE)?
-                .to_str()
-                .ok()?
-                .split(';')
-                .next()?
-                .trim()
-                .to_lowercase();
-            if !ct.starts_with("image/") || r.content_length().map_or(false, |l| l as usize > MAX_BYTES) {
+            // the server's type may be missing or generic (S3/CloudFront send binary/octet-stream): the bytes decide then (remoteimg.rs)
+            let header = r.headers().get(reqwest::header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).map(str::to_string);
+            if r.content_length().map_or(false, |l| l as usize > MAX_BYTES) {
+                remoteimg::log_refused(&u, "too big");
                 return None;
             }
-            let bytes = r.bytes().await.ok()?;
-            if bytes.len() > MAX_BYTES {
+            let bytes = match r.bytes().await {
+                Ok(b) if b.len() <= MAX_BYTES => b,
+                Ok(_) => {
+                    remoteimg::log_refused(&u, "too big");
+                    return None;
+                }
+                Err(_) => {
+                    remoteimg::log_refused(&u, "body read failed");
+                    return None;
+                }
+            };
+            let Some(ct) = remoteimg::picture_type(header.as_deref(), &bytes) else {
+                remoteimg::log_refused(&u, &format!("not a picture ({})", header.as_deref().unwrap_or("no type")));
                 return None;
-            }
+            };
             Some((u, format!("data:{ct};base64,{}", base64::engine::general_purpose::STANDARD.encode(&bytes))))
         }));
     }
