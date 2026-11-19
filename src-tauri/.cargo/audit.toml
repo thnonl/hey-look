@@ -25,6 +25,13 @@ ignore = [
     # test on every platform, and then all four zip entries come out.
     # 2026-11-03; approved by the owner (nam.hoang)
     "RUSTSEC-2026-0429",
+    # zip 4.6.1: RUSTSEC-2026-0548 (ZipStreamReader extracts under local-header names; fixed in 9.0.5) and RUSTSEC-2026-0545 (AES entries returned without their
+    # authentication check; fixed in 9.0.0). Same crate and same exposure as the four entries above, and narrower: tauri-plugin-updater 2.13.3 uses only
+    # ZipArchive (updater.rs), never ZipStreamReader, and takes zip with default-features = false, so the AES support is not built. The zip crate is still not
+    # compiled for any target (Windows builds the updater without its "zip" feature). They come out with the others when the updater moves to zip >= 9.
+    # 2026-11-19; approved by the lead (1.0.19 release, owner asked for the patch release)
+    "RUSTSEC-2026-0545",
+    "RUSTSEC-2026-0548",
     # rsa 0.9.10: RUSTSEC-2023-0071 (Marvin attack: key recovery through timing seen over the network). No fixed version exists (0.10.0-rc.* is affected too).
     # Used only through pgp 0.21.0 (rPGP) in src/openpgp.rs, pgpstore.rs, pgpmail.rs: the optional OpenPGP keys of the user (RSA 3072) and RSA keys of others,
     # for signing, encrypting and decrypting mail on the user's own computer. No server of ours, and no network service answers with a decryption result or its
