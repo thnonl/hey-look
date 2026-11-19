@@ -295,12 +295,14 @@ function pictureFor(holder: HTMLElement, data: string): HTMLImageElement {
  * again, so the pictures that are there already are not recreated and do not fade again (1.0.18; only the one that arrived fades in, once). Returns the pictures put in (their `load`
  * changes the height), or null when the document has something that cannot be done in place (a waiting box that does not know its address): the caller writes the frame then.
  */
-function patchArrivals(doc: Document, arrivals: ReadonlyMap<string, boolean>, dataOf: (key: string) => string | undefined): HTMLImageElement[] | null {
+function patchArrivals(doc: Document, arrivals: ReadonlyMap<string, boolean>, dataOf: (key: string) => string | undefined, settled = false): HTMLImageElement[] | null {
   if (doc.querySelector("img[data-hl-wait]:not([data-hl-wsrc]), .hl-bp:not([data-hl-pic]):not([data-hl-wsrc])")) return null;
   const put: HTMLImageElement[] = [];
   doc.querySelectorAll<HTMLElement>("[data-hl-wsrc], source[data-hl-srcset], .hl-ph[data-cid]").forEach((el) => {
     const key = el.hasAttribute("data-cid") ? `cid:${el.getAttribute("data-cid")}` : (el.getAttribute("data-hl-wsrc") ?? el.getAttribute("data-hl-srcset") ?? "");
-    const came = arrivals.get(key);
+    // (the backend has answered for all of them: one that no answer came in for - tried a moment ago and failed, so it was not asked again - is a failed box now, as the frame written again would show it)
+    // (only the remote ones: the placeholder of a mail's own attachment - cid: - is not asked from the web, the backend's answer says nothing about it)
+    const came = arrivals.get(key) ?? (settled && !key.startsWith("cid:") ? !!dataOf(key) : undefined);
     if (came === undefined) return;
     const data = came ? dataOf(key) : undefined;
     if (el.tagName === "SOURCE") {
@@ -477,6 +479,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   const markArrival = (key: string, came: boolean) => arrivalsRef.current.set(key, came);
   const isFresh = (key: string) => arrivalsRef.current.get(key) === true;
   const frameSigRef = useRef(""); // what the frame was written for, apart from the pictures (see the layout effect that writes it)
+  const frameSettledRef = useRef(false); // the frame has the "all answered" form of the pictures (a failed one is a failed box, not a loading one)
   const [picProgress, setPicProgress] = useState(PIC_IDLE); // how many pictures are on their way (the bar over the message)
   useEffect(() => {
     setPicProgress(PIC_IDLE);
@@ -975,9 +978,13 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     // A picture that arrives goes into the document the frame has, in place; the frame is written again for any other change (another message, the pictures allowed, the language, ...)
     const sig = `${m.id}|${allowed ? 1 : 0}|${lang}|${csp}|${m.confidential ? 1 : 0}|${cleanIdOf(clean)}|${m.attachments.filter((a) => a.cid).map((a) => `${a.cid}:${a.size}`).join(",")}`;
     const live = frame.contentDocument;
-    if (sig === frameSigRef.current && arrivalsRef.current.size > 0 && live && hooked.current === live && live.documentElement?.hasAttribute("data-hm-doc") && live.body) {
-      const put = patchArrivals(live, arrivalsRef.current, (k) => (k.startsWith("cid:") ? loadedPics[k.slice(4)] : cachedImage(k)));
+    // The last answer of the backend (settledFor) changes the HTML too, when a picture stays that no answer came for: that is also done in place, or the whole mail would be written again
+    // (and, on the dark background, hidden and recoloured again) after its pictures are in.
+    const settledNow = settledFor === clean;
+    if (sig === frameSigRef.current && (arrivalsRef.current.size > 0 || (settledNow && !frameSettledRef.current)) && live && hooked.current === live && live.documentElement?.hasAttribute("data-hm-doc") && live.body) {
+      const put = patchArrivals(live, arrivalsRef.current, (k) => (k.startsWith("cid:") ? loadedPics[k.slice(4)] : cachedImage(k)), settledNow);
       if (put) {
+        frameSettledRef.current = settledNow;
         arrivalsRef.current.clear();
         put.forEach((i) => {
           i.addEventListener("load", measure);
@@ -987,6 +994,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
       }
     }
     frameSigRef.current = sig;
+    frameSettledRef.current = settledNow;
     arrivalsRef.current.clear(); // (the document written now has them: only these fade in)
     hooked.current = null;
     stopObserve.current();
